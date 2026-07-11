@@ -2,10 +2,29 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
+import Link from "next/link";
 import { apiGet, apiSend, apiUpload } from "@/lib/api";
 import AuthImage from "@/components/AuthImage";
-import { NETWORK_LABELS, type Profile, type SocialAccount, type SocialNetwork } from "@/lib/types";
+import Modal from "@/components/Modal";
+import {
+  IconArrowLeft,
+  IconPlus,
+  IconEdit,
+  IconTrash,
+  IconEye,
+  IconEyeOff,
+  IconCopy,
+  IconLink,
+  IconLock,
+  IconMedia,
+  IconChevronRight,
+} from "@/components/icons";
+import {
+  NETWORK_LABELS,
+  type Profile,
+  type SocialAccount,
+  type SocialNetwork,
+} from "@/lib/types";
 
 export default function ProfileDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -69,7 +88,7 @@ export default function ProfileDetailPage() {
         form,
       );
       setProfile(p);
-      setAvatarKey((k) => k + 1); // força recarregar a imagem
+      setAvatarKey((k) => k + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha no upload.");
     } finally {
@@ -90,20 +109,17 @@ export default function ProfileDetailPage() {
   if (loading) {
     return (
       <div className="mx-auto max-w-3xl">
-        <div className="card h-40 animate-pulse" />
+        <div className="card h-44 animate-pulse" />
       </div>
     );
   }
   if (!profile) {
     return (
       <div className="mx-auto max-w-3xl">
-        <p className="text-slate-300">{error || "Perfil não encontrado."}</p>
-        <button
-          onClick={() => router.replace("/dashboard/profiles")}
-          className="btn-ghost mt-4"
-        >
-          ← Voltar
-        </button>
+        <p className="text-zinc-300">{error || "Perfil não encontrado."}</p>
+        <Link href="/dashboard/profiles" className="btn-ghost mt-4">
+          <IconArrowLeft size={16} /> Voltar
+        </Link>
       </div>
     );
   }
@@ -113,31 +129,31 @@ export default function ProfileDetailPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <button
-        onClick={() => router.push("/dashboard/profiles")}
-        className="mb-5 text-sm text-slate-400 transition-colors hover:text-slate-200"
+      <Link
+        href="/dashboard/profiles"
+        className="inline-flex items-center gap-1.5 text-sm text-zinc-500 transition-colors hover:text-zinc-200"
       >
-        ← Perfis
-      </button>
+        <IconArrowLeft size={16} /> Perfis
+      </Link>
 
       {error && (
-        <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+        <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-4 py-3 text-sm text-red-300">
           {error}
         </div>
       )}
 
-      {/* Cabeçalho do perfil */}
-      <div className="card p-6">
+      {/* Cabeçalho */}
+      <div className="card mt-4 p-5">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
-          <div className="relative">
-            <div className="h-24 w-24 overflow-hidden rounded-2xl bg-white/5">
+          <div className="flex flex-col items-center">
+            <div className="h-24 w-24 overflow-hidden rounded-xl border border-white/10 bg-ink-800">
               <AuthImage
                 key={avatarKey}
                 src={profile.avatarPath ? `/api/profiles/${id}/avatar` : null}
                 alt={profile.name}
                 className="h-24 w-24 object-cover"
                 fallback={
-                  <div className="grid h-24 w-24 place-items-center bg-gradient-to-br from-brand-500/60 to-accent-500/60 text-3xl font-semibold text-white">
+                  <div className="grid h-24 w-24 place-items-center font-display text-3xl font-semibold text-zinc-600">
                     {profile.name.charAt(0).toUpperCase()}
                   </div>
                 }
@@ -146,9 +162,9 @@ export default function ProfileDetailPage() {
             <button
               onClick={() => fileRef.current?.click()}
               disabled={uploadingAvatar}
-              className="mt-2 w-24 text-center text-xs text-brand-400 hover:text-brand-300"
+              className="mt-2 font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-zinc-200"
             >
-              {uploadingAvatar ? "Enviando..." : "Trocar foto"}
+              {uploadingAvatar ? "enviando..." : "trocar foto"}
             </button>
             <input
               ref={fileRef}
@@ -165,7 +181,7 @@ export default function ProfileDetailPage() {
 
           <div className="flex-1 space-y-3">
             <div>
-              <label className="mb-1 block text-xs text-slate-400">Nome</label>
+              <label className="eyebrow mb-1.5 block">Nome</label>
               <input
                 className="input"
                 value={name}
@@ -173,11 +189,9 @@ export default function ProfileDetailPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-slate-400">
-                Observações
-              </label>
+              <label className="eyebrow mb-1.5 block">Observações</label>
               <textarea
-                className="input min-h-[70px] resize-y"
+                className="input min-h-[64px] resize-y"
                 placeholder="Notas sobre a personagem..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
@@ -191,31 +205,48 @@ export default function ProfileDetailPage() {
               >
                 {savingInfo ? "Salvando..." : "Salvar"}
               </button>
-              <button
-                onClick={removeProfile}
-                className="text-sm text-red-400 hover:text-red-300"
-              >
-                Excluir perfil
+              <button onClick={removeProfile} className="btn-danger">
+                <IconTrash size={15} /> Excluir
               </button>
             </div>
           </div>
         </div>
       </div>
 
+      {/* Atalho para mídia */}
+      <Link
+        href={`/dashboard/media?profile=${id}`}
+        className="card group mt-3 flex items-center gap-3 p-4 transition-all hover:border-white/20 hover:bg-white/[0.04]"
+      >
+        <div className="grid h-10 w-10 place-items-center rounded-lg border border-white/10 text-zinc-300">
+          <IconMedia size={18} />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-medium text-white">Biblioteca de mídia</p>
+          <p className="text-xs text-zinc-500">
+            Fotos e vídeos desta personagem
+          </p>
+        </div>
+        <IconChevronRight size={18} />
+      </Link>
+
       {/* Contas */}
       <div className="mt-6 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-white">
-          Contas ({profile.accounts.length})
+        <h2 className="font-display text-lg font-semibold">
+          Contas{" "}
+          <span className="font-mono text-sm text-zinc-600">
+            ({profile.accounts.length})
+          </span>
         </h2>
         <button onClick={() => setAddingAccount(true)} className="btn-ghost">
-          + Adicionar conta
+          <IconPlus size={16} /> Adicionar
         </button>
       </div>
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-3 space-y-2.5">
         {profile.accounts.length === 0 && (
-          <div className="card p-6 text-center text-sm text-slate-400">
-            Nenhuma conta cadastrada. Adicione as redes desta personagem.
+          <div className="rounded-xl border border-dashed border-white/12 p-6 text-center text-sm text-zinc-500">
+            Nenhuma conta cadastrada.
           </div>
         )}
         {profile.accounts.map((acc) => (
@@ -229,23 +260,27 @@ export default function ProfileDetailPage() {
         ))}
       </div>
 
-      <AnimatePresence>
-        {(addingAccount || editingAccount) && (
-          <AccountModal
-            profileId={id}
-            account={editingAccount}
-            onClose={() => {
-              setAddingAccount(false);
-              setEditingAccount(null);
-            }}
-            onSaved={(p) => {
-              setProfile(p);
-              setAddingAccount(false);
-              setEditingAccount(null);
-            }}
-          />
-        )}
-      </AnimatePresence>
+      <Modal
+        open={addingAccount || editingAccount !== null}
+        onClose={() => {
+          setAddingAccount(false);
+          setEditingAccount(null);
+        }}
+      >
+        <AccountForm
+          profileId={id}
+          account={editingAccount}
+          onClose={() => {
+            setAddingAccount(false);
+            setEditingAccount(null);
+          }}
+          onSaved={(p) => {
+            setProfile(p);
+            setAddingAccount(false);
+            setEditingAccount(null);
+          }}
+        />
+      </Modal>
     </div>
   );
 }
@@ -263,36 +298,30 @@ function AccountRow({
   onChanged: (p: Profile) => void;
 }) {
   const [password, setPassword] = useState<string | null>(null);
-  const [revealing, setRevealing] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  async function reveal() {
+  async function fetchPassword(): Promise<string> {
+    const data = await apiGet<{ password: string }>(
+      `/api/profiles/${profileId}/accounts/${account.id}?reveal=1`,
+    );
+    return data.password;
+  }
+
+  async function toggleReveal() {
     if (password) {
       setPassword(null);
       return;
     }
-    setRevealing(true);
     try {
-      const data = await apiGet<{ password: string }>(
-        `/api/profiles/${profileId}/accounts/${account.id}?reveal=1`,
-      );
-      setPassword(data.password);
+      setPassword(await fetchPassword());
     } catch {
-      setPassword("(erro ao revelar)");
-    } finally {
-      setRevealing(false);
+      setPassword("(erro)");
     }
   }
 
   async function copyPassword() {
     try {
-      let pwd = password;
-      if (!pwd || pwd.startsWith("(")) {
-        const data = await apiGet<{ password: string }>(
-          `/api/profiles/${profileId}/accounts/${account.id}?reveal=1`,
-        );
-        pwd = data.password;
-      }
+      const pwd = password && !password.startsWith("(") ? password : await fetchPassword();
       await navigator.clipboard.writeText(pwd);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
@@ -311,14 +340,12 @@ function AccountRow({
   }
 
   return (
-    <motion.div layout className="card p-4">
+    <div className="card p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="rounded-md bg-brand-500/15 px-2 py-0.5 text-xs font-medium text-brand-300">
-              {NETWORK_LABELS[account.network]}
-            </span>
-            <span className="truncate font-medium text-slate-100">
+            <span className="chip">{NETWORK_LABELS[account.network]}</span>
+            <span className="truncate text-sm font-medium text-zinc-100">
               {account.username}
             </span>
           </div>
@@ -327,59 +354,66 @@ function AccountRow({
               href={account.url}
               target="_blank"
               rel="noreferrer"
-              className="mt-1 block truncate text-xs text-slate-400 hover:text-brand-300"
+              className="mt-1.5 inline-flex items-center gap-1 truncate text-xs text-zinc-500 hover:text-zinc-300"
             >
-              {account.url}
+              <IconLink size={13} /> {account.url}
             </a>
           )}
           {account.login && (
-            <p className="mt-1 text-xs text-slate-500">
-              login: <span className="text-slate-300">{account.login}</span>
+            <p className="mt-1 font-mono text-[11px] text-zinc-600">
+              login: <span className="text-zinc-400">{account.login}</span>
             </p>
           )}
           {account.hasPassword && (
             <div className="mt-2 flex items-center gap-2">
-              <span className="font-mono text-sm text-slate-300">
+              <span className="font-mono text-sm text-zinc-300">
                 {password ?? "••••••••"}
               </span>
               <button
-                onClick={reveal}
-                className="text-xs text-brand-400 hover:text-brand-300"
+                onClick={toggleReveal}
+                className="text-zinc-500 hover:text-white"
+                aria-label="Mostrar/ocultar"
               >
-                {revealing ? "..." : password ? "ocultar" : "mostrar"}
+                {password ? <IconEyeOff size={15} /> : <IconEye size={15} />}
               </button>
               <button
                 onClick={copyPassword}
-                className="text-xs text-brand-400 hover:text-brand-300"
+                className="text-zinc-500 hover:text-white"
+                aria-label="Copiar"
               >
-                {copied ? "copiado!" : "copiar"}
+                <IconCopy size={15} />
               </button>
+              {copied && (
+                <span className="font-mono text-[10px] uppercase text-zinc-500">
+                  copiado
+                </span>
+              )}
             </div>
           )}
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 gap-1">
           <button
             onClick={onEdit}
-            className="text-slate-400 hover:text-slate-200"
+            className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 hover:bg-white/5 hover:text-white"
             aria-label="Editar"
           >
-            ✎
+            <IconEdit size={16} />
           </button>
           <button
             onClick={remove}
-            className="text-slate-500 hover:text-red-400"
+            className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 hover:bg-white/5 hover:text-red-400"
             aria-label="Remover"
           >
-            ✕
+            <IconTrash size={16} />
           </button>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }
 
-// ---- Modal de adicionar/editar conta ----
-function AccountModal({
+// ---- Formulário de conta ----
+function AccountForm({
   profileId,
   account,
   onClose,
@@ -406,7 +440,6 @@ function AccountModal({
     setErr(null);
     try {
       const payload: Record<string, unknown> = { network, username, url, login };
-      // Só envia senha se o campo foi preenchido (não apaga a existente à toa).
       if (password) payload.password = password;
       const path = account
         ? `/api/profiles/${profileId}/accounts/${account.id}`
@@ -425,118 +458,97 @@ function AccountModal({
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
-      onClick={() => !saving && onClose()}
-    >
-      <motion.form
-        initial={{ scale: 0.95, y: 10 }}
-        animate={{ scale: 1, y: 0 }}
-        exit={{ scale: 0.95, opacity: 0 }}
-        onClick={(e) => e.stopPropagation()}
-        onSubmit={save}
-        className="card w-full max-w-md p-6"
-      >
-        <h2 className="text-lg font-semibold text-white">
-          {account ? "Editar conta" : "Nova conta"}
-        </h2>
+    <form onSubmit={save}>
+      <p className="eyebrow">{account ? "editar" : "nova"}</p>
+      <h2 className="mt-1.5 font-display text-lg font-semibold">
+        {account ? "Editar conta" : "Nova conta"}
+      </h2>
 
-        {err && (
-          <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">
-            {err}
+      {err && (
+        <p className="mt-3 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-sm text-red-300">
+          {err}
+        </p>
+      )}
+
+      <div className="mt-4 grid gap-3">
+        <div>
+          <label className="eyebrow mb-1.5 block">Rede</label>
+          <select
+            className="input"
+            value={network}
+            onChange={(e) => setNetwork(e.target.value as SocialNetwork)}
+          >
+            {Object.entries(NETWORK_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="eyebrow mb-1.5 block">Usuário / identificador</label>
+          <input
+            className="input"
+            placeholder="@usuario ou número"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="eyebrow mb-1.5 block">Link do perfil (opcional)</label>
+          <input
+            className="input"
+            placeholder="https://..."
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="eyebrow mb-1.5 block">Login de acesso</label>
+          <input
+            className="input"
+            placeholder="e-mail ou usuário"
+            value={login}
+            onChange={(e) => setLogin(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="eyebrow mb-1.5 block">
+            Senha{" "}
+            {account?.hasPassword && (
+              <span className="text-zinc-600">(em branco = manter)</span>
+            )}
+          </label>
+          <input
+            type="text"
+            className="input font-mono"
+            placeholder={account?.hasPassword ? "••••••••" : "senha"}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <p className="mt-1.5 flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+            <IconLock size={12} /> criptografada aes-256 no servidor
           </p>
-        )}
-
-        <div className="mt-4 grid gap-3">
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">Rede</label>
-            <select
-              className="input"
-              value={network}
-              onChange={(e) => setNetwork(e.target.value as SocialNetwork)}
-            >
-              {Object.entries(NETWORK_LABELS).map(([value, label]) => (
-                <option key={value} value={value} className="bg-base-800">
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Usuário / identificador
-            </label>
-            <input
-              className="input"
-              placeholder="@usuario ou número"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Link do perfil (opcional)
-            </label>
-            <input
-              className="input"
-              placeholder="https://..."
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Login (e-mail/usuário de acesso)
-            </label>
-            <input
-              className="input"
-              value={login}
-              onChange={(e) => setLogin(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Senha{" "}
-              {account?.hasPassword && (
-                <span className="text-slate-500">
-                  (deixe em branco para manter)
-                </span>
-              )}
-            </label>
-            <input
-              type="text"
-              className="input font-mono"
-              placeholder={account?.hasPassword ? "••••••••" : "senha"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <p className="mt-1 text-xs text-slate-500">
-              🔒 Guardada com criptografia AES-256 no servidor.
-            </p>
-          </div>
         </div>
+      </div>
 
-        <div className="mt-5 flex gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="btn-ghost flex-1"
-            disabled={saving}
-          >
-            Cancelar
-          </button>
-          <button
-            type="submit"
-            className="btn-primary flex-1"
-            disabled={saving || !username.trim()}
-          >
-            {saving ? "Salvando..." : "Salvar"}
-          </button>
-        </div>
-      </motion.form>
-    </motion.div>
+      <div className="mt-5 flex gap-3">
+        <button
+          type="button"
+          onClick={onClose}
+          className="btn-ghost flex-1"
+          disabled={saving}
+        >
+          Cancelar
+        </button>
+        <button
+          type="submit"
+          className="btn-primary flex-1"
+          disabled={saving || !username.trim()}
+        >
+          {saving ? "Salvando..." : "Salvar"}
+        </button>
+      </div>
+    </form>
   );
 }

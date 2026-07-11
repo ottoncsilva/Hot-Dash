@@ -8,39 +8,34 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Paleta escura premium (base do design system Hot Dash)
-        base: {
-          950: "#08080c",
-          900: "#0d0d14",
-          800: "#14141f",
-          700: "#1d1d2b",
-          600: "#2a2a3d",
-        },
-        brand: {
-          400: "#a78bfa",
-          500: "#8b5cf6",
-          600: "#7c3aed",
-          700: "#6d28d9",
-        },
-        accent: {
-          400: "#f472b6",
-          500: "#ec4899",
+        // Paleta monocromática high-tech (preto → branco).
+        ink: {
+          950: "#070708",
+          900: "#0b0b0d",
+          850: "#101012",
+          800: "#161618",
+          750: "#1c1c1f",
+          700: "#242427",
+          600: "#2e2e32",
+          500: "#3a3a3f",
         },
       },
       fontFamily: {
-        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
+        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        display: ["var(--font-display)", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "monospace"],
       },
-      backdropBlur: {
-        xs: "2px",
+      letterSpacing: {
+        widest2: "0.2em",
       },
       keyframes: {
-        "gradient-shift": {
-          "0%, 100%": { backgroundPosition: "0% 50%" },
-          "50%": { backgroundPosition: "100% 50%" },
+        "fade-in": {
+          from: { opacity: "0", transform: "translateY(6px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
         },
       },
       animation: {
-        "gradient-shift": "gradient-shift 8s ease infinite",
+        "fade-in": "fade-in 0.4s ease both",
       },
     },
   },

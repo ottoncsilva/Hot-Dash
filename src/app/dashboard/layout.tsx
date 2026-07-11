@@ -1,15 +1,32 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
+import {
+  DEFAULT_MENU_ORDER,
+  NAV_ITEMS,
+  normalizeMenu,
+  type MenuEntry,
+  type NavKey,
+} from "@/lib/navItems";
+import {
+  IconDashboard,
+  IconProfiles,
+  IconMedia,
+  IconPayments,
+  IconSettings,
+  IconLogout,
+} from "@/components/icons";
 
-const NAV = [
-  { href: "/dashboard", label: "Início", icon: "◆" },
-  { href: "/dashboard/profiles", label: "Perfis", icon: "☺" },
-  { href: "/dashboard/metadata", label: "Limpar Metadados", icon: "✦" },
-];
+const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
+  dashboard: IconDashboard,
+  profiles: IconProfiles,
+  media: IconMedia,
+  payments: IconPayments,
+  settings: IconSettings,
+};
 
 export default function DashboardLayout({
   children,
@@ -19,20 +36,32 @@ export default function DashboardLayout({
   const { user, loading, signOut } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const [menu, setMenu] = useState<MenuEntry[]>(
+    normalizeMenu(DEFAULT_MENU_ORDER.map((key) => ({ key, hidden: false }))),
+  );
+
+  useEffect(() => {
+    if (!loading && !user) router.replace("/login");
+  }, [user, loading, router]);
+
+  useEffect(() => {
+    fetch("/api/settings/menu")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d?.menu && setMenu(normalizeMenu(d.menu)))
+      .catch(() => {});
+  }, []);
 
   const isActive = (href: string) =>
     href === "/dashboard"
       ? pathname === href
       : pathname === href || pathname.startsWith(href + "/");
 
-  useEffect(() => {
-    if (!loading && !user) router.replace("/login");
-  }, [user, loading, router]);
+  const visible = menu.filter((m) => !m.hidden);
 
   if (loading || !user) {
     return (
       <div className="grid min-h-dvh place-items-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-brand-500" />
+        <div className="h-8 w-8 animate-spin rounded-full border border-white/15 border-t-white" />
       </div>
     );
   }
@@ -40,44 +69,71 @@ export default function DashboardLayout({
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
       {/* Sidebar (desktop) */}
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-white/5 bg-base-900/50 p-5 md:flex">
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-white/[0.06] bg-ink-900/40 p-4 md:flex">
         <Brand />
-        <nav className="mt-8 flex flex-1 flex-col gap-1">
-          {NAV.map((item) => (
-            <NavLink key={item.href} {...item} active={isActive(item.href)} />
-          ))}
+        <nav className="mt-8 flex flex-1 flex-col gap-0.5">
+          {visible.map(({ key }) => {
+            const item = NAV_ITEMS[key];
+            const Icon = ICONS[key];
+            const active = isActive(item.href);
+            return (
+              <Link
+                key={key}
+                href={item.href}
+                className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all ${
+                  active
+                    ? "bg-white/[0.06] text-white"
+                    : "text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-200"
+                }`}
+              >
+                <Icon size={18} />
+                <span className="font-medium">{item.label}</span>
+                {active && (
+                  <span className="ml-auto h-1 w-1 rounded-full bg-white" />
+                )}
+              </Link>
+            );
+          })}
         </nav>
         <UserBox email={user.email} onSignOut={signOut} />
       </aside>
 
       {/* Topbar (mobile) */}
-      <header className="flex items-center justify-between border-b border-white/5 bg-base-900/70 px-4 py-3 backdrop-blur-xl safe-top md:hidden">
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/[0.06] bg-ink-950/80 px-4 py-3 backdrop-blur-xl safe-top md:hidden">
         <Brand compact />
         <button
           onClick={signOut}
-          className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300"
+          className="grid h-9 w-9 place-items-center rounded-lg border border-white/10 text-zinc-400"
+          aria-label="Sair"
         >
-          Sair
+          <IconLogout size={18} />
         </button>
       </header>
 
       {/* Conteúdo */}
-      <main className="flex-1 px-4 py-6 md:px-10 md:py-10">{children}</main>
+      <main className="flex-1 px-4 py-6 md:px-10 md:py-10">
+        <div className="animate-fade-in">{children}</div>
+      </main>
 
       {/* Nav inferior (mobile) */}
-      <nav className="sticky bottom-0 flex items-center justify-around border-t border-white/5 bg-base-900/80 backdrop-blur-xl safe-bottom md:hidden">
-        {NAV.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`flex flex-1 flex-col items-center gap-0.5 py-3 text-xs ${
-              isActive(item.href) ? "text-brand-400" : "text-slate-400"
-            }`}
-          >
-            <span className="text-lg">{item.icon}</span>
-            {item.label}
-          </Link>
-        ))}
+      <nav className="sticky bottom-0 z-30 grid grid-flow-col border-t border-white/[0.06] bg-ink-950/85 backdrop-blur-xl safe-bottom md:hidden">
+        {visible.map(({ key }) => {
+          const item = NAV_ITEMS[key];
+          const Icon = ICONS[key];
+          const active = isActive(item.href);
+          return (
+            <Link
+              key={key}
+              href={item.href}
+              className={`flex flex-col items-center gap-1 py-2.5 text-[10px] font-medium transition-colors ${
+                active ? "text-white" : "text-zinc-600"
+              }`}
+            >
+              <Icon size={20} />
+              {item.label}
+            </Link>
+          );
+        })}
       </nav>
     </div>
   );
@@ -86,41 +142,18 @@ export default function DashboardLayout({
 function Brand({ compact }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
-      <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-accent-500 shadow-lg shadow-brand-600/30">
-        <span className="font-bold text-white">H</span>
+      <div className="grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-white text-ink-950">
+        <span className="font-display text-base font-bold">H</span>
       </div>
       {!compact && (
-        <span className="text-lg font-semibold tracking-tight text-white">
-          Hot Dash
-        </span>
+        <div className="leading-none">
+          <span className="font-display text-[15px] font-semibold tracking-tight text-white">
+            HOT DASH
+          </span>
+          <p className="eyebrow mt-1">control panel</p>
+        </div>
       )}
     </div>
-  );
-}
-
-function NavLink({
-  href,
-  label,
-  icon,
-  active,
-}: {
-  href: string;
-  label: string;
-  icon: string;
-  active: boolean;
-}) {
-  return (
-    <Link
-      href={href}
-      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all ${
-        active
-          ? "bg-white/10 text-white"
-          : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
-      }`}
-    >
-      <span className="text-base">{icon}</span>
-      {label}
-    </Link>
   );
 }
 
@@ -132,12 +165,15 @@ function UserBox({
   onSignOut: () => void;
 }) {
   return (
-    <div className="mt-4 border-t border-white/5 pt-4">
-      <p className="truncate px-1 text-xs text-slate-500">{email}</p>
+    <div className="mt-4 border-t border-white/[0.06] pt-3">
+      <p className="truncate px-1 font-mono text-[11px] text-zinc-600">
+        {email}
+      </p>
       <button
         onClick={onSignOut}
-        className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-sm text-slate-300 transition-all hover:bg-white/5"
+        className="mt-2 flex w-full items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-zinc-400 transition-all hover:bg-white/5 hover:text-zinc-200"
       >
+        <IconLogout size={16} />
         Sair
       </button>
     </div>

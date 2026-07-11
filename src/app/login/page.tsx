@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 
 export default function LoginPage() {
@@ -32,28 +31,21 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="grid min-h-dvh place-items-center px-4 safe-top safe-bottom">
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        className="card w-full max-w-sm p-8"
-      >
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-brand-500 to-accent-500 shadow-lg shadow-brand-600/30">
-            <span className="text-2xl font-bold text-white">H</span>
+    <main className="grid min-h-dvh place-items-center px-5 safe-top safe-bottom">
+      <div className="w-full max-w-[360px] animate-fade-in">
+        <div className="mb-10 text-center">
+          <div className="mx-auto mb-5 grid h-12 w-12 place-items-center rounded-xl border border-white/15 bg-white text-ink-950">
+            <span className="font-display text-xl font-bold">H</span>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white">
-            Hot Dash
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-white">
+            HOT DASH
           </h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Acesse seu painel de gestão
-          </p>
+          <p className="eyebrow mt-2">control panel · acesso restrito</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="mb-1.5 block text-sm text-slate-300">Email</label>
+            <label className="eyebrow mb-2 block">E-mail</label>
             <input
               type="email"
               autoComplete="email"
@@ -65,7 +57,7 @@ export default function LoginPage() {
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm text-slate-300">Senha</label>
+            <label className="eyebrow mb-2 block">Senha</label>
             <input
               type="password"
               autoComplete="current-password"
@@ -78,7 +70,7 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">
+            <p className="rounded-lg border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-sm text-red-300">
               {error}
             </p>
           )}
@@ -86,12 +78,16 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="btn-primary w-full"
+            className="btn-primary w-full py-3"
           >
             {submitting ? "Entrando..." : "Entrar"}
           </button>
         </form>
-      </motion.div>
+
+        <p className="mt-8 text-center font-mono text-[11px] text-zinc-700">
+          hotdash · uso próprio
+        </p>
+      </div>
     </main>
   );
 }

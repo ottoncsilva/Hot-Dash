@@ -20,10 +20,15 @@ no seu servidor.
 
 | Módulo | Status | Descrição |
 |---|---|---|
-| **Limpar Metadados** | ✅ Ativo | Remove EXIF, GPS e rastros de IA de fotos (`exiftool`) e vídeos (`ffmpeg`). Nada é armazenado. |
-| **Gestão de Perfis** | ✅ Ativo | Personagens de IA com foto, redes sociais e credenciais (senhas criptografadas AES-256). |
-| Biblioteca de Mídia | 🔜 Em breve | Fotos e vídeos de IA vinculados ao perfil, com metadados limpos. |
-| Pagamentos | 🔜 Em breve | Dashboard de vendas com SyncPay e Stripe. |
+| **Dashboard** | ✅ Ativo | Visão geral: métricas e atalhos dos módulos. |
+| **Perfis** | ✅ Ativo | Personagens de IA com foto, redes sociais e credenciais (senhas criptografadas AES-256). |
+| **Biblioteca de Mídia** | ✅ Ativo | Fotos e vídeos vinculados ao perfil, metadados removidos no upload, download no celular. |
+| **Pagamentos** | ✅ Ativo | Dashboard de vendas/receita + cobrança PIX. Provedores SyncPay e Stripe (chaves nas Configurações). |
+| **Limpar Metadados** | ✅ Ativo | Remove EXIF, GPS e rastros de IA de fotos (`exiftool`) e vídeos (`ffmpeg`) avulsos. |
+| **Configurações** | ✅ Ativo | Ordem/visibilidade do menu e chaves dos provedores de pagamento. |
+
+Visual **monocromático high-tech** (preto/branco/cinza), tipografia Space
+Grotesk + mono, ícones de linha próprios.
 
 ## Arquitetura de segurança
 

@@ -13,45 +13,76 @@ body {
 }
 
 body {
-  @apply bg-base-950 text-slate-200 antialiased;
-  /* Fundo com brilho sutil no topo, estilo painel premium */
-  background-image:
-    radial-gradient(60rem 40rem at 50% -10%, rgba(124, 58, 237, 0.18), transparent 60%),
-    radial-gradient(50rem 40rem at 90% 10%, rgba(236, 72, 153, 0.1), transparent 55%);
-  background-attachment: fixed;
+  @apply bg-ink-950 text-zinc-300 antialiased;
+  font-feature-settings: "ss01", "cv01";
   min-height: 100dvh;
+  /* Textura sutil: grade fina monocromática, quase imperceptível. */
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+  background-size: 44px 44px;
+  background-attachment: fixed;
 }
 
-/* Superfície de vidro reutilizável (glassmorphism) */
 @layer components {
-  .glass {
-    @apply border border-white/10 bg-white/[0.04] backdrop-blur-xl;
+  /* Superfícies */
+  .surface {
+    @apply border border-white/[0.08] bg-white/[0.02];
   }
   .card {
-    @apply glass rounded-2xl shadow-2xl shadow-black/40;
+    @apply surface rounded-xl;
+  }
+
+  /* Botões */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5
+      text-sm font-medium transition-all duration-150 active:scale-[0.98]
+      disabled:pointer-events-none disabled:opacity-40;
   }
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r
-      from-brand-600 to-accent-500 px-5 py-3 font-medium text-white
-      transition-all hover:brightness-110 active:scale-[0.98]
-      disabled:cursor-not-allowed disabled:opacity-50;
+    @apply btn bg-white text-ink-950 hover:bg-zinc-200;
   }
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-white/10
-      bg-white/[0.03] px-5 py-3 font-medium text-slate-200 transition-all
-      hover:bg-white/[0.07] active:scale-[0.98];
+    @apply btn border border-white/10 bg-transparent text-zinc-200 hover:bg-white/5;
   }
+  .btn-danger {
+    @apply btn border border-red-500/30 bg-transparent text-red-300 hover:bg-red-500/10;
+  }
+
+  /* Campos */
   .input {
-    @apply w-full rounded-xl border border-white/10 bg-base-900/70 px-4 py-3
-      text-slate-100 placeholder:text-slate-500 outline-none transition-all
-      focus:border-brand-500/60 focus:ring-2 focus:ring-brand-500/20;
+    @apply w-full rounded-lg border border-white/10 bg-ink-900 px-3.5 py-2.5
+      text-sm text-zinc-100 placeholder:text-zinc-600 outline-none
+      transition-all focus:border-white/30 focus:bg-ink-850;
   }
+  select.input option {
+    @apply bg-ink-850 text-zinc-100;
+  }
+
+  /* Rótulo micro em mono (estilo técnico) */
+  .eyebrow {
+    @apply font-mono text-[11px] uppercase tracking-widest2 text-zinc-500;
+  }
+
+  /* Chip/tag */
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-md border border-white/10
+      bg-white/[0.03] px-2 py-0.5 font-mono text-[11px] uppercase tracking-wider
+      text-zinc-400;
+  }
+}
+
+/* Títulos usam a fonte display */
+h1,
+h2,
+h3 {
+  @apply font-display tracking-tight text-white;
 }
 
 /* Scrollbar discreta */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
 }
 ::-webkit-scrollbar-thumb {
   @apply rounded-full bg-white/10;
@@ -60,7 +91,7 @@ body {
   @apply bg-white/20;
 }
 
-/* Suporte a safe-area do iPhone (notch) quando instalado como app */
+/* Safe-area do iPhone quando instalado como app */
 .safe-top {
   padding-top: env(safe-area-inset-top);
 }

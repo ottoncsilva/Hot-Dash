@@ -1,0 +1,58 @@
+import { NextRequest, NextResponse } from "next/server";
+import { errorResponse, requireUser } from "@/lib/apiAuth";
+import { activeProvider } from "@/lib/payments";
+import { recordTransaction } from "@/lib/transactions";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function POST(req: NextRequest) {
+  try {
+    await requireUser(req);
+    const provider = activeProvider();
+    if (!provider) {
+      return NextResponse.json(
+        {
+          error:
+            "Nenhum provedor de pagamento configurado. Ative e informe a chave em Configurações.",
+        },
+        { status: 400 },
+      );
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return NextResponse.json(
+        { error: "Informe um valor válido." },
+        { status: 400 },
+      );
+    }
+    const amountCents = Math.round(amount * 100);
+
+    const result = await provider.createPixCharge({
+      amountCents,
+      description: body.description,
+      customer: body.customer,
+    });
+
+    const tx = recordTransaction({
+      provider: provider.key,
+      providerRef: result.providerRef,
+      profileId: body.profileId,
+      description: body.description,
+      customer: body.customer?.name,
+      amountCents,
+      method: "pix",
+      status: result.status,
+    });
+
+    return NextResponse.json({
+      transaction: tx,
+      pixCode: result.pixCode,
+      checkoutUrl: result.checkoutUrl,
+    });
+  } catch (err) {
+    return errorResponse(err);
+  }
+}

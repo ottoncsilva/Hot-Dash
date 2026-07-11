@@ -1,107 +1,141 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
-import { useAuth } from "@/context/AuthContext";
-
-type Module = {
-  href: string;
-  title: string;
-  desc: string;
-  icon: string;
-  status: "ativo" | "em breve";
-};
-
-const MODULES: Module[] = [
-  {
-    href: "/dashboard/metadata",
-    title: "Limpar Metadados",
-    desc: "Remova EXIF, GPS e rastros de IA de fotos e vídeos antes de publicar.",
-    icon: "✦",
-    status: "ativo",
-  },
-  {
-    href: "/dashboard/profiles",
-    title: "Gestão de Perfis",
-    desc: "Cadastro das personagens de IA, redes sociais e credenciais.",
-    icon: "☺",
-    status: "ativo",
-  },
-  {
-    href: "#",
-    title: "Biblioteca de Mídia",
-    desc: "Fotos e vídeos de IA, com metadados limpos, vinculados ao perfil.",
-    icon: "▤",
-    status: "em breve",
-  },
-  {
-    href: "#",
-    title: "Pagamentos",
-    desc: "Dashboard de vendas com SyncPay e Stripe.",
-    icon: "◈",
-    status: "em breve",
-  },
-];
+import { apiGet } from "@/lib/api";
+import type { Profile } from "@/lib/types";
+import {
+  IconProfiles,
+  IconMedia,
+  IconPayments,
+  IconSettings,
+  IconSparkle,
+  IconChevronRight,
+} from "@/components/icons";
 
 export default function DashboardHome() {
-  const { user } = useAuth();
-  const firstName = user?.email?.split("@")[0] ?? "";
+  const [profiles, setProfiles] = useState<Profile[] | null>(null);
+
+  useEffect(() => {
+    apiGet<{ profiles: Profile[] }>("/api/profiles")
+      .then((d) => setProfiles(d.profiles))
+      .catch(() => setProfiles([]));
+  }, []);
+
+  const profileCount = profiles?.length ?? null;
+  const accountCount =
+    profiles?.reduce((n, p) => n + p.accounts.length, 0) ?? null;
 
   return (
     <div className="mx-auto max-w-5xl">
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-      >
-        <p className="text-sm text-slate-400">Bem-vindo de volta</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight text-white">
-          Olá, <span className="capitalize">{firstName}</span> 👋
-        </h1>
-        <p className="mt-2 max-w-xl text-slate-400">
-          Seu painel de ferramentas. Escolha um módulo para começar — novos
-          serão adicionados conforme a necessidade.
-        </p>
-      </motion.div>
+      <p className="eyebrow">visão geral</p>
+      <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">
+        Dashboard
+      </h1>
+      <p className="mt-2 max-w-xl text-sm text-zinc-500">
+        Central de operações das suas personagens. Métricas e módulos em um só
+        lugar.
+      </p>
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {MODULES.map((m, i) => (
-          <ModuleCard key={m.title} module={m} index={i} />
-        ))}
+      {/* Métricas */}
+      <div className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Stat label="Perfis" value={profileCount} />
+        <Stat label="Contas" value={accountCount} />
+        <Stat label="Mídias" value={0} muted />
+        <Stat label="Receita (mês)" value="—" muted />
+      </div>
+
+      {/* Módulos */}
+      <p className="eyebrow mt-10">módulos</p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <ModuleLink
+          href="/dashboard/profiles"
+          icon={<IconProfiles size={22} />}
+          title="Perfis"
+          desc="Personagens, redes sociais e credenciais."
+        />
+        <ModuleLink
+          href="/dashboard/media"
+          icon={<IconMedia size={22} />}
+          title="Mídia"
+          desc="Fotos e vídeos vinculados ao perfil, sem metadados."
+        />
+        <ModuleLink
+          href="/dashboard/payments"
+          icon={<IconPayments size={22} />}
+          title="Pagamentos"
+          desc="Vendas e receita — SyncPay e Stripe."
+        />
+        <ModuleLink
+          href="/dashboard/metadata"
+          icon={<IconSparkle size={22} />}
+          title="Limpar Metadados"
+          desc="Remova EXIF, GPS e rastros de IA avulsos."
+        />
+        <ModuleLink
+          href="/dashboard/settings"
+          icon={<IconSettings size={22} />}
+          title="Configurações"
+          desc="Menu, pagamentos e preferências."
+        />
       </div>
     </div>
   );
 }
 
-function ModuleCard({ module, index }: { module: Module; index: number }) {
-  const isActive = module.status === "ativo";
-  const inner = (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay: 0.05 * index }}
-      className={`card group h-full p-5 transition-all ${
-        isActive ? "hover:border-brand-500/40 hover:bg-white/[0.06]" : "opacity-70"
-      }`}
-    >
-      <div className="flex items-start justify-between">
-        <div className="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-brand-500/80 to-accent-500/80 text-lg text-white">
-          {module.icon}
-        </div>
-        <span
-          className={`rounded-full px-2.5 py-1 text-xs ${
-            isActive
-              ? "bg-emerald-500/15 text-emerald-300"
-              : "bg-white/5 text-slate-400"
-          }`}
-        >
-          {module.status}
-        </span>
-      </div>
-      <h3 className="mt-4 text-lg font-medium text-white">{module.title}</h3>
-      <p className="mt-1.5 text-sm text-slate-400">{module.desc}</p>
-    </motion.div>
+function Stat({
+  label,
+  value,
+  muted,
+}: {
+  label: string;
+  value: number | string | null;
+  muted?: boolean;
+}) {
+  return (
+    <div className="card p-4">
+      <p className="eyebrow">{label}</p>
+      <p
+        className={`mt-2 font-display text-2xl font-semibold ${
+          muted ? "text-zinc-600" : "text-white"
+        }`}
+      >
+        {value === null ? (
+          <span className="inline-block h-6 w-10 animate-pulse rounded bg-white/5" />
+        ) : (
+          value
+        )}
+      </p>
+    </div>
   );
+}
 
-  return isActive ? <Link href={module.href}>{inner}</Link> : inner;
+function ModuleLink({
+  href,
+  icon,
+  title,
+  desc,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="card group flex items-center gap-4 p-4 transition-all hover:border-white/20 hover:bg-white/[0.04]"
+    >
+      <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/[0.03] text-zinc-300 transition-colors group-hover:text-white">
+        {icon}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="font-medium text-white">{title}</p>
+        <p className="truncate text-xs text-zinc-500">{desc}</p>
+      </div>
+      <span className="text-zinc-600 transition-transform group-hover:translate-x-0.5 group-hover:text-zinc-300">
+        <IconChevronRight size={18} />
+      </span>
+    </Link>
+  );
 }

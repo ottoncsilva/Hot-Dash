@@ -15,7 +15,7 @@ export default function Home() {
 
   return (
     <div className="grid min-h-dvh place-items-center">
-      <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-brand-500" />
+      <div className="h-8 w-8 animate-spin rounded-full border border-white/15 border-t-white" />
     </div>
   );
 }

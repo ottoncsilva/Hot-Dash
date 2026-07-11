@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import {
+  IconUpload,
+  IconDownload,
+  IconClose,
+  IconSparkle,
+} from "@/components/icons";
 
 type Status = "pendente" | "processando" | "pronto" | "erro";
 
@@ -41,10 +46,7 @@ export default function MetadataPage() {
     try {
       const body = new FormData();
       body.append("file", item.file);
-      const res = await fetch("/api/metadata/clean", {
-        method: "POST",
-        body,
-      });
+      const res = await fetch("/api/metadata/clean", { method: "POST", body });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Erro ${res.status}`);
@@ -82,7 +84,6 @@ export default function MetadataPage() {
 
   async function processAll() {
     setBusy(true);
-    // Processa em sequência para não sobrecarregar a VPS.
     for (const item of items) {
       if (item.status === "pendente" || item.status === "erro") {
         await processItem(item);
@@ -110,16 +111,15 @@ export default function MetadataPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-white">
-          Limpar Metadados
-        </h1>
-        <p className="mt-1.5 text-slate-400">
-          Remove EXIF, GPS, data, modelo de câmera e rastros de software (IA) de
-          fotos e vídeos. Os arquivos são processados na hora e{" "}
-          <strong className="text-slate-200">nada é armazenado</strong>.
-        </p>
-      </header>
+      <p className="eyebrow">ferramenta</p>
+      <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight">
+        Limpar Metadados
+      </h1>
+      <p className="mt-2 text-sm text-zinc-500">
+        Remove EXIF, GPS, data, câmera e rastros de software (IA) de fotos e
+        vídeos. Processado na hora —{" "}
+        <span className="text-zinc-300">nada é armazenado</span>.
+      </p>
 
       {/* Zona de upload */}
       <div
@@ -134,22 +134,22 @@ export default function MetadataPage() {
           addFiles(e.dataTransfer.files);
         }}
         onClick={() => inputRef.current?.click()}
-        className={`card flex cursor-pointer flex-col items-center justify-center gap-3 border-dashed p-10 text-center transition-all ${
+        className={`mt-6 flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border border-dashed p-10 text-center transition-all ${
           dragging
-            ? "border-brand-500/60 bg-brand-500/5"
-            : "hover:border-white/20"
+            ? "border-white/40 bg-white/[0.04]"
+            : "border-white/15 hover:border-white/25 hover:bg-white/[0.02]"
         }`}
       >
-        <div className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-brand-500/80 to-accent-500/80 text-2xl text-white">
-          ⤒
+        <div className="grid h-12 w-12 place-items-center rounded-lg border border-white/10 bg-white/[0.03] text-zinc-300">
+          <IconUpload size={22} />
         </div>
         <div>
           <p className="font-medium text-white">
-            Arraste arquivos aqui ou clique para escolher
+            Arraste arquivos ou clique para escolher
           </p>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 text-xs text-zinc-500">
             Fotos (JPG, PNG, WEBP, HEIC…) e vídeos (MP4, MOV, MKV…) · até{" "}
-            {MAX_MB} MB cada
+            {MAX_MB} MB
           </p>
         </div>
         <input
@@ -165,7 +165,6 @@ export default function MetadataPage() {
         />
       </div>
 
-      {/* Ações */}
       {items.length > 0 && (
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <button
@@ -173,92 +172,73 @@ export default function MetadataPage() {
             disabled={busy || pending === 0}
             className="btn-primary"
           >
-            {busy
-              ? "Processando..."
-              : `Limpar ${pending > 0 ? `(${pending})` : "tudo"}`}
+            <IconSparkle size={16} />
+            {busy ? "Processando..." : `Limpar ${pending > 0 ? `(${pending})` : ""}`}
           </button>
-          <button
-            onClick={clearAll}
-            disabled={busy}
-            className="btn-ghost"
-          >
+          <button onClick={clearAll} disabled={busy} className="btn-ghost">
             Limpar lista
           </button>
         </div>
       )}
 
-      {/* Lista de arquivos */}
-      <div className="mt-6 space-y-3">
-        <AnimatePresence initial={false}>
-          {items.map((item) => (
-            <motion.div
-              key={item.id}
-              layout
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, height: 0 }}
-              className="card flex items-center gap-4 p-4"
-            >
-              <StatusBadge status={item.status} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium text-slate-100">
-                  {item.file.name}
-                </p>
-                <p className="text-xs text-slate-500">
-                  {(item.file.size / 1024 / 1024).toFixed(1)} MB
-                  {item.status === "erro" && item.error && (
-                    <span className="text-red-400"> · {item.error}</span>
-                  )}
-                </p>
-              </div>
-
-              {item.status === "pronto" && item.resultUrl && (
-                <a
-                  href={item.resultUrl}
-                  download={item.resultName}
-                  className="btn-primary px-4 py-2 text-sm"
-                >
-                  Baixar
-                </a>
-              )}
-              {(item.status === "pendente" || item.status === "erro") && (
-                <button
-                  onClick={() => processItem(item)}
-                  disabled={busy}
-                  className="btn-ghost px-4 py-2 text-sm"
-                >
-                  {item.status === "erro" ? "Tentar de novo" : "Limpar"}
-                </button>
-              )}
-              <button
-                onClick={() => removeItem(item.id)}
-                disabled={busy && item.status === "processando"}
-                className="text-slate-500 transition-colors hover:text-slate-300"
-                aria-label="Remover"
+      <div className="mt-6 space-y-2.5">
+        {items.map((item) => (
+          <div key={item.id} className="card flex items-center gap-4 p-3.5">
+            <StatusDot status={item.status} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-zinc-100">
+                {item.file.name}
+              </p>
+              <p className="font-mono text-[11px] text-zinc-600">
+                {(item.file.size / 1024 / 1024).toFixed(1)} MB
+                {item.status === "erro" && item.error && (
+                  <span className="text-red-400"> · {item.error}</span>
+                )}
+              </p>
+            </div>
+            {item.status === "pronto" && item.resultUrl && (
+              <a
+                href={item.resultUrl}
+                download={item.resultName}
+                className="btn-primary px-3 py-1.5 text-xs"
               >
-                ✕
+                <IconDownload size={14} />
+                Baixar
+              </a>
+            )}
+            {(item.status === "pendente" || item.status === "erro") && (
+              <button
+                onClick={() => processItem(item)}
+                disabled={busy}
+                className="btn-ghost px-3 py-1.5 text-xs"
+              >
+                {item.status === "erro" ? "Tentar de novo" : "Limpar"}
               </button>
-            </motion.div>
-          ))}
-        </AnimatePresence>
+            )}
+            <button
+              onClick={() => removeItem(item.id)}
+              className="text-zinc-600 transition-colors hover:text-zinc-300"
+              aria-label="Remover"
+            >
+              <IconClose size={16} />
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-function StatusBadge({ status }: { status: Status }) {
-  const map: Record<Status, { label: string; className: string }> = {
-    pendente: { label: "●", className: "text-slate-500" },
-    processando: { label: "◐", className: "animate-spin text-brand-400" },
-    pronto: { label: "✓", className: "text-emerald-400" },
-    erro: { label: "!", className: "text-red-400" },
+function StatusDot({ status }: { status: Status }) {
+  const map: Record<Status, string> = {
+    pendente: "bg-zinc-600",
+    processando: "bg-white animate-pulse",
+    pronto: "bg-white",
+    erro: "bg-red-500",
   };
-  const { label, className } = map[status];
   return (
-    <span
-      className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white/5 text-lg ${className}`}
-    >
-      {label}
+    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/[0.02]">
+      <span className={`h-2 w-2 rounded-full ${map[status]}`} />
     </span>
   );
 }

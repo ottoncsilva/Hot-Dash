@@ -49,5 +49,41 @@ function migrate(d: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_accounts_profile ON accounts(profile_id);
+
+    CREATE TABLE IF NOT EXISTS media (
+      id          TEXT PRIMARY KEY,
+      profile_id  TEXT NOT NULL,
+      filename    TEXT NOT NULL,
+      path        TEXT NOT NULL,
+      kind        TEXT NOT NULL,
+      mime        TEXT,
+      size        INTEGER NOT NULL,
+      created_at  INTEGER NOT NULL,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_media_profile ON media(profile_id);
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS transactions (
+      id            TEXT PRIMARY KEY,
+      provider      TEXT NOT NULL,
+      provider_ref  TEXT,
+      profile_id    TEXT,
+      description   TEXT,
+      customer      TEXT,
+      amount_cents  INTEGER NOT NULL,
+      currency      TEXT NOT NULL DEFAULT 'BRL',
+      method        TEXT,
+      status        TEXT NOT NULL,
+      created_at    INTEGER NOT NULL,
+      updated_at    INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tx_created ON transactions(created_at);
   `);
 }

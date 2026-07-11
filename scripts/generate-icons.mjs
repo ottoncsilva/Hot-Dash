@@ -32,9 +32,9 @@ function chunk(type, data) {
   return Buffer.concat([len, typeBuf, data, crc]);
 }
 
-// Paleta do brand (roxo -> rosa)
-const A = { r: 0x7c, g: 0x3a, b: 0xed }; // brand-600
-const B = { r: 0xec, g: 0x48, b: 0x99 }; // accent-500
+// Paleta monocromática (grafite -> quase preto)
+const A = { r: 0x1c, g: 0x1c, b: 0x1f }; // ink-750
+const B = { r: 0x0b, g: 0x0b, b: 0x0d }; // ink-900
 const lerp = (a, b, t) => Math.round(a + (b - a) * t);
 
 function drawPng(size, padding = 0) {
@@ -62,9 +62,9 @@ function drawPng(size, padding = 0) {
 
       // Fora do círculo útil vira fundo escuro (bordas suaves em maskable)
       if (dist > R) {
-        r = 0x0d;
-        g = 0x0d;
-        b = 0x14;
+        r = 0x07;
+        g = 0x07;
+        b = 0x08;
       }
 
       // Estrela de 4 pontas (astroide) em branco

@@ -38,6 +38,17 @@ export type Profile = {
   updatedAt: number;
 };
 
+/** Item de mídia (foto ou vídeo) vinculado a um perfil. */
+export type MediaItem = {
+  id: string;
+  profileId: string;
+  filename: string;
+  kind: "image" | "video";
+  mime?: string;
+  size: number;
+  createdAt: number;
+};
+
 export const NETWORK_LABELS: Record<SocialNetwork, string> = {
   instagram: "Instagram",
   facebook: "Facebook",

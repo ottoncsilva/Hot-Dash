@@ -137,7 +137,7 @@ export default function MetadataPage() {
         className={`mt-6 flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border border-dashed p-10 text-center transition-all ${
           dragging
             ? "border-white/40 bg-white/[0.04]"
-            : "border-white/15 hover:border-white/25 hover:bg-white/[0.02]"
+            : "border-white/20 hover:border-white/25 hover:bg-white/[0.02]"
         }`}
       >
         <div className="grid h-12 w-12 place-items-center rounded-lg border border-white/10 bg-white/[0.03] text-zinc-300">

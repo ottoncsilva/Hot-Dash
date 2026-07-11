@@ -83,7 +83,7 @@ export default function ProfilesPage() {
           ))}
         </div>
       ) : profiles.length === 0 ? (
-        <div className="mt-6 flex flex-col items-center gap-4 rounded-xl border border-dashed border-white/12 p-12 text-center">
+        <div className="mt-6 flex flex-col items-center gap-4 rounded-xl border border-dashed border-white/10 p-12 text-center">
           <div className="grid h-12 w-12 place-items-center rounded-lg border border-white/10 text-zinc-400">
             <IconProfiles size={22} />
           </div>

@@ -245,7 +245,7 @@ export default function ProfileDetailPage() {
 
       <div className="mt-3 space-y-2.5">
         {profile.accounts.length === 0 && (
-          <div className="rounded-xl border border-dashed border-white/12 p-6 text-center text-sm text-zinc-500">
+          <div className="rounded-xl border border-dashed border-white/10 p-6 text-center text-sm text-zinc-500">
             Nenhuma conta cadastrada.
           </div>
         )}

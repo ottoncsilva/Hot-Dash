@@ -61,7 +61,7 @@ export default function DashboardLayout({
   if (loading || !user) {
     return (
       <div className="grid min-h-dvh place-items-center">
-        <div className="h-8 w-8 animate-spin rounded-full border border-white/15 border-t-white" />
+        <div className="h-8 w-8 animate-spin rounded-full border border-white/20 border-t-white" />
       </div>
     );
   }
@@ -116,7 +116,7 @@ export default function DashboardLayout({
       </main>
 
       {/* Nav inferior (mobile) */}
-      <nav className="sticky bottom-0 z-30 grid grid-flow-col border-t border-white/[0.06] bg-ink-950/85 backdrop-blur-xl safe-bottom md:hidden">
+      <nav className="sticky bottom-0 z-30 grid grid-flow-col border-t border-white/[0.06] bg-ink-950/90 backdrop-blur-xl safe-bottom md:hidden">
         {visible.map(({ key }) => {
           const item = NAV_ITEMS[key];
           const Icon = ICONS[key];

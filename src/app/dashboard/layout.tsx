@@ -142,17 +142,15 @@ export default function DashboardLayout({
 function Brand({ compact }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
-      <div className="grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-white text-ink-950">
-        <span className="font-display text-base font-bold">H</span>
-      </div>
-      {!compact && (
-        <div className="leading-none">
-          <span className="font-display text-[15px] font-semibold tracking-tight text-white">
-            HOT DASH
-          </span>
-          <p className="eyebrow mt-1">control panel</p>
-        </div>
-      )}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/logo.png"
+        alt="Hot Dash"
+        className={`rounded-lg border border-white/10 ${
+          compact ? "h-9 w-9" : "h-10 w-10"
+        }`}
+      />
+      {!compact && <p className="eyebrow">control panel</p>}
     </div>
   );
 }

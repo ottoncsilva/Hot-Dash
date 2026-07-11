@@ -34,12 +34,12 @@ export default function LoginPage() {
     <main className="grid min-h-dvh place-items-center px-5 safe-top safe-bottom">
       <div className="w-full max-w-[360px] animate-fade-in">
         <div className="mb-10 text-center">
-          <div className="mx-auto mb-5 grid h-12 w-12 place-items-center rounded-xl border border-white/15 bg-white text-ink-950">
-            <span className="font-display text-xl font-bold">H</span>
-          </div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight text-white">
-            HOT DASH
-          </h1>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo.png"
+            alt="Hot Dash"
+            className="mx-auto mb-5 h-20 w-20 rounded-2xl border border-white/10"
+          />
           <p className="eyebrow mt-2">control panel · acesso restrito</p>
         </div>
 

@@ -35,22 +35,20 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libimage-exiftool-perl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Usuário não-root
-RUN groupadd --system --gid 1001 nodejs \
-    && useradd --system --uid 1001 --gid nodejs nextjs
-
 # Copia o build standalone do Next.js
 COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 
-# Diretório de dados (mídia). Monte um VOLUME PERSISTENTE aqui no EasyPanel,
-# senão o conteúdo é perdido a cada deploy.
-RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data
+# Diretório de dados (banco SQLite + mídia). Monte um VOLUME PERSISTENTE aqui
+# no EasyPanel, senão o conteúdo é perdido a cada deploy.
+# O container roda como root para poder escrever no volume (que o EasyPanel
+# cria como root) e vincular a porta padrão — é um app de uso próprio na sua
+# própria VPS.
+RUN mkdir -p /app/data
 VOLUME ["/app/data"]
 ENV MEDIA_STORAGE_DIR=/app/data
 
-USER nextjs
 EXPOSE 3000
 
 CMD ["node", "server.js"]

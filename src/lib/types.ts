@@ -71,6 +71,7 @@ export type MediaItem = {
   editedFrom?: string;
   width?: number;
   height?: number;
+  publicToken?: string;
 };
 
 /** Proporções padrão reconhecidas pelo filtro de formato de imagem. */

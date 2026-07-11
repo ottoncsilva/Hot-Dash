@@ -119,3 +119,89 @@ export function updatePaymentSettings(patch: {
   setJson("payments", s);
   return getPaymentSettingsPublic();
 }
+
+// ---- Integração Google Sheets ----
+export type GoogleSheetsSettingsPublic = {
+  enabled: boolean;
+  hasCredentials: boolean;
+  clientEmail: string;
+  shareEmail: string;
+};
+
+type GoogleSheetsSettingsStored = {
+  enabled: boolean;
+  clientEmail?: string;
+  privateKeyEnc?: string;
+  shareEmail?: string;
+};
+
+function rawGoogleSheets(): GoogleSheetsSettingsStored {
+  return getJson<GoogleSheetsSettingsStored>("google_sheets", { enabled: false });
+}
+
+export function getGoogleSheetsSettingsPublic(): GoogleSheetsSettingsPublic {
+  const s = rawGoogleSheets();
+  return {
+    enabled: Boolean(s.enabled),
+    hasCredentials: Boolean(s.clientEmail && s.privateKeyEnc),
+    clientEmail: s.clientEmail || "",
+    shareEmail: s.shareEmail || "",
+  };
+}
+
+export function isGoogleSheetsEnabled(): boolean {
+  const s = rawGoogleSheets();
+  return Boolean(s.enabled && s.clientEmail && s.privateKeyEnc);
+}
+
+export function getGoogleSheetsShareEmail(): string | null {
+  return rawGoogleSheets().shareEmail || null;
+}
+
+/** Credenciais descriptografadas da conta de serviço (uso server-side apenas). */
+export function getGoogleSheetsCredentials(): {
+  clientEmail: string;
+  privateKey: string;
+} | null {
+  const s = rawGoogleSheets();
+  if (!s.clientEmail || !s.privateKeyEnc) return null;
+  try {
+    return { clientEmail: s.clientEmail, privateKey: decryptSecret(s.privateKeyEnc) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Aceita tanto o JSON completo baixado do Google Cloud Console (contendo
+ * client_email/private_key) quanto os dois campos já separados.
+ */
+export function updateGoogleSheetsSettings(patch: {
+  enabled?: boolean;
+  serviceAccountJson?: string;
+  shareEmail?: string;
+}): GoogleSheetsSettingsPublic {
+  const s = rawGoogleSheets();
+
+  if (patch.enabled !== undefined) s.enabled = patch.enabled;
+  if (patch.shareEmail !== undefined) s.shareEmail = patch.shareEmail.trim();
+
+  if (patch.serviceAccountJson !== undefined && patch.serviceAccountJson.trim()) {
+    let parsed: { client_email?: string; private_key?: string };
+    try {
+      parsed = JSON.parse(patch.serviceAccountJson);
+    } catch {
+      throw new Error("JSON da conta de serviço inválido.");
+    }
+    if (!parsed.client_email || !parsed.private_key) {
+      throw new Error(
+        "JSON precisa conter os campos client_email e private_key.",
+      );
+    }
+    s.clientEmail = parsed.client_email;
+    s.privateKeyEnc = encryptSecret(parsed.private_key);
+  }
+
+  setJson("google_sheets", s);
+  return getGoogleSheetsSettingsPublic();
+}

@@ -4,9 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiSend, apiUpload } from "@/lib/api";
 import AuthImage from "@/components/AuthImage";
 import SaveMediaButton from "@/components/SaveMediaButton";
+import CopyLinkButton from "@/components/CopyLinkButton";
 import MediaViewer from "@/components/MediaViewer";
 import Modal from "@/components/Modal";
 import TagDots from "@/components/TagDots";
+import ToggleChip from "@/components/ToggleChip";
 import { useConfirm } from "@/hooks/useConfirm";
 import {
   IconUpload,
@@ -152,6 +154,53 @@ export default function MediaPage() {
       clearSelection();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao excluir.");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  /**
+   * Salva todos os itens selecionados direto no dispositivo. No iPhone/iPad,
+   * abre a folha nativa de compartilhamento com todos os arquivos juntos —
+   * "Salvar N Imagens" vai direto para o app Fotos (não precisa baixar um
+   * .zip e extrair). Se o navegador não suportar compartilhar vários
+   * arquivos de uma vez, cai automaticamente para o download em .zip.
+   */
+  async function bulkSave() {
+    setError(null);
+    const ids = Array.from(selected);
+    const items = (media || []).filter((m) => ids.includes(m.id));
+    const nav = navigator as Navigator & {
+      canShare?: (data?: ShareData) => boolean;
+      share?: (data: ShareData) => Promise<void>;
+    };
+    if (!nav.share || !nav.canShare) {
+      await bulkDownload();
+      return;
+    }
+    setBulkBusy(true);
+    try {
+      const files = await Promise.all(
+        items.map(async (item) => {
+          const res = await fetch(`/api/media/${item.id}/file`);
+          const blob = await res.blob();
+          return new File([blob], item.filename, {
+            type: item.mime || blob.type || "application/octet-stream",
+          });
+        }),
+      );
+      if (!nav.canShare({ files })) {
+        setBulkBusy(false);
+        await bulkDownload();
+        return;
+      }
+      await nav.share({ files });
+    } catch (err) {
+      if ((err as Error)?.name !== "AbortError") {
+        setBulkBusy(false);
+        await bulkDownload();
+        return;
+      }
     } finally {
       setBulkBusy(false);
     }
@@ -445,32 +494,19 @@ export default function MediaPage() {
       {tags.length > 0 && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <span className="eyebrow">filtrar</span>
-          {tags.map((t) => {
-            const active = filterTagIds.has(t.id);
-            return (
-              <button
-                key={t.id}
-                onClick={() => toggleFilterTag(t.id)}
-                className={`chip transition-all ${
-                  active ? "border-white/40 bg-white/10 text-white" : ""
-                }`}
-              >
-                <span
-                  className="h-1.5 w-1.5 rounded-full"
-                  style={{ backgroundColor: t.color }}
-                />
-                {t.name}
-              </button>
-            );
-          })}
-          <button
-            onClick={() => setFilterNoTag((v) => !v)}
-            className={`chip transition-all ${
-              filterNoTag ? "border-white/40 bg-white/10 text-white" : ""
-            }`}
-          >
+          {tags.map((t) => (
+            <ToggleChip
+              key={t.id}
+              active={filterTagIds.has(t.id)}
+              color={t.color}
+              onClick={() => toggleFilterTag(t.id)}
+            >
+              {t.name}
+            </ToggleChip>
+          ))}
+          <ToggleChip active={filterNoTag} onClick={() => setFilterNoTag((v) => !v)}>
             sem etiqueta
-          </button>
+          </ToggleChip>
           {(filterTagIds.size > 0 || filterNoTag) && (
             <button
               onClick={() => {
@@ -583,6 +619,13 @@ export default function MediaPage() {
                 <IconTag size={14} /> Etiquetar
               </button>
             )}
+            <button
+              onClick={bulkSave}
+              disabled={bulkBusy}
+              className="btn-ghost px-3 py-1.5 text-xs"
+            >
+              <IconDownload size={14} /> Salvar no dispositivo
+            </button>
             <button
               onClick={bulkDownload}
               disabled={bulkBusy}
@@ -840,6 +883,12 @@ function MediaGrid({
 
             {!selecting && (
               <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-1 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
+                <CopyLinkButton
+                  mediaId={item.id}
+                  publicToken={item.publicToken}
+                  iconOnly
+                  className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white hover:bg-white/20"
+                />
                 <SaveMediaButton
                   url={`/api/media/${item.id}/file?download=1`}
                   filename={item.filename}

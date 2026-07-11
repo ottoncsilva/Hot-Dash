@@ -16,6 +16,13 @@ export function listTags(): Tag[] {
   return rows.map(toClient);
 }
 
+export function getTag(id: string): Tag | null {
+  const row = getDb().prepare("SELECT * FROM tags WHERE id = ?").get(id) as
+    | TagRow
+    | undefined;
+  return row ? toClient(row) : null;
+}
+
 export function createTag(name: string, color: string): Tag {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Informe o nome da etiqueta.");

@@ -3,9 +3,10 @@ import { extname } from "node:path";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { getProfile } from "@/lib/profiles";
 import { cleanMetadata, mediaKind } from "@/lib/metadata";
-import { insertMedia, listMedia, newMediaPath } from "@/lib/media";
+import { getOrCreatePublicToken, insertMedia, listMedia, newMediaPath } from "@/lib/media";
 import { saveFile } from "@/lib/storage";
 import { getImageDimensions } from "@/lib/imageDimensions";
+import { appendMediaRow } from "@/lib/googleSheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -103,6 +104,13 @@ export async function POST(
       width: dimensions?.width,
       height: dimensions?.height,
     });
+
+    const token = getOrCreatePublicToken(item.id);
+    if (token) {
+      const publicUrl = `${req.nextUrl.origin}/api/public/media/${token}`;
+      await appendMediaRow(params.id, { ...item, publicToken: token }, publicUrl);
+    }
+
     return NextResponse.json({ media: item }, { status: 201 });
   } catch (err) {
     return errorResponse(err);

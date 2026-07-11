@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import AuthImage from "@/components/AuthImage";
 import SaveMediaButton from "@/components/SaveMediaButton";
-import { IconArrowLeft, IconChevronRight, IconClose, IconTrash } from "@/components/icons";
+import PhotoEditor from "@/components/PhotoEditor";
+import { IconArrowLeft, IconChevronRight, IconClose, IconTrash, IconSparkle } from "@/components/icons";
 import type { MediaItem, Tag } from "@/lib/types";
 
 /**
@@ -20,6 +21,8 @@ export default function MediaViewer({
   onDelete,
   tags,
   onToggleTag,
+  profileId,
+  onEdited,
 }: {
   items: MediaItem[];
   index: number;
@@ -28,10 +31,13 @@ export default function MediaViewer({
   onDelete: (item: MediaItem) => void;
   tags?: Tag[];
   onToggleTag?: (item: MediaItem, tagId: string) => void;
+  profileId?: string;
+  onEdited?: (newItem: MediaItem) => void;
 }) {
   const item = items[index];
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [editing, setEditing] = useState(false);
   useEffect(() => setMounted(true), []);
 
   const goPrev = () => index > 0 && onIndexChange(index - 1);
@@ -85,13 +91,24 @@ export default function MediaViewer({
         <span className="font-mono text-xs text-zinc-500">
           {index + 1} / {items.length}
         </span>
-        <button
-          onClick={() => onDelete(item)}
-          className="grid h-9 w-9 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-red-400"
-          aria-label="Excluir"
-        >
-          <IconTrash size={18} />
-        </button>
+        <div className="flex items-center gap-1">
+          {item.kind === "image" && profileId && onEdited && (
+            <button
+              onClick={() => setEditing(true)}
+              className="grid h-9 w-9 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white"
+              aria-label="Editar foto"
+            >
+              <IconSparkle size={18} />
+            </button>
+          )}
+          <button
+            onClick={() => onDelete(item)}
+            className="grid h-9 w-9 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-red-400"
+            aria-label="Excluir"
+          >
+            <IconTrash size={18} />
+          </button>
+        </div>
       </div>
 
       {/* Mídia */}
@@ -176,6 +193,19 @@ export default function MediaViewer({
           no iphone/ipad: toque em salvar → escolha &quot;salvar imagem/vídeo&quot;
         </p>
       </div>
+
+      {editing && profileId && onEdited && (
+        <PhotoEditor
+          item={item}
+          profileId={profileId}
+          onClose={() => setEditing(false)}
+          onSaved={(newItem) => {
+            setEditing(false);
+            onEdited(newItem);
+            onClose();
+          }}
+        />
+      )}
     </div>,
     document.body,
   );

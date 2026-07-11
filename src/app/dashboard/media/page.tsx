@@ -470,6 +470,8 @@ export default function MediaPage() {
           onDelete={removeOne}
           tags={tags}
           onToggleTag={toggleTagOnItem}
+          profileId={profileId}
+          onEdited={(newItem) => setMedia((m) => [newItem, ...(m || [])])}
         />
       )}
 

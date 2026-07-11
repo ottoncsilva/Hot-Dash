@@ -15,6 +15,7 @@ import {
 import { NAV_ITEMS, normalizeMenu, type MenuEntry } from "@/lib/navItems";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import { TAG_COLORS, type Tag } from "@/lib/types";
+import { useConfirm } from "@/hooks/useConfirm";
 
 export default function SettingsPage() {
   return (
@@ -148,6 +149,7 @@ function TagSettings() {
   const [color, setColor] = useState<string>(TAG_COLORS[0]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { confirm, ConfirmDialog } = useConfirm();
 
   function load() {
     apiGet<{ tags: Tag[] }>("/api/tags")
@@ -176,7 +178,7 @@ function TagSettings() {
   }
 
   async function remove(id: string) {
-    if (!confirm("Excluir esta etiqueta? Ela será removida de todas as mídias.")) return;
+    if (!(await confirm("Excluir esta etiqueta? Ela será removida de todas as mídias."))) return;
     await apiSend(`/api/tags/${id}`, "DELETE");
     setTags((prev) => prev.filter((t) => t.id !== id));
   }
@@ -252,6 +254,8 @@ function TagSettings() {
           </button>
         </div>
       </form>
+
+      {ConfirmDialog}
     </section>
   );
 }

@@ -5,6 +5,7 @@ import { getProfile } from "@/lib/profiles";
 import { cleanMetadata, mediaKind } from "@/lib/metadata";
 import { insertMedia, listMedia, newMediaPath } from "@/lib/media";
 import { saveFile } from "@/lib/storage";
+import { getImageDimensions } from "@/lib/imageDimensions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,6 +89,8 @@ export async function POST(
     const editedFrom =
       typeof editedFromRaw === "string" && editedFromRaw ? editedFromRaw : undefined;
 
+    const dimensions = kind === "image" ? getImageDimensions(cleaned, ext) : null;
+
     const item = insertMedia({
       id,
       profileId: params.id,
@@ -97,6 +100,8 @@ export async function POST(
       mime: file.type || undefined,
       size: cleaned.length,
       editedFrom,
+      width: dimensions?.width,
+      height: dimensions?.height,
     });
     return NextResponse.json({ media: item }, { status: 201 });
   } catch (err) {

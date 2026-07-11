@@ -106,6 +106,8 @@ function migrate(d: Database.Database) {
 
   // Migrações incrementais (adiciona colunas que ainda não existem em bancos já criados).
   ensureColumn(d, "media", "edited_from", "TEXT");
+  ensureColumn(d, "media", "width", "INTEGER");
+  ensureColumn(d, "media", "height", "INTEGER");
 }
 
 /** Adiciona uma coluna à tabela se ela ainda não existir (migração idempotente). */

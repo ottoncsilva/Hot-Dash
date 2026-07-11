@@ -6,6 +6,7 @@ import Link from "next/link";
 import { apiGet, apiSend, apiUpload } from "@/lib/api";
 import AuthImage from "@/components/AuthImage";
 import Modal from "@/components/Modal";
+import { useConfirm } from "@/hooks/useConfirm";
 import {
   IconArrowLeft,
   IconPlus,
@@ -40,6 +41,7 @@ export default function ProfileDetailPage() {
   const [editingAccount, setEditingAccount] = useState<SocialAccount | null>(null);
   const [addingAccount, setAddingAccount] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const { confirm, ConfirmDialog } = useConfirm();
 
   async function load() {
     setLoading(true);
@@ -97,7 +99,13 @@ export default function ProfileDetailPage() {
   }
 
   async function removeProfile() {
-    if (!confirm("Excluir este perfil e todos os seus dados?")) return;
+    if (
+      !(await confirm({
+        message:
+          "Excluir este perfil e todos os seus dados (contas, senhas e mídia)? Isso remove tudo do servidor.",
+      }))
+    )
+      return;
     try {
       await apiSend(`/api/profiles/${id}`, "DELETE");
       router.replace("/dashboard/profiles");
@@ -256,9 +264,12 @@ export default function ProfileDetailPage() {
             account={acc}
             onEdit={() => setEditingAccount(acc)}
             onChanged={(p) => setProfile(p)}
+            confirm={confirm}
           />
         ))}
       </div>
+
+      {ConfirmDialog}
 
       <Modal
         open={addingAccount || editingAccount !== null}
@@ -291,11 +302,13 @@ function AccountRow({
   account,
   onEdit,
   onChanged,
+  confirm,
 }: {
   profileId: string;
   account: SocialAccount;
   onEdit: () => void;
   onChanged: (p: Profile) => void;
+  confirm: (opts: { message: string } | string) => Promise<boolean>;
 }) {
   const [password, setPassword] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -331,7 +344,7 @@ function AccountRow({
   }
 
   async function remove() {
-    if (!confirm("Remover esta conta?")) return;
+    if (!(await confirm("Remover esta conta? Ela será removida do servidor."))) return;
     const { profile } = await apiSend<{ profile: Profile }>(
       `/api/profiles/${profileId}/accounts/${account.id}`,
       "DELETE",

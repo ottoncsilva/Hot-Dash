@@ -6,7 +6,7 @@ import AuthImage from "@/components/AuthImage";
 import SaveMediaButton from "@/components/SaveMediaButton";
 import PhotoEditor from "@/components/PhotoEditor";
 import { IconArrowLeft, IconChevronRight, IconClose, IconTrash, IconSparkle } from "@/components/icons";
-import type { MediaItem, Tag } from "@/lib/types";
+import { exactRatioLabel, ratioBucket, type MediaItem, type Tag } from "@/lib/types";
 
 /**
  * Visualizador em janela popup (não tela cheia): centralizado, com fundo
@@ -103,10 +103,11 @@ export default function MediaViewer({
             {item.kind === "image" && profileId && onEdited && (
               <button
                 onClick={() => setEditing(true)}
-                className="grid h-9 w-9 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white"
+                className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-zinc-300 hover:bg-white/10 hover:text-white"
                 aria-label="Editar foto"
               >
-                <IconSparkle size={18} />
+                <IconSparkle size={16} />
+                Editar
               </button>
             )}
             <button
@@ -167,6 +168,30 @@ export default function MediaViewer({
         <div className="space-y-2 border-t border-white/[0.06] px-4 py-3">
           <p className="truncate text-center font-mono text-[11px] text-zinc-600">
             {item.filename}
+          </p>
+          <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-center font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+            {item.width && item.height && (
+              <>
+                <span>
+                  {item.width}×{item.height}
+                </span>
+                <span className="text-zinc-700">·</span>
+                <span>
+                  {(() => {
+                    const bucket = ratioBucket(item.width, item.height);
+                    return bucket !== "outra" ? bucket : exactRatioLabel(item.width, item.height);
+                  })()}
+                </span>
+                <span className="text-zinc-700">·</span>
+              </>
+            )}
+            <span>
+              {new Date(item.createdAt).toLocaleDateString("pt-BR", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+              })}
+            </span>
           </p>
           {tags && tags.length > 0 && onToggleTag && (
             <div className="flex flex-wrap justify-center gap-1.5">

@@ -54,15 +54,18 @@ export async function DELETE(
 ) {
   try {
     await requireUser(req);
-    const removed = await deleteProfile(params.id);
-    if (!removed) {
+    const profile = await getProfile(params.id);
+    if (!profile) {
       return NextResponse.json(
         { error: "Perfil não encontrado." },
         { status: 404 },
       );
     }
-    // Remove todos os arquivos do perfil (avatar + mídia) do disco da VPS.
-    await deleteDir(`profiles/${params.id}`).catch(() => {});
+    // Remove os arquivos do perfil (avatar + mídia) do disco da VPS primeiro:
+    // se falhar, o registro no banco é mantido (evita perder o rastro do que
+    // ainda precisa ser limpo).
+    await deleteDir(`profiles/${params.id}`);
+    await deleteProfile(params.id);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorResponse(err);

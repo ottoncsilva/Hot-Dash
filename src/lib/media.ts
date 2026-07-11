@@ -16,6 +16,8 @@ type MediaRow = {
   size: number;
   created_at: number;
   edited_from: string | null;
+  width: number | null;
+  height: number | null;
 };
 
 function toClient(r: MediaRow, tags: Tag[]): MediaItem {
@@ -29,6 +31,8 @@ function toClient(r: MediaRow, tags: Tag[]): MediaItem {
     createdAt: r.created_at,
     tags,
     editedFrom: r.edited_from || undefined,
+    width: r.width || undefined,
+    height: r.height || undefined,
   };
 }
 
@@ -49,12 +53,14 @@ export function insertMedia(input: {
   mime?: string;
   size: number;
   editedFrom?: string;
+  width?: number;
+  height?: number;
 }): MediaItem {
   const now = Date.now();
   getDb()
     .prepare(
-      `INSERT INTO media (id, profile_id, filename, path, kind, mime, size, created_at, edited_from)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO media (id, profile_id, filename, path, kind, mime, size, created_at, edited_from, width, height)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.id,
@@ -66,6 +72,8 @@ export function insertMedia(input: {
       input.size,
       now,
       input.editedFrom || null,
+      input.width || null,
+      input.height || null,
     );
   return toClient(
     {
@@ -78,6 +86,8 @@ export function insertMedia(input: {
       size: input.size,
       created_at: now,
       edited_from: input.editedFrom || null,
+      width: input.width || null,
+      height: input.height || null,
     },
     [],
   );
@@ -99,11 +109,16 @@ export function getMediaRow(id: string): MediaRow | null {
   return row || null;
 }
 
+/**
+ * Exclui a mídia: remove o arquivo do disco primeiro (falhas reais de I/O
+ * propagam o erro, sem fingir sucesso), e só então remove o registro do
+ * banco — garante que "excluído" signifique 100% removido do servidor.
+ */
 export async function deleteMedia(id: string): Promise<boolean> {
   const row = getMediaRow(id);
   if (!row) return false;
+  await deleteFile(row.path);
   getDb().prepare("DELETE FROM media WHERE id = ?").run(id);
-  await deleteFile(row.path).catch(() => {});
   return true;
 }
 

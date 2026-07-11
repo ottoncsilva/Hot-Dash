@@ -69,7 +69,46 @@ export type MediaItem = {
   createdAt: number;
   tags: Tag[];
   editedFrom?: string;
+  width?: number;
+  height?: number;
 };
+
+/** Proporções padrão reconhecidas pelo filtro de formato de imagem. */
+export const RATIO_BUCKETS = ["1:1", "3:4", "4:3", "9:16", "16:9", "3:2", "2:3"] as const;
+export type RatioBucket = (typeof RATIO_BUCKETS)[number] | "outra";
+
+/** Classifica width/height na proporção padrão mais próxima (tolerância ~4%). */
+export function ratioBucket(width?: number, height?: number): RatioBucket {
+  if (!width || !height) return "outra";
+  const targets: [RatioBucket, number][] = [
+    ["1:1", 1 / 1],
+    ["3:4", 3 / 4],
+    ["4:3", 4 / 3],
+    ["9:16", 9 / 16],
+    ["16:9", 16 / 9],
+    ["3:2", 3 / 2],
+    ["2:3", 2 / 3],
+  ];
+  const ratio = width / height;
+  let best: RatioBucket = "outra";
+  let bestDiff = Infinity;
+  for (const [label, target] of targets) {
+    const diff = Math.abs(ratio - target) / target;
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = label;
+    }
+  }
+  return bestDiff < 0.04 ? best : "outra";
+}
+
+/** Proporção exata simplificada (ex.: 1920x1080 -> "16:9"), via MDC. */
+export function exactRatioLabel(width?: number, height?: number): string | null {
+  if (!width || !height) return null;
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+  const d = gcd(width, height) || 1;
+  return `${width / d}:${height / d}`;
+}
 
 export const NETWORK_LABELS: Record<SocialNetwork, string> = {
   instagram: "Instagram",

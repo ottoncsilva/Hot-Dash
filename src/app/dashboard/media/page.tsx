@@ -7,6 +7,7 @@ import SaveMediaButton from "@/components/SaveMediaButton";
 import MediaViewer from "@/components/MediaViewer";
 import Modal from "@/components/Modal";
 import TagDots from "@/components/TagDots";
+import { useConfirm } from "@/hooks/useConfirm";
 import {
   IconUpload,
   IconTrash,
@@ -15,7 +16,7 @@ import {
   IconDownload,
   IconTag,
 } from "@/components/icons";
-import type { MediaItem, Profile, Tag } from "@/lib/types";
+import { RATIO_BUCKETS, ratioBucket, type MediaItem, type Profile, type RatioBucket, type Tag } from "@/lib/types";
 
 type SortKey = "date_desc" | "date_asc" | "size_desc" | "size_asc" | "tag_asc";
 
@@ -32,6 +33,7 @@ export default function MediaPage() {
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
   const [filterTagIds, setFilterTagIds] = useState<Set<string>>(new Set());
   const [filterNoTag, setFilterNoTag] = useState(false);
+  const [filterRatios, setFilterRatios] = useState<Set<RatioBucket>>(new Set());
   const [grouping, setGrouping] = useState(false);
   const [sortBy, setSortBy] = useState<SortKey>("date_desc");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -44,6 +46,7 @@ export default function MediaPage() {
     h: number;
   } | null>(null);
 
+  const { confirm, ConfirmDialog } = useConfirm();
   const selecting = selected.size > 0;
 
   // Carrega perfis e pré-seleciona pelo ?profile= da URL.
@@ -82,6 +85,7 @@ export default function MediaPage() {
     setSelected(new Set());
     setFilterTagIds(new Set());
     setFilterNoTag(false);
+    setFilterRatios(new Set());
     loadMedia();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId]);
@@ -112,7 +116,7 @@ export default function MediaPage() {
   }
 
   async function removeOne(item: MediaItem) {
-    if (!confirm("Excluir esta mídia?")) return;
+    if (!(await confirm("Excluir esta mídia? Ela será removida do servidor."))) return;
     await apiSend(`/api/media/${item.id}`, "DELETE");
     setMedia((m) => (m || []).filter((x) => x.id !== item.id));
     setViewerIndex(null);
@@ -134,7 +138,12 @@ export default function MediaPage() {
   }
 
   async function bulkDelete() {
-    if (!confirm(`Excluir ${selected.size} item(ns) selecionado(s)?`)) return;
+    if (
+      !(await confirm(
+        `Excluir ${selected.size} item(ns) selecionado(s)? Serão removidos do servidor.`,
+      ))
+    )
+      return;
     setBulkBusy(true);
     try {
       const ids = Array.from(selected);
@@ -178,12 +187,24 @@ export default function MediaPage() {
     }
   }
 
-  async function applyTagToSelected(tagId: string) {
+  /** "all" = todos os selecionados têm essa etiqueta, "none" = nenhum, "some" = mistura. */
+  function tagStateForSelection(tagId: string): "all" | "some" | "none" {
+    const items = (media || []).filter((m) => selected.has(m.id));
+    if (items.length === 0) return "none";
+    const withTag = items.filter((m) => m.tags.some((t) => t.id === tagId)).length;
+    if (withTag === 0) return "none";
+    if (withTag === items.length) return "all";
+    return "some";
+  }
+
+  async function toggleTagForSelection(tagId: string) {
+    const state = tagStateForSelection(tagId);
+    const action = state === "all" ? "remove" : "add";
     try {
       await apiSend("/api/media/tags", "POST", {
         ids: Array.from(selected),
         tagId,
-        action: "add",
+        action,
       });
       loadMedia();
     } catch (err) {
@@ -210,14 +231,28 @@ export default function MediaPage() {
     });
   }
 
+  function toggleFilterRatio(ratio: RatioBucket) {
+    setFilterRatios((prev) => {
+      const next = new Set(prev);
+      if (next.has(ratio)) next.delete(ratio);
+      else next.add(ratio);
+      return next;
+    });
+  }
+
   const filteredMedia = useMemo(() => {
     const list = media || [];
-    if (filterTagIds.size === 0 && !filterNoTag) return list;
     return list.filter((m) => {
-      if (filterNoTag && m.tags.length === 0) return true;
-      return m.tags.some((t) => filterTagIds.has(t.id));
+      const tagOk =
+        filterTagIds.size === 0 && !filterNoTag
+          ? true
+          : (filterNoTag && m.tags.length === 0) ||
+            m.tags.some((t) => filterTagIds.has(t.id));
+      const ratioOk =
+        filterRatios.size === 0 ? true : filterRatios.has(ratioBucket(m.width, m.height));
+      return tagOk && ratioOk;
     });
-  }, [media, filterTagIds, filterNoTag]);
+  }, [media, filterTagIds, filterNoTag, filterRatios]);
 
   const sortedMedia = useMemo(() => {
     const list = [...filteredMedia];
@@ -450,6 +485,52 @@ export default function MediaPage() {
         </div>
       )}
 
+      {/* Filtro por formato (proporção) da imagem */}
+      {media && media.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="eyebrow">formato</span>
+          {[...RATIO_BUCKETS, "outra" as const].map((r) => {
+            const active = filterRatios.has(r);
+            return (
+              <button
+                key={r}
+                onClick={() => toggleFilterRatio(r)}
+                className={`chip transition-all ${
+                  active ? "border-white/40 bg-white/10 text-white" : ""
+                }`}
+              >
+                <span
+                  className={`grid h-3.5 w-3.5 shrink-0 place-items-center rounded-sm border transition-all ${
+                    active ? "border-white bg-white text-black" : "border-white/40"
+                  }`}
+                >
+                  {active && (
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none">
+                      <path
+                        d="M5 13l4 4 10-10"
+                        stroke="currentColor"
+                        strokeWidth={4}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
+                </span>
+                {r}
+              </button>
+            );
+          })}
+          {filterRatios.size > 0 && (
+            <button
+              onClick={() => setFilterRatios(new Set())}
+              className="font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-white"
+            >
+              limpar
+            </button>
+          )}
+        </div>
+      )}
+
       {error && (
         <div className="mt-5 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-4 py-3 text-sm text-red-300">
           {error}
@@ -617,20 +698,46 @@ export default function MediaPage() {
         <h2 className="mt-1.5 font-display text-lg font-semibold">
           Etiquetar {selected.size} item(ns)
         </h2>
+        <p className="mt-1 text-xs text-zinc-500">
+          Marque para aplicar a todos os selecionados, desmarque para remover.
+        </p>
         <div className="mt-4 space-y-1.5">
-          {tags.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => applyTagToSelected(t.id)}
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-zinc-200 hover:bg-white/5"
-            >
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: t.color }}
-              />
-              {t.name}
-            </button>
-          ))}
+          {tags.map((t) => {
+            const state = tagStateForSelection(t.id);
+            return (
+              <button
+                key={t.id}
+                onClick={() => toggleTagForSelection(t.id)}
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-zinc-200 hover:bg-white/5"
+              >
+                <span
+                  className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border transition-all ${
+                    state === "none"
+                      ? "border-white/30 bg-transparent"
+                      : "border-white bg-white text-black"
+                  }`}
+                >
+                  {state === "all" && (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                      <path
+                        d="M5 13l4 4 10-10"
+                        stroke="currentColor"
+                        strokeWidth={3}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
+                  {state === "some" && <span className="h-0.5 w-2.5 rounded-full bg-black" />}
+                </span>
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: t.color }}
+                />
+                {t.name}
+              </button>
+            );
+          })}
         </div>
         <button
           onClick={() => setTagPickerOpen(false)}
@@ -639,6 +746,8 @@ export default function MediaPage() {
           Concluir
         </button>
       </Modal>
+
+      {ConfirmDialog}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
 import { createTag, listTags } from "@/lib/tags";
+import { onTagCreated } from "@/lib/googleSheets";
 import { TAG_COLORS } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       throw new ApiError(400, e instanceof Error ? e.message : "Falha ao criar.");
     }
+    await onTagCreated(tag);
     return NextResponse.json({ tag }, { status: 201 });
   } catch (err) {
     return errorResponse(err);

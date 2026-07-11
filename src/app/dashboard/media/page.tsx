@@ -159,6 +159,53 @@ export default function MediaPage() {
     }
   }
 
+  /**
+   * Salva todos os itens selecionados direto no dispositivo. No iPhone/iPad,
+   * abre a folha nativa de compartilhamento com todos os arquivos juntos —
+   * "Salvar N Imagens" vai direto para o app Fotos (não precisa baixar um
+   * .zip e extrair). Se o navegador não suportar compartilhar vários
+   * arquivos de uma vez, cai automaticamente para o download em .zip.
+   */
+  async function bulkSave() {
+    setError(null);
+    const ids = Array.from(selected);
+    const items = (media || []).filter((m) => ids.includes(m.id));
+    const nav = navigator as Navigator & {
+      canShare?: (data?: ShareData) => boolean;
+      share?: (data: ShareData) => Promise<void>;
+    };
+    if (!nav.share || !nav.canShare) {
+      await bulkDownload();
+      return;
+    }
+    setBulkBusy(true);
+    try {
+      const files = await Promise.all(
+        items.map(async (item) => {
+          const res = await fetch(`/api/media/${item.id}/file`);
+          const blob = await res.blob();
+          return new File([blob], item.filename, {
+            type: item.mime || blob.type || "application/octet-stream",
+          });
+        }),
+      );
+      if (!nav.canShare({ files })) {
+        setBulkBusy(false);
+        await bulkDownload();
+        return;
+      }
+      await nav.share({ files });
+    } catch (err) {
+      if ((err as Error)?.name !== "AbortError") {
+        setBulkBusy(false);
+        await bulkDownload();
+        return;
+      }
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   async function bulkDownload() {
     setBulkBusy(true);
     setError(null);
@@ -572,6 +619,13 @@ export default function MediaPage() {
                 <IconTag size={14} /> Etiquetar
               </button>
             )}
+            <button
+              onClick={bulkSave}
+              disabled={bulkBusy}
+              className="btn-ghost px-3 py-1.5 text-xs"
+            >
+              <IconDownload size={14} /> Salvar no dispositivo
+            </button>
             <button
               onClick={bulkDownload}
               disabled={bulkBusy}

@@ -110,6 +110,7 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "media", "height", "INTEGER");
   ensureColumn(d, "media", "public_token", "TEXT");
   ensureColumn(d, "profiles", "sheet_id", "TEXT");
+  ensureColumn(d, "profiles", "sheet_gid", "INTEGER");
   ensureColumn(d, "media", "sheet_row", "INTEGER");
 
   d.exec(

@@ -7,6 +7,10 @@
 # ---- Stage 1: dependências ----
 FROM node:22-slim AS deps
 WORKDIR /app
+# Ferramentas para compilar módulos nativos (fallback do better-sqlite3).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json* ./
 RUN npm ci
 
@@ -39,6 +43,12 @@ RUN groupadd --system --gid 1001 nodejs \
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Diretório de dados (mídia). Monte um VOLUME PERSISTENTE aqui no EasyPanel,
+# senão o conteúdo é perdido a cada deploy.
+RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data
+VOLUME ["/app/data"]
+ENV MEDIA_STORAGE_DIR=/app/data
 
 USER nextjs
 EXPOSE 3000

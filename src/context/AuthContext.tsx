@@ -8,18 +8,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signOut as fbSignOut,
-  type User,
-} from "firebase/auth";
-import { getFirebaseAuth, isFirebaseConfigured } from "@/lib/firebase";
+
+type User = { email: string };
 
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
-  configured: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
@@ -31,32 +25,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const auth = getFirebaseAuth();
-    if (!auth) {
-      setLoading(false);
-      return;
-    }
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-    });
-    return () => unsubscribe();
+    let active = true;
+    fetch("/api/auth/session")
+      .then((r) => r.json())
+      .then((data) => {
+        if (active) setUser(data.user ?? null);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
       loading,
-      configured: isFirebaseConfigured,
       async signIn(email, password) {
-        const auth = getFirebaseAuth();
-        if (!auth) throw new Error("Firebase não configurado.");
-        await signInWithEmailAndPassword(auth, email, password);
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Falha no login.");
+        setUser({ email: data.email });
       },
       async signOut() {
-        const auth = getFirebaseAuth();
-        if (!auth) return;
-        await fbSignOut(auth);
+        await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+        setUser(null);
       },
     }),
     [user, loading],

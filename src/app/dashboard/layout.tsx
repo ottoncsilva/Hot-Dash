@@ -7,6 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 
 const NAV = [
   { href: "/dashboard", label: "Início", icon: "◆" },
+  { href: "/dashboard/profiles", label: "Perfis", icon: "☺" },
   { href: "/dashboard/metadata", label: "Limpar Metadados", icon: "✦" },
 ];
 
@@ -18,6 +19,11 @@ export default function DashboardLayout({
   const { user, loading, signOut } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+
+  const isActive = (href: string) =>
+    href === "/dashboard"
+      ? pathname === href
+      : pathname === href || pathname.startsWith(href + "/");
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
@@ -38,7 +44,7 @@ export default function DashboardLayout({
         <Brand />
         <nav className="mt-8 flex flex-1 flex-col gap-1">
           {NAV.map((item) => (
-            <NavLink key={item.href} {...item} active={pathname === item.href} />
+            <NavLink key={item.href} {...item} active={isActive(item.href)} />
           ))}
         </nav>
         <UserBox email={user.email} onSignOut={signOut} />
@@ -65,7 +71,7 @@ export default function DashboardLayout({
             key={item.href}
             href={item.href}
             className={`flex flex-1 flex-col items-center gap-0.5 py-3 text-xs ${
-              pathname === item.href ? "text-brand-400" : "text-slate-400"
+              isActive(item.href) ? "text-brand-400" : "text-slate-400"
             }`}
           >
             <span className="text-lg">{item.icon}</span>

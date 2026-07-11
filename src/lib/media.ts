@@ -1,5 +1,5 @@
 import "server-only";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import { extname } from "node:path";
 import { getDb } from "./db";
 import { deleteFile } from "./storage";
@@ -18,6 +18,8 @@ type MediaRow = {
   edited_from: string | null;
   width: number | null;
   height: number | null;
+  public_token: string | null;
+  sheet_row: number | null;
 };
 
 function toClient(r: MediaRow, tags: Tag[]): MediaItem {
@@ -33,6 +35,7 @@ function toClient(r: MediaRow, tags: Tag[]): MediaItem {
     editedFrom: r.edited_from || undefined,
     width: r.width || undefined,
     height: r.height || undefined,
+    publicToken: r.public_token || undefined,
   };
 }
 
@@ -88,6 +91,8 @@ export function insertMedia(input: {
       edited_from: input.editedFrom || null,
       width: input.width || null,
       height: input.height || null,
+      public_token: null,
+      sheet_row: null,
     },
     [],
   );
@@ -120,6 +125,32 @@ export async function deleteMedia(id: string): Promise<boolean> {
   await deleteFile(row.path);
   getDb().prepare("DELETE FROM media WHERE id = ?").run(id);
   return true;
+}
+
+/**
+ * Retorna o token público da mídia, gerando um na primeira vez (link
+ * estável: chamadas seguintes devolvem o mesmo token). Usado para montar
+ * uma URL pública (sem login) consumível por Make/n8n.
+ */
+export function getOrCreatePublicToken(id: string): string | null {
+  const row = getMediaRow(id);
+  if (!row) return null;
+  if (row.public_token) return row.public_token;
+  const token = randomBytes(24).toString("base64url");
+  getDb().prepare("UPDATE media SET public_token = ? WHERE id = ?").run(token, id);
+  return token;
+}
+
+export function getMediaByPublicToken(token: string): MediaRow | null {
+  const row = getDb()
+    .prepare("SELECT * FROM media WHERE public_token = ?")
+    .get(token) as MediaRow | undefined;
+  return row || null;
+}
+
+/** Guarda em qual linha da planilha do Google Sheets esta mídia está. */
+export function setSheetRow(id: string, row: number | null): void {
+  getDb().prepare("UPDATE media SET sheet_row = ? WHERE id = ?").run(row, id);
 }
 
 export { extname };

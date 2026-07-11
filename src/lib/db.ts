@@ -108,6 +108,13 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "media", "edited_from", "TEXT");
   ensureColumn(d, "media", "width", "INTEGER");
   ensureColumn(d, "media", "height", "INTEGER");
+  ensureColumn(d, "media", "public_token", "TEXT");
+  ensureColumn(d, "profiles", "sheet_id", "TEXT");
+  ensureColumn(d, "media", "sheet_row", "INTEGER");
+
+  d.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_media_public_token ON media(public_token) WHERE public_token IS NOT NULL;`,
+  );
 }
 
 /** Adiciona uma coluna à tabela se ela ainda não existir (migração idempotente). */

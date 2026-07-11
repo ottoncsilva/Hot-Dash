@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import AuthImage from "@/components/AuthImage";
 import SaveMediaButton from "@/components/SaveMediaButton";
+import CopyLinkButton from "@/components/CopyLinkButton";
 import PhotoEditor from "@/components/PhotoEditor";
+import ToggleChip from "@/components/ToggleChip";
 import { IconArrowLeft, IconChevronRight, IconClose, IconTrash, IconSparkle } from "@/components/icons";
 import { exactRatioLabel, ratioBucket, type MediaItem, type Tag } from "@/lib/types";
 
@@ -198,30 +200,32 @@ export default function MediaViewer({
               {tags.map((t) => {
                 const active = item.tags.some((it) => it.id === t.id);
                 return (
-                  <button
+                  <ToggleChip
                     key={t.id}
+                    active={active}
+                    color={t.color}
                     onClick={() => onToggleTag(item, t.id)}
-                    className={`chip transition-all ${
-                      active ? "border-white/40 bg-white/10 text-white" : ""
-                    }`}
                   >
-                    <span
-                      className="h-1.5 w-1.5 rounded-full"
-                      style={{ backgroundColor: t.color }}
-                    />
                     {t.name}
-                  </button>
+                  </ToggleChip>
                 );
               })}
             </div>
           )}
-          <SaveMediaButton
-            url={`/api/media/${item.id}/file?download=1`}
-            filename={item.filename}
-            mime={item.mime}
-            label="Salvar no dispositivo"
-            className="btn-primary w-full"
-          />
+          <div className="flex gap-2">
+            <SaveMediaButton
+              url={`/api/media/${item.id}/file?download=1`}
+              filename={item.filename}
+              mime={item.mime}
+              label="Salvar no dispositivo"
+              className="btn-primary flex-1"
+            />
+            <CopyLinkButton
+              mediaId={item.id}
+              publicToken={item.publicToken}
+              className="btn-ghost px-4"
+            />
+          </div>
           <p className="text-center font-mono text-[10px] uppercase tracking-wider text-zinc-600">
             no iphone/ipad: toque em salvar → escolha &quot;salvar imagem/vídeo&quot;
           </p>

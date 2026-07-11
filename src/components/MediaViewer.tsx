@@ -81,6 +81,7 @@ export default function MediaViewer({
   }
 
   return createPortal(
+    <>
     <div
       className="fixed inset-0 z-[70] grid place-items-center bg-black/70 p-4 backdrop-blur-sm safe-top safe-bottom"
       onClick={onClose}
@@ -232,19 +233,26 @@ export default function MediaViewer({
         </div>
       </div>
 
-      {editing && profileId && onEdited && (
-        <PhotoEditor
-          item={item}
-          profileId={profileId}
-          onClose={() => setEditing(false)}
-          onSaved={(newItem) => {
-            setEditing(false);
-            onEdited(newItem);
-            onClose();
-          }}
-        />
-      )}
-    </div>,
+    </div>
+
+    {/* Renderizado FORA do backdrop com onClick={onClose}: como o PhotoEditor
+        é filho React deste componente, um clique dentro dele borbulharia pela
+        árvore do React até o backdrop e fecharia o visualizador — mesmo o
+        editor estando em outro portal. Mantê-lo como irmão do backdrop evita
+        isso. */}
+    {editing && profileId && onEdited && (
+      <PhotoEditor
+        item={item}
+        profileId={profileId}
+        onClose={() => setEditing(false)}
+        onSaved={(newItem) => {
+          setEditing(false);
+          onEdited(newItem);
+          onClose();
+        }}
+      />
+    )}
+    </>,
     document.body,
   );
 }

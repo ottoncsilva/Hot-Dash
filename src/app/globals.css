@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+body {
+  @apply bg-base-950 text-slate-200 antialiased;
+  /* Fundo com brilho sutil no topo, estilo painel premium */
+  background-image:
+    radial-gradient(60rem 40rem at 50% -10%, rgba(124, 58, 237, 0.18), transparent 60%),
+    radial-gradient(50rem 40rem at 90% 10%, rgba(236, 72, 153, 0.1), transparent 55%);
+  background-attachment: fixed;
+  min-height: 100dvh;
+}
+
+/* Superfície de vidro reutilizável (glassmorphism) */
+@layer components {
+  .glass {
+    @apply border border-white/10 bg-white/[0.04] backdrop-blur-xl;
+  }
+  .card {
+    @apply glass rounded-2xl shadow-2xl shadow-black/40;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r
+      from-brand-600 to-accent-500 px-5 py-3 font-medium text-white
+      transition-all hover:brightness-110 active:scale-[0.98]
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-white/10
+      bg-white/[0.03] px-5 py-3 font-medium text-slate-200 transition-all
+      hover:bg-white/[0.07] active:scale-[0.98];
+  }
+  .input {
+    @apply w-full rounded-xl border border-white/10 bg-base-900/70 px-4 py-3
+      text-slate-100 placeholder:text-slate-500 outline-none transition-all
+      focus:border-brand-500/60 focus:ring-2 focus:ring-brand-500/20;
+  }
+}
+
+/* Scrollbar discreta */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-white/10;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-white/20;
+}
+
+/* Suporte a safe-area do iPhone (notch) quando instalado como app */
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}

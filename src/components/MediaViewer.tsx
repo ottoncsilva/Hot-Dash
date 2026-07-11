@@ -9,9 +9,10 @@ import { IconArrowLeft, IconChevronRight, IconClose, IconTrash, IconSparkle } fr
 import type { MediaItem, Tag } from "@/lib/types";
 
 /**
- * Visualizador em tela cheia com navegação por deslizar (swipe) ou teclado.
- * Renderizado via portal em document.body para não ficar preso dentro de
- * ancestrais com transform/animação (containing block de position:fixed).
+ * Visualizador em janela popup (não tela cheia): centralizado, com fundo
+ * escurecido ao redor. Clicar fora da janela fecha. Navega por deslizar
+ * (swipe) ou teclado. Renderizado via portal em document.body para não
+ * ficar preso dentro de ancestrais com transform/animação.
  */
 export default function MediaViewer({
   items,
@@ -78,120 +79,128 @@ export default function MediaViewer({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[70] flex flex-col bg-black/95 backdrop-blur-sm">
-      {/* Topo */}
-      <div className="flex items-center justify-between px-4 py-3 safe-top">
-        <button
-          onClick={onClose}
-          className="grid h-9 w-9 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white"
-          aria-label="Fechar"
-        >
-          <IconClose size={20} />
-        </button>
-        <span className="font-mono text-xs text-zinc-500">
-          {index + 1} / {items.length}
-        </span>
-        <div className="flex items-center gap-1">
-          {item.kind === "image" && profileId && onEdited && (
+    <div
+      className="fixed inset-0 z-[70] grid place-items-center bg-black/70 p-4 backdrop-blur-sm safe-top safe-bottom"
+      onClick={onClose}
+    >
+      <div
+        className="card flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden bg-ink-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Topo */}
+        <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
+          <button
+            onClick={onClose}
+            className="grid h-9 w-9 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white"
+            aria-label="Fechar"
+          >
+            <IconClose size={20} />
+          </button>
+          <span className="font-mono text-xs text-zinc-500">
+            {index + 1} / {items.length}
+          </span>
+          <div className="flex items-center gap-1">
+            {item.kind === "image" && profileId && onEdited && (
+              <button
+                onClick={() => setEditing(true)}
+                className="grid h-9 w-9 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white"
+                aria-label="Editar foto"
+              >
+                <IconSparkle size={18} />
+              </button>
+            )}
             <button
-              onClick={() => setEditing(true)}
-              className="grid h-9 w-9 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white"
-              aria-label="Editar foto"
+              onClick={() => onDelete(item)}
+              className="grid h-9 w-9 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-red-400"
+              aria-label="Excluir"
             >
-              <IconSparkle size={18} />
+              <IconTrash size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Mídia */}
+        <div
+          className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black px-2 py-4"
+          onTouchStart={onTouchStart}
+          onTouchEnd={onTouchEnd}
+        >
+          {index > 0 && (
+            <button
+              onClick={goPrev}
+              className="absolute left-2 top-1/2 hidden -translate-y-1/2 rounded-full bg-white/5 p-2 text-zinc-300 hover:bg-white/20 hover:text-white sm:grid sm:place-items-center"
+              aria-label="Anterior"
+            >
+              <IconArrowLeft size={22} />
             </button>
           )}
-          <button
-            onClick={() => onDelete(item)}
-            className="grid h-9 w-9 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-red-400"
-            aria-label="Excluir"
-          >
-            <IconTrash size={18} />
-          </button>
+          {item.kind === "image" ? (
+            <AuthImage
+              key={item.id}
+              src={`/api/media/${item.id}/file`}
+              alt={item.filename}
+              className="max-h-[60vh] max-w-full object-contain"
+            />
+          ) : (
+            // eslint-disable-next-line jsx-a11y/media-has-caption
+            <video
+              key={item.id}
+              src={`/api/media/${item.id}/file`}
+              controls
+              playsInline
+              autoPlay
+              className="max-h-[60vh] max-w-full"
+            />
+          )}
+          {index < items.length - 1 && (
+            <button
+              onClick={goNext}
+              className="absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-full bg-white/5 p-2 text-zinc-300 hover:bg-white/20 hover:text-white sm:grid sm:place-items-center"
+              aria-label="Próxima"
+            >
+              <IconChevronRight size={22} />
+            </button>
+          )}
         </div>
-      </div>
 
-      {/* Mídia */}
-      <div
-        className="relative flex flex-1 items-center justify-center overflow-hidden px-2"
-        onTouchStart={onTouchStart}
-        onTouchEnd={onTouchEnd}
-      >
-        {index > 0 && (
-          <button
-            onClick={goPrev}
-            className="absolute left-2 top-1/2 hidden -translate-y-1/2 rounded-full bg-white/5 p-2 text-zinc-300 hover:bg-white/20 hover:text-white sm:grid sm:place-items-center"
-            aria-label="Anterior"
-          >
-            <IconArrowLeft size={22} />
-          </button>
-        )}
-        {item.kind === "image" ? (
-          <AuthImage
-            key={item.id}
-            src={`/api/media/${item.id}/file`}
-            alt={item.filename}
-            className="max-h-full max-w-full object-contain"
+        {/* Rodapé */}
+        <div className="space-y-2 border-t border-white/[0.06] px-4 py-3">
+          <p className="truncate text-center font-mono text-[11px] text-zinc-600">
+            {item.filename}
+          </p>
+          {tags && tags.length > 0 && onToggleTag && (
+            <div className="flex flex-wrap justify-center gap-1.5">
+              {tags.map((t) => {
+                const active = item.tags.some((it) => it.id === t.id);
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => onToggleTag(item, t.id)}
+                    className={`chip transition-all ${
+                      active ? "border-white/40 bg-white/10 text-white" : ""
+                    }`}
+                  >
+                    <span
+                      className="h-1.5 w-1.5 rounded-full"
+                      style={{ backgroundColor: t.color }}
+                    />
+                    {t.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <SaveMediaButton
+            url={`/api/media/${item.id}/file?download=1`}
+            filename={item.filename}
+            mime={item.mime}
+            label="Salvar no dispositivo"
+            className="btn-primary w-full"
           />
-        ) : (
-          // eslint-disable-next-line jsx-a11y/media-has-caption
-          <video
-            key={item.id}
-            src={`/api/media/${item.id}/file`}
-            controls
-            playsInline
-            autoPlay
-            className="max-h-full max-w-full"
-          />
-        )}
-        {index < items.length - 1 && (
-          <button
-            onClick={goNext}
-            className="absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-full bg-white/5 p-2 text-zinc-300 hover:bg-white/20 hover:text-white sm:grid sm:place-items-center"
-            aria-label="Próxima"
-          >
-            <IconChevronRight size={22} />
-          </button>
-        )}
-      </div>
-
-      {/* Rodapé */}
-      <div className="space-y-2 px-4 pb-4 safe-bottom">
-        <p className="truncate text-center font-mono text-[11px] text-zinc-600">
-          {item.filename}
-        </p>
-        {tags && tags.length > 0 && onToggleTag && (
-          <div className="flex flex-wrap justify-center gap-1.5">
-            {tags.map((t) => {
-              const active = item.tags.some((it) => it.id === t.id);
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => onToggleTag(item, t.id)}
-                  className={`chip transition-all ${
-                    active ? "border-white/40 bg-white/10 text-white" : ""
-                  }`}
-                >
-                  <span
-                    className="h-1.5 w-1.5 rounded-full"
-                    style={{ backgroundColor: t.color }}
-                  />
-                  {t.name}
-                </button>
-              );
-            })}
-          </div>
-        )}
-        <SaveMediaButton
-          url={`/api/media/${item.id}/file?download=1`}
-          filename={item.filename}
-          mime={item.mime}
-          label="Salvar no dispositivo"
-          className="btn-primary w-full"
-        />
-        <p className="text-center font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-          no iphone/ipad: toque em salvar → escolha &quot;salvar imagem/vídeo&quot;
-        </p>
+          <p className="text-center font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+            no iphone/ipad: toque em salvar → escolha &quot;salvar imagem/vídeo&quot;
+          </p>
+        </div>
       </div>
 
       {editing && profileId && onEdited && (

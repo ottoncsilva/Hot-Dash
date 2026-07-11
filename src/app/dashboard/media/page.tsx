@@ -17,6 +17,8 @@ import {
 } from "@/components/icons";
 import type { MediaItem, Profile, Tag } from "@/lib/types";
 
+type SortKey = "date_desc" | "date_asc" | "size_desc" | "size_asc" | "tag_asc";
+
 export default function MediaPage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profileId, setProfileId] = useState<string>("");
@@ -31,7 +33,16 @@ export default function MediaPage() {
   const [filterTagIds, setFilterTagIds] = useState<Set<string>>(new Set());
   const [filterNoTag, setFilterNoTag] = useState(false);
   const [grouping, setGrouping] = useState(false);
+  const [sortBy, setSortBy] = useState<SortKey>("date_desc");
   const fileRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const marqueeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const [marqueeRect, setMarqueeRect] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
 
   const selecting = selected.size > 0;
 
@@ -116,7 +127,7 @@ export default function MediaPage() {
     });
   }
   function selectAll() {
-    setSelected(new Set(filteredMedia.map((m) => m.id)));
+    setSelected(new Set(sortedMedia.map((m) => m.id)));
   }
   function clearSelection() {
     setSelected(new Set());
@@ -208,17 +219,114 @@ export default function MediaPage() {
     });
   }, [media, filterTagIds, filterNoTag]);
 
+  const sortedMedia = useMemo(() => {
+    const list = [...filteredMedia];
+    switch (sortBy) {
+      case "date_asc":
+        list.sort((a, b) => a.createdAt - b.createdAt);
+        break;
+      case "size_desc":
+        list.sort((a, b) => b.size - a.size);
+        break;
+      case "size_asc":
+        list.sort((a, b) => a.size - b.size);
+        break;
+      case "tag_asc":
+        list.sort((a, b) => {
+          const an = a.tags[0]?.name || "￿";
+          const bn = b.tags[0]?.name || "￿";
+          return an.localeCompare(bn) || b.createdAt - a.createdAt;
+        });
+        break;
+      default:
+        list.sort((a, b) => b.createdAt - a.createdAt);
+    }
+    return list;
+  }, [filteredMedia, sortBy]);
+
   const groups = useMemo(() => {
     if (!grouping) return null;
     const sections: { tag: Tag | null; items: MediaItem[] }[] = [];
     for (const tag of tags) {
-      const items = filteredMedia.filter((m) => m.tags.some((t) => t.id === tag.id));
+      const items = sortedMedia.filter((m) => m.tags.some((t) => t.id === tag.id));
       if (items.length > 0) sections.push({ tag, items });
     }
-    const untagged = filteredMedia.filter((m) => m.tags.length === 0);
+    const untagged = sortedMedia.filter((m) => m.tags.length === 0);
     if (untagged.length > 0) sections.push({ tag: null, items: untagged });
     return sections;
-  }, [grouping, tags, filteredMedia]);
+  }, [grouping, tags, sortedMedia]);
+
+  function onResultsMouseDown(e: React.MouseEvent<HTMLDivElement>) {
+    if (!(e.ctrlKey || e.metaKey) || e.button !== 0) return;
+    e.preventDefault();
+    const start = { x: e.clientX, y: e.clientY };
+    marqueeStartRef.current = start;
+    setMarqueeRect({ x: start.x, y: start.y, w: 0, h: 0 });
+
+    function onMove(ev: MouseEvent) {
+      const s = marqueeStartRef.current;
+      if (!s) return;
+      setMarqueeRect({
+        x: Math.min(s.x, ev.clientX),
+        y: Math.min(s.y, ev.clientY),
+        w: Math.abs(ev.clientX - s.x),
+        h: Math.abs(ev.clientY - s.y),
+      });
+    }
+    function onUp(ev: MouseEvent) {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      const s = marqueeStartRef.current;
+      marqueeStartRef.current = null;
+      setMarqueeRect(null);
+      if (!s) return;
+      const x1 = Math.min(s.x, ev.clientX);
+      const x2 = Math.max(s.x, ev.clientX);
+      const y1 = Math.min(s.y, ev.clientY);
+      const y2 = Math.max(s.y, ev.clientY);
+      const moved = x2 - x1 > 4 || y2 - y1 > 4;
+      if (moved && resultsRef.current) {
+        const nodes = resultsRef.current.querySelectorAll<HTMLElement>("[data-media-id]");
+        const ids: string[] = [];
+        nodes.forEach((node) => {
+          const r = node.getBoundingClientRect();
+          if (r.left < x2 && r.right > x1 && r.top < y2 && r.bottom > y1) {
+            ids.push(node.dataset.mediaId as string);
+          }
+        });
+        if (ids.length > 0) {
+          setSelected((prev) => {
+            const next = new Set(prev);
+            ids.forEach((id) => next.add(id));
+            return next;
+          });
+        }
+        // Evita que o "click" fantasma do mouseup abra o visualizador ou
+        // desmarque o item que ficou embaixo do cursor.
+        window.addEventListener(
+          "click",
+          (ce) => {
+            ce.stopPropagation();
+            ce.preventDefault();
+          },
+          { capture: true, once: true },
+        );
+      }
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
+  // Esc limpa a seleção (quando não há modal/visualizador aberto).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && !tagPickerOpen && viewerIndex === null) {
+        setSelected((prev) => (prev.size > 0 ? new Set() : prev));
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tagPickerOpen, viewerIndex]);
 
   return (
     <div className="mx-auto max-w-5xl pb-20">
@@ -270,16 +378,31 @@ export default function MediaPage() {
               </option>
             ))}
           </select>
-          {tags.length > 0 && (
-            <button
-              onClick={() => setGrouping((g) => !g)}
-              className={`ml-auto font-mono text-[11px] uppercase tracking-wider ${
-                grouping ? "text-white" : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
-              {grouping ? "◉ agrupado por etiqueta" : "○ agrupar por etiqueta"}
-            </button>
-          )}
+          <div className="ml-auto flex items-center gap-3">
+            {tags.length > 0 && (
+              <button
+                onClick={() => setGrouping((g) => !g)}
+                className={`font-mono text-[11px] uppercase tracking-wider ${
+                  grouping ? "text-white" : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                {grouping ? "◉ agrupado por etiqueta" : "○ agrupar por etiqueta"}
+              </button>
+            )}
+            {media && media.length > 0 && (
+              <select
+                className="input max-w-[180px] py-1.5 text-xs"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortKey)}
+              >
+                <option value="date_desc">Mais recentes</option>
+                <option value="date_asc">Mais antigas</option>
+                <option value="size_desc">Maior tamanho</option>
+                <option value="size_asc">Menor tamanho</option>
+                {tags.length > 0 && <option value="tag_asc">Etiqueta (A-Z)</option>}
+              </select>
+            )}
+          </div>
         </div>
       )}
 
@@ -411,7 +534,7 @@ export default function MediaPage() {
       ) : filteredMedia.length === 0 ? (
         <EmptyState text="Nenhuma mídia com esse filtro." />
       ) : groups ? (
-        <div className="mt-6 space-y-8">
+        <div ref={resultsRef} onMouseDown={onResultsMouseDown} className="mt-6 space-y-8">
           {groups.map((section) => (
             <div key={section.tag?.id || "sem-etiqueta"}>
               <div className="mb-3 flex items-center gap-2">
@@ -432,12 +555,12 @@ export default function MediaPage() {
               </div>
               <MediaGrid
                 items={section.items}
-                allItems={filteredMedia}
+                allItems={sortedMedia}
                 selected={selected}
                 selecting={selecting}
                 onToggleSelect={toggleSelect}
                 onOpen={(item) =>
-                  setViewerIndex(filteredMedia.findIndex((m) => m.id === item.id))
+                  setViewerIndex(sortedMedia.findIndex((m) => m.id === item.id))
                 }
                 onRemove={removeOne}
               />
@@ -445,25 +568,38 @@ export default function MediaPage() {
           ))}
         </div>
       ) : (
-        <div className="mt-6">
+        <div ref={resultsRef} onMouseDown={onResultsMouseDown} className="mt-6">
           <MediaGrid
-            items={filteredMedia}
-            allItems={filteredMedia}
+            items={sortedMedia}
+            allItems={sortedMedia}
             selected={selected}
             selecting={selecting}
             onToggleSelect={toggleSelect}
             onOpen={(item) =>
-              setViewerIndex(filteredMedia.findIndex((m) => m.id === item.id))
+              setViewerIndex(sortedMedia.findIndex((m) => m.id === item.id))
             }
             onRemove={removeOne}
           />
         </div>
       )}
 
+      {/* Retângulo de seleção (Ctrl + arrastar) */}
+      {marqueeRect && (
+        <div
+          className="pointer-events-none fixed z-40 border border-white/70 bg-white/10"
+          style={{
+            left: marqueeRect.x,
+            top: marqueeRect.y,
+            width: marqueeRect.w,
+            height: marqueeRect.h,
+          }}
+        />
+      )}
+
       {/* Visualizador em tela cheia */}
       {viewerIndex !== null && (
         <MediaViewer
-          items={filteredMedia}
+          items={sortedMedia}
           index={viewerIndex}
           onClose={() => setViewerIndex(null)}
           onIndexChange={setViewerIndex}
@@ -530,6 +666,7 @@ function MediaGrid({
         return (
           <div
             key={item.id}
+            data-media-id={item.id}
             className={`group relative aspect-square overflow-hidden rounded-xl border bg-ink-850 transition-all ${
               isSelected ? "border-white ring-2 ring-white/70" : "border-white/10"
             }`}

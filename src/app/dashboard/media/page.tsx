@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { apiGet, apiSend, apiUpload } from "@/lib/api";
 import AuthImage from "@/components/AuthImage";
 import Modal from "@/components/Modal";
+import SaveMediaButton from "@/components/SaveMediaButton";
 import {
   IconUpload,
-  IconDownload,
   IconTrash,
   IconPlay,
   IconMedia,
@@ -92,7 +92,8 @@ export default function MediaPage() {
             Mídia
           </h1>
           <p className="mt-2 text-sm text-zinc-500">
-            Fotos e vídeos com metadados já removidos, prontos para baixar.
+            Suba fotos e vídeos aqui: todos os metadados são removidos
+            automaticamente e o arquivo é salvo já vinculado ao perfil.
           </p>
         </div>
         {profiles.length > 0 && (
@@ -200,14 +201,14 @@ export default function MediaPage() {
                 </span>
               </span>
               <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-1 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
-                <a
-                  href={`/api/media/${item.id}/file?download=1`}
-                  download={item.filename}
+                <SaveMediaButton
+                  url={`/api/media/${item.id}/file?download=1`}
+                  filename={item.filename}
+                  mime={item.mime}
+                  iconOnly
+                  label="Salvar"
                   className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white hover:bg-white/20"
-                  aria-label="Baixar"
-                >
-                  <IconDownload size={16} />
-                </a>
+                />
                 <button
                   onClick={() => remove(item)}
                   className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white hover:bg-red-500/40"
@@ -253,15 +254,15 @@ export default function MediaPage() {
                 />
               )}
             </div>
-            <a
-              href={`/api/media/${preview.id}/file?download=1`}
-              download={preview.filename}
+            <SaveMediaButton
+              url={`/api/media/${preview.id}/file?download=1`}
+              filename={preview.filename}
+              mime={preview.mime}
+              label="Salvar no dispositivo"
               className="btn-primary mt-4 w-full"
-            >
-              <IconDownload size={16} /> Baixar para o dispositivo
-            </a>
+            />
             <p className="mt-2 text-center font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-              no iphone: toque em baixar → compartilhar → salvar
+              no iphone/ipad: toque em salvar → escolha &quot;salvar imagem/vídeo&quot;
             </p>
           </div>
         )}

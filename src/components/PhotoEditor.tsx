@@ -441,7 +441,10 @@ export default function PhotoEditor({
   if (!mounted) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex flex-col bg-black/95 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-[80] flex flex-col bg-black/95 backdrop-blur-sm"
+      onClick={(e) => e.stopPropagation()}
+    >
       {/* Topo */}
       <div className="flex items-center justify-between px-4 py-3 safe-top">
         <button

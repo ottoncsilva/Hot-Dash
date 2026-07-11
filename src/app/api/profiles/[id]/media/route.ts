@@ -84,6 +84,10 @@ export async function POST(
     const { id, relPath } = newMediaPath(params.id, ext);
     await saveFile(relPath, cleaned);
 
+    const editedFromRaw = form.get("editedFrom");
+    const editedFrom =
+      typeof editedFromRaw === "string" && editedFromRaw ? editedFromRaw : undefined;
+
     const item = insertMedia({
       id,
       profileId: params.id,
@@ -92,6 +96,7 @@ export async function POST(
       kind,
       mime: file.type || undefined,
       size: cleaned.length,
+      editedFrom,
     });
     return NextResponse.json({ media: item }, { status: 201 });
   } catch (err) {

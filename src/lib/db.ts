@@ -85,5 +85,40 @@ function migrate(d: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_tx_created ON transactions(created_at);
+
+    CREATE TABLE IF NOT EXISTS tags (
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL UNIQUE,
+      color      TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS media_tags (
+      media_id TEXT NOT NULL,
+      tag_id   TEXT NOT NULL,
+      PRIMARY KEY (media_id, tag_id),
+      FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE,
+      FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_media_tags_tag ON media_tags(tag_id);
   `);
+
+  // Migrações incrementais (adiciona colunas que ainda não existem em bancos já criados).
+  ensureColumn(d, "media", "edited_from", "TEXT");
+}
+
+/** Adiciona uma coluna à tabela se ela ainda não existir (migração idempotente). */
+function ensureColumn(
+  d: Database.Database,
+  table: string,
+  column: string,
+  decl: string,
+) {
+  const cols = d.prepare(`PRAGMA table_info(${table})`).all() as {
+    name: string;
+  }[];
+  if (!cols.some((c) => c.name === column)) {
+    d.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+  }
 }

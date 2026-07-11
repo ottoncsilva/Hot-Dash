@@ -38,6 +38,26 @@ export type Profile = {
   updatedAt: number;
 };
 
+/** Etiqueta para categorizar mídia. */
+export type Tag = {
+  id: string;
+  name: string;
+  color: string;
+  createdAt: number;
+};
+
+/** Paleta de cores disponível para etiquetas (pontinho de cor, UI segue monocromática). */
+export const TAG_COLORS = [
+  "#a1a1aa", // zinc
+  "#ef4444", // red
+  "#f97316", // orange
+  "#f59e0b", // amber
+  "#22c55e", // green
+  "#3b82f6", // blue
+  "#a855f7", // purple
+  "#ec4899", // pink
+] as const;
+
 /** Item de mídia (foto ou vídeo) vinculado a um perfil. */
 export type MediaItem = {
   id: string;
@@ -47,6 +67,8 @@ export type MediaItem = {
   mime?: string;
   size: number;
   createdAt: number;
+  tags: Tag[];
+  editedFrom?: string;
 };
 
 export const NETWORK_LABELS: Record<SocialNetwork, string> = {

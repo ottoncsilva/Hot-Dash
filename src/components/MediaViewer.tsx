@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import AuthImage from "@/components/AuthImage";
 import SaveMediaButton from "@/components/SaveMediaButton";
 import { IconArrowLeft, IconChevronRight, IconClose, IconTrash } from "@/components/icons";
-import type { MediaItem } from "@/lib/types";
+import type { MediaItem, Tag } from "@/lib/types";
 
 /**
  * Visualizador em tela cheia com navegação por deslizar (swipe) ou teclado.
@@ -18,12 +18,16 @@ export default function MediaViewer({
   onClose,
   onIndexChange,
   onDelete,
+  tags,
+  onToggleTag,
 }: {
   items: MediaItem[];
   index: number;
   onClose: () => void;
   onIndexChange: (i: number) => void;
   onDelete: (item: MediaItem) => void;
+  tags?: Tag[];
+  onToggleTag?: (item: MediaItem, tagId: string) => void;
 }) {
   const item = items[index];
   const touchStart = useRef<{ x: number; y: number } | null>(null);
@@ -139,6 +143,28 @@ export default function MediaViewer({
         <p className="truncate text-center font-mono text-[11px] text-zinc-600">
           {item.filename}
         </p>
+        {tags && tags.length > 0 && onToggleTag && (
+          <div className="flex flex-wrap justify-center gap-1.5">
+            {tags.map((t) => {
+              const active = item.tags.some((it) => it.id === t.id);
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => onToggleTag(item, t.id)}
+                  className={`chip transition-all ${
+                    active ? "border-white/40 bg-white/10 text-white" : ""
+                  }`}
+                >
+                  <span
+                    className="h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: t.color }}
+                  />
+                  {t.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
         <SaveMediaButton
           url={`/api/media/${item.id}/file?download=1`}
           filename={item.filename}

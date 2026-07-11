@@ -210,3 +210,38 @@ export const IconPlay = (p: IconProps) => (
     <path d="M7 5l12 7-12 7z" />
   </Base>
 );
+
+export const IconTag = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M3 11.5V4a1 1 0 0 1 1-1h7.5a1 1 0 0 1 .7.3l8 8a1 1 0 0 1 0 1.4l-7.5 7.5a1 1 0 0 1-1.4 0l-8-8a1 1 0 0 1-.3-.7z" />
+    <circle cx="7.5" cy="7.5" r="1.4" />
+  </Base>
+);
+
+export const IconType = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M5 6h14M12 6v13M9 19h6" />
+  </Base>
+);
+
+export const IconEmoji = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8.5 14s1.3 2 3.5 2 3.5-2 3.5-2" />
+    <path d="M8.7 9.8h.01M15.3 9.8h.01" />
+  </Base>
+);
+
+export const IconBlur = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2" />
+  </Base>
+);
+
+export const IconUndo = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M8 7 4 11l4 4" />
+    <path d="M4 11h11a5 5 0 0 1 0 10h-2" />
+  </Base>
+);

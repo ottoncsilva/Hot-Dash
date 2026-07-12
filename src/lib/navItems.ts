@@ -16,7 +16,7 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   media: { key: "media", label: "Mídia", href: "/dashboard/media" },
   payments: {
     key: "payments",
-    label: "Pagamentos",
+    label: "Financeiro",
     href: "/dashboard/payments",
   },
   settings: {

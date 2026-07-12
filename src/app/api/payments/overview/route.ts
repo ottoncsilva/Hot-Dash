@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
-import { getPaymentSettingsPublic } from "@/lib/settings";
+import { getFinanceSettings, getPaymentSettingsPublic } from "@/lib/settings";
 import { listTransactions, overview } from "@/lib/transactions";
 import { activeProvider } from "@/lib/payments";
 
@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     await requireUser(req);
+    const profileId = req.nextUrl.searchParams.get("profileId") || undefined;
 
     // Saldo do provedor (best-effort; não bloqueia o painel se falhar).
     let balanceCents: number | null = null;
@@ -21,9 +22,10 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       providers: getPaymentSettingsPublic(),
-      overview: overview(),
-      transactions: listTransactions(50),
+      overview: overview(profileId),
+      transactions: listTransactions(50, profileId),
       balanceCents,
+      finance: getFinanceSettings(),
     });
   } catch (err) {
     return errorResponse(err);

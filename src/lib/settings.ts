@@ -43,12 +43,12 @@ export function setMenu(menu: MenuEntry[]): MenuEntry[] {
 export type PaymentProviderKey = "syncpay" | "stripe";
 
 export type PaymentSettingsPublic = {
-  syncpay: { enabled: boolean; hasSecret: boolean };
+  syncpay: { enabled: boolean; hasSecret: boolean; clientId: string };
   stripe: { enabled: boolean; hasSecret: boolean; publishableKey: string };
 };
 
 type PaymentSettingsStored = {
-  syncpay: { enabled: boolean; apiKeyEnc?: string };
+  syncpay: { enabled: boolean; clientId?: string; clientSecretEnc?: string };
   stripe: { enabled: boolean; secretKeyEnc?: string; publishableKey?: string };
 };
 
@@ -65,7 +65,8 @@ export function getPaymentSettingsPublic(): PaymentSettingsPublic {
   return {
     syncpay: {
       enabled: Boolean(s.syncpay?.enabled),
-      hasSecret: Boolean(s.syncpay?.apiKeyEnc),
+      hasSecret: Boolean(s.syncpay?.clientId && s.syncpay?.clientSecretEnc),
+      clientId: s.syncpay?.clientId || "",
     },
     stripe: {
       enabled: Boolean(s.stripe?.enabled),
@@ -75,13 +76,12 @@ export function getPaymentSettingsPublic(): PaymentSettingsPublic {
   };
 }
 
-/** Segredo descriptografado de um provedor (uso server-side apenas). */
+/** Segredo descriptografado da Stripe (uso server-side apenas). */
 export function getProviderSecret(
-  provider: PaymentProviderKey,
+  provider: Extract<PaymentProviderKey, "stripe">,
 ): string | null {
   const s = rawPayments();
-  const enc =
-    provider === "syncpay" ? s.syncpay?.apiKeyEnc : s.stripe?.secretKeyEnc;
+  const enc = provider === "stripe" ? s.stripe?.secretKeyEnc : undefined;
   if (!enc) return null;
   try {
     return decryptSecret(enc);
@@ -90,8 +90,25 @@ export function getProviderSecret(
   }
 }
 
+/** Credenciais descriptografadas da SyncPay (uso server-side apenas). */
+export function getSyncPayCredentials(): {
+  clientId: string;
+  clientSecret: string;
+} | null {
+  const s = rawPayments();
+  if (!s.syncpay?.clientId || !s.syncpay?.clientSecretEnc) return null;
+  try {
+    return {
+      clientId: s.syncpay.clientId,
+      clientSecret: decryptSecret(s.syncpay.clientSecretEnc),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function updatePaymentSettings(patch: {
-  syncpay?: { enabled?: boolean; apiKey?: string };
+  syncpay?: { enabled?: boolean; clientId?: string; clientSecret?: string };
   stripe?: { enabled?: boolean; secretKey?: string; publishableKey?: string };
 }): PaymentSettingsPublic {
   const s = rawPayments();
@@ -99,9 +116,11 @@ export function updatePaymentSettings(patch: {
   if (patch.syncpay) {
     if (patch.syncpay.enabled !== undefined)
       s.syncpay.enabled = patch.syncpay.enabled;
-    if (patch.syncpay.apiKey !== undefined) {
-      s.syncpay.apiKeyEnc = patch.syncpay.apiKey
-        ? encryptSecret(patch.syncpay.apiKey)
+    if (patch.syncpay.clientId !== undefined)
+      s.syncpay.clientId = patch.syncpay.clientId.trim();
+    if (patch.syncpay.clientSecret !== undefined) {
+      s.syncpay.clientSecretEnc = patch.syncpay.clientSecret
+        ? encryptSecret(patch.syncpay.clientSecret)
         : undefined;
     }
   }
@@ -118,6 +137,36 @@ export function updatePaymentSettings(patch: {
   }
   setJson("payments", s);
   return getPaymentSettingsPublic();
+}
+
+// ---- Configuração financeira manual (sem integração de plataforma de anúncios) ----
+export type FinanceSettings = {
+  /** Gastos com anúncios informados manualmente, para o período em análise. */
+  adSpendCents: number;
+  /** Alíquota de imposto estimada (%), aplicada sobre o faturamento líquido. */
+  taxRatePercent: number;
+};
+
+export function getFinanceSettings(): FinanceSettings {
+  return getJson<FinanceSettings>("finance", { adSpendCents: 0, taxRatePercent: 0 });
+}
+
+export function updateFinanceSettings(
+  patch: Partial<FinanceSettings>,
+): FinanceSettings {
+  const cur = getFinanceSettings();
+  const next: FinanceSettings = {
+    adSpendCents:
+      patch.adSpendCents !== undefined
+        ? Math.max(0, Math.round(patch.adSpendCents))
+        : cur.adSpendCents,
+    taxRatePercent:
+      patch.taxRatePercent !== undefined
+        ? Math.max(0, patch.taxRatePercent)
+        : cur.taxRatePercent,
+  };
+  setJson("finance", next);
+  return next;
 }
 
 // ---- Integração Google Sheets ----

@@ -1,5 +1,5 @@
 import "server-only";
-import { getPaymentSettingsPublic, getProviderSecret } from "../settings";
+import { getPaymentSettingsPublic, getProviderSecret, getSyncPayCredentials } from "../settings";
 import { createSyncPay } from "./syncpay";
 import { createStripe } from "./stripe";
 import type { PaymentProvider } from "./types";
@@ -14,8 +14,8 @@ export function activeProvider(): PaymentProvider | null {
   const cfg = getPaymentSettingsPublic();
 
   if (cfg.syncpay.enabled && cfg.syncpay.hasSecret) {
-    const secret = getProviderSecret("syncpay");
-    if (secret) return createSyncPay(secret);
+    const creds = getSyncPayCredentials();
+    if (creds) return createSyncPay(creds);
   }
   if (cfg.stripe.enabled && cfg.stripe.hasSecret) {
     const secret = getProviderSecret("stripe");

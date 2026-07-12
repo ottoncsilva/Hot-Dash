@@ -14,26 +14,28 @@ import type { ChargeInput, ChargeResult, PaymentProvider } from "./types";
  *     src/app/api/webhooks/syncpay/route.ts.
  *
  * A base da API é configurável por SYNCPAY_BASE_URL caso a sua conta use
- * outro host. A credencial ("client_id:client_secret") vem das Configurações,
- * criptografada no banco.
+ * outro host. Client ID e Client Secret vêm das Configurações (campos
+ * dedicados), com o secret criptografado no banco.
  */
 const BASE = process.env.SYNCPAY_BASE_URL || "https://api.syncpayments.com.br";
 
-export function createSyncPay(clientSecret: string): PaymentProvider {
+export function createSyncPay(creds: {
+  clientId: string;
+  clientSecret: string;
+}): PaymentProvider {
   let cachedToken: { token: string; exp: number } | null = null;
 
   async function getToken(): Promise<string> {
     if (cachedToken && cachedToken.exp > Date.now() + 30_000) {
       return cachedToken.token;
     }
-    const [clientId, secret] = clientSecret.includes(":")
-      ? clientSecret.split(":")
-      : ["", clientSecret];
-
     const res = await fetch(`${BASE}/api/partner/v1/auth-token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ client_id: clientId, client_secret: secret }),
+      body: JSON.stringify({
+        client_id: creds.clientId,
+        client_secret: creds.clientSecret,
+      }),
     });
     if (!res.ok) {
       throw new Error(`SyncPay: autenticação falhou (${res.status}).`);

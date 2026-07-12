@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
         description: "Venda (webhook)",
         customer: (client.name as string) || undefined,
         amountCents: Math.round(amount * 100),
-        method: "pix",
+        method: (data.payment_method as string) || "pix",
         status: normalizeStatus(status),
       });
     }

@@ -52,27 +52,27 @@ export default function DashboardHome() {
         <Stat label="Contas" value={accountCount} />
         <Stat
           label="Vendas hoje"
-          value={ov ? brl(ov.todayPaidCents) : null}
-          muted={ov ? ov.todayPaidCents === 0 : undefined}
+          value={ov ? brl(ov.today.paidCents) : null}
+          muted={ov ? ov.today.paidCents === 0 : undefined}
         />
         <Stat
           label="Receita (mês)"
-          value={ov ? brl(ov.monthPaidCents) : null}
-          muted={ov ? ov.monthPaidCents === 0 : undefined}
+          value={ov ? brl(ov.month.paidCents) : null}
+          muted={ov ? ov.month.paidCents === 0 : undefined}
         />
       </div>
 
       {/* Faixa de destaque: venda do dia / pendências */}
-      {ov && (ov.todayCount > 0 || ov.pendingCount > 0) && (
+      {ov && (ov.today.paidCount > 0 || ov.total.pendingCount > 0) && (
         <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-sm">
-          {ov.todayCount > 0 && (
+          {ov.today.paidCount > 0 && (
             <span className="text-zinc-300">
-              🎉 <strong>{ov.todayCount}</strong> venda(s) paga(s) hoje
+              🎉 <strong>{ov.today.paidCount}</strong> venda(s) paga(s) hoje
             </span>
           )}
-          {ov.pendingCount > 0 && (
+          {ov.total.pendingCount > 0 && (
             <span className="text-zinc-500">
-              {ov.pendingCount} cobrança(s) pendente(s) · {brl(ov.pendingCents)}
+              {ov.total.pendingCount} cobrança(s) pendente(s) · {brl(ov.total.pendingCents)}
             </span>
           )}
           <Link href="/dashboard/payments" className="ml-auto text-zinc-400 hover:text-white">

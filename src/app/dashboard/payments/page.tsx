@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { apiGet, apiSend } from "@/lib/api";
 import Modal from "@/components/Modal";
 import { IconPlus, IconSettings, IconPayments, IconCopy } from "@/components/icons";
 import type { PaymentSettingsPublic } from "@/lib/settings";
-import type { Transaction, Overview } from "@/lib/transactions";
+import type { Transaction, Overview, PeriodStats } from "@/lib/transactions";
+import type { Profile } from "@/lib/types";
 
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", {
@@ -14,12 +15,31 @@ function brl(cents: number) {
     currency: "BRL",
   });
 }
+function pct(ratio: number) {
+  return `${(ratio * 100).toFixed(1)}%`;
+}
 
 const STATUS_LABEL: Record<string, string> = {
   paid: "pago",
   pending: "pendente",
   failed: "falhou",
   refunded: "estornado",
+  chargeback: "chargeback",
+};
+
+const PERIODS = [
+  { key: "today", label: "Hoje" },
+  { key: "week", label: "Últimos 7 dias" },
+  { key: "month", label: "Este mês" },
+  { key: "total", label: "Total" },
+] as const;
+type PeriodKey = (typeof PERIODS)[number]["key"];
+
+const METHOD_COLORS: Record<string, string> = {
+  Pix: "#3b82f6",
+  Cartão: "#38bdf8",
+  Boleto: "#f59e0b",
+  Outros: "#ef4444",
 };
 
 type Data = {
@@ -27,26 +47,43 @@ type Data = {
   overview: Overview;
   transactions: Transaction[];
   balanceCents: number | null;
+  finance: { adSpendCents: number; taxRatePercent: number };
 };
+
+function timeAgo(ms: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (s < 5) return "agora mesmo";
+  if (s < 60) return `há ${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `há ${m} minuto${m > 1 ? "s" : ""}`;
+  const h = Math.floor(m / 60);
+  return `há ${h} hora${h > 1 ? "s" : ""}`;
+}
 
 export default function PaymentsPage() {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [charging, setCharging] = useState(false);
   const [newSale, setNewSale] = useState<{ amountCents: number; customer?: string } | null>(null);
-  const seenRef = useRef<{ count: number; last: number | null } | null>(null);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [profileId, setProfileId] = useState<string>("");
+  const [period, setPeriod] = useState<PeriodKey>("month");
+  const [lastFetch, setLastFetch] = useState<number | null>(null);
+  const [, setTick] = useState(0);
+  const seenRef = useRef<number | null>(null);
 
   async function load(silent = false) {
     try {
-      const d = await apiGet<Data>("/api/payments/overview");
-      // Detecta nova venda paga desde a última leitura (alerta).
-      const prev = seenRef.current;
-      if (prev && (d.overview.paidCount > prev.count)) {
+      const qs = profileId ? `?profileId=${profileId}` : "";
+      const d = await apiGet<Data>(`/api/payments/overview${qs}`);
+      const totalPaid = d.overview.total.paidCount;
+      if (seenRef.current !== null && totalPaid > seenRef.current) {
         const newest = d.transactions.find((t) => t.status === "paid");
         if (newest) setNewSale({ amountCents: newest.amountCents, customer: newest.customer });
       }
-      seenRef.current = { count: d.overview.paidCount, last: d.overview.lastSaleAt };
+      seenRef.current = totalPaid;
       setData(d);
+      setLastFetch(Date.now());
       if (!silent) setError(null);
     } catch (e) {
       if (!silent) setError(e instanceof Error ? e.message : "Falha.");
@@ -54,27 +91,52 @@ export default function PaymentsPage() {
   }
 
   useEffect(() => {
+    apiGet<{ profiles: Profile[] }>("/api/profiles")
+      .then((d) => setProfiles(d.profiles))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     load();
-    // Poll para alertar novas vendas (o webhook confirma o pagamento no banco).
     const t = setInterval(() => load(true), 20000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileId]);
+
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 5000);
+    return () => clearInterval(t);
   }, []);
 
-  const anyProvider =
-    data?.providers.syncpay.enabled || data?.providers.stripe.enabled;
-  const ov = data?.overview;
+  const anyProvider = data?.providers.syncpay.enabled || data?.providers.stripe.enabled;
+  const stats: PeriodStats | undefined = data?.overview[period];
+  const finance = data?.finance;
+
+  const derived = useMemo(() => {
+    if (!stats || !finance) return null;
+    const faturamento = stats.paidCents;
+    const gastos = finance.adSpendCents;
+    const lucro = faturamento - gastos;
+    const roas = gastos > 0 ? faturamento / gastos : null;
+    const roi = gastos > 0 ? lucro / gastos : null;
+    const margem = faturamento > 0 ? lucro / faturamento : null;
+    const imposto = Math.round((faturamento * finance.taxRatePercent) / 100);
+    const base = stats.paidCents + stats.refundedCents + stats.chargebackCents;
+    const reembolsoPct = base > 0 ? stats.refundedCents / base : 0;
+    const chargebackPct = base > 0 ? stats.chargebackCents / base : 0;
+    return { faturamento, gastos, lucro, roas, roi, margem, imposto, reembolsoPct, chargebackPct };
+  }, [stats, finance]);
+
+  const donutTotal = stats?.methodBreakdown.reduce((n, m) => n + m.count, 0) || 0;
 
   return (
     <div className="mx-auto max-w-5xl">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="eyebrow">financeiro</p>
-          <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight">
-            Financeiro
-          </h1>
+          <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight">Dashboard</h1>
           <p className="mt-2 text-sm text-zinc-500">
-            Resumo de vendas e receita — atualiza sozinho quando entra uma venda.
+            Resumo de vendas e receita das suas personagens.
           </p>
         </div>
         <button
@@ -87,7 +149,6 @@ export default function PaymentsPage() {
         </button>
       </div>
 
-      {/* Alerta de nova venda */}
       {newSale && (
         <div className="mt-5 flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/[0.08] px-4 py-3">
           <p className="text-sm text-emerald-200">
@@ -109,66 +170,46 @@ export default function PaymentsPage() {
         </div>
       )}
 
-      {/* Venda do dia — destaque */}
-      <div className="mt-6 grid gap-3 lg:grid-cols-3">
-        <div className="card p-5 lg:col-span-1">
-          <p className="eyebrow">vendas de hoje</p>
-          <p className="mt-2 font-display text-3xl font-semibold text-white">
-            {ov ? brl(ov.todayPaidCents) : <Skel />}
-          </p>
-          <p className="mt-1 text-xs text-zinc-500">
-            {ov ? `${ov.todayCount} venda(s) paga(s) hoje` : "—"}
-          </p>
+      {/* Resumo: filtros + atualizar */}
+      <div className="mt-6 card p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="font-display text-base font-semibold text-white">Resumo</p>
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
+              {lastFetch ? `atualizado ${timeAgo(lastFetch)}` : "carregando..."}
+            </span>
+            <button onClick={() => load()} className="btn-primary px-3 py-1.5 text-xs">
+              Atualizar
+            </button>
+          </div>
         </div>
-        <div className="card p-5 lg:col-span-2">
-          <p className="eyebrow">receita (últimos 14 dias)</p>
-          <div className="mt-3">{ov ? <MiniChart series={ov.dailySeries} /> : <Skel wide />}</div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="eyebrow mb-1.5 block">Período</label>
+            <select
+              className="input"
+              value={period}
+              onChange={(e) => setPeriod(e.target.value as PeriodKey)}
+            >
+              {PERIODS.map((p) => (
+                <option key={p.key} value={p.key}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="eyebrow mb-1.5 block">Perfil</label>
+            <select className="input" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
+              <option value="">Todos</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-      </div>
-
-      {/* Métricas */}
-      <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Metric label="Recebido (semana)" value={ov ? brl(ov.weekPaidCents) : null} />
-        <Metric label="Recebido (mês)" value={ov ? brl(ov.monthPaidCents) : null} />
-        <Metric label="Recebido (total)" value={ov ? brl(ov.totalPaidCents) : null} />
-        <Metric
-          label="Saldo no provedor"
-          value={data ? (data.balanceCents !== null ? brl(data.balanceCents) : "—") : null}
-        />
-        <Metric label="Ticket médio" value={ov ? brl(ov.avgTicketCents) : null} />
-        <Metric label="Vendas pagas" value={ov ? String(ov.paidCount) : null} />
-        <Metric
-          label="Pendentes"
-          value={ov ? `${ov.pendingCount} · ${brl(ov.pendingCents)}` : null}
-        />
-        <Metric
-          label="Última venda"
-          value={
-            ov
-              ? ov.lastSaleAt
-                ? new Date(ov.lastSaleAt).toLocaleDateString("pt-BR")
-                : "—"
-              : null
-          }
-        />
-      </div>
-
-      {/* Provedores */}
-      <div className="mt-6 grid gap-3 sm:grid-cols-2">
-        <ProviderCard
-          name="SyncPay"
-          connected={
-            !!data?.providers.syncpay.enabled && !!data?.providers.syncpay.hasSecret
-          }
-          enabled={!!data?.providers.syncpay.enabled}
-        />
-        <ProviderCard
-          name="Stripe"
-          connected={
-            !!data?.providers.stripe.enabled && !!data?.providers.stripe.hasSecret
-          }
-          enabled={!!data?.providers.stripe.enabled}
-        />
       </div>
 
       {!anyProvider && data && (
@@ -180,8 +221,72 @@ export default function PaymentsPage() {
         </div>
       )}
 
+      {/* Grade de métricas no modelo do painel financeiro */}
+      <div className="mt-6 grid gap-3 lg:grid-cols-4">
+        <MetricCard label="Faturamento Líquido" value={stats ? brl(stats.paidCents) : null} />
+        <MetricCard label="Gastos com anúncios" value={derived ? brl(derived.gastos) : null} muted />
+        <MetricCard
+          label="ROAS"
+          value={derived ? (derived.roas !== null ? derived.roas.toFixed(2) : "—") : null}
+          accent
+        />
+        <MetricCard
+          label="Lucro"
+          value={derived ? brl(derived.lucro) : null}
+          accent
+          negative={derived ? derived.lucro < 0 : false}
+        />
+      </div>
+
+      <div className="mt-3 grid gap-3 lg:grid-cols-4">
+        <div className="card p-4 lg:row-span-3">
+          <p className="eyebrow">vendas por pagamento</p>
+          {stats && donutTotal > 0 ? (
+            <PaymentDonut breakdown={stats.methodBreakdown} total={donutTotal} />
+          ) : (
+            <div className="mt-4 grid h-40 place-items-center text-xs text-zinc-600">
+              sem vendas pagas no período
+            </div>
+          )}
+        </div>
+
+        <MetricCard label="Vendas Pendentes" value={stats ? brl(stats.pendingCents) : null} />
+        <MetricCard
+          label="ROI"
+          value={derived ? (derived.roi !== null ? pct(derived.roi) : "—") : null}
+          accent
+        />
+        <MetricCard
+          label="Margem de Lucro"
+          value={derived ? (derived.margem !== null ? pct(derived.margem) : "—") : null}
+          accent
+        />
+
+        <MetricCard label="Vendas Reembolsadas" value={stats ? brl(stats.refundedCents) : null} />
+        <MetricCard label="Reembolso" value={derived ? pct(derived.reembolsoPct) : null} accent />
+        <MetricCard label="ARPU" value={stats ? brl(stats.avgTicketCents) : null} />
+
+        <MetricCard label="Imposto" value={derived ? brl(derived.imposto) : null} muted />
+        <MetricCard label="Chargeback" value={derived ? pct(derived.chargebackPct) : null} accent />
+        <MetricCard label="Saldo no provedor" value={data ? (data.balanceCents !== null ? brl(data.balanceCents) : "—") : null} />
+      </div>
+
+      {/* Provedores */}
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <ProviderCard
+          name="SyncPay"
+          connected={!!data?.providers.syncpay.enabled && !!data?.providers.syncpay.hasSecret}
+          enabled={!!data?.providers.syncpay.enabled}
+        />
+        <ProviderCard
+          name="Stripe"
+          connected={!!data?.providers.stripe.enabled && !!data?.providers.stripe.hasSecret}
+          enabled={!!data?.providers.stripe.enabled}
+        />
+      </div>
+
       {/* Transações */}
-      <p className="eyebrow mt-10">transações</p>
+      <p className="eyebrow mt-10">transações recentes</p>
       <div className="mt-3 card overflow-hidden">
         {!data ? (
           <div className="h-32 animate-pulse" />
@@ -232,30 +337,45 @@ export default function PaymentsPage() {
   );
 }
 
-function Skel({ wide }: { wide?: boolean }) {
+function PaymentDonut({
+  breakdown,
+  total,
+}: {
+  breakdown: { method: string; count: number; cents: number }[];
+  total: number;
+}) {
+  let acc = 0;
+  const stops: string[] = [];
+  const ordered = [...breakdown].sort((a, b) => b.count - a.count);
+  for (const m of ordered) {
+    const start = (acc / total) * 360;
+    acc += m.count;
+    const end = (acc / total) * 360;
+    const color = METHOD_COLORS[m.method] || "#a1a1aa";
+    stops.push(`${color} ${start}deg ${end}deg`);
+  }
   return (
-    <span
-      className={`inline-block h-8 ${wide ? "w-full" : "w-24"} animate-pulse rounded bg-white/5`}
-    />
-  );
-}
-
-function MiniChart({ series }: { series: { day: string; cents: number }[] }) {
-  const max = Math.max(1, ...series.map((s) => s.cents));
-  return (
-    <div className="flex h-24 items-end gap-1">
-      {series.map((s, i) => (
-        <div key={i} className="group relative flex flex-1 flex-col items-center gap-1">
-          <div
-            className="w-full rounded-t bg-white/70 transition-all group-hover:bg-white"
-            style={{ height: `${Math.max(2, (s.cents / max) * 100)}%` }}
-            title={`${s.day}: ${brl(s.cents)}`}
-          />
-          {i % 2 === 0 && (
-            <span className="font-mono text-[8px] text-zinc-600">{s.day.slice(0, 2)}</span>
-          )}
+    <div className="mt-4 flex flex-col items-center">
+      <div
+        className="relative grid h-40 w-40 place-items-center rounded-full"
+        style={{ background: `conic-gradient(${stops.join(", ")})` }}
+      >
+        <div className="grid h-28 w-28 place-items-center rounded-full bg-ink-900">
+          <p className="font-display text-xl font-semibold text-white">{total}</p>
+          <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">total</p>
         </div>
-      ))}
+      </div>
+      <div className="mt-4 flex flex-wrap justify-center gap-x-4 gap-y-1.5">
+        {ordered.map((m) => (
+          <span key={m.method} className="flex items-center gap-1.5 text-xs text-zinc-400">
+            <span
+              className="h-2 w-2 rounded-full"
+              style={{ backgroundColor: METHOD_COLORS[m.method] || "#a1a1aa" }}
+            />
+            {m.method} · {Math.round((m.count / total) * 100)}%
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -282,11 +402,33 @@ function ProviderCard({
   );
 }
 
-function Metric({ label, value }: { label: string; value: string | null }) {
+function MetricCard({
+  label,
+  value,
+  accent,
+  muted,
+  negative,
+}: {
+  label: string;
+  value: string | null;
+  accent?: boolean;
+  muted?: boolean;
+  negative?: boolean;
+}) {
   return (
     <div className="card p-4">
       <p className="eyebrow">{label}</p>
-      <p className="mt-2 font-display text-xl font-semibold text-white">
+      <p
+        className={`mt-2 font-display text-xl font-semibold ${
+          negative
+            ? "text-red-400"
+            : accent
+              ? "text-emerald-400"
+              : muted
+                ? "text-zinc-400"
+                : "text-white"
+        }`}
+      >
         {value ?? <span className="inline-block h-6 w-16 animate-pulse rounded bg-white/5" />}
       </p>
     </div>
@@ -301,7 +443,9 @@ function StatusTag({ status }: { status: string }) {
         ? "bg-zinc-500"
         : status === "refunded"
           ? "bg-amber-400"
-          : "bg-red-500";
+          : status === "chargeback"
+            ? "bg-purple-400"
+            : "bg-red-500";
   return <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} />;
 }
 

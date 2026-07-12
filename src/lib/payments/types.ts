@@ -15,6 +15,22 @@ export type ChargeInput = {
     document?: string; // CPF/CNPJ
     phone?: string;
     ip?: string;
+    address?: {
+      street?: string;
+      streetNumber?: string;
+      complement?: string;
+      neighborhood?: string;
+      city?: string;
+      state?: string;
+      zipCode?: string;
+      country?: string;
+    };
+  };
+  /** Metadados opcionais repassados ao provedor. */
+  metadata?: {
+    userEmail?: string;
+    sellUrl?: string;
+    orderUrl?: string;
   };
 };
 

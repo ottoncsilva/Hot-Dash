@@ -91,6 +91,24 @@ export function createSyncPay(clientSecret: string): PaymentProvider {
           phone: phone || "11999999999",
           cpf: cpf || "00000000000",
           externaRef: input.externalRef || "",
+          // Endereço é exigido pela API; preenche com dados informados ou
+          // um placeholder válido quando o cliente não os fornece.
+          address: {
+            street: input.customer?.address?.street || "N/A",
+            streetNumber: input.customer?.address?.streetNumber || "0",
+            complement: input.customer?.address?.complement || "",
+            neighborhood: input.customer?.address?.neighborhood || "Centro",
+            city: input.customer?.address?.city || "Sao Paulo",
+            state: input.customer?.address?.state || "SP",
+            zipCode: (input.customer?.address?.zipCode || "01001000").replace(/\D/g, ""),
+            country: input.customer?.address?.country || "BR",
+          },
+        },
+        metadata: {
+          provider: "hot-dash",
+          user_email: input.metadata?.userEmail || "",
+          sell_url: input.metadata?.sellUrl || "",
+          order_url: input.metadata?.orderUrl || "",
         },
         traceable: true,
         ...(input.postbackUrl ? { postbackUrl: input.postbackUrl } : {}),

@@ -8,7 +8,7 @@ import CopyLinkButton from "@/components/CopyLinkButton";
 import PhotoEditor from "@/components/PhotoEditor";
 import ToggleChip from "@/components/ToggleChip";
 import { IconArrowLeft, IconChevronRight, IconClose, IconTrash, IconSparkle } from "@/components/icons";
-import { exactRatioLabel, ratioBucket, type MediaItem, type Tag } from "@/lib/types";
+import { exactRatioLabel, mediaFileUrl, ratioBucket, type MediaItem, type Tag } from "@/lib/types";
 
 /**
  * Visualizador em janela popup (não tela cheia): centralizado, com fundo
@@ -140,8 +140,8 @@ export default function MediaViewer({
           )}
           {item.kind === "image" ? (
             <AuthImage
-              key={item.id}
-              src={`/api/media/${item.id}/file`}
+              key={`${item.id}-${item.updatedAt}`}
+              src={mediaFileUrl(item)}
               alt={item.filename}
               className="max-h-[60vh] max-w-full object-contain"
             />
@@ -149,7 +149,7 @@ export default function MediaViewer({
             // eslint-disable-next-line jsx-a11y/media-has-caption
             <video
               key={item.id}
-              src={`/api/media/${item.id}/file`}
+              src={mediaFileUrl(item)}
               controls
               playsInline
               autoPlay
@@ -215,7 +215,7 @@ export default function MediaViewer({
           )}
           <div className="flex gap-2">
             <SaveMediaButton
-              url={`/api/media/${item.id}/file?download=1`}
+              url={mediaFileUrl(item, { download: true })}
               filename={item.filename}
               mime={item.mime}
               label="Salvar no dispositivo"

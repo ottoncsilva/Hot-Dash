@@ -7,6 +7,7 @@ import { getOrCreatePublicToken, insertMedia, listMedia, newMediaPath } from "@/
 import { saveFile } from "@/lib/storage";
 import { getImageDimensions } from "@/lib/imageDimensions";
 import { appendMediaRow } from "@/lib/googleSheets";
+import { copyMediaTags, getTagsForMedia } from "@/lib/tags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,6 +105,12 @@ export async function POST(
       width: dimensions?.width,
       height: dimensions?.height,
     });
+
+    // Foto editada herda as etiquetas da original.
+    if (editedFrom) {
+      copyMediaTags(editedFrom, item.id);
+      item.tags = getTagsForMedia(item.id);
+    }
 
     const token = getOrCreatePublicToken(item.id);
     if (token) {

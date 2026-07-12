@@ -100,6 +100,15 @@ export function setMediaTag(
   run(mediaIds);
 }
 
+/** Copia todas as etiquetas de uma mídia para outra (usado ao editar/duplicar). */
+export function copyMediaTags(fromMediaId: string, toMediaId: string): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT OR IGNORE INTO media_tags (media_id, tag_id)
+     SELECT ?, tag_id FROM media_tags WHERE media_id = ?`,
+  ).run(toMediaId, fromMediaId);
+}
+
 export function getTagsForMedia(mediaId: string): Tag[] {
   const rows = getDb()
     .prepare(

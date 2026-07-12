@@ -15,6 +15,7 @@ type MediaRow = {
   mime: string | null;
   size: number;
   created_at: number;
+  updated_at: number | null;
   edited_from: string | null;
   width: number | null;
   height: number | null;
@@ -31,6 +32,7 @@ function toClient(r: MediaRow, tags: Tag[]): MediaItem {
     mime: r.mime || undefined,
     size: r.size,
     createdAt: r.created_at,
+    updatedAt: r.updated_at || r.created_at,
     tags,
     editedFrom: r.edited_from || undefined,
     width: r.width || undefined,
@@ -62,8 +64,8 @@ export function insertMedia(input: {
   const now = Date.now();
   getDb()
     .prepare(
-      `INSERT INTO media (id, profile_id, filename, path, kind, mime, size, created_at, edited_from, width, height)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO media (id, profile_id, filename, path, kind, mime, size, created_at, updated_at, edited_from, width, height)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.id,
@@ -73,6 +75,7 @@ export function insertMedia(input: {
       input.kind,
       input.mime || null,
       input.size,
+      now,
       now,
       input.editedFrom || null,
       input.width || null,
@@ -88,6 +91,7 @@ export function insertMedia(input: {
       mime: input.mime || null,
       size: input.size,
       created_at: now,
+      updated_at: now,
       edited_from: input.editedFrom || null,
       width: input.width || null,
       height: input.height || null,
@@ -96,6 +100,35 @@ export function insertMedia(input: {
     },
     [],
   );
+}
+
+/**
+ * Sobrescreve o conteúdo de uma mídia existente (mesmo id, etiquetas e link
+ * público). Grava o novo arquivo, aponta o registro para ele, remove o
+ * arquivo antigo e atualiza tamanho/dimensões/updated_at. Usado pelo botão
+ * "Salvar" do editor (substitui a imagem atual em vez de criar outra).
+ */
+export async function overwriteMediaFile(input: {
+  id: string;
+  relPath: string;
+  size: number;
+  width?: number;
+  height?: number;
+}): Promise<MediaItem | null> {
+  const row = getMediaRow(input.id);
+  if (!row) return null;
+  const oldPath = row.path;
+  const now = Date.now();
+  getDb()
+    .prepare(
+      "UPDATE media SET path = ?, size = ?, width = ?, height = ?, updated_at = ? WHERE id = ?",
+    )
+    .run(input.relPath, input.size, input.width || null, input.height || null, now, input.id);
+  if (oldPath && oldPath !== input.relPath) {
+    await deleteFile(oldPath).catch(() => {});
+  }
+  const updated = getMediaRow(input.id);
+  return updated ? toClient(updated, getTagsForMedia(input.id)) : null;
 }
 
 export function listMedia(profileId: string): MediaItem[] {

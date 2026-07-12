@@ -109,6 +109,7 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "media", "width", "INTEGER");
   ensureColumn(d, "media", "height", "INTEGER");
   ensureColumn(d, "media", "public_token", "TEXT");
+  ensureColumn(d, "media", "updated_at", "INTEGER");
   ensureColumn(d, "profiles", "sheet_id", "TEXT");
   ensureColumn(d, "profiles", "sheet_gid", "INTEGER");
   ensureColumn(d, "media", "sheet_row", "INTEGER");

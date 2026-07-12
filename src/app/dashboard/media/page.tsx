@@ -18,7 +18,7 @@ import {
   IconDownload,
   IconTag,
 } from "@/components/icons";
-import { RATIO_BUCKETS, ratioBucket, type MediaItem, type Profile, type RatioBucket, type Tag } from "@/lib/types";
+import { RATIO_BUCKETS, ratioBucket, mediaFileUrl, type MediaItem, type Profile, type RatioBucket, type Tag } from "@/lib/types";
 
 type SortKey = "date_desc" | "date_asc" | "size_desc" | "size_asc" | "tag_asc";
 
@@ -182,7 +182,7 @@ export default function MediaPage() {
     try {
       const files = await Promise.all(
         items.map(async (item) => {
-          const res = await fetch(`/api/media/${item.id}/file`);
+          const res = await fetch(mediaFileUrl(item));
           const blob = await res.blob();
           return new File([blob], item.filename, {
             type: item.mime || blob.type || "application/octet-stream",
@@ -731,7 +731,15 @@ export default function MediaPage() {
           tags={tags}
           onToggleTag={toggleTagOnItem}
           profileId={profileId}
-          onEdited={(newItem) => setMedia((m) => [newItem, ...(m || [])])}
+          onEdited={(newItem) =>
+            setMedia((m) => {
+              const list = m || [];
+              // Sobrescrever (mesmo id) substitui no lugar; nova versão entra no topo.
+              return list.some((x) => x.id === newItem.id)
+                ? list.map((x) => (x.id === newItem.id ? newItem : x))
+                : [newItem, ...list];
+            })
+          }
         />
       )}
 
@@ -829,7 +837,7 @@ function MediaGrid({
             >
               {item.kind === "image" ? (
                 <AuthImage
-                  src={`/api/media/${item.id}/file`}
+                  src={mediaFileUrl(item)}
                   alt={item.filename}
                   className={`h-full w-full object-cover transition-opacity ${
                     isSelected ? "opacity-70" : ""
@@ -890,7 +898,7 @@ function MediaGrid({
                   className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white hover:bg-white/20"
                 />
                 <SaveMediaButton
-                  url={`/api/media/${item.id}/file?download=1`}
+                  url={mediaFileUrl(item, { download: true })}
                   filename={item.filename}
                   mime={item.mime}
                   iconOnly

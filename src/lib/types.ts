@@ -67,12 +67,21 @@ export type MediaItem = {
   mime?: string;
   size: number;
   createdAt: number;
+  /** Última modificação do conteúdo (usado para cache-busting da imagem). */
+  updatedAt?: number;
   tags: Tag[];
   editedFrom?: string;
   width?: number;
   height?: number;
   publicToken?: string;
 };
+
+/** URL do arquivo de mídia com cache-busting por updatedAt (reflete edições sobrescritas). */
+export function mediaFileUrl(item: MediaItem, opts?: { download?: boolean }): string {
+  const v = item.updatedAt || item.createdAt;
+  const dl = opts?.download ? "&download=1" : "";
+  return `/api/media/${item.id}/file?v=${v}${dl}`;
+}
 
 /** Proporções padrão reconhecidas pelo filtro de formato de imagem. */
 export const RATIO_BUCKETS = ["1:1", "3:4", "4:3", "9:16", "16:9", "3:2", "2:3"] as const;

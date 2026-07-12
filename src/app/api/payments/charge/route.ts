@@ -29,11 +29,13 @@ export async function POST(req: NextRequest) {
       );
     }
     const amountCents = Math.round(amount * 100);
+    const postbackUrl = `${req.nextUrl.origin}/api/webhooks/${provider.key}`;
 
     const result = await provider.createPixCharge({
       amountCents,
       description: body.description,
       customer: body.customer,
+      postbackUrl,
     });
 
     const tx = recordTransaction({
@@ -50,6 +52,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       transaction: tx,
       pixCode: result.pixCode,
+      qrCodeBase64: result.qrCodeBase64,
       checkoutUrl: result.checkoutUrl,
     });
   } catch (err) {

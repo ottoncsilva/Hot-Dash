@@ -26,6 +26,7 @@ import {
   type SocialAccount,
   type SocialNetwork,
 } from "@/lib/types";
+import { buildSocialUrl, networkMeta } from "@/lib/socialLinks";
 
 export default function ProfileDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -362,16 +363,20 @@ function AccountRow({
               {account.username}
             </span>
           </div>
-          {account.url && (
-            <a
-              href={account.url}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-1.5 inline-flex items-center gap-1 truncate text-xs text-zinc-500 hover:text-zinc-300"
-            >
-              <IconLink size={13} /> {account.url}
-            </a>
-          )}
+          {(() => {
+            const link = account.url || buildSocialUrl(account.network, account.username);
+            if (!link) return null;
+            return (
+              <a
+                href={link}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1.5 inline-flex items-center gap-1 truncate text-xs text-zinc-500 hover:text-zinc-300"
+              >
+                <IconLink size={13} /> {link}
+              </a>
+            );
+          })()}
           {account.login && (
             <p className="mt-1 font-mono text-[11px] text-zinc-600">
               login: <span className="text-zinc-400">{account.login}</span>
@@ -405,6 +410,20 @@ function AccountRow({
           )}
         </div>
         <div className="flex shrink-0 gap-1">
+          {(() => {
+            const link = account.url || buildSocialUrl(account.network, account.username);
+            if (!link) return null;
+            return (
+              <button
+                onClick={() => window.open(link, "_blank", "noopener,noreferrer")}
+                className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 hover:bg-white/5 hover:text-white"
+                aria-label="Abrir no navegador"
+                title="Abrir no navegador"
+              >
+                <IconLink size={16} />
+              </button>
+            );
+          })()}
           <button
             onClick={onEdit}
             className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 hover:bg-white/5 hover:text-white"
@@ -442,10 +461,24 @@ function AccountForm({
   );
   const [username, setUsername] = useState(account?.username || "");
   const [url, setUrl] = useState(account?.url || "");
+  const [urlTouched, setUrlTouched] = useState(Boolean(account?.url));
   const [login, setLogin] = useState(account?.login || "");
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const meta = networkMeta(network);
+
+  // Preenche o link automaticamente pela máscara da rede, a menos que o
+  // usuário tenha editado o campo manualmente.
+  function applyNetwork(next: SocialNetwork) {
+    setNetwork(next);
+    if (!urlTouched) setUrl(buildSocialUrl(next, username));
+  }
+  function applyUsername(next: string) {
+    setUsername(next);
+    if (!urlTouched) setUrl(buildSocialUrl(network, next));
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -489,7 +522,7 @@ function AccountForm({
           <select
             className="input"
             value={network}
-            onChange={(e) => setNetwork(e.target.value as SocialNetwork)}
+            onChange={(e) => applyNetwork(e.target.value as SocialNetwork)}
           >
             {Object.entries(NETWORK_LABELS).map(([value, label]) => (
               <option key={value} value={value}>
@@ -499,22 +532,53 @@ function AccountForm({
           </select>
         </div>
         <div>
-          <label className="eyebrow mb-1.5 block">Usuário / identificador</label>
+          <label className="eyebrow mb-1.5 block">{meta.userLabel}</label>
           <input
             className="input"
-            placeholder="@usuario ou número"
+            placeholder={meta.userPlaceholder}
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={(e) => applyUsername(e.target.value)}
           />
         </div>
         <div>
-          <label className="eyebrow mb-1.5 block">Link do perfil (opcional)</label>
-          <input
-            className="input"
-            placeholder="https://..."
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-          />
+          <label className="eyebrow mb-1.5 block">
+            {network === "email" ? "Link (mailto, gerado)" : "Link do perfil (gerado, editável)"}
+          </label>
+          <div className="flex gap-2">
+            <input
+              className="input flex-1"
+              placeholder="https://..."
+              value={url}
+              onChange={(e) => {
+                setUrl(e.target.value);
+                setUrlTouched(true);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                const link = url || buildSocialUrl(network, username);
+                if (link) window.open(link, "_blank", "noopener,noreferrer");
+              }}
+              disabled={!url && !username}
+              className="btn-ghost shrink-0 px-3"
+              title="Abrir no navegador"
+            >
+              <IconLink size={15} /> Abrir
+            </button>
+          </div>
+          {urlTouched && (
+            <button
+              type="button"
+              onClick={() => {
+                setUrlTouched(false);
+                setUrl(buildSocialUrl(network, username));
+              }}
+              className="mt-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
+            >
+              usar link automático da rede
+            </button>
+          )}
         </div>
         <div>
           <label className="eyebrow mb-1.5 block">Login de acesso</label>

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiGet } from "@/lib/api";
 import type { Profile } from "@/lib/types";
+import type { Overview } from "@/lib/transactions";
 import {
   IconProfiles,
   IconMedia,
@@ -13,13 +14,21 @@ import {
   IconChevronRight,
 } from "@/components/icons";
 
+function brl(cents: number) {
+  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
 export default function DashboardHome() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
+  const [ov, setOv] = useState<Overview | null>(null);
 
   useEffect(() => {
     apiGet<{ profiles: Profile[] }>("/api/profiles")
       .then((d) => setProfiles(d.profiles))
       .catch(() => setProfiles([]));
+    apiGet<{ overview: Overview }>("/api/payments/overview")
+      .then((d) => setOv(d.overview))
+      .catch(() => {});
   }, []);
 
   const profileCount = profiles?.length ?? null;
@@ -41,9 +50,36 @@ export default function DashboardHome() {
       <div className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Perfis" value={profileCount} />
         <Stat label="Contas" value={accountCount} />
-        <Stat label="Mídias" value={0} muted />
-        <Stat label="Receita (mês)" value="—" muted />
+        <Stat
+          label="Vendas hoje"
+          value={ov ? brl(ov.todayPaidCents) : null}
+          muted={ov ? ov.todayPaidCents === 0 : undefined}
+        />
+        <Stat
+          label="Receita (mês)"
+          value={ov ? brl(ov.monthPaidCents) : null}
+          muted={ov ? ov.monthPaidCents === 0 : undefined}
+        />
       </div>
+
+      {/* Faixa de destaque: venda do dia / pendências */}
+      {ov && (ov.todayCount > 0 || ov.pendingCount > 0) && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-sm">
+          {ov.todayCount > 0 && (
+            <span className="text-zinc-300">
+              🎉 <strong>{ov.todayCount}</strong> venda(s) paga(s) hoje
+            </span>
+          )}
+          {ov.pendingCount > 0 && (
+            <span className="text-zinc-500">
+              {ov.pendingCount} cobrança(s) pendente(s) · {brl(ov.pendingCents)}
+            </span>
+          )}
+          <Link href="/dashboard/payments" className="ml-auto text-zinc-400 hover:text-white">
+            ver financeiro →
+          </Link>
+        </div>
+      )}
 
       {/* Módulos */}
       <p className="eyebrow mt-10">módulos</p>

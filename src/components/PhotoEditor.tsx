@@ -13,7 +13,8 @@ import {
   IconTrash,
   IconSparkle,
 } from "@/components/icons";
-import type { MediaItem } from "@/lib/types";
+import { mediaFileUrl, type MediaItem } from "@/lib/types";
+import { EMOJI_CATEGORIES } from "@/lib/emojis";
 
 type TextObject = {
   id: string;
@@ -54,18 +55,6 @@ const TEXT_COLORS = [
   "#ec4899",
 ];
 
-// Emojis são renderizados como texto Unicode: o navegador usa a fonte de
-// emoji do sistema (Apple Color Emoji no iPhone/iPad/Mac), então já saem
-// com a aparência nativa da Apple nesses aparelhos, sem precisar de imagens.
-const EMOJIS = [
-  "😀","😂","🥹","😍","😘","😎","🥳","🤩","😢","😭",
-  "😡","🤔","😴","🤯","🥰","😅","😉","🙄","😱","🤗",
-  "👍","👎","👏","🙌","🙏","💪","✌️","🤙","👌","🤝",
-  "❤️","🧡","💛","💚","💙","💜","🖤","🤍","💕","💔",
-  "🔥","✨","⭐","🌟","💯","🎉","🎊","🎁","💰","💎",
-  "👀","💋","👑","😈","💃","🕺","🍑","🍒","🍓","🥂",
-];
-
 const MAX_DIM = 3000;
 const HANDLE_SCREEN_PX = 26;
 
@@ -98,7 +87,7 @@ export default function PhotoEditor({
   const [mode, setMode] = useState<"select" | "blur">("select");
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState<"new" | "overwrite" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const dragRef = useRef<{
@@ -118,7 +107,7 @@ export default function PhotoEditor({
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/media/${item.id}/file`);
+        const res = await fetch(mediaFileUrl(item));
         if (!res.ok) throw new Error("Falha ao carregar imagem.");
         const blob = await res.blob();
         url = URL.createObjectURL(blob);
@@ -392,22 +381,27 @@ export default function PhotoEditor({
     setSelectedId(null);
   }
 
-  async function handleSave() {
+  async function exportBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas indisponível.");
+    renderFrame(ctx, true);
+    return new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("Falha ao exportar imagem."))),
+        "image/png",
+      );
+    });
+  }
+
+  /** Salvar nova versão: cria outra mídia editada, mantendo a original. */
+  async function handleSaveNew() {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    setSaving(true);
+    setSaving("new");
     setError(null);
     setSelectedId(null);
     try {
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas indisponível.");
-      renderFrame(ctx, true);
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob(
-          (b) => (b ? resolve(b) : reject(new Error("Falha ao exportar imagem."))),
-          "image/png",
-        );
-      });
+      const blob = await exportBlob(canvas);
       const baseName = item.filename.replace(/\.[^./\\]+$/, "");
       const form = new FormData();
       form.append("file", new File([blob], `${baseName}-editada.png`, { type: "image/png" }));
@@ -422,7 +416,33 @@ export default function PhotoEditor({
       const ctx = canvas.getContext("2d");
       if (ctx) renderFrame(ctx, false);
     } finally {
-      setSaving(false);
+      setSaving(null);
+    }
+  }
+
+  /** Salvar: sobrescreve a imagem atual (mesmo id, etiquetas e link público). */
+  async function handleOverwrite() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    setSaving("overwrite");
+    setError(null);
+    setSelectedId(null);
+    try {
+      const blob = await exportBlob(canvas);
+      const baseName = item.filename.replace(/\.[^./\\]+$/, "");
+      const form = new FormData();
+      form.append("file", new File([blob], `${baseName}.png`, { type: "image/png" }));
+      const { media: newItem } = await apiUpload<{ media: MediaItem }>(
+        `/api/media/${item.id}/replace`,
+        form,
+      );
+      onSaved(newItem);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Falha ao salvar.");
+      const ctx = canvas.getContext("2d");
+      if (ctx) renderFrame(ctx, false);
+    } finally {
+      setSaving(null);
     }
   }
 
@@ -454,14 +474,25 @@ export default function PhotoEditor({
         >
           <IconClose size={20} />
         </button>
-        <span className="eyebrow">editor de foto</span>
-        <button
-          onClick={handleSave}
-          disabled={saving || !loaded}
-          className="btn-primary px-3 py-1.5 text-sm"
-        >
-          {saving ? "Salvando..." : "Salvar nova versão"}
-        </button>
+        <span className="eyebrow hidden sm:block">editor de foto</span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleOverwrite}
+            disabled={saving !== null || !loaded}
+            className="btn-ghost px-3 py-1.5 text-sm"
+            title="Substitui a imagem atual pela versão editada"
+          >
+            {saving === "overwrite" ? "Salvando..." : "Salvar"}
+          </button>
+          <button
+            onClick={handleSaveNew}
+            disabled={saving !== null || !loaded}
+            className="btn-primary px-3 py-1.5 text-sm"
+            title="Cria uma nova imagem, mantendo a original"
+          >
+            {saving === "new" ? "Salvando..." : "Salvar nova versão"}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -582,29 +613,83 @@ export default function PhotoEditor({
       )}
 
       <p className="pb-3 text-center font-mono text-[10px] uppercase tracking-wider text-zinc-600 safe-bottom">
-        cria uma nova versão · a foto original é mantida
+        salvar = substitui a atual · salvar nova versão = mantém a original
       </p>
 
-      {/* Seletor de emoji */}
-      <Modal open={emojiPickerOpen} onClose={() => setEmojiPickerOpen(false)} maxWidth="max-w-sm">
-        <p className="eyebrow">adicionar</p>
-        <h2 className="mt-1.5 flex items-center gap-2 font-display text-lg font-semibold">
-          <IconSparkle size={16} /> Emoji
-        </h2>
-        <div className="mt-4 grid grid-cols-8 gap-1 text-2xl">
-          {EMOJIS.map((e, i) => (
-            <button
-              key={i}
-              onClick={() => addEmoji(e)}
-              className="grid aspect-square place-items-center rounded-lg hover:bg-white/10"
-            >
-              {e}
-            </button>
-          ))}
-        </div>
+      {/* Seletor de emoji (coleção completa, por categoria + busca) */}
+      <Modal open={emojiPickerOpen} onClose={() => setEmojiPickerOpen(false)} maxWidth="max-w-md">
+        <EmojiPicker onPick={addEmoji} />
       </Modal>
     </div>,
     document.body,
+  );
+}
+
+function EmojiPicker({ onPick }: { onPick: (emoji: string) => void }) {
+  const [cat, setCat] = useState(EMOJI_CATEGORIES[0].id);
+  const [query, setQuery] = useState("");
+
+  const active = EMOJI_CATEGORIES.find((c) => c.id === cat) || EMOJI_CATEGORIES[0];
+  const q = query.trim();
+  // Busca simples: acha a categoria cujo rótulo casa; senão mostra todos.
+  const results = q
+    ? EMOJI_CATEGORIES.filter((c) =>
+        c.label.toLowerCase().includes(q.toLowerCase()),
+      ).flatMap((c) => c.emojis)
+    : active.emojis;
+  const emojis = q && results.length === 0
+    ? EMOJI_CATEGORIES.flatMap((c) => c.emojis)
+    : results;
+
+  return (
+    <div>
+      <p className="eyebrow">adicionar</p>
+      <h2 className="mt-1.5 flex items-center gap-2 font-display text-lg font-semibold">
+        <IconSparkle size={16} /> Emoji
+      </h2>
+
+      <input
+        className="input mt-3"
+        placeholder="Buscar categoria (ex.: comida, animais)…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+
+      {!q && (
+        <div className="mt-3 flex gap-1 overflow-x-auto pb-1">
+          {EMOJI_CATEGORIES.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setCat(c.id)}
+              title={c.label}
+              className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg text-xl transition-colors ${
+                cat === c.id ? "bg-white/15" : "hover:bg-white/10"
+              }`}
+            >
+              {c.icon}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {!q && (
+        <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+          {active.label}
+        </p>
+      )}
+
+      <div className="mt-2 grid max-h-[46vh] grid-cols-8 gap-1 overflow-y-auto text-2xl">
+        {emojis.map((e, i) => (
+          <button
+            key={`${e}-${i}`}
+            onClick={() => onPick(e)}
+            className="grid aspect-square place-items-center rounded-lg hover:bg-white/10"
+          >
+            {e}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

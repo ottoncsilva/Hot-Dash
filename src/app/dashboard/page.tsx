@@ -193,7 +193,7 @@ export default function DashboardHome() {
       {!anyProvider && data && (
         <div className="mt-3 flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] p-4">
           <p className="text-sm text-zinc-400">Nenhum provedor conectado ainda.</p>
-          <Link href="/dashboard/settings#pagamentos" className="btn-ghost text-xs">
+          <Link href="/dashboard/settings/pagamentos" className="btn-ghost text-xs">
             <IconSettings size={14} /> Configurar
           </Link>
         </div>

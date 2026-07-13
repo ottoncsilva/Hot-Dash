@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Imagem servida por uma rota protegida. Como a autenticação é por cookie
@@ -24,16 +24,27 @@ export default function AuthImage({
 }) {
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
     setFailed(false);
     setLoaded(false);
   }, [src]);
 
+  // Imagem já em cache do navegador: o onLoad pode nunca disparar (o
+  // navegador já marca .complete antes do React anexar o listener), o que
+  // travava a miniatura invisível (opacity-0) para sempre.
+  useEffect(() => {
+    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
+      setLoaded(true);
+    }
+  }, [src]);
+
   if (!src || failed) return <>{fallback ?? null}</>;
   // eslint-disable-next-line @next/next/no-img-element
   return (
     <img
+      ref={imgRef}
       src={src}
       alt={alt}
       className={`${className || ""} transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}

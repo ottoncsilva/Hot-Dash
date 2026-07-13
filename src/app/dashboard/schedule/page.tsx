@@ -756,8 +756,8 @@ function PostForm({
   }
 
   async function generate() {
-    if (!aiTheme.trim()) {
-      setErr("Descreva o tema do post para gerar a legenda.");
+    if (mediaIds.length === 0) {
+      setErr("Selecione ao menos uma mídia para gerar a legenda.");
       return;
     }
     if (!aiProvider) {
@@ -770,7 +770,7 @@ function PostForm({
       const { caption: generated } = await apiSend<{ caption: string }>(
         "/api/ai/caption",
         "POST",
-        { provider: aiProvider, profileId, networks, theme: aiTheme },
+        { provider: aiProvider, profileId, networks, theme: aiTheme, mediaIds },
       );
       setCaption(generated);
     } catch (e) {
@@ -899,52 +899,6 @@ function PostForm({
             )}
           </div>
 
-          {/* Legenda + IA */}
-          <div>
-            <label className="eyebrow mb-1.5 block">Legenda</label>
-            <textarea
-              className="input min-h-[110px]"
-              placeholder="Escreva a legenda ou gere com IA abaixo…"
-              value={caption}
-              onChange={(e) => setCaption(e.target.value)}
-            />
-            <div className="mt-2 flex flex-wrap gap-2">
-              <input
-                className="input min-w-[180px] flex-1 py-2 text-sm"
-                placeholder="Tema p/ IA (ex.: foto na praia ao pôr do sol, tom provocante)"
-                value={aiTheme}
-                onChange={(e) => setAiTheme(e.target.value)}
-              />
-              {aiOptions && aiOptions.length > 0 && (
-                <select
-                  className="input w-auto py-2 text-sm"
-                  value={aiProvider}
-                  onChange={(e) => setAiProvider(e.target.value as AiProvider)}
-                >
-                  {aiOptions.map((p) => (
-                    <option key={p} value={p}>
-                      {p === "openai" ? "OpenAI" : "Gemini"}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <button
-                type="button"
-                onClick={generate}
-                disabled={aiBusy}
-                className="btn-ghost shrink-0 px-3 text-sm"
-                title="Gerar legenda com IA (configure a chave em Configurações)"
-              >
-                <IconSparkle size={15} /> {aiBusy ? "Gerando…" : "Gerar com IA"}
-              </button>
-            </div>
-            {aiOptions && aiOptions.length === 0 && (
-              <p className="mt-1.5 text-xs text-zinc-600">
-                Nenhum provedor de IA conectado — configure em Configurações → Conexão com IA.
-              </p>
-            )}
-          </div>
-
           {/* Mídias da biblioteca (por referência — nada é duplicado) */}
           <div>
             <label className="eyebrow mb-1.5 block">
@@ -1008,6 +962,52 @@ function PostForm({
                   );
                 })}
               </div>
+            )}
+          </div>
+
+          {/* Legenda + IA — a IA analisa a(s) mídia(s) selecionada(s) acima */}
+          <div>
+            <label className="eyebrow mb-1.5 block">Legenda</label>
+            <textarea
+              className="input min-h-[110px]"
+              placeholder="Escreva a legenda ou selecione mídias acima e gere com IA…"
+              value={caption}
+              onChange={(e) => setCaption(e.target.value)}
+            />
+            <div className="mt-2 flex flex-wrap gap-2">
+              <input
+                className="input min-w-[180px] flex-1 py-2 text-sm"
+                placeholder="Contexto extra p/ IA (opcional — tom, ocasião...)"
+                value={aiTheme}
+                onChange={(e) => setAiTheme(e.target.value)}
+              />
+              {aiOptions && aiOptions.length > 0 && (
+                <select
+                  className="input w-auto py-2 text-sm"
+                  value={aiProvider}
+                  onChange={(e) => setAiProvider(e.target.value as AiProvider)}
+                >
+                  {aiOptions.map((p) => (
+                    <option key={p} value={p}>
+                      {p === "openai" ? "OpenAI" : "Gemini"}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button
+                type="button"
+                onClick={generate}
+                disabled={aiBusy}
+                className="btn-ghost shrink-0 px-3 text-sm"
+                title="Gera a legenda analisando a(s) mídia(s) selecionada(s)"
+              >
+                <IconSparkle size={15} /> {aiBusy ? "Gerando…" : "Gerar com IA"}
+              </button>
+            </div>
+            {aiOptions && aiOptions.length === 0 && (
+              <p className="mt-1.5 text-xs text-zinc-600">
+                Nenhum provedor de IA conectado — configure em Configurações → Conexão com IA.
+              </p>
             )}
           </div>
         </div>

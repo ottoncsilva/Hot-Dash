@@ -120,15 +120,23 @@ export default function DashboardLayout({
                   </div>
                   {settingsOpen && (
                     <div className="ml-4 mt-0.5 flex flex-col gap-0.5 border-l border-white/[0.06] pl-4">
-                      {SETTINGS_SUBSECTIONS.map((s) => (
-                        <Link
-                          key={s.anchor}
-                          href={`${item.href}#${s.anchor}`}
-                          className="rounded-lg px-2 py-2 text-xs text-zinc-500 transition-all hover:bg-white/[0.03] hover:text-zinc-200"
-                        >
-                          {s.label}
-                        </Link>
-                      ))}
+                      {SETTINGS_SUBSECTIONS.map((s) => {
+                        const href = `${item.href}/${s.anchor}`;
+                        const subActive = pathname === href;
+                        return (
+                          <Link
+                            key={s.anchor}
+                            href={href}
+                            className={`rounded-lg px-2 py-2 text-xs transition-all ${
+                              subActive
+                                ? "bg-white/[0.06] text-white"
+                                : "text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-200"
+                            }`}
+                          >
+                            {s.label}
+                          </Link>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

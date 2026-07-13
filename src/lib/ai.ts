@@ -9,24 +9,33 @@ import { NETWORK_LABELS, type SocialNetwork } from "./types";
  * chave vêm das Configurações — a chave fica criptografada (AES-256) no banco.
  */
 
+/** Imagem embutida (base64) para a IA analisar — só usado pelo post manual. */
+export type CaptionImage = { mime: string; base64: string };
+
 export type CaptionRequest = {
   provider: AiProvider;
   networks: { network: SocialNetwork; postType: string }[];
   profileName: string;
   profileNotes?: string;
-  /** Tema/instruções livres do usuário (ex.: "foto na praia ao pôr do sol"). */
-  theme: string;
+  /** Contexto extra opcional do usuário (ex.: "tom provocante"). */
+  theme?: string;
+  /** Mídia(s) selecionada(s) — quando presente, a IA analisa a imagem de verdade. */
+  images?: CaptionImage[];
 };
 
 function buildPrompt(req: CaptionRequest): string {
   const alvos = req.networks
     .map((n) => `${NETWORK_LABELS[n.network] || n.network} (${n.postType})`)
     .join(", ");
+  const hasImages = Boolean(req.images && req.images.length > 0);
   return [
     `Você é social media da influenciadora "${req.profileName}".`,
     req.profileNotes ? `Sobre a personagem: ${req.profileNotes}` : "",
     `Escreva UMA legenda em português do Brasil para: ${alvos}.`,
-    `Tema/contexto do post: ${req.theme}`,
+    hasImages
+      ? "Analise a(s) imagem(ns) anexada(s) e escreva a legenda combinando com o que está nelas de verdade."
+      : `Tema/contexto do post: ${req.theme || ""}`,
+    hasImages && req.theme ? `Contexto extra do usuário: ${req.theme}` : "",
     "Regras:",
     "- Tom envolvente e autêntico, na voz da personagem (primeira pessoa).",
     "- Use emojis com moderação e inclua 3 a 6 hashtags relevantes no final.",
@@ -38,19 +47,23 @@ function buildPrompt(req: CaptionRequest): string {
 }
 
 export async function generateCaption(req: CaptionRequest): Promise<string> {
-  return (await callAiRaw(buildPrompt(req), req.provider)).trim();
+  return (
+    await callAiRaw(buildPrompt(req), req.provider, { images: req.images })
+  ).trim();
 }
 
 /**
  * Chama o provedor de IA pedido (OpenAI ou Google Gemini) e devolve o texto
  * bruto da resposta. Compartilhado entre o gerador de legenda e o gerador de
  * cronograma — cada um monta seu próprio prompt e interpreta a resposta do
- * seu jeito (texto livre vs. JSON estruturado).
+ * seu jeito (texto livre vs. JSON estruturado). `opts.images`, quando
+ * presente, envia a mídia junto (visão) — só o gerador de legenda do post
+ * manual usa isso; o gerador de cronograma em lote nunca passa imagens.
  */
 export async function callAiRaw(
   prompt: string,
   provider: AiProvider,
-  opts?: { json?: boolean; maxTokens?: number },
+  opts?: { json?: boolean; maxTokens?: number; images?: CaptionImage[] },
 ): Promise<string> {
   const creds = getAiCredentials(provider);
   if (!creds) {
@@ -60,8 +73,19 @@ export async function callAiRaw(
     );
   }
   const maxTokens = opts?.maxTokens ?? 500;
+  const images = opts?.images || [];
 
   if (provider === "openai") {
+    const content =
+      images.length > 0
+        ? [
+            { type: "text", text: prompt },
+            ...images.map((img) => ({
+              type: "image_url",
+              image_url: { url: `data:${img.mime};base64,${img.base64}` },
+            })),
+          ]
+        : prompt;
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -70,7 +94,7 @@ export async function callAiRaw(
       },
       body: JSON.stringify({
         model: creds.model,
-        messages: [{ role: "user", content: prompt }],
+        messages: [{ role: "user", content }],
         temperature: 0.9,
         max_tokens: maxTokens,
         ...(opts?.json ? { response_format: { type: "json_object" } } : {}),
@@ -88,6 +112,10 @@ export async function callAiRaw(
   }
 
   // Google Gemini
+  const parts: Record<string, unknown>[] = [
+    { text: prompt },
+    ...images.map((img) => ({ inline_data: { mime_type: img.mime, data: img.base64 } })),
+  ];
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
       creds.model,
@@ -96,7 +124,7 @@ export async function callAiRaw(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: [{ parts }],
         generationConfig: {
           temperature: 0.9,
           maxOutputTokens: maxTokens,

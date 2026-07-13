@@ -1,0 +1,298 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { apiGet, apiSend } from "@/lib/api";
+import { IconRefresh } from "@/components/icons";
+import type { AiSettingsPublic } from "@/lib/settings";
+import { BackToSettings, ConnectionBadge } from "../_shared";
+
+// Usados só se a busca ao vivo (lista real de modelos do provedor) falhar.
+const FALLBACK_OPENAI_MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"];
+const FALLBACK_GEMINI_MODELS = [
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
+  "gemini-2.5-flash",
+  "gemini-1.5-pro",
+];
+
+/** Busca a lista de modelos ao vivo na API do provedor (nunca lança). */
+async function fetchAiModels(
+  provider: "openai" | "gemini",
+  apiKey: string,
+  setModels: (m: string[] | null) => void,
+  setLoading: (b: boolean) => void,
+  setError: (m: string | null) => void,
+) {
+  setLoading(true);
+  try {
+    const res = await apiSend<{ ok: boolean; models?: string[]; message?: string }>(
+      "/api/settings/ai/models",
+      "POST",
+      { provider, apiKey: apiKey || undefined },
+    );
+    if (res.ok && res.models && res.models.length > 0) {
+      setModels(res.models);
+      setError(null);
+    } else {
+      setModels(null);
+      setError(res.message || "Não foi possível carregar a lista ao vivo.");
+    }
+  } catch (e) {
+    setModels(null);
+    setError(e instanceof Error ? e.message : "Falha ao carregar modelos.");
+  } finally {
+    setLoading(false);
+  }
+}
+
+export default function AiSettingsPage() {
+  const [cfg, setCfg] = useState<AiSettingsPublic | null>(null);
+  const [openaiEnabled, setOpenaiEnabled] = useState(false);
+  const [openaiKey, setOpenaiKey] = useState("");
+  const [openaiModel, setOpenaiModel] = useState(FALLBACK_OPENAI_MODELS[0]);
+  const [openaiModels, setOpenaiModels] = useState<string[] | null>(null);
+  const [openaiModelsLoading, setOpenaiModelsLoading] = useState(false);
+  const [openaiModelsError, setOpenaiModelsError] = useState<string | null>(null);
+  const [geminiEnabled, setGeminiEnabled] = useState(false);
+  const [geminiKey, setGeminiKey] = useState("");
+  const [geminiModel, setGeminiModel] = useState(FALLBACK_GEMINI_MODELS[0]);
+  const [geminiModels, setGeminiModels] = useState<string[] | null>(null);
+  const [geminiModelsLoading, setGeminiModelsLoading] = useState(false);
+  const [geminiModelsError, setGeminiModelsError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const openaiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const geminiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    apiGet<{ settings: AiSettingsPublic }>("/api/settings/ai")
+      .then((d) => {
+        setCfg(d.settings);
+        setOpenaiEnabled(d.settings.openai.enabled);
+        setOpenaiModel(d.settings.openai.model);
+        setGeminiEnabled(d.settings.gemini.enabled);
+        setGeminiModel(d.settings.gemini.model);
+        if (d.settings.openai.hasKey) {
+          fetchAiModels("openai", "", setOpenaiModels, setOpenaiModelsLoading, setOpenaiModelsError);
+        }
+        if (d.settings.gemini.hasKey) {
+          fetchAiModels("gemini", "", setGeminiModels, setGeminiModelsLoading, setGeminiModelsError);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Rebusca a lista com debounce enquanto o usuário digita uma chave nova.
+  useEffect(() => {
+    if (!openaiEnabled || !openaiKey.trim()) return;
+    if (openaiDebounceRef.current) clearTimeout(openaiDebounceRef.current);
+    openaiDebounceRef.current = setTimeout(() => {
+      fetchAiModels("openai", openaiKey, setOpenaiModels, setOpenaiModelsLoading, setOpenaiModelsError);
+    }, 600);
+    return () => {
+      if (openaiDebounceRef.current) clearTimeout(openaiDebounceRef.current);
+    };
+  }, [openaiKey, openaiEnabled]);
+
+  useEffect(() => {
+    if (!geminiEnabled || !geminiKey.trim()) return;
+    if (geminiDebounceRef.current) clearTimeout(geminiDebounceRef.current);
+    geminiDebounceRef.current = setTimeout(() => {
+      fetchAiModels("gemini", geminiKey, setGeminiModels, setGeminiModelsLoading, setGeminiModelsError);
+    }, 600);
+    return () => {
+      if (geminiDebounceRef.current) clearTimeout(geminiDebounceRef.current);
+    };
+  }, [geminiKey, geminiEnabled]);
+
+  const openaiList = openaiModels && openaiModels.length > 0 ? openaiModels : FALLBACK_OPENAI_MODELS;
+  const openaiOptions = openaiModel && !openaiList.includes(openaiModel) ? [openaiModel, ...openaiList] : openaiList;
+  const geminiList = geminiModels && geminiModels.length > 0 ? geminiModels : FALLBACK_GEMINI_MODELS;
+  const geminiOptions = geminiModel && !geminiList.includes(geminiModel) ? [geminiModel, ...geminiList] : geminiList;
+
+  async function save() {
+    setSaving(true);
+    setSaved(false);
+    try {
+      const { settings } = await apiSend<{ settings: AiSettingsPublic }>(
+        "/api/settings/ai",
+        "PATCH",
+        {
+          openai: { enabled: openaiEnabled, model: openaiModel, ...(openaiKey ? { apiKey: openaiKey } : {}) },
+          gemini: { enabled: geminiEnabled, model: geminiModel, ...(geminiKey ? { apiKey: geminiKey } : {}) },
+        },
+      );
+      setCfg(settings);
+      setOpenaiKey("");
+      setGeminiKey("");
+      setSaved(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl">
+      <BackToSettings />
+      <p className="eyebrow mt-4">inteligência artificial</p>
+      <h1 className="mt-1.5 font-display text-2xl font-semibold tracking-tight">Conexão com IA</h1>
+      <p className="mt-2 text-sm text-zinc-500">
+        Usada para gerar legendas e para montar o Cronograma automaticamente.
+        Ative um ou os dois provedores abaixo e cole a chave de API — ela fica
+        criptografada (AES-256) no servidor. Qual usar é escolhido na hora de
+        cada atividade, não há um provedor fixo.
+      </p>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {/* OpenAI */}
+        <div className="card p-4">
+          <label className="flex items-center justify-between">
+            <span className="font-medium text-white">OpenAI</span>
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-white"
+              checked={openaiEnabled}
+              onChange={(e) => {
+                setOpenaiEnabled(e.target.checked);
+                if (e.target.checked && openaiModels === null && !openaiModelsLoading) {
+                  fetchAiModels("openai", openaiKey, setOpenaiModels, setOpenaiModelsLoading, setOpenaiModelsError);
+                }
+              }}
+            />
+          </label>
+          {openaiEnabled && (
+            <>
+              <label className="eyebrow mb-1.5 mt-3 flex items-center justify-between">
+                <span>Modelo</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    fetchAiModels("openai", openaiKey, setOpenaiModels, setOpenaiModelsLoading, setOpenaiModelsError)
+                  }
+                  disabled={openaiModelsLoading}
+                  className="normal-case text-zinc-500 hover:text-white disabled:opacity-40"
+                  title="Atualizar lista de modelos"
+                >
+                  <IconRefresh size={13} />
+                </button>
+              </label>
+              {openaiModelsLoading ? (
+                <select className="input" disabled>
+                  <option>Carregando modelos…</option>
+                </select>
+              ) : (
+                <select className="input" value={openaiModel} onChange={(e) => setOpenaiModel(e.target.value)}>
+                  {openaiOptions.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {openaiModelsError && (
+                <p className="mt-1 text-[11px] text-amber-500">
+                  Não foi possível carregar a lista ao vivo — mostrando modelos padrão.
+                </p>
+              )}
+              <label className="eyebrow mb-1.5 mt-3 block">API key</label>
+              <input
+                className="input font-mono"
+                type="password"
+                placeholder={cfg?.openai.hasKey ? "•••••••• (em branco = manter)" : "sk-..."}
+                value={openaiKey}
+                onChange={(e) => setOpenaiKey(e.target.value)}
+              />
+              <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                platform.openai.com → api keys
+              </p>
+              <ConnectionBadge
+                testUrl="/api/settings/ai/test"
+                buildBody={() => ({ provider: "openai", apiKey: openaiKey || undefined })}
+              />
+            </>
+          )}
+        </div>
+
+        {/* Google Gemini */}
+        <div className="card p-4">
+          <label className="flex items-center justify-between">
+            <span className="font-medium text-white">Google Gemini</span>
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-white"
+              checked={geminiEnabled}
+              onChange={(e) => {
+                setGeminiEnabled(e.target.checked);
+                if (e.target.checked && geminiModels === null && !geminiModelsLoading) {
+                  fetchAiModels("gemini", geminiKey, setGeminiModels, setGeminiModelsLoading, setGeminiModelsError);
+                }
+              }}
+            />
+          </label>
+          {geminiEnabled && (
+            <>
+              <label className="eyebrow mb-1.5 mt-3 flex items-center justify-between">
+                <span>Modelo</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    fetchAiModels("gemini", geminiKey, setGeminiModels, setGeminiModelsLoading, setGeminiModelsError)
+                  }
+                  disabled={geminiModelsLoading}
+                  className="normal-case text-zinc-500 hover:text-white disabled:opacity-40"
+                  title="Atualizar lista de modelos"
+                >
+                  <IconRefresh size={13} />
+                </button>
+              </label>
+              {geminiModelsLoading ? (
+                <select className="input" disabled>
+                  <option>Carregando modelos…</option>
+                </select>
+              ) : (
+                <select className="input" value={geminiModel} onChange={(e) => setGeminiModel(e.target.value)}>
+                  {geminiOptions.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {geminiModelsError && (
+                <p className="mt-1 text-[11px] text-amber-500">
+                  Não foi possível carregar a lista ao vivo — mostrando modelos padrão.
+                </p>
+              )}
+              <label className="eyebrow mb-1.5 mt-3 block">API key</label>
+              <input
+                className="input font-mono"
+                type="password"
+                placeholder={cfg?.gemini.hasKey ? "•••••••• (em branco = manter)" : "AIza..."}
+                value={geminiKey}
+                onChange={(e) => setGeminiKey(e.target.value)}
+              />
+              <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                aistudio.google.com → get api key
+              </p>
+              <ConnectionBadge
+                testUrl="/api/settings/ai/test"
+                buildBody={() => ({ provider: "gemini", apiKey: geminiKey || undefined })}
+              />
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-3">
+        <button onClick={save} disabled={saving} className="btn-primary">
+          {saving ? "Salvando..." : "Salvar IA"}
+        </button>
+        {saved && (
+          <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
+            salvo ✓
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}

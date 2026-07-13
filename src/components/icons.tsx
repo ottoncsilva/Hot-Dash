@@ -254,3 +254,12 @@ export const IconUndo = (p: IconProps) => (
     <path d="M4 11h11a5 5 0 0 1 0 10h-2" />
   </Base>
 );
+
+export const IconRefresh = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+    <path d="M21 3v5h-5" />
+    <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+    <path d="M3 21v-5h5" />
+  </Base>
+);

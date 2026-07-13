@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
 import {
   IconChevronUp,
@@ -11,6 +11,7 @@ import {
   IconTag,
   IconTrash,
   IconPlus,
+  IconRefresh,
 } from "@/components/icons";
 import { NAV_ITEMS, normalizeMenu, type MenuEntry } from "@/lib/navItems";
 import type { AiSettingsPublic, GoogleSheetsSettingsPublic, PaymentSettingsPublic } from "@/lib/settings";
@@ -506,24 +507,63 @@ function FinanceSettingsCard() {
 }
 
 // ---- Conexão com IA (OpenAI / Google Gemini) ----
-const OPENAI_MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"];
-const GEMINI_MODELS = [
+// Usados só se a busca ao vivo (lista real de modelos do provedor) falhar.
+const FALLBACK_OPENAI_MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"];
+const FALLBACK_GEMINI_MODELS = [
   "gemini-2.0-flash",
   "gemini-2.0-flash-lite",
   "gemini-2.5-flash",
   "gemini-1.5-pro",
 ];
 
+/** Busca a lista de modelos ao vivo na API do provedor (nunca lança). */
+async function fetchAiModels(
+  provider: "openai" | "gemini",
+  apiKey: string,
+  setModels: (m: string[] | null) => void,
+  setLoading: (b: boolean) => void,
+  setError: (m: string | null) => void,
+) {
+  setLoading(true);
+  try {
+    const res = await apiSend<{ ok: boolean; models?: string[]; message?: string }>(
+      "/api/settings/ai/models",
+      "POST",
+      { provider, apiKey: apiKey || undefined },
+    );
+    if (res.ok && res.models && res.models.length > 0) {
+      setModels(res.models);
+      setError(null);
+    } else {
+      setModels(null);
+      setError(res.message || "Não foi possível carregar a lista ao vivo.");
+    }
+  } catch (e) {
+    setModels(null);
+    setError(e instanceof Error ? e.message : "Falha ao carregar modelos.");
+  } finally {
+    setLoading(false);
+  }
+}
+
 function AiSettings() {
   const [cfg, setCfg] = useState<AiSettingsPublic | null>(null);
   const [openaiEnabled, setOpenaiEnabled] = useState(false);
   const [openaiKey, setOpenaiKey] = useState("");
-  const [openaiModel, setOpenaiModel] = useState(OPENAI_MODELS[0]);
+  const [openaiModel, setOpenaiModel] = useState(FALLBACK_OPENAI_MODELS[0]);
+  const [openaiModels, setOpenaiModels] = useState<string[] | null>(null);
+  const [openaiModelsLoading, setOpenaiModelsLoading] = useState(false);
+  const [openaiModelsError, setOpenaiModelsError] = useState<string | null>(null);
   const [geminiEnabled, setGeminiEnabled] = useState(false);
   const [geminiKey, setGeminiKey] = useState("");
-  const [geminiModel, setGeminiModel] = useState(GEMINI_MODELS[0]);
+  const [geminiModel, setGeminiModel] = useState(FALLBACK_GEMINI_MODELS[0]);
+  const [geminiModels, setGeminiModels] = useState<string[] | null>(null);
+  const [geminiModelsLoading, setGeminiModelsLoading] = useState(false);
+  const [geminiModelsError, setGeminiModelsError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const openaiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const geminiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     apiGet<{ settings: AiSettingsPublic }>("/api/settings/ai")
@@ -533,9 +573,43 @@ function AiSettings() {
         setOpenaiModel(d.settings.openai.model);
         setGeminiEnabled(d.settings.gemini.enabled);
         setGeminiModel(d.settings.gemini.model);
+        if (d.settings.openai.hasKey) {
+          fetchAiModels("openai", "", setOpenaiModels, setOpenaiModelsLoading, setOpenaiModelsError);
+        }
+        if (d.settings.gemini.hasKey) {
+          fetchAiModels("gemini", "", setGeminiModels, setGeminiModelsLoading, setGeminiModelsError);
+        }
       })
       .catch(() => {});
   }, []);
+
+  // Rebusca a lista com debounce enquanto o usuário digita uma chave nova.
+  useEffect(() => {
+    if (!openaiEnabled || !openaiKey.trim()) return;
+    if (openaiDebounceRef.current) clearTimeout(openaiDebounceRef.current);
+    openaiDebounceRef.current = setTimeout(() => {
+      fetchAiModels("openai", openaiKey, setOpenaiModels, setOpenaiModelsLoading, setOpenaiModelsError);
+    }, 600);
+    return () => {
+      if (openaiDebounceRef.current) clearTimeout(openaiDebounceRef.current);
+    };
+  }, [openaiKey, openaiEnabled]);
+
+  useEffect(() => {
+    if (!geminiEnabled || !geminiKey.trim()) return;
+    if (geminiDebounceRef.current) clearTimeout(geminiDebounceRef.current);
+    geminiDebounceRef.current = setTimeout(() => {
+      fetchAiModels("gemini", geminiKey, setGeminiModels, setGeminiModelsLoading, setGeminiModelsError);
+    }, 600);
+    return () => {
+      if (geminiDebounceRef.current) clearTimeout(geminiDebounceRef.current);
+    };
+  }, [geminiKey, geminiEnabled]);
+
+  const openaiList = openaiModels && openaiModels.length > 0 ? openaiModels : FALLBACK_OPENAI_MODELS;
+  const openaiOptions = openaiModel && !openaiList.includes(openaiModel) ? [openaiModel, ...openaiList] : openaiList;
+  const geminiList = geminiModels && geminiModels.length > 0 ? geminiModels : FALLBACK_GEMINI_MODELS;
+  const geminiOptions = geminiModel && !geminiList.includes(geminiModel) ? [geminiModel, ...geminiList] : geminiList;
 
   async function save() {
     setSaving(true);
@@ -578,19 +652,48 @@ function AiSettings() {
               type="checkbox"
               className="h-4 w-4 accent-white"
               checked={openaiEnabled}
-              onChange={(e) => setOpenaiEnabled(e.target.checked)}
+              onChange={(e) => {
+                setOpenaiEnabled(e.target.checked);
+                if (e.target.checked && openaiModels === null && !openaiModelsLoading) {
+                  fetchAiModels("openai", openaiKey, setOpenaiModels, setOpenaiModelsLoading, setOpenaiModelsError);
+                }
+              }}
             />
           </label>
           {openaiEnabled && (
             <>
-              <label className="eyebrow mb-1.5 mt-3 block">Modelo</label>
-              <select className="input" value={openaiModel} onChange={(e) => setOpenaiModel(e.target.value)}>
-                {OPENAI_MODELS.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+              <label className="eyebrow mb-1.5 mt-3 flex items-center justify-between">
+                <span>Modelo</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    fetchAiModels("openai", openaiKey, setOpenaiModels, setOpenaiModelsLoading, setOpenaiModelsError)
+                  }
+                  disabled={openaiModelsLoading}
+                  className="normal-case text-zinc-500 hover:text-white disabled:opacity-40"
+                  title="Atualizar lista de modelos"
+                >
+                  <IconRefresh size={13} />
+                </button>
+              </label>
+              {openaiModelsLoading ? (
+                <select className="input" disabled>
+                  <option>Carregando modelos…</option>
+                </select>
+              ) : (
+                <select className="input" value={openaiModel} onChange={(e) => setOpenaiModel(e.target.value)}>
+                  {openaiOptions.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {openaiModelsError && (
+                <p className="mt-1 text-[11px] text-amber-500">
+                  Não foi possível carregar a lista ao vivo — mostrando modelos padrão.
+                </p>
+              )}
               <label className="eyebrow mb-1.5 mt-3 block">API key</label>
               <input
                 className="input font-mono"
@@ -618,19 +721,48 @@ function AiSettings() {
               type="checkbox"
               className="h-4 w-4 accent-white"
               checked={geminiEnabled}
-              onChange={(e) => setGeminiEnabled(e.target.checked)}
+              onChange={(e) => {
+                setGeminiEnabled(e.target.checked);
+                if (e.target.checked && geminiModels === null && !geminiModelsLoading) {
+                  fetchAiModels("gemini", geminiKey, setGeminiModels, setGeminiModelsLoading, setGeminiModelsError);
+                }
+              }}
             />
           </label>
           {geminiEnabled && (
             <>
-              <label className="eyebrow mb-1.5 mt-3 block">Modelo</label>
-              <select className="input" value={geminiModel} onChange={(e) => setGeminiModel(e.target.value)}>
-                {GEMINI_MODELS.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+              <label className="eyebrow mb-1.5 mt-3 flex items-center justify-between">
+                <span>Modelo</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    fetchAiModels("gemini", geminiKey, setGeminiModels, setGeminiModelsLoading, setGeminiModelsError)
+                  }
+                  disabled={geminiModelsLoading}
+                  className="normal-case text-zinc-500 hover:text-white disabled:opacity-40"
+                  title="Atualizar lista de modelos"
+                >
+                  <IconRefresh size={13} />
+                </button>
+              </label>
+              {geminiModelsLoading ? (
+                <select className="input" disabled>
+                  <option>Carregando modelos…</option>
+                </select>
+              ) : (
+                <select className="input" value={geminiModel} onChange={(e) => setGeminiModel(e.target.value)}>
+                  {geminiOptions.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {geminiModelsError && (
+                <p className="mt-1 text-[11px] text-amber-500">
+                  Não foi possível carregar a lista ao vivo — mostrando modelos padrão.
+                </p>
+              )}
               <label className="eyebrow mb-1.5 mt-3 block">API key</label>
               <input
                 className="input font-mono"

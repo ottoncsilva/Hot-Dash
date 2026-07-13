@@ -146,3 +146,84 @@ export async function testAiProviderKey(
     return { ok: false, message: e instanceof Error ? e.message : "falha de rede" };
   }
 }
+
+// Prefixos de modelos de chat/completions da OpenAI (a API não expõe um
+// campo de capacidade, então o filtro é por prefixo + exclusão de variantes
+// não usáveis aqui — áudio, transcrição, embeddings, imagem, etc).
+const OPENAI_CHAT_PREFIXES = ["gpt-", "o1", "o3", "o4", "chatgpt-"];
+const OPENAI_DENYLIST_SUBSTRINGS = [
+  "audio",
+  "realtime",
+  "transcribe",
+  "search",
+  "instruct",
+  "moderation",
+  "embedding",
+  "image",
+  "computer-use",
+  "tts",
+  "whisper",
+  "dall-e",
+];
+
+function filterOpenAiChatModels(raw: { id: string; created?: number }[]): string[] {
+  return raw
+    .filter((m) => typeof m.id === "string")
+    .filter((m) => OPENAI_CHAT_PREFIXES.some((p) => m.id.startsWith(p)))
+    .filter((m) => !OPENAI_DENYLIST_SUBSTRINGS.some((s) => m.id.includes(s)))
+    .sort((a, b) => (b.created ?? 0) - (a.created ?? 0))
+    .map((m) => m.id);
+}
+
+/** Extrai a primeira versão numérica do id (ex.: "gemini-2.5-flash" -> 2.5) para ordenar. */
+function extractVersion(id: string): number {
+  const m = id.match(/(\d+(?:\.\d+)?)/);
+  return m ? parseFloat(m[1]) : 0;
+}
+
+function filterGeminiChatModels(
+  raw: { name: string; supportedGenerationMethods?: string[] }[],
+): string[] {
+  return raw
+    .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
+    .map((m) => m.name.replace(/^models\//, ""))
+    .sort((a, b) => extractVersion(b) - extractVersion(a));
+}
+
+/**
+ * Lista os modelos de chat/geração disponíveis para a chave informada.
+ * Nunca lança — sempre resolve com {ok:false, message} em caso de erro,
+ * para o caller poder cair no fallback estático com segurança.
+ */
+export async function listAiModels(
+  provider: AiProvider,
+  apiKey: string,
+): Promise<{ ok: boolean; models?: string[]; message?: string }> {
+  try {
+    if (provider === "openai") {
+      const res = await fetch("https://api.openai.com/v1/models", {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok) {
+        const msg = ((data.error as Record<string, unknown>)?.message as string) || `erro ${res.status}`;
+        return { ok: false, message: msg };
+      }
+      const raw = (data.data as { id: string; created?: number }[]) || [];
+      return { ok: true, models: filterOpenAiChatModels(raw) };
+    }
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
+    );
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      const msg = ((data.error as Record<string, unknown>)?.message as string) || `erro ${res.status}`;
+      return { ok: false, message: msg };
+    }
+    const raw = (data.models as { name: string; supportedGenerationMethods?: string[] }[]) || [];
+    return { ok: true, models: filterGeminiChatModels(raw) };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "falha de rede" };
+  }
+}

@@ -19,6 +19,8 @@ import {
   IconPayments,
   IconSettings,
   IconLogout,
+  IconChevronDown,
+  IconChevronUp,
 } from "@/components/icons";
 
 const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
@@ -29,6 +31,16 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   payments: IconPayments,
   settings: IconSettings,
 };
+
+// Submenu de Configurações — abre dentro da própria sidebar (desktop).
+const SETTINGS_SUBSECTIONS: { label: string; anchor: string }[] = [
+  { label: "Menu", anchor: "menu" },
+  { label: "Etiquetas", anchor: "etiquetas" },
+  { label: "Pagamentos", anchor: "pagamentos" },
+  { label: "Conexão com IA", anchor: "ia" },
+  { label: "Google Sheets", anchor: "google-sheets" },
+  { label: "Segurança", anchor: "seguranca" },
+];
 
 export default function DashboardLayout({
   children,
@@ -41,10 +53,15 @@ export default function DashboardLayout({
   const [menu, setMenu] = useState<MenuEntry[]>(
     normalizeMenu(DEFAULT_MENU_ORDER.map((key) => ({ key, hidden: false }))),
   );
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
   }, [user, loading, router]);
+
+  useEffect(() => {
+    if (pathname?.startsWith("/dashboard/settings")) setSettingsOpen(true);
+  }, [pathname]);
 
   useEffect(() => {
     fetch("/api/settings/menu")
@@ -78,6 +95,46 @@ export default function DashboardLayout({
             const item = NAV_ITEMS[key];
             const Icon = ICONS[key];
             const active = isActive(item.href);
+
+            if (key === "settings") {
+              return (
+                <div key={key}>
+                  <div
+                    className={`group flex items-center gap-3 rounded-lg pl-3 pr-1 text-sm transition-all ${
+                      active
+                        ? "bg-white/[0.06] text-white"
+                        : "text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-200"
+                    }`}
+                  >
+                    <Link href={item.href} className="flex flex-1 items-center gap-3 py-2.5">
+                      <Icon size={18} />
+                      <span className="font-medium">{item.label}</span>
+                    </Link>
+                    <button
+                      onClick={() => setSettingsOpen((v) => !v)}
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg hover:bg-white/[0.06]"
+                      aria-label={settingsOpen ? "Recolher" : "Expandir"}
+                    >
+                      {settingsOpen ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+                    </button>
+                  </div>
+                  {settingsOpen && (
+                    <div className="ml-4 mt-0.5 flex flex-col gap-0.5 border-l border-white/[0.06] pl-4">
+                      {SETTINGS_SUBSECTIONS.map((s) => (
+                        <Link
+                          key={s.anchor}
+                          href={`${item.href}#${s.anchor}`}
+                          className="rounded-lg px-2 py-2 text-xs text-zinc-500 transition-all hover:bg-white/[0.03] hover:text-zinc-200"
+                        >
+                          {s.label}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
             return (
               <Link
                 key={key}
@@ -113,12 +170,12 @@ export default function DashboardLayout({
       </header>
 
       {/* Conteúdo */}
-      <main className="flex-1 px-4 py-6 md:px-10 md:py-10">
+      <main className="flex-1 px-4 pb-24 pt-6 md:px-10 md:py-10">
         <div className="animate-fade-in">{children}</div>
       </main>
 
       {/* Nav inferior (mobile) */}
-      <nav className="sticky bottom-0 z-30 grid grid-flow-col border-t border-white/[0.06] bg-ink-950/90 backdrop-blur-xl safe-bottom md:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 z-30 grid grid-flow-col border-t border-white/[0.06] bg-ink-950/90 backdrop-blur-xl safe-bottom md:hidden">
         {visible.map(({ key }) => {
           const item = NAV_ITEMS[key];
           const Icon = ICONS[key];

@@ -142,7 +142,7 @@ export default function ProfileDetailPage() {
         href="/dashboard/profiles"
         className="inline-flex items-center gap-1.5 text-sm text-zinc-500 transition-colors hover:text-zinc-200"
       >
-        <IconArrowLeft size={16} /> Perfis
+        <IconArrowLeft size={16} /> Modelos
       </Link>
 
       {error && (

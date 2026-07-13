@@ -1,5 +1,6 @@
 import "server-only";
 import { callAiRaw } from "./ai";
+import type { AiProvider } from "./settings";
 import { NETWORK_LABELS, type SocialNetwork } from "./types";
 import type { SlotInstance } from "./scheduleTemplate";
 
@@ -14,6 +15,7 @@ export type MediaCandidate = {
 };
 
 export type ScheduleAiInput = {
+  provider: AiProvider;
   profileName: string;
   profileNotes?: string;
   slots: SlotInstance[];
@@ -218,7 +220,7 @@ function fillGaps(
 export async function generateSchedulePlan(input: ScheduleAiInput): Promise<ScheduleProposal[]> {
   if (input.slots.length === 0) return [];
   const prompt = buildSchedulePrompt(input);
-  const raw = await callAiRaw(prompt, { json: true, maxTokens: 4000 });
+  const raw = await callAiRaw(prompt, input.provider, { json: true, maxTokens: 4000 });
   const validated = parseAndValidate(raw, input);
   return fillGaps(input, validated);
 }

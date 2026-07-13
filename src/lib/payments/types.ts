@@ -52,7 +52,7 @@ export type BalanceResult = {
 };
 
 export interface PaymentProvider {
-  readonly key: "syncpay" | "stripe";
+  readonly key: "syncpay";
   /** Cria uma cobrança PIX (ou o método padrão do provedor). */
   createPixCharge(input: ChargeInput): Promise<ChargeResult>;
   /** Saldo disponível na conta do provedor (quando suportado). */

@@ -40,22 +40,17 @@ export function setMenu(menu: MenuEntry[]): MenuEntry[] {
 }
 
 // ---- Configuração de pagamentos ----
-export type PaymentProviderKey = "syncpay" | "stripe";
-
 export type PaymentSettingsPublic = {
   syncpay: { enabled: boolean; hasSecret: boolean; clientId: string };
-  stripe: { enabled: boolean; hasSecret: boolean; publishableKey: string };
 };
 
 type PaymentSettingsStored = {
   syncpay: { enabled: boolean; clientId?: string; clientSecretEnc?: string };
-  stripe: { enabled: boolean; secretKeyEnc?: string; publishableKey?: string };
 };
 
 function rawPayments(): PaymentSettingsStored {
   return getJson<PaymentSettingsStored>("payments", {
     syncpay: { enabled: false },
-    stripe: { enabled: false },
   });
 }
 
@@ -68,26 +63,7 @@ export function getPaymentSettingsPublic(): PaymentSettingsPublic {
       hasSecret: Boolean(s.syncpay?.clientId && s.syncpay?.clientSecretEnc),
       clientId: s.syncpay?.clientId || "",
     },
-    stripe: {
-      enabled: Boolean(s.stripe?.enabled),
-      hasSecret: Boolean(s.stripe?.secretKeyEnc),
-      publishableKey: s.stripe?.publishableKey || "",
-    },
   };
-}
-
-/** Segredo descriptografado da Stripe (uso server-side apenas). */
-export function getProviderSecret(
-  provider: Extract<PaymentProviderKey, "stripe">,
-): string | null {
-  const s = rawPayments();
-  const enc = provider === "stripe" ? s.stripe?.secretKeyEnc : undefined;
-  if (!enc) return null;
-  try {
-    return decryptSecret(enc);
-  } catch {
-    return null;
-  }
 }
 
 /** Credenciais descriptografadas da SyncPay (uso server-side apenas). */
@@ -109,7 +85,6 @@ export function getSyncPayCredentials(): {
 
 export function updatePaymentSettings(patch: {
   syncpay?: { enabled?: boolean; clientId?: string; clientSecret?: string };
-  stripe?: { enabled?: boolean; secretKey?: string; publishableKey?: string };
 }): PaymentSettingsPublic {
   const s = rawPayments();
 
@@ -121,17 +96,6 @@ export function updatePaymentSettings(patch: {
     if (patch.syncpay.clientSecret !== undefined) {
       s.syncpay.clientSecretEnc = patch.syncpay.clientSecret
         ? encryptSecret(patch.syncpay.clientSecret)
-        : undefined;
-    }
-  }
-  if (patch.stripe) {
-    if (patch.stripe.enabled !== undefined)
-      s.stripe.enabled = patch.stripe.enabled;
-    if (patch.stripe.publishableKey !== undefined)
-      s.stripe.publishableKey = patch.stripe.publishableKey;
-    if (patch.stripe.secretKey !== undefined) {
-      s.stripe.secretKeyEnc = patch.stripe.secretKey
-        ? encryptSecret(patch.stripe.secretKey)
         : undefined;
     }
   }
@@ -169,24 +133,17 @@ export function updateFinanceSettings(
   return next;
 }
 
-// ---- IA para geração de legendas (OpenAI / Google Gemini) ----
+// ---- IA (OpenAI / Google Gemini) — usada no gerador de legendas e no
+// gerador de cronograma. Cada provedor é independente (ativado + chave +
+// modelo próprios); qual usar é escolhido na hora de cada atividade, não
+// há mais um "provedor ativo" fixo aqui. ----
 export type AiProvider = "openai" | "gemini";
 
-export type AiSettingsPublic = {
-  provider: AiProvider;
-  openaiModel: string;
-  geminiModel: string;
-  hasOpenaiKey: boolean;
-  hasGeminiKey: boolean;
-};
+export type AiProviderPublic = { enabled: boolean; hasKey: boolean; model: string };
+export type AiSettingsPublic = { openai: AiProviderPublic; gemini: AiProviderPublic };
 
-type AiSettingsStored = {
-  provider: AiProvider;
-  openaiKeyEnc?: string;
-  geminiKeyEnc?: string;
-  openaiModel?: string;
-  geminiModel?: string;
-};
+type AiProviderStored = { enabled: boolean; apiKeyEnc?: string; model?: string };
+type AiSettingsStored = { openai?: AiProviderStored; gemini?: AiProviderStored };
 
 export const DEFAULT_AI_MODELS: Record<AiProvider, string> = {
   openai: "gpt-4o-mini",
@@ -194,58 +151,67 @@ export const DEFAULT_AI_MODELS: Record<AiProvider, string> = {
 };
 
 function rawAi(): AiSettingsStored {
-  return getJson<AiSettingsStored>("ai", { provider: "openai" });
+  return getJson<AiSettingsStored>("ai", {});
+}
+
+function providerToPublic(p: AiProviderStored | undefined, provider: AiProvider): AiProviderPublic {
+  return {
+    enabled: Boolean(p?.enabled),
+    hasKey: Boolean(p?.apiKeyEnc),
+    model: p?.model || DEFAULT_AI_MODELS[provider],
+  };
 }
 
 export function getAiSettingsPublic(): AiSettingsPublic {
   const s = rawAi();
   return {
-    provider: s.provider === "gemini" ? "gemini" : "openai",
-    openaiModel: s.openaiModel || DEFAULT_AI_MODELS.openai,
-    geminiModel: s.geminiModel || DEFAULT_AI_MODELS.gemini,
-    hasOpenaiKey: Boolean(s.openaiKeyEnc),
-    hasGeminiKey: Boolean(s.geminiKeyEnc),
+    openai: providerToPublic(s.openai, "openai"),
+    gemini: providerToPublic(s.gemini, "gemini"),
   };
 }
 
-/** Credenciais do provedor ATIVO, descriptografadas (server-side apenas). */
-export function getAiCredentials(): {
-  provider: AiProvider;
-  apiKey: string;
-  model: string;
-} | null {
+/** Credenciais do provedor pedido, descriptografadas (server-side apenas). */
+export function getAiCredentials(provider: AiProvider): { apiKey: string; model: string } | null {
   const s = rawAi();
-  const provider: AiProvider = s.provider === "gemini" ? "gemini" : "openai";
-  const enc = provider === "gemini" ? s.geminiKeyEnc : s.openaiKeyEnc;
-  if (!enc) return null;
+  const p = provider === "openai" ? s.openai : s.gemini;
+  if (!p?.enabled || !p.apiKeyEnc) return null;
   try {
-    const model =
-      (provider === "gemini" ? s.geminiModel : s.openaiModel) ||
-      DEFAULT_AI_MODELS[provider];
-    return { provider, apiKey: decryptSecret(enc), model };
+    return { apiKey: decryptSecret(p.apiKeyEnc), model: p.model || DEFAULT_AI_MODELS[provider] };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Chave descriptografada de um provedor independente do checkbox "ativado"
+ * — usada só para testar a conexão antes mesmo de ativar/salvar.
+ */
+export function getAiKeyForTest(provider: AiProvider): string | null {
+  const s = rawAi();
+  const p = provider === "openai" ? s.openai : s.gemini;
+  if (!p?.apiKeyEnc) return null;
+  try {
+    return decryptSecret(p.apiKeyEnc);
   } catch {
     return null;
   }
 }
 
 export function updateAiSettings(patch: {
-  provider?: AiProvider;
-  openaiKey?: string;
-  geminiKey?: string;
-  openaiModel?: string;
-  geminiModel?: string;
+  openai?: { enabled?: boolean; apiKey?: string; model?: string };
+  gemini?: { enabled?: boolean; apiKey?: string; model?: string };
 }): AiSettingsPublic {
   const s = rawAi();
-  if (patch.provider === "openai" || patch.provider === "gemini") {
-    s.provider = patch.provider;
-  }
-  if (patch.openaiModel !== undefined) s.openaiModel = patch.openaiModel.trim();
-  if (patch.geminiModel !== undefined) s.geminiModel = patch.geminiModel.trim();
-  if (patch.openaiKey !== undefined) {
-    s.openaiKeyEnc = patch.openaiKey ? encryptSecret(patch.openaiKey) : undefined;
-  }
-  if (patch.geminiKey !== undefined) {
-    s.geminiKeyEnc = patch.geminiKey ? encryptSecret(patch.geminiKey) : undefined;
+  for (const provider of ["openai", "gemini"] as const) {
+    const p = patch[provider];
+    if (!p) continue;
+    const cur: AiProviderStored = s[provider] || { enabled: false };
+    if (p.enabled !== undefined) cur.enabled = p.enabled;
+    if (p.model !== undefined) cur.model = p.model.trim();
+    if (p.apiKey !== undefined) {
+      cur.apiKeyEnc = p.apiKey ? encryptSecret(p.apiKey) : undefined;
+    }
+    s[provider] = cur;
   }
   setJson("ai", s);
   return getAiSettingsPublic();

@@ -1,15 +1,16 @@
 import "server-only";
-import { getAiCredentials } from "./settings";
+import { getAiCredentials, type AiProvider } from "./settings";
 import { NETWORK_LABELS, type SocialNetwork } from "./types";
 
 /**
  * Gerador de legendas por IA, sem SDKs (REST puro via fetch), no mesmo
  * espírito de googleSheets.ts/syncpay.ts. O provedor (OpenAI ou Google
- * Gemini), o modelo e a chave vêm das Configurações — a chave fica
- * criptografada (AES-256) no banco.
+ * Gemini) é escolhido pelo usuário na hora de cada atividade — o modelo e a
+ * chave vêm das Configurações — a chave fica criptografada (AES-256) no banco.
  */
 
 export type CaptionRequest = {
+  provider: AiProvider;
   networks: { network: SocialNetwork; postType: string }[];
   profileName: string;
   profileNotes?: string;
@@ -37,28 +38,30 @@ function buildPrompt(req: CaptionRequest): string {
 }
 
 export async function generateCaption(req: CaptionRequest): Promise<string> {
-  return (await callAiRaw(buildPrompt(req))).trim();
+  return (await callAiRaw(buildPrompt(req), req.provider)).trim();
 }
 
 /**
- * Chama o provedor de IA configurado (OpenAI ou Google Gemini) e devolve o
- * texto bruto da resposta. Compartilhado entre o gerador de legenda e o
- * gerador de cronograma — cada um monta seu próprio prompt e interpreta a
- * resposta do seu jeito (texto livre vs. JSON estruturado).
+ * Chama o provedor de IA pedido (OpenAI ou Google Gemini) e devolve o texto
+ * bruto da resposta. Compartilhado entre o gerador de legenda e o gerador de
+ * cronograma — cada um monta seu próprio prompt e interpreta a resposta do
+ * seu jeito (texto livre vs. JSON estruturado).
  */
 export async function callAiRaw(
   prompt: string,
+  provider: AiProvider,
   opts?: { json?: boolean; maxTokens?: number },
 ): Promise<string> {
-  const creds = getAiCredentials();
+  const creds = getAiCredentials(provider);
   if (!creds) {
+    const label = provider === "openai" ? "OpenAI" : "Google Gemini";
     throw new Error(
-      "IA não configurada: informe a chave de API (OpenAI ou Google Gemini) em Configurações.",
+      `${label} não está conectado: ative e cole a chave de API em Configurações → Conexão com IA.`,
     );
   }
   const maxTokens = opts?.maxTokens ?? 500;
 
-  if (creds.provider === "openai") {
+  if (provider === "openai") {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -112,4 +115,34 @@ export async function callAiRaw(
   )?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error("Gemini não retornou texto.");
   return text;
+}
+
+/**
+ * Testa uma chave de API contra o provedor, sem gerar nenhum conteúdo —
+ * só confirma que a chave é válida (chamada leve de listagem de modelos).
+ */
+export async function testAiProviderKey(
+  provider: AiProvider,
+  apiKey: string,
+): Promise<{ ok: boolean; message?: string }> {
+  try {
+    if (provider === "openai") {
+      const res = await fetch("https://api.openai.com/v1/models", {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (res.ok) return { ok: true };
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      const msg = ((data.error as Record<string, unknown>)?.message as string) || `erro ${res.status}`;
+      return { ok: false, message: msg };
+    }
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
+    );
+    if (res.ok) return { ok: true };
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const msg = ((data.error as Record<string, unknown>)?.message as string) || `erro ${res.status}`;
+    return { ok: false, message: msg };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "falha de rede" };
+  }
 }

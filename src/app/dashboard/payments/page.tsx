@@ -50,7 +50,7 @@ export default function PaymentsPage() {
     load();
   }, []);
 
-  const anyProvider = data?.providers.syncpay.enabled || data?.providers.stripe.enabled;
+  const anyProvider = data?.providers.syncpay.enabled;
 
   const filteredTransactions = useMemo(() => {
     if (!data) return [];

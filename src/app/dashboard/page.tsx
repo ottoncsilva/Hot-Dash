@@ -98,7 +98,7 @@ export default function DashboardHome() {
   const profileCount = profiles?.length ?? null;
   const accountCount = profiles?.reduce((n, p) => n + p.accounts.length, 0) ?? null;
 
-  const anyProvider = data?.providers.syncpay.enabled || data?.providers.stripe.enabled;
+  const anyProvider = data?.providers.syncpay.enabled;
   const stats: PeriodStats | undefined = data?.overview[period];
   const finance = data?.finance;
 
@@ -255,7 +255,7 @@ export default function DashboardHome() {
       {/* Operação */}
       <p className="eyebrow mt-10">operação</p>
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <Stat label="Perfis" value={profileCount} />
+        <Stat label="Modelos" value={profileCount} />
         <Stat label="Contas sociais" value={accountCount} />
         <ModuleLink
           href="/dashboard/metadata"

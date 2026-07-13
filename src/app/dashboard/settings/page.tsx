@@ -13,7 +13,7 @@ import {
   IconPlus,
 } from "@/components/icons";
 import { NAV_ITEMS, normalizeMenu, type MenuEntry } from "@/lib/navItems";
-import type { GoogleSheetsSettingsPublic, PaymentSettingsPublic } from "@/lib/settings";
+import type { AiSettingsPublic, GoogleSheetsSettingsPublic, PaymentSettingsPublic } from "@/lib/settings";
 import { TAG_COLORS, type Tag } from "@/lib/types";
 import { useConfirm } from "@/hooks/useConfirm";
 
@@ -34,6 +34,65 @@ export default function SettingsPage() {
       <AiSettings />
       <GoogleSheetsSettings />
       <SecurityNote />
+    </div>
+  );
+}
+
+/** Botão "Testar conexão" + luz de status (usado por SyncPay e por cada provedor de IA). */
+function ConnectionBadge({
+  testUrl,
+  buildBody,
+}: {
+  testUrl: string;
+  buildBody: () => Record<string, unknown>;
+}) {
+  const [status, setStatus] = useState<"idle" | "testing" | "connected" | "error">("idle");
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function test() {
+    setStatus("testing");
+    setMessage(null);
+    try {
+      const res = await apiSend<{ connected: boolean; message?: string }>(testUrl, "POST", buildBody());
+      if (res.connected) {
+        setStatus("connected");
+      } else {
+        setStatus("error");
+        setMessage(res.message || "Não foi possível conectar.");
+      }
+    } catch (e) {
+      setStatus("error");
+      setMessage(e instanceof Error ? e.message : "Falha ao testar.");
+    }
+  }
+
+  const dotClass =
+    status === "connected" ? "bg-emerald-400" : status === "error" ? "bg-red-400" : "bg-zinc-600";
+  const textClass =
+    status === "connected" ? "text-emerald-400" : status === "error" ? "text-red-400" : "text-zinc-500";
+  const label =
+    status === "connected"
+      ? "Conectado"
+      : status === "error"
+        ? message || "Falha na conexão"
+        : status === "testing"
+          ? "Testando..."
+          : "Não testado";
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        onClick={test}
+        disabled={status === "testing"}
+        className="btn-ghost px-3 py-1.5 text-xs"
+      >
+        {status === "testing" ? "Testando..." : "Testar conexão"}
+      </button>
+      <span className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider">
+        <span className={`h-2 w-2 rounded-full ${dotClass}`} />
+        <span className={textClass}>{label}</span>
+      </span>
     </div>
   );
 }
@@ -76,7 +135,7 @@ function MenuSettings() {
   }
 
   return (
-    <section className="mt-8">
+    <section id="menu" className="mt-8 scroll-mt-20">
       <p className="eyebrow">menu</p>
       <h2 className="mt-1.5 font-display text-lg font-semibold">Ordem do menu</h2>
       <p className="mt-1 text-sm text-zinc-500">
@@ -186,7 +245,7 @@ function TagSettings() {
   }
 
   return (
-    <section className="mt-10">
+    <section id="etiquetas" className="mt-10 scroll-mt-20">
       <p className="eyebrow">organização</p>
       <h2 className="mt-1.5 flex items-center gap-2 font-display text-lg font-semibold">
         <IconTag size={18} /> Etiquetas
@@ -268,9 +327,6 @@ function PaymentSettings() {
   const [syncEnabled, setSyncEnabled] = useState(false);
   const [syncClientId, setSyncClientId] = useState("");
   const [syncClientSecret, setSyncClientSecret] = useState("");
-  const [stripeEnabled, setStripeEnabled] = useState(false);
-  const [stripeSecret, setStripeSecret] = useState("");
-  const [stripePub, setStripePub] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -280,8 +336,6 @@ function PaymentSettings() {
         setCfg(d.settings);
         setSyncEnabled(d.settings.syncpay.enabled);
         setSyncClientId(d.settings.syncpay.clientId);
-        setStripeEnabled(d.settings.stripe.enabled);
-        setStripePub(d.settings.stripe.publishableKey);
       })
       .catch(() => {});
   }, []);
@@ -299,16 +353,10 @@ function PaymentSettings() {
             clientId: syncClientId,
             ...(syncClientSecret ? { clientSecret: syncClientSecret } : {}),
           },
-          stripe: {
-            enabled: stripeEnabled,
-            publishableKey: stripePub,
-            ...(stripeSecret ? { secretKey: stripeSecret } : {}),
-          },
         },
       );
       setCfg(settings);
       setSyncClientSecret("");
-      setStripeSecret("");
       setSaved(true);
     } finally {
       setSaving(false);
@@ -356,37 +404,12 @@ function PaymentSettings() {
         <p className="mt-1.5 flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
           <IconLock size={12} /> obtenha em app.syncpayments.com.br → developer api
         </p>
-      </div>
-
-      {/* Stripe */}
-      <div className="mt-3 card p-4">
-        <label className="flex items-center justify-between">
-          <span className="font-medium text-white">Stripe</span>
-          <input
-            type="checkbox"
-            className="h-4 w-4 accent-white"
-            checked={stripeEnabled}
-            onChange={(e) => setStripeEnabled(e.target.checked)}
-          />
-        </label>
-        <label className="eyebrow mb-1.5 mt-3 block">Secret key (sk_...)</label>
-        <input
-          className="input font-mono"
-          type="password"
-          placeholder={
-            cfg?.stripe.hasSecret ? "•••••••• (em branco = manter)" : "sk_live_..."
-          }
-          value={stripeSecret}
-          onChange={(e) => setStripeSecret(e.target.value)}
-        />
-        <label className="eyebrow mb-1.5 mt-3 block">
-          Publishable key (pk_...)
-        </label>
-        <input
-          className="input font-mono"
-          placeholder="pk_live_..."
-          value={stripePub}
-          onChange={(e) => setStripePub(e.target.value)}
+        <ConnectionBadge
+          testUrl="/api/payments/settings/test"
+          buildBody={() => ({
+            clientId: syncClientId || undefined,
+            clientSecret: syncClientSecret || undefined,
+          })}
         />
       </div>
 
@@ -482,7 +505,7 @@ function FinanceSettingsCard() {
   );
 }
 
-// ---- IA para legendas (OpenAI / Google Gemini) ----
+// ---- Conexão com IA (OpenAI / Google Gemini) ----
 const OPENAI_MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"];
 const GEMINI_MODELS = [
   "gemini-2.0-flash",
@@ -492,46 +515,38 @@ const GEMINI_MODELS = [
 ];
 
 function AiSettings() {
-  const [cfg, setCfg] = useState<{
-    provider: "openai" | "gemini";
-    openaiModel: string;
-    geminiModel: string;
-    hasOpenaiKey: boolean;
-    hasGeminiKey: boolean;
-  } | null>(null);
-  const [provider, setProvider] = useState<"openai" | "gemini">("openai");
+  const [cfg, setCfg] = useState<AiSettingsPublic | null>(null);
+  const [openaiEnabled, setOpenaiEnabled] = useState(false);
   const [openaiKey, setOpenaiKey] = useState("");
-  const [geminiKey, setGeminiKey] = useState("");
   const [openaiModel, setOpenaiModel] = useState(OPENAI_MODELS[0]);
+  const [geminiEnabled, setGeminiEnabled] = useState(false);
+  const [geminiKey, setGeminiKey] = useState("");
   const [geminiModel, setGeminiModel] = useState(GEMINI_MODELS[0]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    apiGet<{ settings: NonNullable<typeof cfg> }>("/api/settings/ai")
+    apiGet<{ settings: AiSettingsPublic }>("/api/settings/ai")
       .then((d) => {
         setCfg(d.settings);
-        setProvider(d.settings.provider);
-        setOpenaiModel(d.settings.openaiModel);
-        setGeminiModel(d.settings.geminiModel);
+        setOpenaiEnabled(d.settings.openai.enabled);
+        setOpenaiModel(d.settings.openai.model);
+        setGeminiEnabled(d.settings.gemini.enabled);
+        setGeminiModel(d.settings.gemini.model);
       })
       .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function save() {
     setSaving(true);
     setSaved(false);
     try {
-      const { settings } = await apiSend<{ settings: NonNullable<typeof cfg> }>(
+      const { settings } = await apiSend<{ settings: AiSettingsPublic }>(
         "/api/settings/ai",
         "PATCH",
         {
-          provider,
-          openaiModel,
-          geminiModel,
-          ...(openaiKey ? { openaiKey } : {}),
-          ...(geminiKey ? { geminiKey } : {}),
+          openai: { enabled: openaiEnabled, model: openaiModel, ...(openaiKey ? { apiKey: openaiKey } : {}) },
+          gemini: { enabled: geminiEnabled, model: geminiModel, ...(geminiKey ? { apiKey: geminiKey } : {}) },
         },
       );
       setCfg(settings);
@@ -546,71 +561,93 @@ function AiSettings() {
   return (
     <section id="ia" className="mt-10 scroll-mt-20">
       <p className="eyebrow">inteligência artificial</p>
-      <h2 className="mt-1.5 font-display text-lg font-semibold">
-        Gerador de legendas
-      </h2>
+      <h2 className="mt-1.5 font-display text-lg font-semibold">Conexão com IA</h2>
       <p className="mt-1 text-sm text-zinc-500">
-        Usado no Cronograma para escrever legendas na voz de cada personagem.
-        Escolha o provedor, o modelo e cole a chave de API — ela fica
-        criptografada (AES-256) no servidor.
+        Usada para gerar legendas e para montar o Cronograma automaticamente.
+        Ative um ou os dois provedores abaixo e cole a chave de API — ela fica
+        criptografada (AES-256) no servidor. Qual usar é escolhido na hora de
+        cada atividade, não há um provedor fixo.
       </p>
 
-      <div className="mt-4 card p-4">
-        <label className="eyebrow mb-1.5 block">Provedor ativo</label>
-        <select
-          className="input"
-          value={provider}
-          onChange={(e) => setProvider(e.target.value as "openai" | "gemini")}
-        >
-          <option value="openai">OpenAI (ChatGPT)</option>
-          <option value="gemini">Google Gemini</option>
-        </select>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {/* OpenAI */}
+        <div className="card p-4">
+          <label className="flex items-center justify-between">
+            <span className="font-medium text-white">OpenAI</span>
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-white"
+              checked={openaiEnabled}
+              onChange={(e) => setOpenaiEnabled(e.target.checked)}
+            />
+          </label>
+          {openaiEnabled && (
+            <>
+              <label className="eyebrow mb-1.5 mt-3 block">Modelo</label>
+              <select className="input" value={openaiModel} onChange={(e) => setOpenaiModel(e.target.value)}>
+                {OPENAI_MODELS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <label className="eyebrow mb-1.5 mt-3 block">API key</label>
+              <input
+                className="input font-mono"
+                type="password"
+                placeholder={cfg?.openai.hasKey ? "•••••••• (em branco = manter)" : "sk-..."}
+                value={openaiKey}
+                onChange={(e) => setOpenaiKey(e.target.value)}
+              />
+              <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                platform.openai.com → api keys
+              </p>
+              <ConnectionBadge
+                testUrl="/api/settings/ai/test"
+                buildBody={() => ({ provider: "openai", apiKey: openaiKey || undefined })}
+              />
+            </>
+          )}
+        </div>
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div className={provider === "openai" ? "" : "opacity-60"}>
-            <p className="font-medium text-white">OpenAI</p>
-            <label className="eyebrow mb-1.5 mt-2 block">Modelo</label>
-            <select className="input" value={openaiModel} onChange={(e) => setOpenaiModel(e.target.value)}>
-              {OPENAI_MODELS.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-            <label className="eyebrow mb-1.5 mt-2 block">API key</label>
+        {/* Google Gemini */}
+        <div className="card p-4">
+          <label className="flex items-center justify-between">
+            <span className="font-medium text-white">Google Gemini</span>
             <input
-              className="input font-mono"
-              type="password"
-              placeholder={cfg?.hasOpenaiKey ? "•••••••• (em branco = manter)" : "sk-..."}
-              value={openaiKey}
-              onChange={(e) => setOpenaiKey(e.target.value)}
+              type="checkbox"
+              className="h-4 w-4 accent-white"
+              checked={geminiEnabled}
+              onChange={(e) => setGeminiEnabled(e.target.checked)}
             />
-            <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-              platform.openai.com → api keys
-            </p>
-          </div>
-          <div className={provider === "gemini" ? "" : "opacity-60"}>
-            <p className="font-medium text-white">Google Gemini</p>
-            <label className="eyebrow mb-1.5 mt-2 block">Modelo</label>
-            <select className="input" value={geminiModel} onChange={(e) => setGeminiModel(e.target.value)}>
-              {GEMINI_MODELS.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-            <label className="eyebrow mb-1.5 mt-2 block">API key</label>
-            <input
-              className="input font-mono"
-              type="password"
-              placeholder={cfg?.hasGeminiKey ? "•••••••• (em branco = manter)" : "AIza..."}
-              value={geminiKey}
-              onChange={(e) => setGeminiKey(e.target.value)}
-            />
-            <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-              aistudio.google.com → get api key
-            </p>
-          </div>
+          </label>
+          {geminiEnabled && (
+            <>
+              <label className="eyebrow mb-1.5 mt-3 block">Modelo</label>
+              <select className="input" value={geminiModel} onChange={(e) => setGeminiModel(e.target.value)}>
+                {GEMINI_MODELS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <label className="eyebrow mb-1.5 mt-3 block">API key</label>
+              <input
+                className="input font-mono"
+                type="password"
+                placeholder={cfg?.gemini.hasKey ? "•••••••• (em branco = manter)" : "AIza..."}
+                value={geminiKey}
+                onChange={(e) => setGeminiKey(e.target.value)}
+              />
+              <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                aistudio.google.com → get api key
+              </p>
+              <ConnectionBadge
+                testUrl="/api/settings/ai/test"
+                buildBody={() => ({ provider: "gemini", apiKey: geminiKey || undefined })}
+              />
+            </>
+          )}
         </div>
       </div>
 
@@ -677,7 +714,7 @@ function GoogleSheetsSettings() {
       <p className="eyebrow">automação</p>
       <h2 className="mt-1.5 font-display text-lg font-semibold">Google Sheets</h2>
       <p className="mt-1 text-sm text-zinc-500">
-        Cada perfil ganha uma planilha própria, atualizada automaticamente a
+        Cada modelo ganha uma planilha própria, atualizada automaticamente a
         cada foto/vídeo enviado: nome do arquivo, data, modelo, tipo, link
         público e uma coluna com checkbox para cada etiqueta. Use o link
         público das mídias em fluxos do Make/n8n.
@@ -748,7 +785,7 @@ function GoogleSheetsSettings() {
 
 function SecurityNote() {
   return (
-    <section className="mt-10">
+    <section id="seguranca" className="mt-10 scroll-mt-20">
       <p className="eyebrow">segurança</p>
       <h2 className="mt-1.5 font-display text-lg font-semibold">Acesso</h2>
       <div className="mt-4 card flex items-start gap-3 p-4">

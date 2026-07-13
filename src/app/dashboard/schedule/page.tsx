@@ -19,6 +19,7 @@ import {
   IconPlay,
 } from "@/components/icons";
 import { NETWORK_LABELS, mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type SocialNetwork } from "@/lib/types";
+import type { AiProvider } from "@/lib/settings";
 import {
   NETWORK_DOT_COLORS,
   POST_TYPES,
@@ -194,7 +195,7 @@ export default function SchedulePage() {
           </div>
           <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-3 sm:justify-end">
             <select className="input py-2 text-sm" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
-              <option value="">Todos os perfis</option>
+              <option value="">Todos os modelos</option>
               {profiles.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -705,6 +706,8 @@ function PostForm({
   const [mediaIds, setMediaIds] = useState<string[]>(initial?.media.map((m) => m.id) || []);
   const [library, setLibrary] = useState<MediaItem[] | null>(null);
   const [aiTheme, setAiTheme] = useState("");
+  const [aiProvider, setAiProvider] = useState<AiProvider | "">("");
+  const [aiOptions, setAiOptions] = useState<AiProvider[] | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -717,6 +720,22 @@ function PostForm({
       .then((d) => setLibrary(d.media))
       .catch(() => setLibrary([]));
   }, [profileId]);
+
+  // Provedores de IA conectados (ativado + chave salva) — a escolha é feita
+  // aqui, na hora de gerar, não há mais um "provedor ativo" fixo.
+  useEffect(() => {
+    apiGet<{ settings: { openai: { enabled: boolean; hasKey: boolean }; gemini: { enabled: boolean; hasKey: boolean } } }>(
+      "/api/settings/ai",
+    )
+      .then((d) => {
+        const opts: AiProvider[] = [];
+        if (d.settings.openai.enabled && d.settings.openai.hasKey) opts.push("openai");
+        if (d.settings.gemini.enabled && d.settings.gemini.hasKey) opts.push("gemini");
+        setAiOptions(opts);
+        setAiProvider(opts[0] || "");
+      })
+      .catch(() => setAiOptions([]));
+  }, []);
 
   function toggleNetwork(net: SocialNetwork) {
     setNetworks((prev) => {
@@ -741,13 +760,17 @@ function PostForm({
       setErr("Descreva o tema do post para gerar a legenda.");
       return;
     }
+    if (!aiProvider) {
+      setErr("Nenhum provedor de IA conectado. Configure em Configurações → Conexão com IA.");
+      return;
+    }
     setAiBusy(true);
     setErr(null);
     try {
       const { caption: generated } = await apiSend<{ caption: string }>(
         "/api/ai/caption",
         "POST",
-        { profileId, networks, theme: aiTheme },
+        { provider: aiProvider, profileId, networks, theme: aiTheme },
       );
       setCaption(generated);
     } catch (e) {
@@ -807,7 +830,7 @@ function PostForm({
         <div className="mt-4 grid gap-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
-              <label className="eyebrow mb-1.5 block">Perfil</label>
+              <label className="eyebrow mb-1.5 block">Modelo</label>
               <select
                 className="input"
                 value={profileId}
@@ -885,13 +908,26 @@ function PostForm({
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
             />
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 flex flex-wrap gap-2">
               <input
-                className="input flex-1 py-2 text-sm"
+                className="input min-w-[180px] flex-1 py-2 text-sm"
                 placeholder="Tema p/ IA (ex.: foto na praia ao pôr do sol, tom provocante)"
                 value={aiTheme}
                 onChange={(e) => setAiTheme(e.target.value)}
               />
+              {aiOptions && aiOptions.length > 0 && (
+                <select
+                  className="input w-auto py-2 text-sm"
+                  value={aiProvider}
+                  onChange={(e) => setAiProvider(e.target.value as AiProvider)}
+                >
+                  {aiOptions.map((p) => (
+                    <option key={p} value={p}>
+                      {p === "openai" ? "OpenAI" : "Gemini"}
+                    </option>
+                  ))}
+                </select>
+              )}
               <button
                 type="button"
                 onClick={generate}
@@ -902,6 +938,11 @@ function PostForm({
                 <IconSparkle size={15} /> {aiBusy ? "Gerando…" : "Gerar com IA"}
               </button>
             </div>
+            {aiOptions && aiOptions.length === 0 && (
+              <p className="mt-1.5 text-xs text-zinc-600">
+                Nenhum provedor de IA conectado — configure em Configurações → Conexão com IA.
+              </p>
+            )}
           </div>
 
           {/* Mídias da biblioteca (por referência — nada é duplicado) */}
@@ -920,7 +961,7 @@ function PostForm({
               </div>
             ) : library.length === 0 ? (
               <p className="rounded-lg border border-dashed border-white/10 p-4 text-center text-xs text-zinc-600">
-                Este perfil ainda não tem mídias na biblioteca.
+                Este modelo ainda não tem mídias na biblioteca.
               </p>
             ) : (
               <div className="grid max-h-64 grid-cols-4 gap-2 overflow-y-auto sm:grid-cols-6">

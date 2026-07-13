@@ -13,7 +13,7 @@ export type NavItem = { key: NavKey; label: string; href: string };
 
 export const NAV_ITEMS: Record<NavKey, NavItem> = {
   dashboard: { key: "dashboard", label: "Dashboard", href: "/dashboard" },
-  profiles: { key: "profiles", label: "Perfis", href: "/dashboard/profiles" },
+  profiles: { key: "profiles", label: "Modelos", href: "/dashboard/profiles" },
   media: { key: "media", label: "Mídia", href: "/dashboard/media" },
   schedule: {
     key: "schedule",

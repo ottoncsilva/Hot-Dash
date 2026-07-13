@@ -461,7 +461,7 @@ export default function MediaPage() {
       {/* Seletor de perfil */}
       {profiles.length > 0 && (
         <div className="mt-5 flex flex-wrap items-center gap-2">
-          <label className="eyebrow">perfil</label>
+          <label className="eyebrow">modelo</label>
           <select
             className="input max-w-xs"
             value={profileId}
@@ -657,7 +657,7 @@ export default function MediaPage() {
 
       {/* Grade */}
       {profiles.length === 0 ? (
-        <EmptyState text="Crie um perfil antes de enviar mídias." />
+        <EmptyState text="Crie um modelo antes de enviar mídias." />
       ) : media === null ? (
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
@@ -665,7 +665,7 @@ export default function MediaPage() {
           ))}
         </div>
       ) : media.length === 0 ? (
-        <EmptyState text="Nenhuma mídia neste perfil ainda." />
+        <EmptyState text="Nenhuma mídia neste modelo ainda." />
       ) : filteredMedia.length === 0 ? (
         <EmptyState text="Nenhuma mídia com esse filtro." />
       ) : groups ? (

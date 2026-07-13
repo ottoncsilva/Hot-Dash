@@ -22,7 +22,9 @@ export async function POST(req: NextRequest) {
       : [];
     const from = Number(body.from);
     const to = Number(body.to);
-    if (profileIds.length === 0) throw new ApiError(400, "Selecione ao menos um perfil.");
+    const provider = body.provider === "gemini" ? "gemini" : body.provider === "openai" ? "openai" : null;
+    if (profileIds.length === 0) throw new ApiError(400, "Selecione ao menos um modelo.");
+    if (!provider) throw new ApiError(400, "Selecione o provedor de IA.");
     if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) {
       throw new ApiError(400, "Informe um período válido.");
     }
@@ -47,7 +49,7 @@ export async function POST(req: NextRequest) {
     for (const profileId of profileIds) {
       const profile = await getProfile(profileId);
       if (!profile) {
-        results.push({ profileId, profileName: undefined, proposals: [], error: "Perfil não encontrado." });
+        results.push({ profileId, profileName: undefined, proposals: [], error: "Modelo não encontrado." });
         continue;
       }
 
@@ -57,7 +59,7 @@ export async function POST(req: NextRequest) {
           profileId,
           profileName: profile.name,
           proposals: [],
-          error: "Este perfil ainda não tem mídias na biblioteca.",
+          error: "Este modelo ainda não tem mídias na biblioteca.",
         });
         continue;
       }
@@ -76,6 +78,7 @@ export async function POST(req: NextRequest) {
       let proposals;
       try {
         proposals = await generateSchedulePlan({
+          provider,
           profileName: profile.name,
           profileNotes: profile.notes,
           slots: instances,

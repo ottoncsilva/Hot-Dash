@@ -15,6 +15,9 @@ export async function POST(req: NextRequest) {
     const theme = String(body.theme || "").trim();
     if (!theme) throw new ApiError(400, "Descreva o tema do post para gerar a legenda.");
 
+    const provider = body.provider === "gemini" ? "gemini" : body.provider === "openai" ? "openai" : null;
+    if (!provider) throw new ApiError(400, "Selecione o provedor de IA.");
+
     const networks = (Array.isArray(body.networks) ? body.networks : [])
       .filter(
         (n: unknown): n is { network: string; postType: string } =>
@@ -35,6 +38,7 @@ export async function POST(req: NextRequest) {
     let caption: string;
     try {
       caption = await generateCaption({
+        provider,
         networks,
         profileName: profile?.name || "a influenciadora",
         profileNotes: profile?.notes,

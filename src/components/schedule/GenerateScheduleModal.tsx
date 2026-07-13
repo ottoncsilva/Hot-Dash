@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { apiSend } from "@/lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { apiGet, apiSend } from "@/lib/api";
 import Modal from "@/components/Modal";
 import AuthImage from "@/components/AuthImage";
 import { IconPlay, IconSparkle } from "@/components/icons";
 import { NETWORK_LABELS, type Profile } from "@/lib/types";
 import { NETWORK_DOT_COLORS, type PostNetwork, type ScheduledPost } from "@/lib/postTypes";
+import type { AiProvider } from "@/lib/settings";
 
 function mediaUrl(m: { id: string; updatedAt?: number }): string {
   return `/api/media/${m.id}/file?v=${m.updatedAt || 0}`;
@@ -69,6 +70,24 @@ export default function GenerateScheduleModal({
   const [err, setErr] = useState<string | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [confirming, setConfirming] = useState(false);
+  const [provider, setProvider] = useState<AiProvider | "">("");
+  const [providerOptions, setProviderOptions] = useState<AiProvider[] | null>(null);
+
+  // Provedores de IA conectados (ativado + chave salva) — escolhido aqui,
+  // na hora de gerar, não há mais um "provedor ativo" fixo.
+  useEffect(() => {
+    apiGet<{ settings: { openai: { enabled: boolean; hasKey: boolean }; gemini: { enabled: boolean; hasKey: boolean } } }>(
+      "/api/settings/ai",
+    )
+      .then((d) => {
+        const opts: AiProvider[] = [];
+        if (d.settings.openai.enabled && d.settings.openai.hasKey) opts.push("openai");
+        if (d.settings.gemini.enabled && d.settings.gemini.hasKey) opts.push("gemini");
+        setProviderOptions(opts);
+        setProvider(opts[0] || "");
+      })
+      .catch(() => setProviderOptions([]));
+  }, []);
 
   function toggleProfile(id: string) {
     setSelectedProfiles((prev) => {
@@ -89,7 +108,8 @@ export default function GenerateScheduleModal({
 
   async function generate() {
     setErr(null);
-    if (selectedProfiles.size === 0) return setErr("Selecione ao menos um perfil.");
+    if (selectedProfiles.size === 0) return setErr("Selecione ao menos um modelo.");
+    if (!provider) return setErr("Nenhum provedor de IA conectado. Configure em Configurações → Conexão com IA.");
     const [fy, fm, fd] = from.split("-").map(Number);
     const [ty, tm, td] = to.split("-").map(Number);
     const fromMs = new Date(fy, fm - 1, fd).getTime();
@@ -112,7 +132,12 @@ export default function GenerateScheduleModal({
           }[];
           error?: string;
         }[];
-      }>("/api/ai/schedule", "POST", { profileIds: Array.from(selectedProfiles), from: fromMs, to: toMs });
+      }>("/api/ai/schedule", "POST", {
+        provider,
+        profileIds: Array.from(selectedProfiles),
+        from: fromMs,
+        to: toMs,
+      });
 
       const errors = results.filter((r) => r.error).map((r) => `${r.profileName || r.profileId}: ${r.error}`);
       const flat: Proposal[] = results.flatMap((r) =>
@@ -212,7 +237,7 @@ export default function GenerateScheduleModal({
         {step === "form" ? (
           <div className="mt-4 grid gap-3">
             <div>
-              <label className="eyebrow mb-1.5 block">Perfis</label>
+              <label className="eyebrow mb-1.5 block">Modelos</label>
               <div className="flex flex-wrap gap-1.5">
                 {profiles.map((p) => {
                   const active = selectedProfiles.has(p.id);
@@ -254,6 +279,26 @@ export default function GenerateScheduleModal({
                 Próximo mês
               </button>
             </div>
+            {providerOptions && providerOptions.length > 0 ? (
+              <div>
+                <label className="eyebrow mb-1.5 block">Provedor de IA</label>
+                <select
+                  className="input"
+                  value={provider}
+                  onChange={(e) => setProvider(e.target.value as AiProvider)}
+                >
+                  {providerOptions.map((p) => (
+                    <option key={p} value={p}>
+                      {p === "openai" ? "OpenAI" : "Google Gemini"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : providerOptions && providerOptions.length === 0 ? (
+              <p className="text-xs text-zinc-600">
+                Nenhum provedor de IA conectado — configure em Configurações → Conexão com IA.
+              </p>
+            ) : null}
           </div>
         ) : (
           <div className="mt-4 space-y-5">

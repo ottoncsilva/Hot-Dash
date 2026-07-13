@@ -58,7 +58,7 @@ export default function ProfilesPage() {
         <div>
           <p className="eyebrow">gestão</p>
           <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight">
-            Perfis
+            Modelos
           </h1>
           <p className="mt-2 text-sm text-zinc-500">
             Suas personagens de IA e as contas de cada uma.
@@ -66,7 +66,7 @@ export default function ProfilesPage() {
         </div>
         <button onClick={() => setCreating(true)} className="btn-primary">
           <IconPlus size={16} />
-          <span className="hidden sm:inline">Novo perfil</span>
+          <span className="hidden sm:inline">Novo modelo</span>
         </button>
       </div>
 
@@ -88,14 +88,14 @@ export default function ProfilesPage() {
             <IconProfiles size={22} />
           </div>
           <div>
-            <p className="text-zinc-200">Nenhum perfil ainda</p>
+            <p className="text-zinc-200">Nenhum modelo ainda</p>
             <p className="mt-1 text-sm text-zinc-500">
               Crie sua primeira personagem para começar.
             </p>
           </div>
           <button onClick={() => setCreating(true)} className="btn-primary">
             <IconPlus size={16} />
-            Criar perfil
+            Criar modelo
           </button>
         </div>
       ) : (
@@ -135,7 +135,7 @@ export default function ProfilesPage() {
         <form onSubmit={create}>
           <p className="eyebrow">novo</p>
           <h2 className="mt-1.5 font-display text-lg font-semibold">
-            Novo perfil
+            Novo modelo
           </h2>
           <p className="mt-1 text-sm text-zinc-500">
             Nome da personagem (ex.: Adriana Queiroz).

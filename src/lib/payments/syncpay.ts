@@ -19,6 +19,45 @@ import type { ChargeInput, ChargeResult, PaymentProvider } from "./types";
  */
 const BASE = process.env.SYNCPAY_BASE_URL || "https://api.syncpayments.com.br";
 
+/** Autentica e devolve o token de acesso — usado tanto pelo provider quanto pelo teste de conexão. */
+export async function fetchSyncPayToken(creds: {
+  clientId: string;
+  clientSecret: string;
+}): Promise<{ token: string; expiresIn?: number }> {
+  const res = await fetch(`${BASE}/api/partner/v1/auth-token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`SyncPay: autenticação falhou (${res.status}).`);
+  }
+  const data = (await res.json()) as {
+    access_token?: string;
+    token?: string;
+    expires_in?: number;
+  };
+  const token = data.access_token || data.token;
+  if (!token) throw new Error("SyncPay não retornou token de acesso.");
+  return { token, expiresIn: data.expires_in };
+}
+
+/** Testa credenciais sem afetar cache/estado de nenhum provider já instanciado. */
+export async function testSyncPayCredentials(creds: {
+  clientId: string;
+  clientSecret: string;
+}): Promise<{ ok: boolean; message?: string }> {
+  try {
+    await fetchSyncPayToken(creds);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "falha de rede" };
+  }
+}
+
 export function createSyncPay(creds: {
   clientId: string;
   clientSecret: string;
@@ -29,27 +68,10 @@ export function createSyncPay(creds: {
     if (cachedToken && cachedToken.exp > Date.now() + 30_000) {
       return cachedToken.token;
     }
-    const res = await fetch(`${BASE}/api/partner/v1/auth-token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: creds.clientId,
-        client_secret: creds.clientSecret,
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(`SyncPay: autenticação falhou (${res.status}).`);
-    }
-    const data = (await res.json()) as {
-      access_token?: string;
-      token?: string;
-      expires_in?: number;
-    };
-    const token = data.access_token || data.token;
-    if (!token) throw new Error("SyncPay não retornou token de acesso.");
+    const { token, expiresIn } = await fetchSyncPayToken(creds);
     cachedToken = {
       token,
-      exp: Date.now() + (data.expires_in ? data.expires_in * 1000 : 3_600_000),
+      exp: Date.now() + (expiresIn ? expiresIn * 1000 : 3_600_000),
     };
     return token;
   }

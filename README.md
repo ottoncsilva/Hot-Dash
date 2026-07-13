@@ -21,9 +21,9 @@ no seu servidor.
 | Módulo | Status | Descrição |
 |---|---|---|
 | **Dashboard** | ✅ Ativo | Visão geral: métricas e atalhos dos módulos. |
-| **Perfis** | ✅ Ativo | Personagens de IA com foto, redes sociais e credenciais (senhas criptografadas AES-256). |
-| **Biblioteca de Mídia** | ✅ Ativo | Fotos e vídeos vinculados ao perfil, metadados removidos no upload, download no celular. |
-| **Pagamentos** | ✅ Ativo | Dashboard de vendas/receita + cobrança PIX. Provedores SyncPay e Stripe (chaves nas Configurações). |
+| **Modelos** | ✅ Ativo | Personagens de IA com foto, redes sociais e credenciais (senhas criptografadas AES-256). |
+| **Biblioteca de Mídia** | ✅ Ativo | Fotos e vídeos vinculados ao modelo, metadados removidos no upload, download no celular. |
+| **Pagamentos** | ✅ Ativo | Dashboard de vendas/receita + cobrança PIX. Provedor SyncPay (chaves nas Configurações). |
 | **Limpar Metadados** | ✅ Ativo | Remove EXIF, GPS e rastros de IA de fotos (`exiftool`) e vídeos (`ffmpeg`) avulsos. |
 | **Configurações** | ✅ Ativo | Ordem/visibilidade do menu e chaves dos provedores de pagamento. |
 

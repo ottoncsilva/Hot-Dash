@@ -20,7 +20,6 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const settings = updatePaymentSettings({
       syncpay: body.syncpay,
-      stripe: body.stripe,
     });
     return NextResponse.json({ settings });
   } catch (err) {

@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import AuthImage from "@/components/AuthImage";
 import SaveMediaButton from "@/components/SaveMediaButton";
 import CopyLinkButton from "@/components/CopyLinkButton";
 import PhotoEditor from "@/components/PhotoEditor";
 import ToggleChip from "@/components/ToggleChip";
+import MediaStage from "@/components/MediaStage";
 import { IconArrowLeft, IconChevronRight, IconClose, IconTrash, IconSparkle } from "@/components/icons";
-import { exactRatioLabel, mediaFileUrl, ratioBucket, type MediaItem, type Tag } from "@/lib/types";
+import { exactRatioLabel, mediaFileUrl, mediaThumbUrl, ratioBucket, type MediaItem, type Tag } from "@/lib/types";
 
 /**
  * Visualizador em janela popup (não tela cheia): centralizado, com fundo
@@ -124,42 +124,48 @@ export default function MediaViewer({
         </div>
 
         {/* Mídia */}
-        <div
-          className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black px-2 py-4"
-          onTouchStart={onTouchStart}
-          onTouchEnd={onTouchEnd}
-        >
+        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black px-2 py-4">
           {index > 0 && (
             <button
               onClick={goPrev}
-              className="absolute left-2 top-1/2 hidden -translate-y-1/2 rounded-full bg-white/5 p-2 text-zinc-300 hover:bg-white/20 hover:text-white sm:grid sm:place-items-center"
+              className="absolute left-2 top-1/2 z-10 hidden -translate-y-1/2 rounded-full bg-white/5 p-2 text-zinc-300 hover:bg-white/20 hover:text-white sm:grid sm:place-items-center"
               aria-label="Anterior"
             >
               <IconArrowLeft size={22} />
             </button>
           )}
           {item.kind === "image" ? (
-            <AuthImage
-              key={`${item.id}-${item.updatedAt}`}
-              src={mediaFileUrl(item)}
-              alt={item.filename}
-              className="max-h-[60vh] max-w-full object-contain"
+            <MediaStage
+              item={item}
+              hasPrev={index > 0}
+              hasNext={index < items.length - 1}
+              onPrev={goPrev}
+              onNext={goNext}
             />
           ) : (
-            // eslint-disable-next-line jsx-a11y/media-has-caption
-            <video
-              key={item.id}
-              src={mediaFileUrl(item)}
-              controls
-              playsInline
-              autoPlay
-              className="max-h-[60vh] max-w-full"
-            />
+            // Vídeo: mantém touch simples (sem zoom/pan) para não atrapalhar
+            // os controles nativos (play, barra de progresso).
+            <div
+              className="flex h-full w-full items-center justify-center"
+              onTouchStart={onTouchStart}
+              onTouchEnd={onTouchEnd}
+            >
+              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+              <video
+                key={item.id}
+                src={mediaFileUrl(item)}
+                poster={mediaThumbUrl(item)}
+                controls
+                playsInline
+                autoPlay
+                className="max-h-[60vh] max-w-full"
+              />
+            </div>
           )}
           {index < items.length - 1 && (
             <button
               onClick={goNext}
-              className="absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-full bg-white/5 p-2 text-zinc-300 hover:bg-white/20 hover:text-white sm:grid sm:place-items-center"
+              className="absolute right-2 top-1/2 z-10 hidden -translate-y-1/2 rounded-full bg-white/5 p-2 text-zinc-300 hover:bg-white/20 hover:text-white sm:grid sm:place-items-center"
               aria-label="Próxima"
             >
               <IconChevronRight size={22} />

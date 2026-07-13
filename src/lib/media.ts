@@ -2,7 +2,8 @@ import "server-only";
 import { randomUUID, randomBytes } from "node:crypto";
 import { extname } from "node:path";
 import { getDb } from "./db";
-import { deleteFile } from "./storage";
+import { deleteFile, fileExists, readBuffer, saveFile } from "./storage";
+import { extractVideoThumbnail } from "./metadata";
 import { getTagsForMedia } from "./tags";
 import type { MediaItem, Tag } from "./types";
 
@@ -47,6 +48,31 @@ export function newMediaPath(profileId: string, ext: string): {
 } {
   const id = randomUUID();
   return { id, relPath: `profiles/${profileId}/media/${id}${ext.toLowerCase()}` };
+}
+
+/** Caminho determinístico da miniatura de um vídeo (primeiro frame, JPEG). */
+export function videoThumbRelPath(relPath: string): string {
+  return relPath.replace(/\.[^./\\]+$/, ".thumb.jpg");
+}
+
+/**
+ * Garante que a miniatura (primeiro frame) do vídeo existe no disco,
+ * gerando-a sob demanda se necessário — cobre tanto uploads novos (chamado
+ * logo após salvar) quanto vídeos enviados antes desse recurso existir
+ * (chamado sob demanda na primeira vez que a miniatura é pedida).
+ * Nunca lança: falha na geração apenas retorna null (galeria cai no ícone).
+ */
+export async function ensureVideoThumbnail(relPath: string): Promise<string | null> {
+  const thumbPath = videoThumbRelPath(relPath);
+  if (await fileExists(thumbPath)) return thumbPath;
+  try {
+    const buf = await readBuffer(relPath);
+    const thumb = await extractVideoThumbnail(buf, extname(relPath));
+    await saveFile(thumbPath, thumb);
+    return thumbPath;
+  } catch {
+    return null;
+  }
 }
 
 export function insertMedia(input: {
@@ -126,6 +152,7 @@ export async function overwriteMediaFile(input: {
     .run(input.relPath, input.size, input.width || null, input.height || null, now, input.id);
   if (oldPath && oldPath !== input.relPath) {
     await deleteFile(oldPath).catch(() => {});
+    await deleteFile(videoThumbRelPath(oldPath)).catch(() => {});
   }
   const updated = getMediaRow(input.id);
   return updated ? toClient(updated, getTagsForMedia(input.id)) : null;
@@ -156,6 +183,7 @@ export async function deleteMedia(id: string): Promise<boolean> {
   const row = getMediaRow(id);
   if (!row) return false;
   await deleteFile(row.path);
+  await deleteFile(videoThumbRelPath(row.path)).catch(() => {});
   getDb().prepare("DELETE FROM media WHERE id = ?").run(id);
   return true;
 }

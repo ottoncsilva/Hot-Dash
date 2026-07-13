@@ -83,6 +83,12 @@ export function mediaFileUrl(item: MediaItem, opts?: { download?: boolean }): st
   return `/api/media/${item.id}/file?v=${v}${dl}`;
 }
 
+/** URL da miniatura (primeiro frame) de um vídeo — só faz sentido para kind === "video". */
+export function mediaThumbUrl(item: MediaItem): string {
+  const v = item.updatedAt || item.createdAt;
+  return `/api/media/${item.id}/thumbnail?v=${v}`;
+}
+
 /** Proporções padrão reconhecidas pelo filtro de formato de imagem. */
 export const RATIO_BUCKETS = ["1:1", "3:4", "4:3", "9:16", "16:9", "3:2", "2:3"] as const;
 export type RatioBucket = (typeof RATIO_BUCKETS)[number] | "outra";

@@ -109,4 +109,32 @@ export async function cleanMetadata(
   }
 }
 
+/**
+ * Extrai o primeiro frame de um vídeo como JPEG (capa da galeria).
+ * Redimensiona para no máximo 480px de largura, preservando a proporção.
+ */
+export async function extractVideoThumbnail(input: Buffer, ext: string): Promise<Buffer> {
+  const workDir = await mkdtemp(join(tmpdir(), "hotdash-thumb-"));
+  try {
+    const inputPath = join(workDir, `in${ext}`);
+    await writeFile(inputPath, input);
+    const outputPath = join(workDir, "thumb.jpg");
+    await run("ffmpeg", [
+      "-y",
+      "-i",
+      inputPath,
+      "-frames:v",
+      "1",
+      "-vf",
+      "scale='min(480,iw)':-2",
+      "-q:v",
+      "3",
+      outputPath,
+    ]);
+    return await readFile(outputPath);
+  } finally {
+    await rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 export { extname };

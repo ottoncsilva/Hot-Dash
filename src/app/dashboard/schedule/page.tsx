@@ -16,7 +16,7 @@ import {
   IconCalendar,
   IconPlay,
 } from "@/components/icons";
-import { NETWORK_LABELS, mediaFileUrl, type MediaItem, type Profile, type SocialNetwork } from "@/lib/types";
+import { NETWORK_LABELS, mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type SocialNetwork } from "@/lib/types";
 import {
   NETWORK_DOT_COLORS,
   POST_TYPES,
@@ -28,6 +28,10 @@ const WEEKDAYS = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 
 function mediaUrl(m: { id: string; updatedAt?: number }): string {
   return `/api/media/${m.id}/file?v=${m.updatedAt || 0}`;
+}
+
+function thumbUrl(m: { id: string; updatedAt?: number }): string {
+  return `/api/media/${m.id}/thumbnail?v=${m.updatedAt || 0}`;
 }
 
 function fmtTime(ms: number): string {
@@ -473,9 +477,17 @@ function ListView({
                         fallback={<div className="h-full w-full bg-ink-800" />}
                       />
                     ) : (
-                      <div className="grid h-full w-full place-items-center text-zinc-600">
-                        <IconPlay size={18} />
-                      </div>
+                      <>
+                        <AuthImage
+                          src={thumbUrl(p.media[0])}
+                          alt={p.media[0].filename}
+                          className="h-full w-full object-cover"
+                          fallback={<div className="h-full w-full bg-ink-800" />}
+                        />
+                        <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                          <IconPlay size={14} className="text-white drop-shadow" />
+                        </div>
+                      </>
                     )}
                     {p.media.length > 1 && (
                       <span className="absolute bottom-0 right-0 rounded-tl-md bg-black/70 px-1 font-mono text-[9px] text-white">
@@ -804,9 +816,19 @@ function PostForm({
                           fallback={<div className="h-full w-full bg-ink-800" />}
                         />
                       ) : (
-                        <div className="grid h-full w-full place-items-center bg-ink-800 text-zinc-600">
-                          <IconPlay size={20} />
-                        </div>
+                        <>
+                          <AuthImage
+                            src={mediaThumbUrl(m)}
+                            alt={m.filename}
+                            className={`h-full w-full object-cover ${selected ? "opacity-80" : ""}`}
+                            fallback={<div className="h-full w-full bg-ink-800" />}
+                          />
+                          <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                            <span className="grid h-7 w-7 place-items-center rounded-full bg-black/50 text-white">
+                              <IconPlay size={14} />
+                            </span>
+                          </div>
+                        </>
                       )}
                       {selected && (
                         <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-white font-mono text-[10px] font-bold text-ink-950">

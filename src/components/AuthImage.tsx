@@ -12,11 +12,15 @@ export default function AuthImage({
   alt,
   className,
   fallback,
+  style,
+  draggable,
 }: {
   src: string | null;
   alt: string;
   className?: string;
   fallback?: React.ReactNode;
+  style?: React.CSSProperties;
+  draggable?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
 
@@ -31,6 +35,8 @@ export default function AuthImage({
       src={src}
       alt={alt}
       className={className}
+      style={style}
+      draggable={draggable}
       onError={() => setFailed(true)}
     />
   );

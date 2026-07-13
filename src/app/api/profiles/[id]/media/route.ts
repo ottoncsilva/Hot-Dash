@@ -3,7 +3,13 @@ import { extname } from "node:path";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { getProfile } from "@/lib/profiles";
 import { cleanMetadata, mediaKind } from "@/lib/metadata";
-import { getOrCreatePublicToken, insertMedia, listMedia, newMediaPath } from "@/lib/media";
+import {
+  ensureVideoThumbnail,
+  getOrCreatePublicToken,
+  insertMedia,
+  listMedia,
+  newMediaPath,
+} from "@/lib/media";
 import { saveFile } from "@/lib/storage";
 import { getImageDimensions } from "@/lib/imageDimensions";
 import { appendMediaRow } from "@/lib/googleSheets";
@@ -86,6 +92,13 @@ export async function POST(
     );
     const { id, relPath } = newMediaPath(params.id, ext);
     await saveFile(relPath, cleaned);
+
+    // Miniatura (primeiro frame) para vídeos — gerada aqui para já aparecer
+    // na galeria assim que o upload termina; nunca lança (se falhar, a rota
+    // de miniatura tenta gerar de novo sob demanda).
+    if (kind === "video") {
+      await ensureVideoThumbnail(relPath);
+    }
 
     const editedFromRaw = form.get("editedFrom");
     const editedFrom =

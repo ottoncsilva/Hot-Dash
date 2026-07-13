@@ -18,7 +18,7 @@ import {
   IconDownload,
   IconTag,
 } from "@/components/icons";
-import { RATIO_BUCKETS, ratioBucket, mediaFileUrl, type MediaItem, type Profile, type RatioBucket, type Tag } from "@/lib/types";
+import { RATIO_BUCKETS, ratioBucket, mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type RatioBucket, type Tag } from "@/lib/types";
 
 type SortKey = "date_desc" | "date_asc" | "size_desc" | "size_asc" | "tag_asc";
 
@@ -845,9 +845,21 @@ function MediaGrid({
                   fallback={<div className="h-full w-full bg-ink-800" />}
                 />
               ) : (
-                <div className="grid h-full w-full place-items-center text-zinc-600">
-                  <IconPlay size={30} />
-                </div>
+                <>
+                  <AuthImage
+                    src={mediaThumbUrl(item)}
+                    alt={item.filename}
+                    className={`h-full w-full object-cover transition-opacity ${
+                      isSelected ? "opacity-70" : ""
+                    }`}
+                    fallback={<div className="h-full w-full bg-ink-800" />}
+                  />
+                  <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-black/50 text-white backdrop-blur-sm">
+                      <IconPlay size={16} />
+                    </span>
+                  </div>
+                </>
               )}
             </button>
 

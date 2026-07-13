@@ -886,34 +886,31 @@ function MediaGrid({
               </span>
             )}
 
-            {/* Checkbox de seleção */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleSelect(item.id);
-              }}
-              className={`absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full border transition-all ${
-                isSelected
-                  ? "border-white bg-white text-black"
-                  : "border-white/50 bg-black/30 text-transparent opacity-0 group-hover:opacity-100"
-              }`}
-              aria-label="Selecionar"
-            >
-              {isSelected && (
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M5 13l4 4 10-10"
-                    stroke="currentColor"
-                    strokeWidth={3}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              )}
-            </button>
+            {/* Indicador de seleção (estilo Fotos da Apple): visível em toda
+                mídia assim que o modo seleção está ativo, não só no hover —
+                essencial no toque, onde não existe estado de hover. */}
+            {selecting && (
+              <span
+                className={`pointer-events-none absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full border transition-all ${
+                  isSelected ? "border-white bg-white text-black" : "border-white/70 bg-black/40 text-transparent"
+                }`}
+              >
+                {isSelected && (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M5 13l4 4 10-10"
+                      stroke="currentColor"
+                      strokeWidth={3}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+              </span>
+            )}
 
             {!selecting && (
-              <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-1 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
+              <div className="pointer-events-none absolute bottom-0 left-0 right-0 flex items-center justify-end gap-1 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
                 <CopyLinkButton
                   mediaId={item.id}
                   publicToken={item.publicToken}

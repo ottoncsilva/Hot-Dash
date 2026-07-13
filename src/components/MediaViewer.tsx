@@ -83,7 +83,7 @@ export default function MediaViewer({
   return createPortal(
     <>
     <div
-      className="fixed inset-0 z-[70] grid place-items-center bg-black/70 p-4 backdrop-blur-sm safe-top safe-bottom"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm safe-top safe-bottom"
       onClick={onClose}
     >
       <div

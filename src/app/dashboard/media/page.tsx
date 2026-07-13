@@ -30,6 +30,7 @@ export default function MediaPage() {
   const [error, setError] = useState<string | null>(null);
   const [uploads, setUploads] = useState<{ name: string; status: string }[]>([]);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
@@ -49,7 +50,7 @@ export default function MediaPage() {
   } | null>(null);
 
   const { confirm, ConfirmDialog } = useConfirm();
-  const selecting = selected.size > 0;
+  const selecting = selectMode || selected.size > 0;
 
   // Carrega perfis e pré-seleciona pelo ?profile= da URL.
   useEffect(() => {
@@ -137,6 +138,7 @@ export default function MediaPage() {
   }
   function clearSelection() {
     setSelected(new Set());
+    setSelectMode(false);
   }
 
   async function bulkDelete() {
@@ -406,6 +408,7 @@ export default function MediaPage() {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape" && !tagPickerOpen && viewerIndex === null) {
         setSelected((prev) => (prev.size > 0 ? new Set() : prev));
+        setSelectMode(false);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -426,13 +429,21 @@ export default function MediaPage() {
           </p>
         </div>
         {profiles.length > 0 && (
-          <button
-            onClick={() => fileRef.current?.click()}
-            disabled={!profileId}
-            className="btn-primary"
-          >
-            <IconUpload size={16} /> Enviar mídia
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => (selectMode ? clearSelection() : setSelectMode(true))}
+              className={selectMode ? "btn-ghost border-white/40 bg-white/10 text-white" : "btn-ghost"}
+            >
+              {selectMode ? "Cancelar seleção" : "Selecionar"}
+            </button>
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={!profileId}
+              className="btn-primary"
+            >
+              <IconUpload size={16} /> Enviar mídia
+            </button>
+          </div>
         )}
         <input
           ref={fileRef}

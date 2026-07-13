@@ -61,6 +61,7 @@ export default function SchedulePage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ScheduledPost | null>(null);
   const [prefillDate, setPrefillDate] = useState<Date | null>(null);
+  const [detailPost, setDetailPost] = useState<ScheduledPost | null>(null);
   const { confirm, ConfirmDialog } = useConfirm();
 
   async function load() {
@@ -107,13 +108,15 @@ export default function SchedulePage() {
     }
   }
 
-  async function removePost(post: ScheduledPost) {
-    if (!(await confirm("Excluir este post agendado?"))) return;
+  async function removePost(post: ScheduledPost): Promise<boolean> {
+    if (!(await confirm("Excluir este post agendado?"))) return false;
     try {
       await apiSend(`/api/posts/${post.id}`, "DELETE");
       setPosts((ps) => (ps || []).filter((p) => p.id !== post.id));
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha ao excluir.");
+      return false;
     }
   }
 
@@ -213,7 +216,7 @@ export default function SchedulePage() {
           onMonthChange={setMonth}
           posts={filtered}
           onDayClick={(d) => openNew(d)}
-          onPostClick={openEdit}
+          onPostClick={setDetailPost}
         />
       ) : (
         <ListView
@@ -242,8 +245,104 @@ export default function SchedulePage() {
         />
       )}
 
+      {detailPost && (
+        <PostDetail
+          post={detailPost}
+          onClose={() => setDetailPost(null)}
+          onEdit={() => {
+            openEdit(detailPost);
+            setDetailPost(null);
+          }}
+          onDelete={async () => {
+            if (await removePost(detailPost)) setDetailPost(null);
+          }}
+          onToggle={async () => {
+            await togglePosted(detailPost);
+            setDetailPost(null);
+          }}
+        />
+      )}
+
       {ConfirmDialog}
     </div>
+  );
+}
+
+// ---- Detalhe rápido de um post (calendário): evita abrir a edição direto ----
+function PostDetail({
+  post,
+  onClose,
+  onEdit,
+  onDelete,
+  onToggle,
+}: {
+  post: ScheduledPost;
+  onClose: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onToggle: () => void;
+}) {
+  return (
+    <Modal open onClose={onClose} maxWidth="max-w-sm">
+      <p className="eyebrow">{fmtDayLong(post.scheduledAt)}</p>
+      <h2 className="mt-1.5 font-display text-lg font-semibold">{post.profileName}</h2>
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="font-mono text-xs text-zinc-500">{fmtTime(post.scheduledAt)}</span>
+        {post.networks.map((n) => (
+          <span
+            key={n.network}
+            className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-zinc-500"
+          >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: NETWORK_DOT_COLORS[n.network] }} />
+            {NETWORK_LABELS[n.network]} · {n.postType}
+          </span>
+        ))}
+      </div>
+
+      {post.media[0] && (
+        <div className="relative mt-3 h-32 w-32 overflow-hidden rounded-lg border border-white/10 bg-ink-800">
+          {post.media[0].kind === "image" ? (
+            <AuthImage
+              src={mediaUrl(post.media[0])}
+              alt={post.media[0].filename}
+              className="h-full w-full object-cover"
+              fallback={<div className="h-full w-full bg-ink-800" />}
+            />
+          ) : (
+            <>
+              <AuthImage
+                src={thumbUrl(post.media[0])}
+                alt={post.media[0].filename}
+                className="h-full w-full object-cover"
+                fallback={<div className="h-full w-full bg-ink-800" />}
+              />
+              <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                <IconPlay size={18} className="text-white drop-shadow" />
+              </div>
+            </>
+          )}
+          {post.media.length > 1 && (
+            <span className="absolute bottom-0 right-0 rounded-tl-md bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-white">
+              +{post.media.length - 1}
+            </span>
+          )}
+        </div>
+      )}
+
+      {post.caption && <p className="mt-3 text-sm text-zinc-400">{post.caption}</p>}
+
+      <div className="mt-5 flex gap-2">
+        <button onClick={onToggle} className="btn-ghost flex-1">
+          {post.status === "posted" ? "Marcar agendado" : "Marcar postado"}
+        </button>
+        <button onClick={onEdit} className="btn-primary flex-1">
+          <IconEdit size={16} /> Editar
+        </button>
+      </div>
+      <button onClick={onDelete} className="btn-danger mt-2 w-full">
+        <IconTrash size={16} /> Excluir
+      </button>
+    </Modal>
   );
 }
 
@@ -804,7 +903,7 @@ function PostForm({
                       key={m.id}
                       type="button"
                       onClick={() => toggleMedia(m.id)}
-                      className={`relative aspect-square overflow-hidden rounded-lg border transition-all ${
+                      className={`relative aspect-square overflow-hidden rounded-lg border bg-ink-850 transition-all ${
                         selected ? "border-white ring-2 ring-white/60" : "border-white/10 hover:border-white/30"
                       }`}
                     >

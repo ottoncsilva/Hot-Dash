@@ -23,9 +23,11 @@ export default function AuthImage({
   draggable?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     setFailed(false);
+    setLoaded(false);
   }, [src]);
 
   if (!src || failed) return <>{fallback ?? null}</>;
@@ -34,9 +36,10 @@ export default function AuthImage({
     <img
       src={src}
       alt={alt}
-      className={className}
+      className={`${className || ""} transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
       style={style}
       draggable={draggable}
+      onLoad={() => setLoaded(true)}
       onError={() => setFailed(true)}
     />
   );

@@ -169,6 +169,88 @@ export function updateFinanceSettings(
   return next;
 }
 
+// ---- IA para geração de legendas (OpenAI / Google Gemini) ----
+export type AiProvider = "openai" | "gemini";
+
+export type AiSettingsPublic = {
+  provider: AiProvider;
+  openaiModel: string;
+  geminiModel: string;
+  hasOpenaiKey: boolean;
+  hasGeminiKey: boolean;
+};
+
+type AiSettingsStored = {
+  provider: AiProvider;
+  openaiKeyEnc?: string;
+  geminiKeyEnc?: string;
+  openaiModel?: string;
+  geminiModel?: string;
+};
+
+export const DEFAULT_AI_MODELS: Record<AiProvider, string> = {
+  openai: "gpt-4o-mini",
+  gemini: "gemini-2.0-flash",
+};
+
+function rawAi(): AiSettingsStored {
+  return getJson<AiSettingsStored>("ai", { provider: "openai" });
+}
+
+export function getAiSettingsPublic(): AiSettingsPublic {
+  const s = rawAi();
+  return {
+    provider: s.provider === "gemini" ? "gemini" : "openai",
+    openaiModel: s.openaiModel || DEFAULT_AI_MODELS.openai,
+    geminiModel: s.geminiModel || DEFAULT_AI_MODELS.gemini,
+    hasOpenaiKey: Boolean(s.openaiKeyEnc),
+    hasGeminiKey: Boolean(s.geminiKeyEnc),
+  };
+}
+
+/** Credenciais do provedor ATIVO, descriptografadas (server-side apenas). */
+export function getAiCredentials(): {
+  provider: AiProvider;
+  apiKey: string;
+  model: string;
+} | null {
+  const s = rawAi();
+  const provider: AiProvider = s.provider === "gemini" ? "gemini" : "openai";
+  const enc = provider === "gemini" ? s.geminiKeyEnc : s.openaiKeyEnc;
+  if (!enc) return null;
+  try {
+    const model =
+      (provider === "gemini" ? s.geminiModel : s.openaiModel) ||
+      DEFAULT_AI_MODELS[provider];
+    return { provider, apiKey: decryptSecret(enc), model };
+  } catch {
+    return null;
+  }
+}
+
+export function updateAiSettings(patch: {
+  provider?: AiProvider;
+  openaiKey?: string;
+  geminiKey?: string;
+  openaiModel?: string;
+  geminiModel?: string;
+}): AiSettingsPublic {
+  const s = rawAi();
+  if (patch.provider === "openai" || patch.provider === "gemini") {
+    s.provider = patch.provider;
+  }
+  if (patch.openaiModel !== undefined) s.openaiModel = patch.openaiModel.trim();
+  if (patch.geminiModel !== undefined) s.geminiModel = patch.geminiModel.trim();
+  if (patch.openaiKey !== undefined) {
+    s.openaiKeyEnc = patch.openaiKey ? encryptSecret(patch.openaiKey) : undefined;
+  }
+  if (patch.geminiKey !== undefined) {
+    s.geminiKeyEnc = patch.geminiKey ? encryptSecret(patch.geminiKey) : undefined;
+  }
+  setJson("ai", s);
+  return getAiSettingsPublic();
+}
+
 // ---- Integração Google Sheets ----
 export type GoogleSheetsSettingsPublic = {
   enabled: boolean;

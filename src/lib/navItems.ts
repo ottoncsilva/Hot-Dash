@@ -5,6 +5,7 @@ export type NavKey =
   | "dashboard"
   | "profiles"
   | "media"
+  | "schedule"
   | "payments"
   | "settings";
 
@@ -14,6 +15,11 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   dashboard: { key: "dashboard", label: "Dashboard", href: "/dashboard" },
   profiles: { key: "profiles", label: "Perfis", href: "/dashboard/profiles" },
   media: { key: "media", label: "Mídia", href: "/dashboard/media" },
+  schedule: {
+    key: "schedule",
+    label: "Cronograma",
+    href: "/dashboard/schedule",
+  },
   payments: {
     key: "payments",
     label: "Financeiro",
@@ -30,6 +36,7 @@ export const DEFAULT_MENU_ORDER: NavKey[] = [
   "dashboard",
   "profiles",
   "media",
+  "schedule",
   "payments",
   "settings",
 ];

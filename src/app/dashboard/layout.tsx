@@ -15,6 +15,7 @@ import {
   IconDashboard,
   IconProfiles,
   IconMedia,
+  IconCalendar,
   IconPayments,
   IconSettings,
   IconLogout,
@@ -24,6 +25,7 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   dashboard: IconDashboard,
   profiles: IconProfiles,
   media: IconMedia,
+  schedule: IconCalendar,
   payments: IconPayments,
   settings: IconSettings,
 };

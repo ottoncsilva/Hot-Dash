@@ -31,6 +31,7 @@ export default function SettingsPage() {
       <MenuSettings />
       <TagSettings />
       <PaymentSettings />
+      <AiSettings />
       <GoogleSheetsSettings />
       <SecurityNote />
     </div>
@@ -478,6 +479,152 @@ function FinanceSettingsCard() {
         )}
       </div>
     </div>
+  );
+}
+
+// ---- IA para legendas (OpenAI / Google Gemini) ----
+const OPENAI_MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"];
+const GEMINI_MODELS = [
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
+  "gemini-2.5-flash",
+  "gemini-1.5-pro",
+];
+
+function AiSettings() {
+  const [cfg, setCfg] = useState<{
+    provider: "openai" | "gemini";
+    openaiModel: string;
+    geminiModel: string;
+    hasOpenaiKey: boolean;
+    hasGeminiKey: boolean;
+  } | null>(null);
+  const [provider, setProvider] = useState<"openai" | "gemini">("openai");
+  const [openaiKey, setOpenaiKey] = useState("");
+  const [geminiKey, setGeminiKey] = useState("");
+  const [openaiModel, setOpenaiModel] = useState(OPENAI_MODELS[0]);
+  const [geminiModel, setGeminiModel] = useState(GEMINI_MODELS[0]);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    apiGet<{ settings: NonNullable<typeof cfg> }>("/api/settings/ai")
+      .then((d) => {
+        setCfg(d.settings);
+        setProvider(d.settings.provider);
+        setOpenaiModel(d.settings.openaiModel);
+        setGeminiModel(d.settings.geminiModel);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setSaved(false);
+    try {
+      const { settings } = await apiSend<{ settings: NonNullable<typeof cfg> }>(
+        "/api/settings/ai",
+        "PATCH",
+        {
+          provider,
+          openaiModel,
+          geminiModel,
+          ...(openaiKey ? { openaiKey } : {}),
+          ...(geminiKey ? { geminiKey } : {}),
+        },
+      );
+      setCfg(settings);
+      setOpenaiKey("");
+      setGeminiKey("");
+      setSaved(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section id="ia" className="mt-10 scroll-mt-20">
+      <p className="eyebrow">inteligência artificial</p>
+      <h2 className="mt-1.5 font-display text-lg font-semibold">
+        Gerador de legendas
+      </h2>
+      <p className="mt-1 text-sm text-zinc-500">
+        Usado no Cronograma para escrever legendas na voz de cada personagem.
+        Escolha o provedor, o modelo e cole a chave de API — ela fica
+        criptografada (AES-256) no servidor.
+      </p>
+
+      <div className="mt-4 card p-4">
+        <label className="eyebrow mb-1.5 block">Provedor ativo</label>
+        <select
+          className="input"
+          value={provider}
+          onChange={(e) => setProvider(e.target.value as "openai" | "gemini")}
+        >
+          <option value="openai">OpenAI (ChatGPT)</option>
+          <option value="gemini">Google Gemini</option>
+        </select>
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className={provider === "openai" ? "" : "opacity-60"}>
+            <p className="font-medium text-white">OpenAI</p>
+            <label className="eyebrow mb-1.5 mt-2 block">Modelo</label>
+            <select className="input" value={openaiModel} onChange={(e) => setOpenaiModel(e.target.value)}>
+              {OPENAI_MODELS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+            <label className="eyebrow mb-1.5 mt-2 block">API key</label>
+            <input
+              className="input font-mono"
+              type="password"
+              placeholder={cfg?.hasOpenaiKey ? "•••••••• (em branco = manter)" : "sk-..."}
+              value={openaiKey}
+              onChange={(e) => setOpenaiKey(e.target.value)}
+            />
+            <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+              platform.openai.com → api keys
+            </p>
+          </div>
+          <div className={provider === "gemini" ? "" : "opacity-60"}>
+            <p className="font-medium text-white">Google Gemini</p>
+            <label className="eyebrow mb-1.5 mt-2 block">Modelo</label>
+            <select className="input" value={geminiModel} onChange={(e) => setGeminiModel(e.target.value)}>
+              {GEMINI_MODELS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+            <label className="eyebrow mb-1.5 mt-2 block">API key</label>
+            <input
+              className="input font-mono"
+              type="password"
+              placeholder={cfg?.hasGeminiKey ? "•••••••• (em branco = manter)" : "AIza..."}
+              value={geminiKey}
+              onChange={(e) => setGeminiKey(e.target.value)}
+            />
+            <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+              aistudio.google.com → get api key
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-3">
+        <button onClick={save} disabled={saving} className="btn-primary">
+          {saving ? "Salvando..." : "Salvar IA"}
+        </button>
+        {saved && (
+          <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
+            salvo ✓
+          </span>
+        )}
+      </div>
+    </section>
   );
 }
 

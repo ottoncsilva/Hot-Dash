@@ -102,6 +102,40 @@ function migrate(d: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_media_tags_tag ON media_tags(tag_id);
+
+    CREATE TABLE IF NOT EXISTS posts (
+      id           TEXT PRIMARY KEY,
+      profile_id   TEXT NOT NULL,
+      scheduled_at INTEGER NOT NULL,
+      caption      TEXT,
+      status       TEXT NOT NULL DEFAULT 'scheduled',
+      created_at   INTEGER NOT NULL,
+      updated_at   INTEGER NOT NULL,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_posts_profile ON posts(profile_id);
+    CREATE INDEX IF NOT EXISTS idx_posts_scheduled ON posts(scheduled_at);
+
+    -- Um post pode ser destinado a várias redes, cada uma com seu tipo
+    -- (ex.: Instagram/Carrossel + TikTok/Vídeo).
+    CREATE TABLE IF NOT EXISTS post_networks (
+      post_id   TEXT NOT NULL,
+      network   TEXT NOT NULL,
+      post_type TEXT NOT NULL,
+      PRIMARY KEY (post_id, network),
+      FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+    );
+
+    -- Mídias do post por REFERÊNCIA à biblioteca (nunca copia o arquivo).
+    CREATE TABLE IF NOT EXISTS post_media (
+      post_id    TEXT NOT NULL,
+      media_id   TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (post_id, media_id),
+      FOREIGN KEY (post_id)  REFERENCES posts(id)  ON DELETE CASCADE,
+      FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+    );
   `);
 
   // Migrações incrementais (adiciona colunas que ainda não existem em bancos já criados).

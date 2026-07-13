@@ -218,6 +218,15 @@ export const IconTag = (p: IconProps) => (
   </Base>
 );
 
+export const IconCalendar = (p: IconProps) => (
+  <Base {...p}>
+    <rect x="3" y="4.5" width="18" height="16" rx="2" />
+    <path d="M3 9.5h18" />
+    <path d="M8 2.5v4M16 2.5v4" />
+    <path d="M7.5 13.5h3M13.5 13.5h3M7.5 17h3" />
+  </Base>
+);
+
 export const IconType = (p: IconProps) => (
   <Base {...p}>
     <path d="M5 6h14M12 6v13M9 19h6" />

@@ -37,13 +37,26 @@ function buildPrompt(req: CaptionRequest): string {
 }
 
 export async function generateCaption(req: CaptionRequest): Promise<string> {
+  return (await callAiRaw(buildPrompt(req))).trim();
+}
+
+/**
+ * Chama o provedor de IA configurado (OpenAI ou Google Gemini) e devolve o
+ * texto bruto da resposta. Compartilhado entre o gerador de legenda e o
+ * gerador de cronograma — cada um monta seu próprio prompt e interpreta a
+ * resposta do seu jeito (texto livre vs. JSON estruturado).
+ */
+export async function callAiRaw(
+  prompt: string,
+  opts?: { json?: boolean; maxTokens?: number },
+): Promise<string> {
   const creds = getAiCredentials();
   if (!creds) {
     throw new Error(
       "IA não configurada: informe a chave de API (OpenAI ou Google Gemini) em Configurações.",
     );
   }
-  const prompt = buildPrompt(req);
+  const maxTokens = opts?.maxTokens ?? 500;
 
   if (creds.provider === "openai") {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -56,18 +69,19 @@ export async function generateCaption(req: CaptionRequest): Promise<string> {
         model: creds.model,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.9,
-        max_tokens: 500,
+        max_tokens: maxTokens,
+        ...(opts?.json ? { response_format: { type: "json_object" } } : {}),
       }),
     });
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok) {
       const msg = ((data.error as Record<string, unknown>)?.message as string) || "";
-      throw new Error(`OpenAI (${res.status}): ${msg || "falha ao gerar legenda"}`);
+      throw new Error(`OpenAI (${res.status}): ${msg || "falha ao gerar conteúdo"}`);
     }
     const text = (data.choices as { message?: { content?: string } }[])?.[0]?.message
       ?.content;
     if (!text) throw new Error("OpenAI não retornou texto.");
-    return text.trim();
+    return text;
   }
 
   // Google Gemini
@@ -80,18 +94,22 @@ export async function generateCaption(req: CaptionRequest): Promise<string> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.9, maxOutputTokens: 500 },
+        generationConfig: {
+          temperature: 0.9,
+          maxOutputTokens: maxTokens,
+          ...(opts?.json ? { responseMimeType: "application/json" } : {}),
+        },
       }),
     },
   );
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
     const msg = ((data.error as Record<string, unknown>)?.message as string) || "";
-    throw new Error(`Gemini (${res.status}): ${msg || "falha ao gerar legenda"}`);
+    throw new Error(`Gemini (${res.status}): ${msg || "falha ao gerar conteúdo"}`);
   }
   const text = (
     data.candidates as { content?: { parts?: { text?: string }[] } }[]
   )?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error("Gemini não retornou texto.");
-  return text.trim();
+  return text;
 }

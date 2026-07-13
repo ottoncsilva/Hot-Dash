@@ -167,6 +167,18 @@ export function listMedia(profileId: string): MediaItem[] {
   return rows.map((r) => toClient(r, getTagsForMedia(r.id)));
 }
 
+/** Ids de mídia já usados em QUALQUER post (agendado ou postado) deste perfil. */
+export function listUsedMediaIds(profileId: string): Set<string> {
+  const rows = getDb()
+    .prepare(
+      `SELECT DISTINCT pm.media_id AS id
+       FROM post_media pm JOIN posts p ON p.id = pm.post_id
+       WHERE p.profile_id = ?`,
+    )
+    .all(profileId) as { id: string }[];
+  return new Set(rows.map((r) => r.id));
+}
+
 export function getMediaRow(id: string): MediaRow | null {
   const row = getDb().prepare("SELECT * FROM media WHERE id = ?").get(id) as
     | MediaRow

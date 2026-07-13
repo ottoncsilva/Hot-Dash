@@ -34,6 +34,12 @@ export const NETWORK_DOT_COLORS: Record<SocialNetwork, string> = {
   outro: "#71717a",
 };
 
+// Dias da semana, na ordem do Date.getDay() (0=domingo).
+export const WEEKDAY_LABELS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+
+/** Restrição de tipo de mídia num horário do programa semanal. */
+export type MediaKindFilter = "any" | "image" | "video";
+
 /** Rede + tipo escolhido para essa rede dentro de um post. */
 export type PostNetwork = {
   network: SocialNetwork;

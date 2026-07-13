@@ -5,6 +5,8 @@ import { apiGet, apiSend } from "@/lib/api";
 import Modal from "@/components/Modal";
 import AuthImage from "@/components/AuthImage";
 import ToggleChip from "@/components/ToggleChip";
+import ScheduleTemplateModal from "@/components/schedule/ScheduleTemplateModal";
+import GenerateScheduleModal from "@/components/schedule/GenerateScheduleModal";
 import { useConfirm } from "@/hooks/useConfirm";
 import {
   IconArrowLeft,
@@ -62,6 +64,8 @@ export default function SchedulePage() {
   const [editing, setEditing] = useState<ScheduledPost | null>(null);
   const [prefillDate, setPrefillDate] = useState<Date | null>(null);
   const [detailPost, setDetailPost] = useState<ScheduledPost | null>(null);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [generateOpen, setGenerateOpen] = useState(false);
   const { confirm, ConfirmDialog } = useConfirm();
 
   async function load() {
@@ -144,9 +148,21 @@ export default function SchedulePage() {
             manualmente no celular de cada perfil.
           </p>
         </div>
-        <button onClick={() => openNew()} className="btn-primary" disabled={profiles.length === 0}>
-          <IconPlus size={16} /> Novo post
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setTemplateOpen(true)} className="btn-ghost">
+            <IconCalendar size={16} /> Programa
+          </button>
+          <button
+            onClick={() => setGenerateOpen(true)}
+            className="btn-ghost"
+            disabled={profiles.length === 0}
+          >
+            <IconSparkle size={16} /> Gerar com IA
+          </button>
+          <button onClick={() => openNew()} className="btn-primary" disabled={profiles.length === 0}>
+            <IconPlus size={16} /> Novo post
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -241,6 +257,19 @@ export default function SchedulePage() {
                 ? [...(ps || []), saved].sort((a, b) => a.scheduledAt - b.scheduledAt)
                 : (ps || []).map((p) => (p.id === saved.id ? saved : p)),
             );
+          }}
+        />
+      )}
+
+      {templateOpen && <ScheduleTemplateModal onClose={() => setTemplateOpen(false)} />}
+
+      {generateOpen && (
+        <GenerateScheduleModal
+          profiles={profiles}
+          defaultProfileId={profileId}
+          onClose={() => setGenerateOpen(false)}
+          onCreated={(created) => {
+            setPosts((ps) => [...(ps || []), ...created].sort((a, b) => a.scheduledAt - b.scheduledAt));
           }}
         />
       )}

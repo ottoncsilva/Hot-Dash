@@ -136,6 +136,24 @@ function migrate(d: Database.Database) {
       FOREIGN KEY (post_id)  REFERENCES posts(id)  ON DELETE CASCADE,
       FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
     );
+
+    -- Programa semanal global (recorrente), reaplicado a cada perfil ao gerar
+    -- um cronograma com IA. Não pertence a nenhum perfil específico.
+    CREATE TABLE IF NOT EXISTS schedule_template_slots (
+      id          TEXT PRIMARY KEY,
+      weekday     INTEGER NOT NULL,
+      time_start  TEXT NOT NULL,
+      time_end    TEXT NOT NULL,
+      network     TEXT NOT NULL,
+      post_type   TEXT NOT NULL,
+      media_kind  TEXT NOT NULL DEFAULT 'any',
+      label       TEXT,
+      sort_order  INTEGER NOT NULL DEFAULT 0,
+      created_at  INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_schedule_template_weekday
+      ON schedule_template_slots(weekday, time_start);
   `);
 
   // Migrações incrementais (adiciona colunas que ainda não existem em bancos já criados).

@@ -9,6 +9,7 @@ import {
   IconType,
   IconEmoji,
   IconBlur,
+  IconQuestion,
   IconUndo,
   IconTrash,
   IconSparkle,
@@ -42,7 +43,17 @@ type BlurObject = {
   w: number;
   h: number;
 };
-type EditorObject = TextObject | EmojiObject | BlurObject;
+/** Caixinha de pergunta estilo sticker do Instagram — a altura sempre segue
+ * do texto (quebrado dentro de `w`), só a largura é redimensionável. */
+type QuestionObject = {
+  id: string;
+  type: "question";
+  x: number;
+  y: number;
+  w: number;
+  question: string;
+};
+type EditorObject = TextObject | EmojiObject | BlurObject | QuestionObject;
 
 const TEXT_COLORS = [
   "#ffffff",
@@ -56,11 +67,63 @@ const TEXT_COLORS = [
 ];
 
 const MAX_DIM = 3000;
-const HANDLE_SCREEN_PX = 26;
+// Alvo de toque maior (mobile) para a alça de redimensionar.
+const HANDLE_SCREEN_PX = 34;
+// Margem (em coordenadas do canvas) que a área clicável ganha além do
+// contorno exato do objeto — bate com a margem visual do tracejado de
+// seleção, para "selecionar" não parecer mais difícil do que "ver selecionado".
+const HIT_PADDING = 10;
+
+const QUESTION_LABEL = "Pergunte-me algo";
+
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const words = (text || "").split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [""];
+  const lines: string[] = [];
+  let current = words[0];
+  for (let i = 1; i < words.length; i++) {
+    const test = `${current} ${words[i]}`;
+    if (ctx.measureText(test).width <= maxWidth) {
+      current = test;
+    } else {
+      lines.push(current);
+      current = words[i];
+    }
+  }
+  lines.push(current);
+  return lines;
+}
+
+function measureQuestionBox(ctx: CanvasRenderingContext2D, o: QuestionObject) {
+  const pad = o.w * 0.06;
+  const labelSize = Math.max(10, o.w * 0.04);
+  const qSize = Math.max(14, o.w * 0.058);
+  ctx.font = `600 ${qSize}px sans-serif`;
+  const lines = wrapText(ctx, o.question || QUESTION_LABEL, o.w - pad * 2);
+  const lineHeight = qSize * 1.25;
+  const headerHeight = labelSize * 1.8;
+  const h = pad * 2 + headerHeight + lines.length * lineHeight;
+  return { pad, labelSize, qSize, lines, lineHeight, headerHeight, h };
+}
+
+function drawRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
 
 function computeBounds(ctx: CanvasRenderingContext2D, o: EditorObject) {
   if (o.type === "blur") return { x: o.x, y: o.y, w: o.w, h: o.h };
   if (o.type === "emoji") return { x: o.x, y: o.y, w: o.size, h: o.size };
+  if (o.type === "question") {
+    const { h } = measureQuestionBox(ctx, o);
+    return { x: o.x, y: o.y, w: o.w, h };
+  }
   ctx.font = `700 ${o.size}px sans-serif`;
   const w = ctx.measureText(o.text || " ").width;
   return { x: o.x, y: o.y, w: Math.max(w, o.size * 0.5), h: o.size };
@@ -186,6 +249,26 @@ export default function PhotoEditor({
         ctx.font = `${o.size}px sans-serif`;
         ctx.textBaseline = "top";
         ctx.fillText(o.emoji, o.x, o.y);
+      } else if (o.type === "question") {
+        const { pad, labelSize, qSize, lines, lineHeight, headerHeight, h } = measureQuestionBox(ctx, o);
+        drawRoundRect(ctx, o.x, o.y, o.w, h, Math.min(20, o.w * 0.05));
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+
+        ctx.textBaseline = "top";
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#71717a";
+        ctx.font = `600 ${labelSize}px sans-serif`;
+        ctx.fillText(QUESTION_LABEL, o.x + o.w / 2, o.y + pad);
+
+        ctx.fillStyle = "#18181b";
+        ctx.font = `700 ${qSize}px sans-serif`;
+        let ty = o.y + pad + headerHeight;
+        for (const line of lines) {
+          ctx.fillText(line, o.x + o.w / 2, ty);
+          ty += lineHeight;
+        }
+        ctx.textAlign = "left";
       }
       if (!forExport && selectedId === o.id) drawSelectionBox(ctx, computeBounds(ctx, o));
     }
@@ -229,7 +312,13 @@ export default function PhotoEditor({
     for (let i = objects.length - 1; i >= 0; i--) {
       const o = objects[i];
       const b = computeBounds(ctx, o);
-      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return o;
+      if (
+        x >= b.x - HIT_PADDING &&
+        x <= b.x + b.w + HIT_PADDING &&
+        y >= b.y - HIT_PADDING &&
+        y <= b.y + b.h + HIT_PADDING
+      )
+        return o;
     }
     return null;
   }
@@ -296,16 +385,24 @@ export default function PhotoEditor({
       prev.map((o) => {
         if (o.id !== drag.id) return o;
         if (drag.kind === "move") {
-          if (o.type === "blur") return { ...o, x: (drag.orig as BlurObject).x + dx, y: (drag.orig as BlurObject).y + dy };
-          return { ...o, x: (drag.orig as TextObject | EmojiObject).x + dx, y: (drag.orig as TextObject | EmojiObject).y + dy };
+          const orig = drag.orig as { x: number; y: number };
+          return { ...o, x: orig.x + dx, y: orig.y + dy };
         }
         // resize
         if (o.type === "blur") {
           const orig = drag.orig as BlurObject;
           return { ...o, w: Math.max(12, orig.w + dx), h: Math.max(12, orig.h + dy) };
         }
+        if (o.type === "question") {
+          const orig = drag.orig as QuestionObject;
+          return { ...o, w: Math.max(100, orig.w + dx) };
+        }
+        // Texto/emoji: cresce com o arraste na diagonal (média de dx e dy),
+        // não só na vertical — arrastar pra baixo-direita cresce, pra
+        // cima-esquerda encolhe, e arrastar só na horizontal também funciona.
         const orig = drag.orig as TextObject | EmojiObject;
-        const next = Math.max(12, Math.min(400, orig.size + dy));
+        const delta = (dx + dy) / 2;
+        const next = Math.max(12, Math.min(400, orig.size + delta));
         return { ...o, size: next };
       }),
     );
@@ -361,11 +458,37 @@ export default function PhotoEditor({
     setMode("select");
   }
 
+  function addQuestionBox() {
+    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const id = crypto.randomUUID();
+    const obj: QuestionObject = {
+      id,
+      type: "question",
+      x: canvas.width * 0.1,
+      y: canvas.height * 0.4,
+      w: canvas.width * 0.8,
+      question: QUESTION_LABEL,
+    };
+    setObjects((prev) => [...prev, obj]);
+    setSelectedId(id);
+    setMode("select");
+  }
+
   function updateSelected(patch: Partial<TextObject>) {
     if (!selected || selected.type !== "text") return;
     setObjects((prev) =>
       prev.map((o) =>
         o.id === selected.id && o.type === "text" ? { ...o, ...patch } : o,
+      ),
+    );
+  }
+
+  function updateQuestion(patch: Partial<QuestionObject>) {
+    if (!selected || selected.type !== "question") return;
+    setObjects((prev) =>
+      prev.map((o) =>
+        o.id === selected.id && o.type === "question" ? { ...o, ...patch } : o,
       ),
     );
   }
@@ -518,6 +641,7 @@ export default function PhotoEditor({
             setSelectedId(null);
           }}
         />
+        <ToolButton icon={<IconQuestion size={18} />} label="Pergunta" onClick={addQuestionBox} />
         <ToolButton
           icon={<IconUndo size={18} />}
           label="Desfazer"
@@ -603,6 +727,23 @@ export default function PhotoEditor({
               <button
                 onClick={removeSelected}
                 className="grid h-8 w-8 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-red-400"
+                aria-label="Excluir"
+              >
+                <IconTrash size={16} />
+              </button>
+            </div>
+          )}
+          {selected.type === "question" && (
+            <div className="flex items-center gap-2">
+              <input
+                className="input flex-1"
+                value={selected.question}
+                onChange={(e) => updateQuestion({ question: e.target.value })}
+                placeholder="Digite a pergunta"
+              />
+              <button
+                onClick={removeSelected}
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-red-400"
                 aria-label="Excluir"
               >
                 <IconTrash size={16} />

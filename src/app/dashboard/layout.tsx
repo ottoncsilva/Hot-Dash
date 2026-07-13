@@ -86,9 +86,9 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex min-h-dvh flex-col md:flex-row">
+    <div className="flex min-h-dvh flex-col md:h-dvh md:flex-row md:overflow-hidden">
       {/* Sidebar (desktop) */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-white/[0.06] bg-ink-900/40 p-4 md:flex">
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-white/[0.06] bg-ink-900/40 p-4 md:flex md:h-dvh">
         <Brand />
         <nav className="mt-8 flex flex-1 flex-col gap-0.5">
           {visible.map(({ key }) => {
@@ -178,7 +178,7 @@ export default function DashboardLayout({
       </header>
 
       {/* Conteúdo */}
-      <main className="flex-1 px-4 pb-24 pt-6 md:px-10 md:py-10">
+      <main className="flex-1 px-4 pb-24 pt-6 md:h-dvh md:overflow-y-auto md:px-10 md:py-10">
         <div className="animate-fade-in">{children}</div>
       </main>
 

@@ -40,10 +40,18 @@ export const WEEKDAY_LABELS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta
 /** Restrição de tipo de mídia num horário do programa semanal. */
 export type MediaKindFilter = "any" | "image" | "video";
 
-/** Rede + tipo escolhido para essa rede dentro de um post. */
+/**
+ * Rede + tipo escolhido para essa rede dentro de um post. `accountId`
+ * referencia a conta cadastrada da modelo (permite 2 posts na mesma rede
+ * quando há 2 contas, ex.: 2 Instagram) — opcional para não quebrar posts
+ * antigos criados antes dessa distinção existir.
+ */
 export type PostNetwork = {
   network: SocialNetwork;
   postType: string;
+  accountId?: string;
+  /** Só preenchido ao carregar do servidor, para exibir sem precisar cruzar com o perfil. */
+  accountUsername?: string;
 };
 
 export type PostStatus = "scheduled" | "posted";

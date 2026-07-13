@@ -17,9 +17,23 @@ type PostRow = {
 
 function loadNetworks(postId: string): PostNetwork[] {
   const rows = getDb()
-    .prepare("SELECT network, post_type FROM post_networks WHERE post_id = ? ORDER BY network")
-    .all(postId) as { network: string; post_type: string }[];
-  return rows.map((r) => ({ network: r.network as SocialNetwork, postType: r.post_type }));
+    .prepare(
+      `SELECT pn.network, pn.post_type, pn.account_id, a.username AS account_username
+       FROM post_networks pn LEFT JOIN accounts a ON a.id = pn.account_id
+       WHERE pn.post_id = ? ORDER BY pn.network`,
+    )
+    .all(postId) as {
+    network: string;
+    post_type: string;
+    account_id: string | null;
+    account_username: string | null;
+  }[];
+  return rows.map((r) => ({
+    network: r.network as SocialNetwork,
+    postType: r.post_type,
+    accountId: r.account_id || undefined,
+    accountUsername: r.account_username || undefined,
+  }));
 }
 
 function loadMedia(postId: string): ScheduledPost["media"] {
@@ -63,9 +77,9 @@ function writeRelations(postId: string, networks: PostNetwork[], mediaIds: strin
   db.prepare("DELETE FROM post_networks WHERE post_id = ?").run(postId);
   db.prepare("DELETE FROM post_media WHERE post_id = ?").run(postId);
   const insNet = db.prepare(
-    "INSERT OR REPLACE INTO post_networks (post_id, network, post_type) VALUES (?, ?, ?)",
+    "INSERT OR REPLACE INTO post_networks (post_id, network, post_type, account_id) VALUES (?, ?, ?, ?)",
   );
-  for (const n of networks) insNet.run(postId, n.network, n.postType);
+  for (const n of networks) insNet.run(postId, n.network, n.postType, n.accountId || null);
   const insMedia = db.prepare(
     "INSERT OR IGNORE INTO post_media (post_id, media_id, sort_order) VALUES (?, ?, ?)",
   );

@@ -17,8 +17,10 @@ import {
   IconSparkle,
   IconCalendar,
   IconPlay,
+  IconCopy,
+  IconDownload,
 } from "@/components/icons";
-import { NETWORK_LABELS, mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type SocialNetwork } from "@/lib/types";
+import { NETWORK_LABELS, mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type SocialAccount, type SocialNetwork } from "@/lib/types";
 import type { AiProvider } from "@/lib/settings";
 import {
   NETWORK_DOT_COLORS,
@@ -241,6 +243,7 @@ export default function SchedulePage() {
           onToggle={togglePosted}
           onEdit={openEdit}
           onDelete={removePost}
+          onDetail={setDetailPost}
         />
       )}
 
@@ -312,6 +315,60 @@ function PostDetail({
   onDelete: () => void;
   onToggle: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  async function copyCaption() {
+    if (!post.caption) return;
+    try {
+      await navigator.clipboard.writeText(post.caption);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* silencioso: usuário pode tentar de novo */
+    }
+  }
+
+  async function downloadMedia() {
+    if (post.media.length === 0) return;
+    setDownloading(true);
+    try {
+      if (post.media.length === 1) {
+        const m = post.media[0];
+        const res = await fetch(mediaUrl(m));
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = m.filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        return;
+      }
+      const res = await fetch("/api/media/zip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: post.media.map((m) => m.id) }),
+      });
+      if (!res.ok) throw new Error(`Erro ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `hotdash-post-${post.media.length}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      /* silencioso: usuário pode tentar de novo */
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <Modal open onClose={onClose} maxWidth="max-w-sm">
       <p className="eyebrow">{fmtDayLong(post.scheduledAt)}</p>
@@ -320,11 +377,12 @@ function PostDetail({
         <span className="font-mono text-xs text-zinc-500">{fmtTime(post.scheduledAt)}</span>
         {post.networks.map((n) => (
           <span
-            key={n.network}
+            key={n.accountId || n.network}
             className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-zinc-500"
           >
             <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: NETWORK_DOT_COLORS[n.network] }} />
-            {NETWORK_LABELS[n.network]} · {n.postType}
+            {NETWORK_LABELS[n.network]}
+            {n.accountUsername ? ` (@${n.accountUsername})` : ""} · {n.postType}
           </span>
         ))}
       </div>
@@ -361,7 +419,21 @@ function PostDetail({
 
       {post.caption && <p className="mt-3 text-sm text-zinc-400">{post.caption}</p>}
 
-      <div className="mt-5 flex gap-2">
+      <div className="mt-3 flex gap-2">
+        {post.caption && (
+          <button onClick={copyCaption} className="btn-ghost flex-1 text-xs">
+            <IconCopy size={14} /> {copied ? "Copiado!" : "Copiar legenda"}
+          </button>
+        )}
+        {post.media.length > 0 && (
+          <button onClick={downloadMedia} disabled={downloading} className="btn-ghost flex-1 text-xs">
+            <IconDownload size={14} />
+            {downloading ? "Baixando..." : post.media.length > 1 ? "Baixar imagens" : "Baixar imagem"}
+          </button>
+        )}
+      </div>
+
+      <div className="mt-3 flex gap-2">
         <button onClick={onToggle} className="btn-ghost flex-1">
           {post.status === "posted" ? "Marcar agendado" : "Marcar postado"}
         </button>
@@ -504,7 +576,7 @@ function CalendarView({
                     <span className="flex items-center gap-1">
                       {p.networks.map((n) => (
                         <span
-                          key={n.network}
+                          key={n.accountId || n.network}
                           className="h-1.5 w-1.5 shrink-0 rounded-full"
                           style={{ backgroundColor: NETWORK_DOT_COLORS[n.network] }}
                         />
@@ -537,11 +609,13 @@ function ListView({
   onToggle,
   onEdit,
   onDelete,
+  onDetail,
 }: {
   posts: ScheduledPost[];
   onToggle: (p: ScheduledPost) => void;
   onEdit: (p: ScheduledPost) => void;
   onDelete: (p: ScheduledPost) => void;
+  onDetail: (p: ScheduledPost) => void;
 }) {
   const groups = useMemo(() => {
     const map = new Map<string, { day: number; items: ScheduledPost[] }>();
@@ -574,9 +648,16 @@ function ListView({
           <p className="eyebrow capitalize">{fmtDayLong(g.day)}</p>
           <div className="mt-2 card divide-y divide-white/[0.06] overflow-hidden">
             {g.items.map((p) => (
-              <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+              <div
+                key={p.id}
+                onClick={() => onDetail(p)}
+                className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-white/[0.02]"
+              >
                 <button
-                  onClick={() => onToggle(p)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggle(p);
+                  }}
                   title={p.status === "posted" ? "Marcar como agendado" : "Marcar como postado"}
                   className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition-colors ${
                     p.status === "posted"
@@ -635,12 +716,13 @@ function ListView({
                     <span className="font-mono text-xs text-zinc-500">{fmtTime(p.scheduledAt)}</span>
                     <span className="font-medium">{p.profileName}</span>
                     {p.networks.map((n) => (
-                      <span key={n.network} className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                      <span key={n.accountId || n.network} className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                         <span
                           className="h-1.5 w-1.5 rounded-full"
                           style={{ backgroundColor: NETWORK_DOT_COLORS[n.network] }}
                         />
-                        {NETWORK_LABELS[n.network]} · {n.postType}
+                        {NETWORK_LABELS[n.network]}
+                        {n.accountUsername ? ` (@${n.accountUsername})` : ""} · {n.postType}
                       </span>
                     ))}
                   </p>
@@ -651,14 +733,20 @@ function ListView({
 
                 <div className="flex shrink-0 gap-1">
                   <button
-                    onClick={() => onEdit(p)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEdit(p);
+                    }}
                     className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 hover:bg-white/5 hover:text-white"
                     aria-label="Editar"
                   >
                     <IconEdit size={16} />
                   </button>
                   <button
-                    onClick={() => onDelete(p)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(p);
+                    }}
                     className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 hover:bg-white/5 hover:text-red-400"
                     aria-label="Excluir"
                   >
@@ -737,16 +825,22 @@ function PostForm({
       .catch(() => setAiOptions([]));
   }, []);
 
-  function toggleNetwork(net: SocialNetwork) {
+  const selectedProfile = profiles.find((p) => p.id === profileId);
+  const accounts = selectedProfile?.accounts || [];
+
+  function toggleAccount(acc: SocialAccount) {
     setNetworks((prev) => {
-      const exists = prev.find((n) => n.network === net);
-      if (exists) return prev.filter((n) => n.network !== net);
-      return [...prev, { network: net, postType: POST_TYPES[net][0] }];
+      const exists = prev.find((n) => n.accountId === acc.id);
+      if (exists) return prev.filter((n) => n.accountId !== acc.id);
+      return [
+        ...prev,
+        { network: acc.network, postType: POST_TYPES[acc.network][0], accountId: acc.id, accountUsername: acc.username },
+      ];
     });
   }
 
-  function setType(net: SocialNetwork, postType: string) {
-    setNetworks((prev) => prev.map((n) => (n.network === net ? { ...n, postType } : n)));
+  function setType(accountId: string | undefined, postType: string) {
+    setNetworks((prev) => prev.map((n) => (n.accountId === accountId ? { ...n, postType } : n)));
   }
 
   function toggleMedia(id: string) {
@@ -837,6 +931,7 @@ function PostForm({
                 onChange={(e) => {
                   setProfileId(e.target.value);
                   setMediaIds([]);
+                  setNetworks([]);
                 }}
               >
                 {profiles.map((p) => (
@@ -856,36 +951,46 @@ function PostForm({
             </div>
           </div>
 
-          {/* Redes (multi) + tipo por rede */}
+          {/* Redes (multi) + tipo por rede — só as contas cadastradas na modelo */}
           <div>
             <label className="eyebrow mb-1.5 block">Redes sociais (pode marcar várias)</label>
-            <div className="flex flex-wrap gap-1.5">
-              {(Object.keys(NETWORK_LABELS) as SocialNetwork[]).map((net) => (
-                <ToggleChip
-                  key={net}
-                  active={networks.some((n) => n.network === net)}
-                  color={NETWORK_DOT_COLORS[net]}
-                  onClick={() => toggleNetwork(net)}
-                >
-                  {NETWORK_LABELS[net]}
-                </ToggleChip>
-              ))}
-            </div>
+            {accounts.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-white/10 px-3 py-2 text-xs text-zinc-500">
+                Nenhuma rede cadastrada para esta modelo.{" "}
+                <a href={`/dashboard/profiles/${profileId}`} className="underline hover:text-zinc-300">
+                  Cadastrar conta
+                </a>
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {accounts.map((acc) => (
+                  <ToggleChip
+                    key={acc.id}
+                    active={networks.some((n) => n.accountId === acc.id)}
+                    color={NETWORK_DOT_COLORS[acc.network]}
+                    onClick={() => toggleAccount(acc)}
+                  >
+                    {NETWORK_LABELS[acc.network]} · @{acc.username}
+                  </ToggleChip>
+                ))}
+              </div>
+            )}
             {networks.length > 0 && (
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {networks.map((n) => (
-                  <div key={n.network} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
+                  <div key={n.accountId || n.network} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
                     <span
                       className="h-2 w-2 shrink-0 rounded-full"
                       style={{ backgroundColor: NETWORK_DOT_COLORS[n.network] }}
                     />
-                    <span className="w-24 shrink-0 truncate text-xs text-zinc-300">
+                    <span className="w-28 shrink-0 truncate text-xs text-zinc-300">
                       {NETWORK_LABELS[n.network]}
+                      {n.accountUsername ? ` · @${n.accountUsername}` : ""}
                     </span>
                     <select
                       className="input flex-1 py-1.5 text-xs"
                       value={n.postType}
-                      onChange={(e) => setType(n.network, e.target.value)}
+                      onChange={(e) => setType(n.accountId, e.target.value)}
                     >
                       {POST_TYPES[n.network].map((t) => (
                         <option key={t} value={t}>

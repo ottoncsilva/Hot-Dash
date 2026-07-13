@@ -118,12 +118,15 @@ function migrate(d: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_posts_scheduled ON posts(scheduled_at);
 
     -- Um post pode ser destinado a várias redes, cada uma com seu tipo
-    -- (ex.: Instagram/Carrossel + TikTok/Vídeo).
+    -- (ex.: Instagram/Carrossel + TikTok/Vídeo). account_id aponta pra conta
+    -- cadastrada da modelo (accounts.id) — permite 2 linhas da mesma rede
+    -- quando a modelo tem 2 contas dela (ex.: 2 Instagram).
     CREATE TABLE IF NOT EXISTS post_networks (
-      post_id   TEXT NOT NULL,
-      network   TEXT NOT NULL,
-      post_type TEXT NOT NULL,
-      PRIMARY KEY (post_id, network),
+      post_id    TEXT NOT NULL,
+      network    TEXT NOT NULL,
+      post_type  TEXT NOT NULL,
+      account_id TEXT,
+      PRIMARY KEY (post_id, network, account_id),
       FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
     );
 
@@ -165,10 +168,37 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "profiles", "sheet_id", "TEXT");
   ensureColumn(d, "profiles", "sheet_gid", "INTEGER");
   ensureColumn(d, "media", "sheet_row", "INTEGER");
+  ensurePostNetworksAccountId(d);
 
   d.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_media_public_token ON media(public_token) WHERE public_token IS NOT NULL;`,
   );
+}
+
+/**
+ * Bancos criados antes da coluna `account_id` têm a PK antiga
+ * `(post_id, network)`, que o SQLite não altera com `ALTER TABLE` — recria a
+ * tabela preservando as linhas existentes (account_id fica NULL nelas,
+ * tratado como "sem conta específica" no app). Idempotente: só roda se a
+ * coluna ainda não existir.
+ */
+function ensurePostNetworksAccountId(d: Database.Database) {
+  const cols = d.prepare(`PRAGMA table_info(post_networks)`).all() as { name: string }[];
+  if (cols.some((c) => c.name === "account_id")) return;
+  d.exec(`
+    CREATE TABLE post_networks_new (
+      post_id    TEXT NOT NULL,
+      network    TEXT NOT NULL,
+      post_type  TEXT NOT NULL,
+      account_id TEXT,
+      PRIMARY KEY (post_id, network, account_id),
+      FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+    );
+    INSERT INTO post_networks_new (post_id, network, post_type, account_id)
+      SELECT post_id, network, post_type, NULL FROM post_networks;
+    DROP TABLE post_networks;
+    ALTER TABLE post_networks_new RENAME TO post_networks;
+  `);
 }
 
 /** Adiciona uma coluna à tabela se ela ainda não existir (migração idempotente). */

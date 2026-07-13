@@ -86,21 +86,53 @@ export async function callAiRaw(
             })),
           ]
         : prompt;
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${creds.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: creds.model,
+
+    // Alguns modelos (família "reasoning": o1/o3/o4, gpt-5...) rejeitam
+    // `max_tokens` (exigem `max_completion_tokens`) e/ou `temperature`
+    // diferente do padrão. Em vez de adivinhar pelo nome do modelo (a lista
+    // de modelos é sempre ao vivo, nunca hardcoded), tenta o request normal
+    // e, se a OpenAI reclamar de um desses parâmetros especificamente,
+    // ajusta e tenta de novo uma única vez.
+    function buildBody(opts_: { dropTemperature?: boolean; useMaxCompletionTokens?: boolean }) {
+      return {
+        model: creds!.model,
         messages: [{ role: "user", content }],
-        temperature: 0.9,
-        max_tokens: maxTokens,
+        ...(opts_.dropTemperature ? {} : { temperature: 0.9 }),
+        ...(opts_.useMaxCompletionTokens
+          ? { max_completion_tokens: maxTokens }
+          : { max_tokens: maxTokens }),
         ...(opts?.json ? { response_format: { type: "json_object" } } : {}),
-      }),
-    });
-    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      };
+    }
+
+    async function attempt(body: Record<string, unknown>) {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${creds!.apiKey}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      return { res, data };
+    }
+
+    let { res, data } = await attempt(buildBody({}));
+    if (!res.ok) {
+      const errObj = data.error as Record<string, unknown> | undefined;
+      const param = (errObj?.param as string) || "";
+      const msg = (errObj?.message as string) || "";
+      const badParam = (name: string) => param === name || msg.includes(`'${name}'`);
+      if (res.status === 400 && (badParam("max_tokens") || badParam("temperature"))) {
+        ({ res, data } = await attempt(
+          buildBody({
+            dropTemperature: badParam("temperature"),
+            useMaxCompletionTokens: badParam("max_tokens"),
+          }),
+        ));
+      }
+    }
     if (!res.ok) {
       const msg = ((data.error as Record<string, unknown>)?.message as string) || "";
       throw new Error(`OpenAI (${res.status}): ${msg || "falha ao gerar conteúdo"}`);

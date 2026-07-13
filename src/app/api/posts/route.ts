@@ -10,10 +10,17 @@ function parseNetworks(raw: unknown): PostNetwork[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter(
-      (n): n is { network: string; postType: string } =>
+      (n): n is { network: string; postType: string; accountId?: string } =>
         Boolean(n) && typeof n.network === "string" && typeof n.postType === "string",
     )
-    .map((n) => ({ network: n.network, postType: n.postType }) as PostNetwork);
+    .map(
+      (n) =>
+        ({
+          network: n.network,
+          postType: n.postType,
+          accountId: typeof n.accountId === "string" ? n.accountId : undefined,
+        }) as PostNetwork,
+    );
 }
 
 export async function GET(req: NextRequest) {

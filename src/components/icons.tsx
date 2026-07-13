@@ -248,6 +248,14 @@ export const IconBlur = (p: IconProps) => (
   </Base>
 );
 
+export const IconQuestion = (p: IconProps) => (
+  <Base {...p}>
+    <rect x="3" y="5" width="18" height="12" rx="3" />
+    <path d="M9.5 9.5a2.5 2.5 0 0 1 4.6-1.4c.5.8.2 1.6-.6 2.2-.9.7-1.5 1.1-1.5 2.2" />
+    <path d="M12 15.2h.01" />
+  </Base>
+);
+
 export const IconUndo = (p: IconProps) => (
   <Base {...p}>
     <path d="M8 7 4 11l4 4" />

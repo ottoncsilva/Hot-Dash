@@ -36,7 +36,7 @@ export function mediaKind(ext: string): MediaKind | null {
 }
 
 /** Executa um comando e resolve/rejeita conforme o código de saída. */
-function run(cmd: string, args: string[]): Promise<void> {
+export function run(cmd: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";

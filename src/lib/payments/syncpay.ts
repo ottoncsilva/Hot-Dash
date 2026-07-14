@@ -93,52 +93,28 @@ export function createSyncPay(creds: {
 
     async createPixCharge(input: ChargeInput): Promise<ChargeResult> {
       const reais = input.amountCents / 100;
-      const cpf = (input.customer?.document || "").replace(/\D/g, "");
-      const phone = (input.customer?.phone || "").replace(/\D/g, "");
-      const days = input.expiresInDays ?? 1;
+      let cpf = (input.customer?.document || "").replace(/\D/g, "");
+      if (cpf.length !== 11) {
+        cpf = "00000000000";
+      }
+      let phone = (input.customer?.phone || "").replace(/\D/g, "");
+      if (phone.length < 10 || phone.length > 11) {
+        phone = "11999999999";
+      }
 
       const body = {
-        ip: input.customer?.ip || "127.0.0.1",
-        pix: { expiresInDays: String(days) },
-        items: [
-          {
-            title: input.description || "Venda",
-            quantity: 1,
-            tangible: false,
-            unitPrice: reais,
-          },
-        ],
         amount: reais,
-        customer: {
+        description: input.description || "Venda",
+        webhook_url: input.postbackUrl || "",
+        client: {
           name: input.customer?.name || "Cliente",
+          cpf,
           email: input.customer?.email || "cliente@exemplo.com",
-          phone: phone || "11999999999",
-          cpf: cpf || "00000000000",
-          externaRef: input.externalRef || "",
-          // Endereço é exigido pela API; preenche com dados informados ou
-          // um placeholder válido quando o cliente não os fornece.
-          address: {
-            street: input.customer?.address?.street || "N/A",
-            streetNumber: input.customer?.address?.streetNumber || "0",
-            complement: input.customer?.address?.complement || "",
-            neighborhood: input.customer?.address?.neighborhood || "Centro",
-            city: input.customer?.address?.city || "Sao Paulo",
-            state: input.customer?.address?.state || "SP",
-            zipCode: (input.customer?.address?.zipCode || "01001000").replace(/\D/g, ""),
-            country: input.customer?.address?.country || "BR",
-          },
+          phone,
         },
-        metadata: {
-          provider: "hot-dash",
-          user_email: input.metadata?.userEmail || "",
-          sell_url: input.metadata?.sellUrl || "",
-          order_url: input.metadata?.orderUrl || "",
-        },
-        traceable: true,
-        ...(input.postbackUrl ? { postbackUrl: input.postbackUrl } : {}),
       };
 
-      const res = await authedFetch("/v1/gateway/api", {
+      const res = await authedFetch("/api/partner/v1/cash-in", {
         method: "POST",
         body: JSON.stringify(body),
       });
@@ -150,19 +126,12 @@ export function createSyncPay(creds: {
           }`,
         );
       }
-      const providerRef = String(
-        data.idTransaction || data.id || data.transaction_id || "",
-      );
-      const pixCode =
-        (data.paymentCode as string) ||
-        (data.pix_code as string) ||
-        (data.qr_code as string) ||
-        ((data.pix as Record<string, unknown>)?.qr_code as string);
+      const providerRef = String(data.identifier || "");
+      const pixCode = String(data.pix_code || "");
       return {
         providerRef,
         status: "pending",
         pixCode,
-        qrCodeBase64: (data.paymentCodeBase64 as string) || undefined,
         raw: data,
       };
     },

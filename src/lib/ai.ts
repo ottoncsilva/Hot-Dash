@@ -4,9 +4,9 @@ import { NETWORK_LABELS, type SocialNetwork } from "./types";
 
 /**
  * Gerador de legendas por IA, sem SDKs (REST puro via fetch), no mesmo
- * espírito de googleSheets.ts/syncpay.ts. O provedor (OpenAI ou Google
- * Gemini) é escolhido pelo usuário na hora de cada atividade — o modelo e a
- * chave vêm das Configurações — a chave fica criptografada (AES-256) no banco.
+ * espírito de syncpay.ts. O provedor (OpenAI ou Google Gemini) é escolhido
+ * pelo usuário na hora de cada atividade — o modelo e a chave vêm das
+ * Configurações — a chave fica criptografada (AES-256) no banco.
  */
 
 /** Imagem embutida (base64) para a IA analisar — só usado pelo post manual. */

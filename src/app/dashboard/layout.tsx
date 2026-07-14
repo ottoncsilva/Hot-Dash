@@ -36,9 +36,9 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
 const SETTINGS_SUBSECTIONS: { label: string; anchor: string }[] = [
   { label: "Menu", anchor: "menu" },
   { label: "Etiquetas", anchor: "etiquetas" },
+  { label: "Status de modelos", anchor: "status" },
   { label: "Pagamentos", anchor: "pagamentos" },
   { label: "Conexão com IA", anchor: "ia" },
-  { label: "Google Sheets", anchor: "google-sheets" },
   { label: "Segurança", anchor: "seguranca" },
 ];
 

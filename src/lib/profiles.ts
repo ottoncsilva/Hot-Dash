@@ -4,7 +4,8 @@ import { getDb } from "./db";
 import { decryptSecret, encryptSecret } from "./crypto";
 import { countPostsByProfile } from "./posts";
 import { totalPaidCentsByProfile } from "./transactions";
-import type { Profile, ProfileStatus, SocialAccount, SocialNetwork } from "./types";
+import { listProfileStatuses } from "./profileStatuses";
+import type { Profile, SocialAccount, SocialNetwork } from "./types";
 
 type AccountRow = {
   id: string;
@@ -56,7 +57,7 @@ function profileToClient(p: ProfileRow): Profile {
     avatarPath: p.avatar_path,
     notes: p.notes || undefined,
     accounts: loadAccounts(p.id),
-    status: (p.status as ProfileStatus) || "configuring",
+    status: p.status,
     createdAt: p.created_at,
     updatedAt: p.updated_at,
   };
@@ -91,14 +92,18 @@ export async function createProfile(input: {
   name: string;
   notes?: string;
 }): Promise<Profile> {
+  const [defaultStatus] = listProfileStatuses();
+  if (!defaultStatus) {
+    throw new Error("Crie ao menos um status antes de criar um modelo.");
+  }
   const now = Date.now();
   const id = randomUUID();
   getDb()
     .prepare(
-      `INSERT INTO profiles (id, name, avatar_path, notes, created_at, updated_at)
-       VALUES (?, ?, NULL, ?, ?, ?)`,
+      `INSERT INTO profiles (id, name, avatar_path, notes, status, created_at, updated_at)
+       VALUES (?, ?, NULL, ?, ?, ?, ?)`,
     )
-    .run(id, input.name.trim(), input.notes?.trim() || "", now, now);
+    .run(id, input.name.trim(), input.notes?.trim() || "", defaultStatus.id, now, now);
   return (await getProfile(id))!;
 }
 
@@ -108,7 +113,7 @@ export async function updateProfile(
     name?: string;
     notes?: string;
     avatarPath?: string | null;
-    status?: ProfileStatus;
+    status?: string;
   },
 ): Promise<Profile | null> {
   const existing = getDb()

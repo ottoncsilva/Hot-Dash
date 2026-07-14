@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { deleteProfile, getProfile, updateProfile } from "@/lib/profiles";
+import { getProfileStatus } from "@/lib/profileStatuses";
 import { deleteDir } from "@/lib/storage";
-import type { ProfileStatus } from "@/lib/types";
-
-const VALID_STATUSES: ProfileStatus[] = ["online", "configuring", "paused"];
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +33,7 @@ export async function PATCH(
   try {
     await requireUser(req);
     const body = await req.json().catch(() => ({}));
-    if (body.status !== undefined && !VALID_STATUSES.includes(body.status)) {
+    if (body.status !== undefined && !getProfileStatus(body.status)) {
       return NextResponse.json({ error: "Status inválido." }, { status: 400 });
     }
     const profile = await updateProfile(params.id, {

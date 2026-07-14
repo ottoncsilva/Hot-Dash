@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
-import { deleteTag, updateTag } from "@/lib/tags";
+import { deleteProfileStatus, updateProfileStatus } from "@/lib/profileStatuses";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,19 +12,16 @@ export async function PATCH(
   try {
     await requireUser(req);
     const body = await req.json().catch(() => ({}));
-    let tag;
+    let status;
     try {
-      tag = updateTag(params.id, { name: body.name, color: body.color });
+      status = updateProfileStatus(params.id, { name: body.name, color: body.color });
     } catch (e) {
       throw new ApiError(400, e instanceof Error ? e.message : "Falha ao salvar.");
     }
-    if (!tag) {
-      return NextResponse.json(
-        { error: "Etiqueta não encontrada." },
-        { status: 404 },
-      );
+    if (!status) {
+      return NextResponse.json({ error: "Status não encontrado." }, { status: 404 });
     }
-    return NextResponse.json({ tag });
+    return NextResponse.json({ status });
   } catch (err) {
     return errorResponse(err);
   }
@@ -36,12 +33,14 @@ export async function DELETE(
 ) {
   try {
     await requireUser(req);
-    const ok = deleteTag(params.id);
+    let ok;
+    try {
+      ok = deleteProfileStatus(params.id);
+    } catch (e) {
+      throw new ApiError(400, e instanceof Error ? e.message : "Falha ao excluir.");
+    }
     if (!ok) {
-      return NextResponse.json(
-        { error: "Etiqueta não encontrada." },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: "Status não encontrado." }, { status: 404 });
     }
     return NextResponse.json({ ok: true });
   } catch (err) {

@@ -158,6 +158,18 @@ function migrate(d: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_schedule_template_weekday
       ON schedule_template_slots(weekday, time_start);
+
+    -- Catálogo editável de status de modelo (Configurações > Status de
+    -- modelos). profiles.status guarda o id daqui — sem FOREIGN KEY de
+    -- verdade (recriar a tabela profiles só por isso teria risco
+    -- desproporcional), validado na camada de aplicação.
+    CREATE TABLE IF NOT EXISTS profile_statuses (
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      color      TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
   `);
 
   // Migrações incrementais (adiciona colunas que ainda não existem em bancos já criados).
@@ -166,15 +178,31 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "media", "height", "INTEGER");
   ensureColumn(d, "media", "public_token", "TEXT");
   ensureColumn(d, "media", "updated_at", "INTEGER");
-  ensureColumn(d, "profiles", "sheet_id", "TEXT");
-  ensureColumn(d, "profiles", "sheet_gid", "INTEGER");
-  ensureColumn(d, "media", "sheet_row", "INTEGER");
   ensureColumn(d, "profiles", "status", "TEXT NOT NULL DEFAULT 'configuring'");
   ensurePostNetworksAccountId(d);
+  ensureDefaultProfileStatuses(d);
 
   d.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_media_public_token ON media(public_token) WHERE public_token IS NOT NULL;`,
   );
+}
+
+/**
+ * Semeia o catálogo de status com os 3 valores que já existiam como enum
+ * fixo (online/configuring/paused) — usando os mesmos ids, todo
+ * `profiles.status` já gravado continua válido sem precisar reescrever
+ * dado nenhum. Só roda se a tabela estiver vazia (idempotente).
+ */
+function ensureDefaultProfileStatuses(d: Database.Database) {
+  const { c } = d.prepare("SELECT COUNT(*) c FROM profile_statuses").get() as { c: number };
+  if (c > 0) return;
+  const now = Date.now();
+  const insert = d.prepare(
+    "INSERT INTO profile_statuses (id, name, color, sort_order, created_at) VALUES (?, ?, ?, ?, ?)",
+  );
+  insert.run("online", "Online", "#10b981", 0, now);
+  insert.run("configuring", "Configurando", "#f59e0b", 1, now);
+  insert.run("paused", "Pausado", "#71717a", 2, now);
 }
 
 /**

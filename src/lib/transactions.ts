@@ -86,6 +86,20 @@ export function recordTransaction(input: {
   return getTransaction(id)!;
 }
 
+/**
+ * Soma leve das transações pagas de um perfil (usada na coluna Faturamento
+ * da listagem de Modelos) — evita chamar `overview()`, que roda várias
+ * queries por período e seria caro repetir uma vez por perfil.
+ */
+export function totalPaidCentsByProfile(profileId: string): number {
+  const r = getDb()
+    .prepare(
+      "SELECT COALESCE(SUM(amount_cents),0) s FROM transactions WHERE status = 'paid' AND profile_id = ?",
+    )
+    .get(profileId) as { s: number };
+  return r.s;
+}
+
 export function getTransaction(id: string): Transaction | null {
   const r = getDb()
     .prepare("SELECT * FROM transactions WHERE id = ?")

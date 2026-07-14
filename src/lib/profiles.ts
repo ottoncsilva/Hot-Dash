@@ -2,7 +2,9 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
 import { decryptSecret, encryptSecret } from "./crypto";
-import type { Profile, SocialAccount, SocialNetwork } from "./types";
+import { countPostsByProfile } from "./posts";
+import { totalPaidCentsByProfile } from "./transactions";
+import type { Profile, ProfileStatus, SocialAccount, SocialNetwork } from "./types";
 
 type AccountRow = {
   id: string;
@@ -21,6 +23,7 @@ type ProfileRow = {
   name: string;
   avatar_path: string | null;
   notes: string | null;
+  status: string;
   created_at: number;
   updated_at: number;
 };
@@ -53,16 +56,28 @@ function profileToClient(p: ProfileRow): Profile {
     avatarPath: p.avatar_path,
     notes: p.notes || undefined,
     accounts: loadAccounts(p.id),
+    status: (p.status as ProfileStatus) || "configuring",
     createdAt: p.created_at,
     updatedAt: p.updated_at,
   };
 }
 
+/**
+ * Lista completa pra tela de Modelos — inclui contagem de posts e
+ * faturamento pago por perfil (não computados em `profileToClient` porque a
+ * maioria das chamadas internas, ex. após adicionar uma conta, não precisa
+ * desses dois números).
+ */
 export async function listProfiles(): Promise<Profile[]> {
   const rows = getDb()
     .prepare("SELECT * FROM profiles ORDER BY name COLLATE NOCASE")
     .all() as ProfileRow[];
-  return rows.map(profileToClient);
+  return rows.map((row) => {
+    const profile = profileToClient(row);
+    profile.postCount = countPostsByProfile(profile.id);
+    profile.revenuePaidCents = totalPaidCentsByProfile(profile.id);
+    return profile;
+  });
 }
 
 export async function getProfile(id: string): Promise<Profile | null> {
@@ -89,7 +104,12 @@ export async function createProfile(input: {
 
 export async function updateProfile(
   id: string,
-  patch: { name?: string; notes?: string; avatarPath?: string | null },
+  patch: {
+    name?: string;
+    notes?: string;
+    avatarPath?: string | null;
+    status?: ProfileStatus;
+  },
 ): Promise<Profile | null> {
   const existing = getDb()
     .prepare("SELECT id FROM profiles WHERE id = ?")
@@ -101,6 +121,10 @@ export async function updateProfile(
   if (patch.name !== undefined) {
     sets.push("name = ?");
     vals.push(patch.name.trim());
+  }
+  if (patch.status !== undefined) {
+    sets.push("status = ?");
+    vals.push(patch.status);
   }
   if (patch.notes !== undefined) {
     sets.push("notes = ?");

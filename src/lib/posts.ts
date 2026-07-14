@@ -108,6 +108,14 @@ export function createPost(input: {
   return getPost(id)!;
 }
 
+/** Contagem leve de posts de um perfil (usada na coluna Posts da listagem de Modelos). */
+export function countPostsByProfile(profileId: string): number {
+  const r = getDb()
+    .prepare("SELECT COUNT(*) c FROM posts WHERE profile_id = ?")
+    .get(profileId) as { c: number };
+  return r.c;
+}
+
 export function getPost(id: string): ScheduledPost | null {
   const r = getDb()
     .prepare(

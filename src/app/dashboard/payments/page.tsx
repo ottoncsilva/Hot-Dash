@@ -7,6 +7,7 @@ import Modal from "@/components/Modal";
 import { IconPlus, IconSettings, IconPayments, IconCopy } from "@/components/icons";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import type { Transaction, Overview } from "@/lib/transactions";
+import type { Profile } from "@/lib/types";
 
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", {
@@ -34,6 +35,7 @@ type Data = {
 
 export default function PaymentsPage() {
   const [data, setData] = useState<Data | null>(null);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [charging, setCharging] = useState(false);
   const [paidFilter, setPaidFilter] = useState<PaidFilter>("all");
@@ -48,6 +50,9 @@ export default function PaymentsPage() {
   }
   useEffect(() => {
     load();
+    apiGet<{ profiles: Profile[] }>("/api/profiles")
+      .then((r) => setProfiles(r.profiles))
+      .catch(() => {});
   }, []);
 
   const anyProvider = data?.providers.syncpay.enabled;
@@ -154,6 +159,7 @@ export default function PaymentsPage() {
 
       <Modal open={charging} onClose={() => setCharging(false)}>
         <ChargeForm
+          profiles={profiles}
           onClose={() => setCharging(false)}
           onDone={() => {
             setCharging(false);
@@ -203,9 +209,18 @@ function PaidCheck({ paid }: { paid: boolean }) {
   );
 }
 
-function ChargeForm({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+function ChargeForm({
+  profiles,
+  onClose,
+  onDone,
+}: {
+  profiles: Profile[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
+  const [profileId, setProfileId] = useState("");
   const [name, setName] = useState("");
   const [cpf, setCpf] = useState("");
   const [email, setEmail] = useState("");
@@ -226,6 +241,7 @@ function ChargeForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
         {
           amount: Number(amount.replace(",", ".")),
           description,
+          profileId: profileId || undefined,
           customer: {
             name: name || undefined,
             document: cpf || undefined,
@@ -332,6 +348,21 @@ function ChargeForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
+        </div>
+        <div>
+          <label className="eyebrow mb-1.5 block">Modelo</label>
+          <select
+            className="input"
+            value={profileId}
+            onChange={(e) => setProfileId(e.target.value)}
+          >
+            <option value="">Nenhum</option>
+            {profiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
         </div>
         <div>
           <label className="eyebrow mb-1.5 block">Cliente (nome)</label>

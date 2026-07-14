@@ -30,6 +30,7 @@ function migrate(d: Database.Database) {
       name        TEXT NOT NULL,
       avatar_path TEXT,
       notes       TEXT,
+      status      TEXT NOT NULL DEFAULT 'configuring',
       created_at  INTEGER NOT NULL,
       updated_at  INTEGER NOT NULL
     );
@@ -168,6 +169,7 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "profiles", "sheet_id", "TEXT");
   ensureColumn(d, "profiles", "sheet_gid", "INTEGER");
   ensureColumn(d, "media", "sheet_row", "INTEGER");
+  ensureColumn(d, "profiles", "status", "TEXT NOT NULL DEFAULT 'configuring'");
   ensurePostNetworksAccountId(d);
 
   d.exec(

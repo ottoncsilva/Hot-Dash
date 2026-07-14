@@ -297,14 +297,14 @@ export default function PhotoEditor({
         ctx.fillStyle = "#ffffff";
         ctx.fill();
 
-        // Título fixo, em negrito
+        // Título fixo, em negrito, centralizado
         ctx.textBaseline = "top";
-        ctx.textAlign = "left";
+        ctx.textAlign = "center";
         ctx.fillStyle = "#050505";
         ctx.font = `700 ${titleSize}px sans-serif`;
-        ctx.fillText(QUESTION_TITLE, o.x + outerPad, o.y + outerPad);
+        ctx.fillText(QUESTION_TITLE, o.x + o.w / 2, o.y + outerPad);
 
-        // Pílula cinza separada com a pergunta (ou o placeholder)
+        // Pílula cinza separada com a pergunta (ou o placeholder), texto centralizado
         const pillY = o.y + outerPad + titleHeight + gap;
         drawRoundRect(ctx, o.x + outerPad, pillY, pillWidth, pillHeight, Math.min(pillHeight / 2, o.w * 0.035));
         ctx.fillStyle = "#e4e4e7";
@@ -312,11 +312,13 @@ export default function PhotoEditor({
 
         ctx.fillStyle = hasQuestion ? "#18181b" : "#71717a";
         ctx.font = `600 ${qSize}px sans-serif`;
+        const pillCenterX = o.x + outerPad + pillWidth / 2;
         let ty = pillY + pillPadY;
         for (const line of lines) {
-          ctx.fillText(line, o.x + outerPad + pillPadX, ty);
+          ctx.fillText(line, pillCenterX, ty);
           ty += lineHeight;
         }
+        ctx.textAlign = "left";
       }
       if (!forExport && selectedId === o.id) drawSelectionBox(ctx, computeBounds(ctx, o));
     }

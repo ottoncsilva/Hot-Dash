@@ -21,9 +21,43 @@ export async function apiSend<T>(
 }
 
 /** Envio de arquivo (multipart). */
-export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
-  const res = await fetch(path, { method: "POST", body: form });
-  return handle<T>(res);
+export async function apiUpload<T>(
+  path: string,
+  form: FormData,
+  onProgress?: (percent: number) => void,
+): Promise<T> {
+  if (!onProgress) {
+    const res = await fetch(path, { method: "POST", body: form });
+    return handle<T>(res);
+  }
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", path);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        const percent = Math.round((e.loaded / e.total) * 100);
+        onProgress(percent);
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as T);
+        } catch {
+          resolve(undefined as unknown as T);
+        }
+      } else {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          reject(new Error(data.error || `Erro ${xhr.status}`));
+        } catch {
+          reject(new Error(`Erro ${xhr.status}`));
+        }
+      }
+    };
+    xhr.onerror = () => reject(new Error("Erro de rede"));
+    xhr.send(form);
+  });
 }
 
 async function handle<T>(res: Response): Promise<T> {

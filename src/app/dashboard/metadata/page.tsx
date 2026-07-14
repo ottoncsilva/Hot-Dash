@@ -29,11 +29,36 @@ export default function MetadataPage() {
 
   const addFiles = useCallback((files: FileList | null) => {
     if (!files) return;
-    const next: Item[] = Array.from(files).map((file) => ({
-      id: `${file.name}-${file.size}-${crypto.randomUUID()}`,
-      file,
-      status: "pendente",
-    }));
+    const maxBytes = MAX_MB * 1024 * 1024;
+    const next: Item[] = [];
+
+    for (const file of Array.from(files)) {
+      const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+      const isImg = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".tiff", ".tif", ".gif"].includes(ext);
+      const isVid = [".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".mpg", ".mpeg"].includes(ext);
+
+      if (file.size > maxBytes) {
+        next.push({
+          id: `${file.name}-${file.size}-${crypto.randomUUID()}`,
+          file,
+          status: "erro",
+          error: `Excede o limite de ${MAX_MB} MB.`,
+        });
+      } else if (!isImg && !isVid) {
+        next.push({
+          id: `${file.name}-${file.size}-${crypto.randomUUID()}`,
+          file,
+          status: "erro",
+          error: "Formato não suportado.",
+        });
+      } else {
+        next.push({
+          id: `${file.name}-${file.size}-${crypto.randomUUID()}`,
+          file,
+          status: "pendente",
+        });
+      }
+    }
     setItems((prev) => [...prev, ...next]);
   }, []);
 

@@ -19,6 +19,12 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: NextRequest) {
   try {
+    // Validação básica de autenticidade do webhook
+    const secretToken = req.nextUrl.searchParams.get("token");
+    if (!secretToken || secretToken !== process.env.SESSION_SECRET) {
+      return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
+    }
+
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     // Aceita tanto { data: {...} } quanto o objeto direto.
     const data = ((body.data as Record<string, unknown>) || body) as Record<

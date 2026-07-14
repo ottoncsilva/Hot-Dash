@@ -20,6 +20,8 @@ import {
 } from "@/components/icons";
 import { RATIO_BUCKETS, ratioBucket, mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type RatioBucket, type Tag } from "@/lib/types";
 
+const MAX_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? "200");
+
 type SortKey = "date_desc" | "date_asc" | "size_desc" | "size_asc" | "tag_asc";
 
 export default function MediaPage() {
@@ -28,7 +30,7 @@ export default function MediaPage() {
   const [media, setMedia] = useState<MediaItem[] | null>(null);
   const [tags, setTags] = useState<Tag[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [uploads, setUploads] = useState<{ name: string; status: string }[]>([]);
+  const [uploads, setUploads] = useState<{ name: string; status: string; progress?: number }[]>([]);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -95,14 +97,36 @@ export default function MediaPage() {
 
   async function handleFiles(files: FileList | null) {
     if (!files || !profileId) return;
+    setError(null);
+    const maxBytes = MAX_MB * 1024 * 1024;
+
     for (const file of Array.from(files)) {
-      setUploads((u) => [...u, { name: file.name, status: "enviando" }]);
+      // Pré-validação de tamanho no frontend
+      if (file.size > maxBytes) {
+        setError(`O arquivo "${file.name}" excede o limite de ${MAX_MB} MB.`);
+        continue;
+      }
+      // Pré-validação de extensão
+      const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+      const isImg = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".tiff", ".tif", ".gif"].includes(ext);
+      const isVid = [".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".mpg", ".mpeg"].includes(ext);
+      if (!isImg && !isVid) {
+        setError(`Formato de arquivo não suportado para "${file.name}".`);
+        continue;
+      }
+
+      setUploads((u) => [...u, { name: file.name, status: "enviando", progress: 0 }]);
       try {
         const form = new FormData();
         form.append("file", file);
         const { media: item } = await apiUpload<{ media: MediaItem }>(
           `/api/profiles/${profileId}/media`,
           form,
+          (percent) => {
+            setUploads((u) =>
+              u.map((x) => (x.name === file.name ? { ...x, progress: percent } : x))
+            );
+          }
         );
         setMedia((m) => [item, ...(m || [])]);
         setUploads((u) => u.filter((x) => x.name !== file.name));
@@ -111,8 +135,8 @@ export default function MediaPage() {
           u.map((x) =>
             x.name === file.name
               ? { ...x, status: err instanceof Error ? err.message : "erro" }
-              : x,
-          ),
+              : x
+          )
         );
       }
     }
@@ -595,7 +619,7 @@ export default function MediaPage() {
               <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
               <span className="flex-1 truncate text-zinc-300">{u.name}</span>
               <span className="font-mono uppercase tracking-wider text-zinc-500">
-                {u.status}
+                {u.progress !== undefined ? `${u.progress}%` : u.status}
               </span>
             </div>
           ))}

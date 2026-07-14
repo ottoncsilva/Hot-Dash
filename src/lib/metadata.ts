@@ -36,14 +36,24 @@ export function mediaKind(ext: string): MediaKind | null {
 }
 
 /** Executa um comando e resolve/rejeita conforme o código de saída. */
-export function run(cmd: string, args: string[]): Promise<void> {
+export function run(cmd: string, args: string[], timeoutMs = 60000): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
+    let killed = false;
+
+    const timer = setTimeout(() => {
+      killed = true;
+      child.kill("SIGKILL");
+      reject(new Error(`Execução de ${cmd} excedeu o limite de tempo de ${timeoutMs / 1000}s.`));
+    }, timeoutMs);
+
     child.stderr.on("data", (d) => {
       stderr += d.toString();
     });
     child.on("error", (err) => {
+      clearTimeout(timer);
+      if (killed) return;
       const enoent = (err as NodeJS.ErrnoException).code === "ENOENT";
       reject(
         new Error(
@@ -54,6 +64,8 @@ export function run(cmd: string, args: string[]): Promise<void> {
       );
     });
     child.on("close", (code) => {
+      clearTimeout(timer);
+      if (killed) return;
       if (code === 0) resolve();
       else
         reject(

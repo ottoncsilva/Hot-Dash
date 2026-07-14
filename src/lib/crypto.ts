@@ -51,14 +51,23 @@ export function encryptSecret(plaintext: string): string {
 }
 
 export function decryptSecret(payload: string): string {
-  const key = getKey();
-  const buf = Buffer.from(payload, "base64");
-  const iv = buf.subarray(0, IV_LEN);
-  const tag = buf.subarray(IV_LEN, IV_LEN + TAG_LEN);
-  const enc = buf.subarray(IV_LEN + TAG_LEN);
-  const decipher = createDecipheriv(ALGO, key, iv);
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(enc), decipher.final()]).toString(
-    "utf8",
-  );
+  try {
+    const key = getKey();
+    const buf = Buffer.from(payload, "base64");
+    if (buf.length < IV_LEN + TAG_LEN) {
+      throw new Error("Dados criptografados inválidos ou corrompidos.");
+    }
+    const iv = buf.subarray(0, IV_LEN);
+    const tag = buf.subarray(IV_LEN, IV_LEN + TAG_LEN);
+    const enc = buf.subarray(IV_LEN + TAG_LEN);
+    const decipher = createDecipheriv(ALGO, key, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(enc), decipher.final()]).toString(
+      "utf8",
+    );
+  } catch (err) {
+    throw new Error(
+      `Falha na descriptografia: Chave inválida ou dados corrompidos. (${err instanceof Error ? err.message : "Erro desconhecido"})`
+    );
+  }
 }

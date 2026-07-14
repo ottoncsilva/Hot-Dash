@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extname } from "node:path";
 import { cleanMetadata, mediaKind } from "@/lib/metadata";
+import { errorResponse, requireUser } from "@/lib/apiAuth";
 
 // Processamento de arquivos exige o runtime Node (spawn de exiftool/ffmpeg).
 export const runtime = "nodejs";
@@ -13,17 +14,19 @@ function maxUploadBytes(): number {
 }
 
 export async function POST(req: NextRequest) {
-  let form: FormData;
   try {
-    form = await req.formData();
-  } catch {
-    return NextResponse.json(
-      { error: "Envie o arquivo como multipart/form-data." },
-      { status: 400 },
-    );
-  }
+    await requireUser(req);
 
-  try {
+    let form: FormData;
+    try {
+      form = await req.formData();
+    } catch {
+      return NextResponse.json(
+        { error: "Envie o arquivo como multipart/form-data." },
+        { status: 400 },
+      );
+    }
+
     const file = form.get("file");
     if (!(file instanceof File)) {
       return NextResponse.json(
@@ -66,9 +69,6 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Erro desconhecido no processamento.";
-    const status = message.includes("não suportado") ? 415 : 500;
-    return NextResponse.json({ error: message }, { status });
+    return errorResponse(err);
   }
 }

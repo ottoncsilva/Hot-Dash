@@ -12,7 +12,6 @@ import {
 } from "@/lib/media";
 import { saveFile } from "@/lib/storage";
 import { getImageDimensions } from "@/lib/imageDimensions";
-import { appendMediaRow } from "@/lib/googleSheets";
 import { copyMediaTags, getTagsForMedia } from "@/lib/tags";
 
 export const runtime = "nodejs";
@@ -125,11 +124,7 @@ export async function POST(
       item.tags = getTagsForMedia(item.id);
     }
 
-    const token = getOrCreatePublicToken(item.id);
-    if (token) {
-      const publicUrl = `${req.nextUrl.origin}/api/public/media/${token}`;
-      await appendMediaRow(params.id, { ...item, publicToken: token }, publicUrl);
-    }
+    getOrCreatePublicToken(item.id);
 
     return NextResponse.json({ media: item }, { status: 201 });
   } catch (err) {

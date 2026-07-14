@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
-import { deleteMedia, getMediaRow } from "@/lib/media";
-import { deleteMediaRow } from "@/lib/googleSheets";
+import { deleteMedia } from "@/lib/media";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +11,6 @@ export async function DELETE(
 ) {
   try {
     await requireUser(req);
-    const row = getMediaRow(params.id);
     const ok = await deleteMedia(params.id);
     if (!ok) {
       return NextResponse.json(
@@ -20,7 +18,6 @@ export async function DELETE(
         { status: 404 },
       );
     }
-    if (row) await deleteMediaRow(row.profile_id, params.id);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorResponse(err);

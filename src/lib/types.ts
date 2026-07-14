@@ -26,13 +26,13 @@ export type SocialAccount = {
   notes?: string;
 };
 
-/** Status operacional do modelo, editável na listagem de Modelos. */
-export type ProfileStatus = "online" | "configuring" | "paused";
-
-export const PROFILE_STATUS_LABELS: Record<ProfileStatus, string> = {
-  online: "Online",
-  configuring: "Configurando",
-  paused: "Pausado",
+/** Item do catálogo editável de status de modelo (Configurações > Status de modelos). */
+export type ProfileStatusDef = {
+  id: string;
+  name: string;
+  color: string;
+  sortOrder: number;
+  createdAt: number;
 };
 
 /** Perfil = uma personagem de IA (ex.: Adriana Queiroz). */
@@ -43,7 +43,8 @@ export type Profile = {
   notes?: string;
   accounts: SocialAccount[];
   mediaCount?: number;
-  status: ProfileStatus;
+  /** Id de um item do catálogo `ProfileStatusDef`. */
+  status: string;
   /** Quantidade de posts (agendados + postados) do perfil. */
   postCount?: number;
   /** Soma das transações pagas vinculadas a este perfil. */

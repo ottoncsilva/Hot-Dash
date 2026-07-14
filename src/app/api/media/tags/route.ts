@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
-import { getTag, setMediaTag } from "@/lib/tags";
-import { getMediaRow } from "@/lib/media";
-import { updateMediaTagCell } from "@/lib/googleSheets";
+import { setMediaTag } from "@/lib/tags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,16 +21,6 @@ export async function POST(req: NextRequest) {
     }
     const mediaIds = ids.filter((id): id is string => typeof id === "string");
     setMediaTag(mediaIds, tagId, action);
-
-    const tag = getTag(tagId);
-    if (tag) {
-      for (const mediaId of mediaIds) {
-        const row = getMediaRow(mediaId);
-        if (row) {
-          await updateMediaTagCell(row.profile_id, mediaId, tag.name, action === "add");
-        }
-      }
-    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {

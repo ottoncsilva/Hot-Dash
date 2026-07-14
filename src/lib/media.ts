@@ -21,7 +21,6 @@ type MediaRow = {
   width: number | null;
   height: number | null;
   public_token: string | null;
-  sheet_row: number | null;
 };
 
 function toClient(r: MediaRow, tags: Tag[]): MediaItem {
@@ -122,7 +121,6 @@ export function insertMedia(input: {
       width: input.width || null,
       height: input.height || null,
       public_token: null,
-      sheet_row: null,
     },
     [],
   );
@@ -219,11 +217,6 @@ export function getMediaByPublicToken(token: string): MediaRow | null {
     .prepare("SELECT * FROM media WHERE public_token = ?")
     .get(token) as MediaRow | undefined;
   return row || null;
-}
-
-/** Guarda em qual linha da planilha do Google Sheets esta mídia está. */
-export function setSheetRow(id: string, row: number | null): void {
-  getDb().prepare("UPDATE media SET sheet_row = ? WHERE id = ?").run(row, id);
 }
 
 export { extname };

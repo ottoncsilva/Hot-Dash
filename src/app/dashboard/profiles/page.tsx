@@ -9,9 +9,8 @@ import NetworkIcon from "@/components/NetworkIcon";
 import { IconPlus, IconProfiles, IconChevronRight } from "@/components/icons";
 import {
   NETWORK_LABELS,
-  PROFILE_STATUS_LABELS,
   type Profile,
-  type ProfileStatus,
+  type ProfileStatusDef,
   type SocialNetwork,
 } from "@/lib/types";
 
@@ -19,19 +18,17 @@ function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-const STATUS_ORDER: ProfileStatus[] = ["online", "configuring", "paused"];
+/** Acrescenta transparência (alfa) a uma cor hex `#rrggbb`, ex.: `hexAlpha("#10b981", "1a")`. */
+function hexAlpha(hex: string, alpha: string) {
+  return `${hex}${alpha}`;
+}
 
-const STATUS_STYLES: Record<ProfileStatus, string> = {
-  online: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
-  configuring: "border-amber-500/30 bg-amber-500/10 text-amber-400",
-  paused: "border-white/15 bg-white/5 text-zinc-400",
-};
-
-type StatusFilter = "all" | ProfileStatus;
+type StatusFilter = "all" | string;
 type NetworkFilter = "all" | SocialNetwork;
 
 export default function ProfilesPage() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
+  const [statuses, setStatuses] = useState<ProfileStatusDef[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -54,6 +51,9 @@ export default function ProfilesPage() {
 
   useEffect(() => {
     load();
+    apiGet<{ statuses: ProfileStatusDef[] }>("/api/profile-statuses")
+      .then((d) => setStatuses(d.statuses))
+      .catch(() => {});
   }, []);
 
   async function create(e: React.FormEvent) {
@@ -78,7 +78,7 @@ export default function ProfilesPage() {
     }
   }
 
-  async function changeStatus(profile: Profile, status: ProfileStatus) {
+  async function changeStatus(profile: Profile, status: string) {
     const prevStatus = profile.status;
     setProfiles((prev) => prev?.map((p) => (p.id === profile.id ? { ...p, status } : p)) ?? prev);
     try {
@@ -97,14 +97,11 @@ export default function ProfilesPage() {
     return Array.from(set);
   }, [profiles]);
 
-  const counts = useMemo(() => {
+  const statusCounts = useMemo(() => {
     const list = profiles || [];
-    return {
-      total: list.length,
-      online: list.filter((p) => p.status === "online").length,
-      configuring: list.filter((p) => p.status === "configuring").length,
-      paused: list.filter((p) => p.status === "paused").length,
-    };
+    const byId = new Map<string, number>();
+    for (const p of list) byId.set(p.status, (byId.get(p.status) || 0) + 1);
+    return byId;
   }, [profiles]);
 
   const filtered = useMemo(() => {
@@ -171,10 +168,10 @@ export default function ProfilesPage() {
         <>
           {/* Tiles de resumo */}
           <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatTile label="Total" value={counts.total} />
-            <StatTile label="Online" value={counts.online} />
-            <StatTile label="Configurando" value={counts.configuring} />
-            <StatTile label="Pausadas" value={counts.paused} />
+            <StatTile label="Total" value={profiles.length} />
+            {statuses.map((s) => (
+              <StatTile key={s.id} label={s.name} value={statusCounts.get(s.id) || 0} />
+            ))}
           </div>
 
           {/* Busca e filtros */}
@@ -188,12 +185,12 @@ export default function ProfilesPage() {
             <select
               className="input"
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+              onChange={(e) => setStatusFilter(e.target.value)}
             >
               <option value="all">Todas</option>
-              {STATUS_ORDER.map((s) => (
-                <option key={s} value={s}>
-                  {PROFILE_STATUS_LABELS[s]}
+              {statuses.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
                 </option>
               ))}
             </select>
@@ -270,17 +267,28 @@ export default function ProfilesPage() {
                         <td className="px-4 py-2.5 text-zinc-400">{p.accounts.length}</td>
                         <td className="px-4 py-2.5 text-zinc-400">{p.postCount ?? 0}</td>
                         <td className="px-4 py-2.5">
-                          <select
-                            value={p.status}
-                            onChange={(e) => changeStatus(p, e.target.value as ProfileStatus)}
-                            className={`rounded-md border px-2 py-1 text-xs font-medium ${STATUS_STYLES[p.status]}`}
-                          >
-                            {STATUS_ORDER.map((s) => (
-                              <option key={s} value={s} className="bg-ink-850 text-zinc-100">
-                                {PROFILE_STATUS_LABELS[s]}
-                              </option>
-                            ))}
-                          </select>
+                          {(() => {
+                            const current = statuses.find((s) => s.id === p.status);
+                            const color = current?.color || "#71717a";
+                            return (
+                              <select
+                                value={p.status}
+                                onChange={(e) => changeStatus(p, e.target.value)}
+                                className="rounded-md border px-2 py-1 text-xs font-medium"
+                                style={{
+                                  borderColor: hexAlpha(color, "4d"),
+                                  backgroundColor: hexAlpha(color, "1a"),
+                                  color,
+                                }}
+                              >
+                                {statuses.map((s) => (
+                                  <option key={s.id} value={s.id} className="bg-ink-850 text-zinc-100">
+                                    {s.name}
+                                  </option>
+                                ))}
+                              </select>
+                            );
+                          })()}
                         </td>
                         <td className="px-4 py-2.5 text-right">
                           <Link

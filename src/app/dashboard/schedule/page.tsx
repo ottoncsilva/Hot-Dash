@@ -329,41 +329,77 @@ function PostDetail({
     }
   }
 
-  async function downloadMedia() {
-    if (post.media.length === 0) return;
-    setDownloading(true);
-    try {
-      if (post.media.length === 1) {
-        const m = post.media[0];
-        const res = await fetch(mediaUrl(m));
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = m.filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-        return;
-      }
-      const res = await fetch("/api/media/zip", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: post.media.map((m) => m.id) }),
-      });
-      if (!res.ok) throw new Error(`Erro ${res.status}`);
+  /** Fallback sem Web Share API: baixa arquivo único ou .zip (vários). */
+  async function downloadFallback() {
+    if (post.media.length === 1) {
+      const m = post.media[0];
+      const res = await fetch(mediaUrl(m));
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `hotdash-post-${post.media.length}.zip`;
+      a.download = m.filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-    } catch {
-      /* silencioso: usuário pode tentar de novo */
+      return;
+    }
+    const res = await fetch("/api/media/zip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: post.media.map((m) => m.id) }),
+    });
+    if (!res.ok) throw new Error(`Erro ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `hotdash-post-${post.media.length}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Salva direto no dispositivo. No iPhone/iPad, abre a folha nativa de
+   * compartilhamento com todas as fotos juntas — "Salvar N Imagens" vai
+   * direto para o app Fotos (sem precisar baixar/extrair um .zip). Cai no
+   * fallback (arquivo único ou .zip) se o navegador não suportar.
+   */
+  async function downloadMedia() {
+    if (post.media.length === 0) return;
+    setDownloading(true);
+    try {
+      const nav = navigator as Navigator & {
+        canShare?: (data?: ShareData) => boolean;
+        share?: (data: ShareData) => Promise<void>;
+      };
+      if (!nav.share || !nav.canShare) {
+        await downloadFallback();
+        return;
+      }
+      const files = await Promise.all(
+        post.media.map(async (m) => {
+          const res = await fetch(mediaUrl(m));
+          const blob = await res.blob();
+          return new File([blob], m.filename, { type: blob.type || "application/octet-stream" });
+        }),
+      );
+      if (!nav.canShare({ files })) {
+        await downloadFallback();
+        return;
+      }
+      await nav.share({ files });
+    } catch (err) {
+      if ((err as Error)?.name !== "AbortError") {
+        try {
+          await downloadFallback();
+        } catch {
+          /* silencioso: usuário pode tentar de novo */
+        }
+      }
     } finally {
       setDownloading(false);
     }
@@ -387,33 +423,35 @@ function PostDetail({
         ))}
       </div>
 
-      {post.media[0] && (
-        <div className="relative mt-3 h-32 w-32 overflow-hidden rounded-lg border border-white/10 bg-ink-800">
-          {post.media[0].kind === "image" ? (
-            <AuthImage
-              src={mediaUrl(post.media[0])}
-              alt={post.media[0].filename}
-              className="h-full w-full object-cover"
-              fallback={<div className="h-full w-full bg-ink-800" />}
-            />
-          ) : (
-            <>
-              <AuthImage
-                src={thumbUrl(post.media[0])}
-                alt={post.media[0].filename}
-                className="h-full w-full object-cover"
-                fallback={<div className="h-full w-full bg-ink-800" />}
-              />
-              <div className="pointer-events-none absolute inset-0 grid place-items-center">
-                <IconPlay size={18} className="text-white drop-shadow" />
-              </div>
-            </>
-          )}
-          {post.media.length > 1 && (
-            <span className="absolute bottom-0 right-0 rounded-tl-md bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-white">
-              +{post.media.length - 1}
-            </span>
-          )}
+      {post.media.length > 0 && (
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {post.media.map((m) => (
+            <div
+              key={m.id}
+              className="relative aspect-square overflow-hidden rounded-lg border border-white/10 bg-ink-800"
+            >
+              {m.kind === "image" ? (
+                <AuthImage
+                  src={mediaUrl(m)}
+                  alt={m.filename}
+                  className="h-full w-full object-cover"
+                  fallback={<div className="h-full w-full bg-ink-800" />}
+                />
+              ) : (
+                <>
+                  <AuthImage
+                    src={thumbUrl(m)}
+                    alt={m.filename}
+                    className="h-full w-full object-cover"
+                    fallback={<div className="h-full w-full bg-ink-800" />}
+                  />
+                  <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                    <IconPlay size={18} className="text-white drop-shadow" />
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

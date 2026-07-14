@@ -74,7 +74,8 @@ const HANDLE_SCREEN_PX = 34;
 // seleção, para "selecionar" não parecer mais difícil do que "ver selecionado".
 const HIT_PADDING = 10;
 
-const QUESTION_LABEL = "Pergunte-me algo";
+const QUESTION_TITLE = "Faça uma pergunta";
+const QUESTION_PLACEHOLDER = "Digite algo...";
 
 function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
   const words = (text || "").split(/\s+/).filter(Boolean);
@@ -94,16 +95,41 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
   return lines;
 }
 
+/**
+ * Layout em duas camadas, como o sticker de pergunta do Instagram: título
+ * fixo em negrito no topo, e abaixo uma pílula cinza separada com a
+ * pergunta digitada (ou o placeholder, quando vazia).
+ */
 function measureQuestionBox(ctx: CanvasRenderingContext2D, o: QuestionObject) {
-  const pad = o.w * 0.06;
-  const labelSize = Math.max(10, o.w * 0.04);
-  const qSize = Math.max(14, o.w * 0.058);
+  const outerPad = o.w * 0.07;
+  const titleSize = Math.max(12, o.w * 0.052);
+  const titleHeight = titleSize * 1.3;
+  const gap = titleSize * 0.55;
+  const pillPadX = o.w * 0.05;
+  const pillPadY = o.w * 0.035;
+  const qSize = Math.max(11, o.w * 0.042);
+  const pillWidth = o.w - outerPad * 2;
+  const hasQuestion = Boolean(o.question && o.question.trim());
   ctx.font = `600 ${qSize}px sans-serif`;
-  const lines = wrapText(ctx, o.question || QUESTION_LABEL, o.w - pad * 2);
-  const lineHeight = qSize * 1.25;
-  const headerHeight = labelSize * 1.8;
-  const h = pad * 2 + headerHeight + lines.length * lineHeight;
-  return { pad, labelSize, qSize, lines, lineHeight, headerHeight, h };
+  const lines = wrapText(ctx, hasQuestion ? o.question : QUESTION_PLACEHOLDER, pillWidth - pillPadX * 2);
+  const lineHeight = qSize * 1.3;
+  const pillHeight = pillPadY * 2 + lines.length * lineHeight;
+  const h = outerPad + titleHeight + gap + pillHeight + outerPad;
+  return {
+    outerPad,
+    titleSize,
+    titleHeight,
+    gap,
+    pillPadX,
+    pillPadY,
+    qSize,
+    pillWidth,
+    lines,
+    lineHeight,
+    pillHeight,
+    hasQuestion,
+    h,
+  };
 }
 
 function drawRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -250,25 +276,47 @@ export default function PhotoEditor({
         ctx.textBaseline = "top";
         ctx.fillText(o.emoji, o.x, o.y);
       } else if (o.type === "question") {
-        const { pad, labelSize, qSize, lines, lineHeight, headerHeight, h } = measureQuestionBox(ctx, o);
+        const {
+          outerPad,
+          titleSize,
+          titleHeight,
+          gap,
+          pillPadX,
+          pillPadY,
+          qSize,
+          pillWidth,
+          lines,
+          lineHeight,
+          pillHeight,
+          hasQuestion,
+          h,
+        } = measureQuestionBox(ctx, o);
+
+        // Caixa branca externa
         drawRoundRect(ctx, o.x, o.y, o.w, h, Math.min(20, o.w * 0.05));
         ctx.fillStyle = "#ffffff";
         ctx.fill();
 
+        // Título fixo, em negrito
         ctx.textBaseline = "top";
-        ctx.textAlign = "center";
-        ctx.fillStyle = "#71717a";
-        ctx.font = `600 ${labelSize}px sans-serif`;
-        ctx.fillText(QUESTION_LABEL, o.x + o.w / 2, o.y + pad);
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#050505";
+        ctx.font = `700 ${titleSize}px sans-serif`;
+        ctx.fillText(QUESTION_TITLE, o.x + outerPad, o.y + outerPad);
 
-        ctx.fillStyle = "#18181b";
-        ctx.font = `700 ${qSize}px sans-serif`;
-        let ty = o.y + pad + headerHeight;
+        // Pílula cinza separada com a pergunta (ou o placeholder)
+        const pillY = o.y + outerPad + titleHeight + gap;
+        drawRoundRect(ctx, o.x + outerPad, pillY, pillWidth, pillHeight, Math.min(pillHeight / 2, o.w * 0.035));
+        ctx.fillStyle = "#e4e4e7";
+        ctx.fill();
+
+        ctx.fillStyle = hasQuestion ? "#18181b" : "#71717a";
+        ctx.font = `600 ${qSize}px sans-serif`;
+        let ty = pillY + pillPadY;
         for (const line of lines) {
-          ctx.fillText(line, o.x + o.w / 2, ty);
+          ctx.fillText(line, o.x + outerPad + pillPadX, ty);
           ty += lineHeight;
         }
-        ctx.textAlign = "left";
       }
       if (!forExport && selectedId === o.id) drawSelectionBox(ctx, computeBounds(ctx, o));
     }
@@ -468,7 +516,7 @@ export default function PhotoEditor({
       x: canvas.width * 0.1,
       y: canvas.height * 0.4,
       w: canvas.width * 0.8,
-      question: QUESTION_LABEL,
+      question: "",
     };
     setObjects((prev) => [...prev, obj]);
     setSelectedId(id);
@@ -673,9 +721,19 @@ export default function PhotoEditor({
         />
       </div>
 
-      {/* Painel contextual do objeto selecionado */}
-      {selected && (
-        <div className="space-y-2.5 border-t border-white/10 bg-ink-900/80 px-4 py-3 safe-bottom">
+      {/* Painel contextual do objeto selecionado — sempre presente (altura
+          reservada) para o wrapper do canvas acima não mudar de tamanho
+          quando um objeto é selecionado/deselecionado (isso deslocava o
+          mapeamento de toque→coordenada do canvas, parecendo que "a foto
+          se reposicionava"). */}
+      <div className="flex h-[124px] flex-col justify-center gap-2.5 border-t border-white/10 bg-ink-900/80 px-4 py-3 safe-bottom">
+        {!selected && (
+          <p className="text-center font-mono text-[11px] uppercase tracking-wider text-zinc-600">
+            Toque num elemento para editar
+          </p>
+        )}
+        {selected && (
+          <>
           {selected.type === "text" && (
             <>
               <input
@@ -739,7 +797,7 @@ export default function PhotoEditor({
                 className="input flex-1"
                 value={selected.question}
                 onChange={(e) => updateQuestion({ question: e.target.value })}
-                placeholder="Digite a pergunta"
+                placeholder="Digite algo..."
               />
               <button
                 onClick={removeSelected}
@@ -750,8 +808,9 @@ export default function PhotoEditor({
               </button>
             </div>
           )}
-        </div>
-      )}
+          </>
+        )}
+      </div>
 
       <p className="pb-3 text-center font-mono text-[10px] uppercase tracking-wider text-zinc-600 safe-bottom">
         salvar = substitui a atual · salvar nova versão = mantém a original

@@ -263,6 +263,14 @@ export const IconUndo = (p: IconProps) => (
   </Base>
 );
 
+export const IconScissors = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="6.5" cy="6.5" r="2.5" />
+    <circle cx="6.5" cy="17.5" r="2.5" />
+    <path d="M8.5 8 20 19M8.5 16 20 5M14 12l3 3" />
+  </Base>
+);
+
 export const IconRefresh = (p: IconProps) => (
   <Base {...p}>
     <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />

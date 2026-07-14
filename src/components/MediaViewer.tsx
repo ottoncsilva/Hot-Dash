@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import SaveMediaButton from "@/components/SaveMediaButton";
 import CopyLinkButton from "@/components/CopyLinkButton";
 import PhotoEditor from "@/components/PhotoEditor";
+import VideoEditor from "@/components/VideoEditor";
 import ToggleChip from "@/components/ToggleChip";
 import MediaStage from "@/components/MediaStage";
 import { IconArrowLeft, IconChevronRight, IconClose, IconTrash, IconSparkle } from "@/components/icons";
@@ -103,11 +104,11 @@ export default function MediaViewer({
             {index + 1} / {items.length}
           </span>
           <div className="flex items-center gap-1">
-            {item.kind === "image" && profileId && onEdited && (
+            {profileId && onEdited && (
               <button
                 onClick={() => setEditing(true)}
                 className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-zinc-300 hover:bg-white/10 hover:text-white"
-                aria-label="Editar foto"
+                aria-label={item.kind === "image" ? "Editar foto" : "Editar vídeo"}
               >
                 <IconSparkle size={16} />
                 Editar
@@ -246,8 +247,20 @@ export default function MediaViewer({
         árvore do React até o backdrop e fecharia o visualizador — mesmo o
         editor estando em outro portal. Mantê-lo como irmão do backdrop evita
         isso. */}
-    {editing && profileId && onEdited && (
+    {editing && profileId && onEdited && item.kind === "image" && (
       <PhotoEditor
+        item={item}
+        profileId={profileId}
+        onClose={() => setEditing(false)}
+        onSaved={(newItem) => {
+          setEditing(false);
+          onEdited(newItem);
+          onClose();
+        }}
+      />
+    )}
+    {editing && profileId && onEdited && item.kind === "video" && (
+      <VideoEditor
         item={item}
         profileId={profileId}
         onClose={() => setEditing(false)}

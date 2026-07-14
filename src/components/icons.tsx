@@ -271,6 +271,89 @@ export const IconScissors = (p: IconProps) => (
   </Base>
 );
 
+export const IconInstagram = (p: IconProps) => (
+  <Base {...p}>
+    <rect x="3" y="3" width="18" height="18" rx="5" />
+    <circle cx="12" cy="12" r="4" />
+    <circle cx="17.2" cy="6.8" r="1" fill="currentColor" stroke="none" />
+  </Base>
+);
+
+export const IconFacebook = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M14 21v-7h2.5l.5-3H14V9c0-.9.3-1.5 1.7-1.5H17V4.8c-.3 0-1.2-.1-2.3-.1-2.3 0-3.9 1.4-3.9 4V11H8.5v3H11v7" />
+  </Base>
+);
+
+export const IconTiktok = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M13 3v10.5a2.8 2.8 0 1 1-2-2.7" />
+    <path d="M13 3c.4 2.6 2 4.2 4.5 4.5" />
+  </Base>
+);
+
+export const IconWhatsapp = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M6 18l-1.2 3 3.1-1.2A8.5 8.5 0 1 0 4.5 12.5" />
+    <path d="M8.5 8.7c0-.6.5-1 1-1s.8.2 1 .6l.7 1.4c.1.3.1.6-.1.8l-.6.7c.4 1 1.3 1.9 2.3 2.3l.7-.6c.2-.2.5-.2.8-.1l1.4.7c.4.2.6.6.6 1 0 .6-.4 1-1 1-3.3 0-6.8-3.5-6.8-6.8z" />
+  </Base>
+);
+
+export const IconTelegram = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M3.5 12.3 20 4.5l-3 15-5.3-4-2.8 2.5v-3.6L18 7.5 8 13.2z" />
+  </Base>
+);
+
+export const IconX = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M4.5 4.5l15 15M19.5 4.5l-15 15" />
+  </Base>
+);
+
+export const IconOnlyfans = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8 12a4 4 0 1 1 8 0" />
+    <circle cx="16" cy="15" r="1.4" fill="currentColor" stroke="none" />
+  </Base>
+);
+
+export const IconPrivacy = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M12 3l7 3v5c0 4.5-3 7.5-7 10-4-2.5-7-5.5-7-10V6z" />
+    <path d="M9.5 12l1.8 1.8L14.5 10" />
+  </Base>
+);
+
+export const IconThreads = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M12 3c4.5 0 6.5 3 6.5 6.5v5c0 2.5-1.5 6.5-6.5 6.5S5.5 17 5.5 14.5" />
+    <path d="M9 11.5c0-1.5 1.2-2.5 3-2.5s3.5 1 3.5 3-1.5 3-3.5 3-3-.9-3-2.2c0-1.4 1.4-2 3-2 1.8 0 3 .5 3.5 1.4" />
+  </Base>
+);
+
+export const IconYoutube = (p: IconProps) => (
+  <Base {...p}>
+    <rect x="2.5" y="6" width="19" height="12" rx="3" />
+    <path d="M10.5 9.5l5 2.5-5 2.5z" fill="currentColor" stroke="none" />
+  </Base>
+);
+
+export const IconMail = (p: IconProps) => (
+  <Base {...p}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="m4 7 8 6 8-6" />
+  </Base>
+);
+
+export const IconDot = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="12" cy="12" r="8" />
+    <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+  </Base>
+);
+
 export const IconRefresh = (p: IconProps) => (
   <Base {...p}>
     <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />

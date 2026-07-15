@@ -118,13 +118,13 @@ export default function LiveChatPage() {
               <button
                 key={chat.id}
                 onClick={() => setSelectedChatId(chat.id)}
-                className={\`flex flex-col gap-1 border-b border-white/[0.02] p-4 text-left transition-colors hover:bg-white/[0.02] \${selectedChatId === chat.id ? 'bg-white/[0.05]' : ''}\`}
+                className={`flex flex-col gap-1 border-b border-white/[0.02] p-4 text-left transition-colors hover:bg-white/[0.02] ${selectedChatId === chat.id ? 'bg-white/[0.05]' : ''}`}
               >
                 <div className="flex items-center justify-between">
                   <span className="font-medium text-sm text-zinc-200">
                     {chat.remote_jid.split('@')[0]}
                   </span>
-                  <span className={\`text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase \${chat.state === 'active' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}\`}>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase ${chat.state === 'active' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
                     {chat.state === 'active' ? 'IA ON' : 'IA PAUSADA'}
                   </span>
                 </div>
@@ -151,7 +151,7 @@ export default function LiveChatPage() {
                 </div>
                 <button 
                   onClick={toggleAi} 
-                  className={\`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors \${chatState === 'active' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/30 hover:bg-amber-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 hover:bg-emerald-500/20'}\`}
+                  className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors ${chatState === 'active' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/30 hover:bg-amber-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 hover:bg-emerald-500/20'}`}
                 >
                   <IconBot size={14} />
                   {chatState === 'active' ? 'Pausar IA' : 'Reativar IA'}
@@ -163,8 +163,8 @@ export default function LiveChatPage() {
                 {messages.map(msg => {
                   const isAssistant = msg.role === "assistant";
                   return (
-                    <div key={msg.id} className={\`flex \${isAssistant ? 'justify-end' : 'justify-start'}\`}>
-                      <div className={\`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm shadow-sm \${isAssistant ? 'bg-emerald-600 text-white rounded-br-sm' : 'bg-ink-800 text-zinc-200 border border-white/[0.06] rounded-bl-sm'}\`}>
+                    <div key={msg.id} className={`flex ${isAssistant ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${isAssistant ? 'bg-emerald-600 text-white rounded-br-sm' : 'bg-ink-800 text-zinc-200 border border-white/[0.06] rounded-bl-sm'}`}>
                         {msg.type === "imagem" && (
                           <div className="mb-2 text-xs italic opacity-70">📸 [Imagem enviada pela IA]</div>
                         )}

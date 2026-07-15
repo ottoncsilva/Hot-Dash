@@ -196,7 +196,7 @@ export default function WhatsAppVipPage() {
                   <div className="mb-4 flex flex-col items-center gap-2">
                     <div className="rounded-xl bg-white p-3 shadow-lg">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={qrCode.startsWith("data:") ? qrCode : \`data:image/png;base64,\${qrCode}\`} alt="QR Code" className="w-52 h-52 object-cover" />
+                      <img src={qrCode.startsWith("data:") ? qrCode : `data:image/png;base64,${qrCode}`} alt="QR Code" className="w-52 h-52 object-cover" />
                     </div>
                     <p className="text-xs text-zinc-400 animate-pulse">Aguardando leitura do QR Code pelo celular...</p>
                   </div>

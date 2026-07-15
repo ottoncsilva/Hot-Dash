@@ -7,11 +7,18 @@ import Link from "next/link";
 
 type ChatPreview = {
   id: string;
+  profile_id: string;
   profile_name: string;
   remote_jid: string;
   state: "active" | "paused";
   last_interaction_at: number;
   last_message: string;
+};
+
+type MediaItem = {
+  id: string;
+  kind: string;
+  url: string;
 };
 
 type ChatMessage = {
@@ -29,6 +36,8 @@ export default function LiveChatPage() {
   const [chatState, setChatState] = useState<"active" | "paused">("active");
   const [inputMsg, setInputMsg] = useState("");
   const [sending, setSending] = useState(false);
+  const [showMediaPicker, setShowMediaPicker] = useState(false);
+  const [mediaList, setMediaList] = useState<MediaItem[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Carrega a lista de chats
@@ -62,6 +71,12 @@ export default function LiveChatPage() {
       const d = await apiGet<{ chat: any, messages: ChatMessage[] }>(`/api/whatsapp/chats/${selectedChatId}`);
       setMessages(d.messages || []);
       setChatState(d.chat.state);
+      // Fetch media for the profile
+      if (d.chat.profile_id) {
+        apiGet<{ media: MediaItem[] }>(`/api/profiles/${d.chat.profile_id}/media`)
+          .then(res => setMediaList(res.media || []))
+          .catch(() => {});
+      }
     } catch {}
   };
 
@@ -92,6 +107,21 @@ export default function LiveChatPage() {
       fetchChats();
     } catch (e: any) {
       alert("Erro ao enviar: " + e.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const sendMedia = async (mediaId: string) => {
+    if (!selectedChatId || sending) return;
+    setSending(true);
+    try {
+      await apiSend(`/api/whatsapp/chats/${selectedChatId}`, "POST", { action: "send_media", mediaId });
+      setShowMediaPicker(false);
+      fetchMessages();
+      fetchChats();
+    } catch (e: any) {
+      alert("Erro ao enviar mídia: " + e.message);
     } finally {
       setSending(false);
     }
@@ -177,13 +207,20 @@ export default function LiveChatPage() {
               </div>
 
               {/* Input Area */}
-              <form onSubmit={sendMessage} className="border-t border-white/[0.06] bg-ink-900 p-4">
+              <form onSubmit={sendMessage} className="border-t border-white/[0.06] bg-ink-900 p-4 relative">
                 {chatState === 'active' && (
                   <div className="mb-2 text-xs text-amber-500">
                     ⚠️ A IA está ativa. Suas mensagens manuais podem se sobrepor às respostas dela.
                   </div>
                 )}
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowMediaPicker(!showMediaPicker)}
+                    className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.05] text-zinc-400 hover:bg-white/[0.1] hover:text-white transition-colors"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                  </button>
                   <input
                     type="text"
                     value={inputMsg}
@@ -199,6 +236,30 @@ export default function LiveChatPage() {
                     <IconSend size={18} />
                   </button>
                 </div>
+                {showMediaPicker && (
+                  <div className="absolute bottom-full left-0 mb-2 w-72 rounded-xl border border-white/[0.06] bg-ink-900 shadow-xl p-3 max-h-80 overflow-y-auto z-10 flex flex-wrap gap-2">
+                    {mediaList.length === 0 ? (
+                      <div className="text-xs text-zinc-500 w-full text-center py-4">Nenhuma mídia no Arquivo desta modelo.</div>
+                    ) : (
+                      mediaList.map(m => (
+                        <button 
+                          key={m.id} 
+                          type="button" 
+                          onClick={() => sendMedia(m.id)}
+                          className="w-[30%] aspect-square relative rounded bg-ink-950 overflow-hidden border border-white/[0.05] hover:border-emerald-500 transition-colors"
+                        >
+                          {m.kind === 'image' ? (
+                            <img src={m.url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex flex-col items-center justify-center text-zinc-500">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                            </div>
+                          )}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
               </form>
             </>
           )}

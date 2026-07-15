@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { getDb } from "@/lib/db";
-import { sendEvolutionText } from "@/lib/evolution";
+import { sendEvolutionText, sendEvolutionMedia } from "@/lib/evolution";
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import { v4 as uuidv4 } from "uuid";
 
 export const runtime = "nodejs";
@@ -68,6 +70,40 @@ export async function POST(req: NextRequest, { params }: { params: { chatId: str
         INSERT INTO whatsapp_messages (id, chat_id, role, content, type, created_at)
         VALUES (?, ?, ?, ?, 'text', ?)
       `).run(uuidv4(), chatId, "assistant", content, now);
+      
+      db.prepare(`UPDATE whatsapp_chats SET last_interaction_at = ? WHERE id = ?`).run(now, chatId);
+
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === "send_media") {
+      const mediaId = body.mediaId;
+      if (!mediaId) return NextResponse.json({ error: "Media ID required" }, { status: 400 });
+
+      const instanceRow = db.prepare(`SELECT instance_name FROM whatsapp_instances WHERE profile_id = ?`).get(chat.profile_id) as any;
+      if (!instanceRow) return NextResponse.json({ error: "Instance not found" }, { status: 404 });
+
+      const mediaRow = db.prepare(`SELECT * FROM media WHERE id = ?`).get(mediaId) as any;
+      if (!mediaRow) return NextResponse.json({ error: "Media not found" }, { status: 404 });
+
+      const baseDir = resolve(process.env.MEDIA_STORAGE_DIR || "/app/data");
+      const fullPath = resolve(baseDir, mediaRow.path);
+      const fileBuffer = readFileSync(fullPath);
+      const base64 = fileBuffer.toString("base64");
+
+      await sendEvolutionMedia(
+        instanceRow.instance_name,
+        chat.remote_jid,
+        base64,
+        mediaRow.mime || "image/jpeg",
+        ""
+      );
+
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO whatsapp_messages (id, chat_id, role, content, type, created_at)
+        VALUES (?, ?, ?, ?, 'imagem', ?)
+      `).run(uuidv4(), chatId, "assistant", "📸 Mídia enviada manualmente", now);
       
       db.prepare(`UPDATE whatsapp_chats SET last_interaction_at = ? WHERE id = ?`).run(now, chatId);
 

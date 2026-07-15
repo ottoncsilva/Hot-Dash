@@ -23,6 +23,20 @@ export async function processWhatsappAgent(chatId: string, profileId: string, re
     LIMIT 20
   `).all(chatId) as { role: "user" | "assistant", content: string }[];
 
+  // Fetch available tags for this profile's images
+  const tagsRow = db.prepare(`
+    SELECT DISTINCT t.name 
+    FROM tags t
+    JOIN media_tags mt ON mt.tag_id = t.id
+    JOIN media m ON m.id = mt.media_id
+    WHERE m.profile_id = ? AND m.kind = 'image'
+  `).all(profileId) as { name: string }[];
+  
+  const availableTags = tagsRow.map(t => t.name);
+  const tagsListString = availableTags.length > 0 
+    ? `[${availableTags.join(", ")}]` 
+    : "NENHUMA (a modelo não possui imagens cadastradas, envie apenas texto)";
+
   const systemConstraint = `
 VOCÊ DEVE RESPONDER EXCLUSIVAMENTE NO FORMATO JSON ABAIXO. NÃO ADICIONE NENHUM TEXTO FORA DO JSON.
 SEU OBJETIVO É CONTINUAR A CONVERSA COMO A PERSONA DEFINIDA.
@@ -31,14 +45,18 @@ FORMATO OBRIGATÓRIO:
 {
   "tipo": "texto" ou "imagem",
   "resposta": "Sua mensagem de texto aqui",
-  "prompt_imagem": "Se tipo for imagem, descreva a foto aqui em 5 palavras. Se tipo for texto, deixe vazio."
+  "prompt_imagem": "Se tipo for imagem, ESCOLHA EXATAMENTE UMA DAS ETIQUETAS DISPONÍVEIS ABAIXO. Se tipo for texto, deixe vazio."
 }
+
+ETIQUETAS DE IMAGEM DISPONÍVEIS PARA VOCÊ ESCOLHER:
+${tagsListString}
 
 REGRAS:
 - Se "tipo" for "texto", o sistema enviará apenas a "resposta".
-- Se "tipo" for "imagem", o sistema buscará uma foto na galeria que combine com "prompt_imagem" e a enviará com a "resposta" como legenda.
+- Se "tipo" for "imagem", você deve obrigatoriamente preencher "prompt_imagem" com UMA das etiquetas da lista acima (exatamente como escrita). O sistema buscará uma foto real no banco de dados com essa etiqueta e a enviará com a sua "resposta" como legenda.
+- Se a lista de etiquetas for 'NENHUMA', NUNCA envie tipo 'imagem'.
 - Siga rigorosamente as instruções da persona. Mantenha mensagens curtas, como WhatsApp real.
-${enableMedia ? "" : "- O envio de imagens está DESATIVADO. Use SEMPRE tipo: 'texto'."}
+${enableMedia ? "" : "- O envio de imagens está DESATIVADO nas configurações. Use SEMPRE tipo: 'texto'."}
   `.trim();
 
   const fullSystemPrompt = `${basePrompt}\n\n${systemConstraint}`;
@@ -86,12 +104,24 @@ ${enableMedia ? "" : "- O envio de imagens está DESATIVADO. Use SEMPRE tipo: 't
 
     // 4. Execute the send action via Evolution API
     if (tipo === "imagem") {
-      // Select a random image from the model's media library
-      const mediaRow = db.prepare(`
-        SELECT * FROM media 
-        WHERE profile_id = ? AND kind = 'image' 
+      // Buscar a imagem com a etiqueta exata pedida, ou aleatória como fallback se não achar
+      let mediaRow = db.prepare(`
+        SELECT m.* 
+        FROM media m
+        JOIN media_tags mt ON mt.media_id = m.id
+        JOIN tags t ON t.id = mt.tag_id
+        WHERE m.profile_id = ? AND m.kind = 'image' AND t.name = ?
         ORDER BY RANDOM() LIMIT 1
-      `).get(profileId) as any;
+      `).get(profileId, result.prompt_imagem || "") as any;
+
+      if (!mediaRow) {
+        // Fallback para qualquer imagem aleatória se a etiqueta não bater ou não existir
+        mediaRow = db.prepare(`
+          SELECT * FROM media 
+          WHERE profile_id = ? AND kind = 'image' 
+          ORDER BY RANDOM() LIMIT 1
+        `).get(profileId) as any;
+      }
 
       if (mediaRow) {
         const fileBuffer = readFileSync(mediaRow.path);

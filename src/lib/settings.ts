@@ -218,7 +218,7 @@ export function updateAiSettings(patch: {
     const cur: AiProviderStored = s[provider] || { enabled: false };
     if (p.enabled !== undefined) cur.enabled = p.enabled;
     if (p.model !== undefined) cur.model = p.model.trim();
-    if (p.baseUrl !== undefined) cur.baseUrl = p.baseUrl ? p.baseUrl.trim() : undefined;
+    if ('baseUrl' in p && p.baseUrl !== undefined) cur.baseUrl = p.baseUrl ? p.baseUrl.trim() : undefined;
     if (p.apiKey !== undefined) {
       cur.apiKeyEnc = p.apiKey ? encryptSecret(p.apiKey) : undefined;
     }

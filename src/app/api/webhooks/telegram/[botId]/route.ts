@@ -178,6 +178,8 @@ export async function POST(
           telegramUsername: from.username || undefined,
           status: "pending",
           expiresAt: 0,
+          lastUpsellAt: undefined,
+          upsellStepIndex: 0,
           createdAt: Date.now(),
         });
 

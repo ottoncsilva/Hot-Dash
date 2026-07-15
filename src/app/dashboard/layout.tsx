@@ -25,104 +25,7 @@ import {
   IconWhatsapp,
 } from "@/components/icons";
 
-const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
-  whatsapp: IconWhatsapp,
-  whatsapp_settings: IconSettings,
-  whatsapp_chat: IconWhatsapp,
-  settings: IconSettings,
-};
-
-// Submenu de Configurações — abre dentro da própria sidebar (desktop).
-const SETTINGS_SUBSECTIONS: { label: string; anchor: string }[] = [
-  { label: "Menu", anchor: "menu" },
-  { label: "Etiquetas", anchor: "etiquetas" },
-  { label: "Status de modelos", anchor: "status" },
-  { label: "Pagamentos", anchor: "pagamentos" },
-  { label: "Conexão com IA", anchor: "ia" },
-  { label: "WhatsApp (Evolution)", anchor: "whatsapp" },
-  { label: "Segurança", anchor: "seguranca" },
-];
-
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const { user, loading, signOut } = useAuth();
-  const router = useRouter();
-  const pathname = usePathname();
-  const [menu, setMenu] = useState<MenuEntry[]>(
-    normalizeMenu(DEFAULT_MENU_ORDER.map((key) => ({ key, hidden: false }))),
-  );
-  const [settingsOpen, setSettingsOpen] = useState(false);
-
-  useEffect(() => {
-    if (!loading && !user) router.replace("/login");
-  }, [user, loading, router]);
-
-  useEffect(() => {
-    if (pathname?.startsWith("/dashboard/settings")) setSettingsOpen(true);
-  }, [pathname]);
-
-  useEffect(() => {
-    fetch("/api/settings/menu")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => d?.menu && setMenu(normalizeMenu(d.menu)))
-      .catch(() => {});
-  }, []);
-
-  const isActive = (href: string) =>
-    href === "/dashboard"
-      ? pathname === href
-      : pathname === href || pathname.startsWith(href + "/");
-
-  const visible = menu.filter((m) => !m.hidden);
-
-  if (loading || !user) {
-    return (
-      <div className="grid min-h-dvh place-items-center">
-        <div className="h-8 w-8 animate-spin rounded-full border border-white/20 border-t-white" />
-      </div>
-    );
-  }
-        <Brand compact />
-        <button
-          onClick={signOut}
-          className="grid h-9 w-9 place-items-center rounded-lg border border-white/10 text-zinc-400"
-          aria-label="Sair"
-        >
-          <IconLogout size={18} />
-        </button>
-      </header>
-
-"use client";
-
-import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
-import Link from "next/link";
-import { useAuth } from "@/context/AuthContext";
-import {
-  DEFAULT_MENU_ORDER,
-  NAV_ITEMS,
-  normalizeMenu,
-  type MenuEntry,
-  type NavKey,
-} from "@/lib/navItems";
-import {
-  IconDashboard,
-  IconProfiles,
-  IconMedia,
-  IconCalendar,
-  IconPayments,
-  IconTelegram,
-  IconSettings,
-  IconLogout,
-  IconChevronDown,
-  IconChevronUp,
-  IconWhatsapp,
-} from "@/components/icons";
-
-const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
+const ICONS: Record<string, (p: { size?: number }) => JSX.Element> = {
   whatsapp: IconWhatsapp,
   whatsapp_settings: IconSettings,
   whatsapp_chat: IconWhatsapp,
@@ -146,16 +49,12 @@ const SETTINGS_SUBSECTIONS: { label: string; anchor: string }[] = [
   { label: "Segurança", anchor: "seguranca" },
 ];
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+  export default function DashboardLayout({ children }: { children: React.ReactNode; }) {
   const { user, loading, signOut } = useAuth();
-  const router = useRouter();
+const router = useRouter();
   const pathname = usePathname();
   const [menu, setMenu] = useState<MenuEntry[]>(
-    normalizeMenu(DEFAULT_MENU_ORDER.map((key) => ({ key, hidden: false }))),
+    normalizeMenu(DEFAULT_MENU_ORDER.map((key) => ({ key, hidden: false })))
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -181,13 +80,6 @@ export default function DashboardLayout({
 
   const visible = menu.filter((m) => !m.hidden);
 
-  if (loading || !user) {
-    return (
-      <div className="grid min-h-dvh place-items-center">
-        <div className="h-8 w-8 animate-spin rounded-full border border-white/20 border-t-white" />
-      </div>
-    );
-  }
 
   return (
     <div className="flex min-h-dvh bg-ink-950 text-white">
@@ -247,7 +139,7 @@ export default function DashboardLayout({
           })}
         </nav>
         <div className="mt-auto">
-          <UserBox email={user.email} onSignOut={signOut} />
+          <UserBox email={user?.email ?? null} onSignOut={signOut} />
         </div>
       </aside>
 

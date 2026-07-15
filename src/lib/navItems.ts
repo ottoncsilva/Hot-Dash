@@ -5,7 +5,14 @@ export type NavKey =
   | "whatsapp"
   | "whatsapp_settings"
   | "whatsapp_chat"
-  | "settings";
+  | "settings"
+  | "dashboard"
+  | "profiles"
+  | "media"
+  | "calendar"
+  | "payments"
+  | "telegram"
+  | "schedule";
 
 export type NavItem = { key: NavKey; label: string; href: string };
 

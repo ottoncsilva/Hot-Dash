@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
       let instanceName = row?.instance_name;
       let qrcodeData = null;
 
-      const origin = new URL(req.url).origin;
+      const origin = process.env.NEXT_PUBLIC_APP_URL || process.env.WEBHOOK_APP_URL || new URL(req.url).origin;
       const webhookUrl = `${origin}/api/webhooks/evolution`;
 
       if (!row) {

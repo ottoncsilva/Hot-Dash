@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     const profileId = instanceRow.profile_id;
 
     // Processamento de Histórico (messages.set)
-    if (body.event === "messages.set" || body.event === "messaging-history.set") {
+    if (body.event === "messages.set" || body.event === "messaging-history.set" || body.event === "CHATS_SET" || body.event === "MESSAGING_HISTORY_SET") {
       const messagesArray = body.data?.messages || [];
       if (!Array.isArray(messagesArray)) return NextResponse.json({ ok: true });
 
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Filtramos apenas mensagens novas (upsert)
-    if (body.event !== "messages.upsert") {
+    if (body.event !== "messages.upsert" && body.event !== "MESSAGES_UPSERT") {
       return NextResponse.json({ ok: true });
     }
 

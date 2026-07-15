@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { callAiRaw } from "./ai";
 import { sendEvolutionText, sendEvolutionMedia } from "./evolution";
 import { readFileSync } from "fs";
+import { randomDelay } from "./randomDelay";
 
 export async function processWhatsappAgent(chatId: string, profileId: string, remoteJid: string, instanceName: string) {
   const db = getDb();
@@ -73,7 +74,6 @@ ${enableMedia ? "" : "- O envio de imagens está DESATIVADO. Use SEMPRE tipo: 't
     // Determine final type respecting media enable flag
     const tipo = result.tipo === "imagem" && enableMedia ? "imagem" : "texto";
     let resposta = result.resposta || "Oi...";
-    const promptImagem = result.prompt_imagem || "";
 
     // Append Pix key (telefone, CNPJ ou CPF) if configured
     const pixKey = agentRow.pix_key;
@@ -82,7 +82,6 @@ ${enableMedia ? "" : "- O envio de imagens está DESATIVADO. Use SEMPRE tipo: 't
     }
 
     // Simulate typing delay (4‑6 s)
-    const { randomDelay } = await import("./randomDelay");
     await new Promise(r => setTimeout(r, randomDelay()));
 
     // 4. Execute the send action via Evolution API
@@ -117,66 +116,7 @@ ${enableMedia ? "" : "- O envio de imagens está DESATIVADO. Use SEMPRE tipo: 't
       INSERT INTO whatsapp_messages (id, chat_id, role, content, type, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(uuidv4(), chatId, "assistant", resposta, tipo, Date.now());
-
-    // 3. Call the AI (using Grok provider)
-    const rawAiResponse = await callAiRaw(
-      JSON.stringify(messagesPayload),
-      "grok",
-      { maxTokens: 500 },
-    );
-
-    if (!rawAiResponse) throw new Error("IA retornou vazio");
-
-    // Clean possible markdown code fences and parse JSON
-    const cleanJsonText = rawAiResponse
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
-
-    const result = JSON.parse(cleanJsonText) as {
-      tipo: string;
-      resposta: string;
-      prompt_imagem: string;
-    };
-
-    // Determine final type respecting media enable flag
-    const tipo = result.tipo === "imagem" && enableMedia ? "imagem" : "texto";
-    const resposta = result.resposta || "Oi...";
-    const promptImagem = result.prompt_imagem || "";
-
-    // 4. Execute the send action via Evolution API
-    if (tipo === "imagem") {
-      // Select a random image from the model's media library
-      const mediaRow = db.prepare(`
-        SELECT * FROM media 
-        WHERE profile_id = ? AND kind = 'image' 
-        ORDER BY RANDOM() LIMIT 1
-      `).get(profileId) as any;
-
-      if (mediaRow) {
-        const fileBuffer = readFileSync(mediaRow.path);
-        const base64 = fileBuffer.toString("base64");
-        await sendEvolutionMedia(
-          instanceName,
-          remoteJid,
-          base64,
-          mediaRow.mime || "image/jpeg",
-          resposta,
-        );
-      } else {
-        // Fallback to text if no image is available
-        await sendEvolutionText(instanceName, remoteJid, resposta);
-      }
-    } else {
-      await sendEvolutionText(instanceName, remoteJid, resposta);
-    }
-
-    // 5. Save the AI response into the history
-    db.prepare(`
-      INSERT INTO whatsapp_messages (id, chat_id, role, content, type, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(uuidv4(), chatId, "assistant", resposta, tipo, Date.now());
-
+// Duplicate block removed - original duplicated logic omitted
   } catch (err: any) {
     console.error("Erro no Agente de WhatsApp:", err);
   }

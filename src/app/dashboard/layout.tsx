@@ -26,15 +26,9 @@ import {
 } from "@/components/icons";
 
 const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
-  dashboard: IconDashboard,
-  profiles: IconProfiles,
-  media: IconMedia,
-  schedule: IconCalendar,
-  payments: IconPayments,
-  telegram_bot: IconTelegram,
-  telegram_autopost: IconTelegram,
   whatsapp: IconWhatsapp,
-  settings: IconSettings,
+  whatsapp_settings: IconSettings,
+  whatsapp_chat: IconWhatsapp,
 };
 
 // Submenu de Configurações — abre dentro da própria sidebar (desktop).

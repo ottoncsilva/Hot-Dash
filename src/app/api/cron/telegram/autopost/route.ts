@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { listProfiles } from "@/lib/profiles";
 import { getBotConfigByProfile } from "@/lib/telegramDb";
-import { listMedia, listUsedMediaIds } from "@/lib/media";
+import { listMedia, listUsedMediaIds, getMediaRow } from "@/lib/media";
 import { generateCaption } from "@/lib/ai";
 import { getAiCredentials } from "@/lib/settings";
 import { sendTelegramMedia } from "@/lib/telegramApi";
@@ -128,6 +128,8 @@ async function attemptAutopost(
   }
 
   const media = candidates[0];
+  const row = getMediaRow(media.id);
+  if (!row) return false;
 
   // Gera legenda via IA
   let caption = "";
@@ -135,7 +137,7 @@ async function attemptAutopost(
     const images: any[] = [];
     if (media.kind === "image") {
       try {
-        const buf = await readBuffer(media.path);
+        const buf = await readBuffer(row.path);
         images.push({
           mime: media.mime || "image/jpeg",
           base64: buf.toString("base64"),
@@ -163,7 +165,7 @@ async function attemptAutopost(
   }
 
   // Dispara no Telegram
-  await sendTelegramMedia(bot.botToken, chatId, media.path, caption);
+  await sendTelegramMedia(bot.botToken, chatId, row.path, caption);
 
   // Grava o post no banco para marcar como usado e constar no histórico
   const p = createPost({

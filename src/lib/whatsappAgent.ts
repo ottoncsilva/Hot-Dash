@@ -4,6 +4,7 @@ import { callAiRaw } from "./ai";
 import { sendEvolutionText, sendEvolutionMedia } from "./evolution";
 import { readFileSync } from "fs";
 import { randomDelay } from "./randomDelay";
+import { resolve } from "path";
 
 export async function processWhatsappAgent(chatId: string, profileId: string, remoteJid: string, instanceName: string) {
   const db = getDb();
@@ -124,7 +125,9 @@ ${enableMedia ? "" : "- O envio de imagens está DESATIVADO nas configurações.
       }
 
       if (mediaRow) {
-        const fileBuffer = readFileSync(mediaRow.path);
+        const baseDir = resolve(process.env.MEDIA_STORAGE_DIR || "/app/data");
+        const fullPath = resolve(baseDir, mediaRow.path);
+        const fileBuffer = readFileSync(fullPath);
         const base64 = fileBuffer.toString("base64");
         await sendEvolutionMedia(
           instanceName,

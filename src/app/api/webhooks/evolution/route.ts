@@ -6,13 +6,15 @@ import { processWhatsappAgent } from "@/lib/whatsappAgent";
 export const runtime = "nodejs";
 
 function extractMessageContent(msgData: any): string | null {
-  if (!msgData || !msgData.message) return null;
-  const m = msgData.message;
+  if (!msgData) return null;
+  const m = msgData.message || msgData;
+  if (!m) return null;
   // Evolution envia texto puro em "conversation" ou "extendedTextMessage.text"
   if (m.conversation) return m.conversation;
   if (m.extendedTextMessage && m.extendedTextMessage.text) return m.extendedTextMessage.text;
+  if (m.imageMessage && m.imageMessage.caption) return m.imageMessage.caption;
+  if (m.videoMessage && m.videoMessage.caption) return m.videoMessage.caption;
   
-  // Ignora audios, imagens e figurinhas por enquanto
   return null;
 }
 
@@ -73,11 +75,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    const msgData = body.data?.message || body.data; // Evolution v1/v2 compat
+    const msgData = body.data;
     if (!msgData) return NextResponse.json({ ok: true });
 
-    const remoteJid = msgData.key?.remoteJid;
-    const fromMe = msgData.key?.fromMe;
+    const remoteJid = msgData.key?.remoteJid || msgData.remoteJid;
+    const fromMe = msgData.key?.fromMe !== undefined ? msgData.key.fromMe : msgData.fromMe;
     
     // Ignorar status do whatsapp e grupos (apenas DM)
     if (!remoteJid || remoteJid === "status@broadcast" || remoteJid.includes("@g.us")) {

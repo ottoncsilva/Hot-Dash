@@ -7,6 +7,7 @@ export type NavKey =
   | "media"
   | "schedule"
   | "payments"
+  | "telegram"
   | "settings";
 
 export type NavItem = { key: NavKey; label: string; href: string };
@@ -25,6 +26,11 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
     label: "Financeiro",
     href: "/dashboard/payments",
   },
+  telegram: {
+    key: "telegram",
+    label: "Telegram",
+    href: "/dashboard/telegram",
+  },
   settings: {
     key: "settings",
     label: "Configurações",
@@ -38,6 +44,7 @@ export const DEFAULT_MENU_ORDER: NavKey[] = [
   "media",
   "schedule",
   "payments",
+  "telegram",
   "settings",
 ];
 

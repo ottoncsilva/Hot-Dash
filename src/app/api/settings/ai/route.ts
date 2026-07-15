@@ -14,13 +14,14 @@ export async function GET(req: NextRequest) {
   }
 }
 
-function parseProviderPatch(raw: unknown): { enabled?: boolean; apiKey?: string; model?: string } | undefined {
+function parseProviderPatch(raw: unknown): { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string } | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const r = raw as Record<string, unknown>;
   return {
     enabled: typeof r.enabled === "boolean" ? r.enabled : undefined,
     apiKey: typeof r.apiKey === "string" ? r.apiKey : undefined,
     model: typeof r.model === "string" ? r.model : undefined,
+    baseUrl: typeof r.baseUrl === "string" ? r.baseUrl : undefined,
   };
 }
 

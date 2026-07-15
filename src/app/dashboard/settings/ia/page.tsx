@@ -50,6 +50,7 @@ export default function AiSettingsPage() {
   const [openaiEnabled, setOpenaiEnabled] = useState(false);
   const [openaiKey, setOpenaiKey] = useState("");
   const [openaiModel, setOpenaiModel] = useState(FALLBACK_OPENAI_MODELS[0]);
+  const [openaiBaseUrl, setOpenaiBaseUrl] = useState("");
   const [openaiModels, setOpenaiModels] = useState<string[] | null>(null);
   const [openaiModelsLoading, setOpenaiModelsLoading] = useState(false);
   const [openaiModelsError, setOpenaiModelsError] = useState<string | null>(null);
@@ -70,6 +71,7 @@ export default function AiSettingsPage() {
         setCfg(d.settings);
         setOpenaiEnabled(d.settings.openai.enabled);
         setOpenaiModel(d.settings.openai.model);
+        setOpenaiBaseUrl(d.settings.openai.baseUrl || "");
         setGeminiEnabled(d.settings.gemini.enabled);
         setGeminiModel(d.settings.gemini.model);
         if (d.settings.openai.hasKey) {
@@ -118,7 +120,7 @@ export default function AiSettingsPage() {
         "/api/settings/ai",
         "PATCH",
         {
-          openai: { enabled: openaiEnabled, model: openaiModel, ...(openaiKey ? { apiKey: openaiKey } : {}) },
+          openai: { enabled: openaiEnabled, model: openaiModel, baseUrl: openaiBaseUrl, ...(openaiKey ? { apiKey: openaiKey } : {}) },
           gemini: { enabled: geminiEnabled, model: geminiModel, ...(geminiKey ? { apiKey: geminiKey } : {}) },
         },
       );
@@ -204,6 +206,17 @@ export default function AiSettingsPage() {
               />
               <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
                 platform.openai.com → api keys
+              </p>
+              <label className="eyebrow mb-1.5 mt-3 block">Base URL (opcional para OpenRouter)</label>
+              <input
+                className="input font-mono"
+                type="text"
+                placeholder="https://api.openai.com/v1"
+                value={openaiBaseUrl}
+                onChange={(e) => setOpenaiBaseUrl(e.target.value)}
+              />
+              <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                Padrão: OpenAI. Use para OpenRouter ou outras APIs.
               </p>
               <ConnectionBadge
                 testUrl="/api/settings/ai/test"

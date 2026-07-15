@@ -106,7 +106,8 @@ export async function callAiRaw(
     }
 
     async function attempt(body: Record<string, unknown>) {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      const url = creds!.baseUrl || "https://api.openai.com/v1/chat/completions";
+      const res = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -162,6 +163,12 @@ export async function callAiRaw(
           maxOutputTokens: maxTokens,
           ...(opts?.json ? { responseMimeType: "application/json" } : {}),
         },
+        safetySettings: [
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+        ]
       }),
     },
   );

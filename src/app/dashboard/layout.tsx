@@ -17,6 +17,7 @@ import {
   IconMedia,
   IconCalendar,
   IconPayments,
+  IconTelegram,
   IconSettings,
   IconLogout,
   IconChevronDown,
@@ -29,6 +30,7 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   media: IconMedia,
   schedule: IconCalendar,
   payments: IconPayments,
+  telegram: IconTelegram,
   settings: IconSettings,
 };
 

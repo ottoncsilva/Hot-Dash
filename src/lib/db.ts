@@ -170,6 +170,67 @@ function migrate(d: Database.Database) {
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS telegram_bots (
+      id                TEXT PRIMARY KEY,
+      profile_id        TEXT NOT NULL UNIQUE,
+      bot_token         TEXT NOT NULL,
+      bot_username      TEXT,
+      id_vip            TEXT NOT NULL,
+      id_aquecimento    TEXT NOT NULL,
+      id_registro       TEXT,
+      support_username  TEXT,
+      welcome_message   TEXT NOT NULL,
+      success_message   TEXT NOT NULL DEFAULT '✅ Pagamento aprovado! Acesse o Grupo VIP aqui: {link_vip}',
+      created_at        INTEGER NOT NULL,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS telegram_plans (
+      id            TEXT PRIMARY KEY,
+      bot_id        TEXT NOT NULL,
+      name          TEXT NOT NULL,
+      price_cents   INTEGER NOT NULL,
+      duration_days INTEGER NOT NULL,
+      created_at    INTEGER NOT NULL,
+      FOREIGN KEY (bot_id) REFERENCES telegram_bots(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS telegram_custom_buttons (
+      id            TEXT PRIMARY KEY,
+      bot_id        TEXT NOT NULL,
+      text          TEXT NOT NULL,
+      url           TEXT NOT NULL,
+      sort_order    INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (bot_id) REFERENCES telegram_bots(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS telegram_subscriptions (
+      id                TEXT PRIMARY KEY,
+      bot_id            TEXT NOT NULL,
+      transaction_id    TEXT,
+      telegram_user_id  INTEGER NOT NULL,
+      telegram_username TEXT,
+      invite_link       TEXT,
+      status            TEXT NOT NULL DEFAULT 'active',
+      expires_at        INTEGER NOT NULL,
+      created_at        INTEGER NOT NULL,
+      FOREIGN KEY (bot_id) REFERENCES telegram_bots(id) ON DELETE CASCADE,
+      FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS telegram_autopost_settings (
+      profile_id        TEXT PRIMARY KEY,
+      enabled           INTEGER NOT NULL DEFAULT 0,
+      vip_post_interval INTEGER DEFAULT 12,
+      vip_tags          TEXT,
+      warmup_post_interval INTEGER DEFAULT 24,
+      warmup_tags       TEXT,
+      ai_prompt_style   TEXT,
+      last_vip_post_at  INTEGER,
+      last_warmup_post_at INTEGER,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
   `);
 
   // Migrações incrementais (adiciona colunas que ainda não existem em bancos já criados).

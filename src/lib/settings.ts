@@ -139,10 +139,10 @@ export function updateFinanceSettings(
 // há mais um "provedor ativo" fixo aqui. ----
 export type AiProvider = "openai" | "gemini";
 
-export type AiProviderPublic = { enabled: boolean; hasKey: boolean; model: string };
+export type AiProviderPublic = { enabled: boolean; hasKey: boolean; model: string; baseUrl?: string };
 export type AiSettingsPublic = { openai: AiProviderPublic; gemini: AiProviderPublic };
 
-type AiProviderStored = { enabled: boolean; apiKeyEnc?: string; model?: string };
+type AiProviderStored = { enabled: boolean; apiKeyEnc?: string; model?: string; baseUrl?: string };
 type AiSettingsStored = { openai?: AiProviderStored; gemini?: AiProviderStored };
 
 export const DEFAULT_AI_MODELS: Record<AiProvider, string> = {
@@ -159,6 +159,7 @@ function providerToPublic(p: AiProviderStored | undefined, provider: AiProvider)
     enabled: Boolean(p?.enabled),
     hasKey: Boolean(p?.apiKeyEnc),
     model: p?.model || DEFAULT_AI_MODELS[provider],
+    baseUrl: p?.baseUrl || undefined,
   };
 }
 
@@ -171,12 +172,16 @@ export function getAiSettingsPublic(): AiSettingsPublic {
 }
 
 /** Credenciais do provedor pedido, descriptografadas (server-side apenas). */
-export function getAiCredentials(provider: AiProvider): { apiKey: string; model: string } | null {
+export function getAiCredentials(provider: AiProvider): { apiKey: string; model: string; baseUrl?: string } | null {
   const s = rawAi();
   const p = provider === "openai" ? s.openai : s.gemini;
   if (!p?.enabled || !p.apiKeyEnc) return null;
   try {
-    return { apiKey: decryptSecret(p.apiKeyEnc), model: p.model || DEFAULT_AI_MODELS[provider] };
+    return {
+      apiKey: decryptSecret(p.apiKeyEnc),
+      model: p.model || DEFAULT_AI_MODELS[provider],
+      baseUrl: p.baseUrl || undefined,
+    };
   } catch {
     return null;
   }
@@ -198,8 +203,8 @@ export function getAiKeyForTest(provider: AiProvider): string | null {
 }
 
 export function updateAiSettings(patch: {
-  openai?: { enabled?: boolean; apiKey?: string; model?: string };
-  gemini?: { enabled?: boolean; apiKey?: string; model?: string };
+  openai?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
+  gemini?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
 }): AiSettingsPublic {
   const s = rawAi();
   for (const provider of ["openai", "gemini"] as const) {
@@ -208,6 +213,7 @@ export function updateAiSettings(patch: {
     const cur: AiProviderStored = s[provider] || { enabled: false };
     if (p.enabled !== undefined) cur.enabled = p.enabled;
     if (p.model !== undefined) cur.model = p.model.trim();
+    if (p.baseUrl !== undefined) cur.baseUrl = p.baseUrl ? p.baseUrl.trim() : undefined;
     if (p.apiKey !== undefined) {
       cur.apiKeyEnc = p.apiKey ? encryptSecret(p.apiKey) : undefined;
     }

@@ -50,9 +50,9 @@ const SETTINGS_SUBSECTIONS: { label: string; anchor: string }[] = [
   { label: "Segurança", anchor: "seguranca" },
 ];
 
-  export default function DashboardLayout({ children }: { children: React.ReactNode; }) {
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, signOut } = useAuth();
-const router = useRouter();
+  const router = useRouter();
   const pathname = usePathname();
   const [menu, setMenu] = useState<MenuEntry[]>(
     normalizeMenu(DEFAULT_MENU_ORDER.map((key) => ({ key, hidden: false })))
@@ -113,8 +113,12 @@ const router = useRouter();
                       {SETTINGS_SUBSECTIONS.map((sub) => (
                         <Link
                           key={sub.anchor}
-                          href={`/dashboard/settings#${sub.anchor}`}
-                          className="px-3 py-1.5 text-xs text-zinc-500 hover:text-white"
+                          href={`/dashboard/settings/${sub.anchor}`}
+                          className={`px-3 py-1.5 text-xs transition-colors ${
+                            pathname === `/dashboard/settings/${sub.anchor}`
+                              ? "text-white"
+                              : "text-zinc-500 hover:text-white"
+                          }`}
                         >
                           {sub.label}
                         </Link>

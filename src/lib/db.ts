@@ -311,6 +311,9 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "telegram_bots", "upsell_funnel", "TEXT");
   ensureColumn(d, "telegram_subscriptions", "last_upsell_at", "INTEGER");
   ensureColumn(d, "telegram_subscriptions", "upsell_step_index", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(d, "whatsapp_agent_settings", "ai_provider", "TEXT NOT NULL DEFAULT 'grok'");
+  ensureColumn(d, "whatsapp_agent_settings", "enable_billing", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(d, "whatsapp_agent_settings", "pix_key", "TEXT");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
 

@@ -48,6 +48,8 @@ export async function GET(req: NextRequest) {
           inviteLink: row.invite_link || undefined,
           status: "expired",
           expiresAt: row.expires_at,
+          lastUpsellAt: row.last_upsell_at || undefined,
+          upsellStepIndex: row.upsell_step_index || 0,
           createdAt: row.created_at,
         });
 

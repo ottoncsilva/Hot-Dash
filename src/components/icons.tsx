@@ -298,6 +298,25 @@ export const IconWhatsapp = (p: IconProps) => (
     <path d="M8.5 8.7c0-.6.5-1 1-1s.8.2 1 .6l.7 1.4c.1.3.1.6-.1.8l-.6.7c.4 1 1.3 1.9 2.3 2.3l.7-.6c.2-.2.5-.2.8-.1l1.4.7c.4.2.6.6.6 1 0 .6-.4 1-1 1-3.3 0-6.8-3.5-6.8-6.8z" />
   </Base>
 );
+export const IconBot = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M5 3h14v2H5z" />
+    <circle cx="12" cy="11" r="4" />
+    <path d="M8 19v-2h8v2" />
+  </Base>
+);
+export const IconUser = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M6 20v-2a6 6 0 0 1 12 0v2" />
+  </Base>
+);
+
+export const IconSend = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M2 12l20 10-5-10 5-10-20 10z" />
+  </Base>
+);
 
 export const IconTelegram = (p: IconProps) => (
   <Base {...p}>

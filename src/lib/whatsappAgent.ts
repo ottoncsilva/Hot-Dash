@@ -1,6 +1,6 @@
 import { getDb } from "./db";
 import { v4 as uuidv4 } from "uuid";
-import { callRawAi } from "./ai";
+import { callAiRaw } from "./ai";
 import { sendEvolutionText, sendEvolutionMedia } from "./evolution";
 import { readFileSync } from "fs";
 
@@ -48,27 +48,35 @@ ${enableMedia ? "" : "- O envio de imagens está DESATIVADO. Use SEMPRE tipo: 't
   ];
 
   try {
-    // 3. Chama a IA (usando Grok, provider fixo na fase atual ou podemos ler do settings)
-    const rawAiResponse = await callRawAi({
-      provider: "grok",
-      messages: messagesPayload as any,
-      maxTokens: 500,
-      temperature: 0.8,
-    });
+    // 3. Call the AI (using Grok provider)
+    const rawAiResponse = await callAiRaw(
+      JSON.stringify(messagesPayload),
+      "grok",
+      { maxTokens: 500 },
+    );
 
-    if (!rawAiResponse.text) throw new Error("IA retornou vazio");
+    if (!rawAiResponse) throw new Error("IA retornou vazio");
 
-    // Remove code blocks (markdown) if present
-    const cleanJsonText = rawAiResponse.text.replace(/```json/g, "").replace(/```/g, "").trim();
-    const result = JSON.parse(cleanJsonText) as { tipo: string; resposta: string; prompt_imagem: string };
+    // Clean possible markdown code fences and parse JSON
+    const cleanJsonText = rawAiResponse
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
 
+    const result = JSON.parse(cleanJsonText) as {
+      tipo: string;
+      resposta: string;
+      prompt_imagem: string;
+    };
+
+    // Determine final type respecting media enable flag
     const tipo = result.tipo === "imagem" && enableMedia ? "imagem" : "texto";
     const resposta = result.resposta || "Oi...";
     const promptImagem = result.prompt_imagem || "";
 
-    // 4. Executa a Ação de Envio (Evolution API)
+    // 4. Execute the send action via Evolution API
     if (tipo === "imagem") {
-      // Tenta achar uma imagem aleatória (ou pode usar FTS/busca semântica depois)
+      // Select a random image from the model's media library
       const mediaRow = db.prepare(`
         SELECT * FROM media 
         WHERE profile_id = ? AND kind = 'image' 
@@ -78,16 +86,22 @@ ${enableMedia ? "" : "- O envio de imagens está DESATIVADO. Use SEMPRE tipo: 't
       if (mediaRow) {
         const fileBuffer = readFileSync(mediaRow.path);
         const base64 = fileBuffer.toString("base64");
-        await sendEvolutionMedia(instanceName, remoteJid, base64, mediaRow.mime || "image/jpeg", resposta);
+        await sendEvolutionMedia(
+          instanceName,
+          remoteJid,
+          base64,
+          mediaRow.mime || "image/jpeg",
+          resposta,
+        );
       } else {
-        // Fallback pra texto se nao tem imagem
+        // Fallback to text if no image is available
         await sendEvolutionText(instanceName, remoteJid, resposta);
       }
     } else {
       await sendEvolutionText(instanceName, remoteJid, resposta);
     }
 
-    // 5. Salva a resposta da IA no histórico
+    // 5. Save the AI response into the history
     db.prepare(`
       INSERT INTO whatsapp_messages (id, chat_id, role, content, type, created_at)
       VALUES (?, ?, ?, ?, ?, ?)

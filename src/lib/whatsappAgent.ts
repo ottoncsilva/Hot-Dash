@@ -48,6 +48,76 @@ ${enableMedia ? "" : "- O envio de imagens está DESATIVADO. Use SEMPRE tipo: 't
   ];
 
   try {
+    // 3. Call the AI using the provider configured for this model
+    const provider = agentRow.ai_provider || "grok";
+    const rawAiResponse = await callAiRaw(
+      JSON.stringify(messagesPayload),
+      provider,
+      { maxTokens: 500 },
+    );
+
+    if (!rawAiResponse) throw new Error("IA retornou vazio");
+
+    // Clean possible markdown fences and parse JSON
+    const cleanJsonText = rawAiResponse
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
+
+    const result = JSON.parse(cleanJsonText) as {
+      tipo: string;
+      resposta: string;
+      prompt_imagem: string;
+    };
+
+    // Determine final type respecting media enable flag
+    const tipo = result.tipo === "imagem" && enableMedia ? "imagem" : "texto";
+    let resposta = result.resposta || "Oi...";
+    const promptImagem = result.prompt_imagem || "";
+
+    // Append Pix key (telefone, CNPJ ou CPF) if configured
+    const pixKey = agentRow.pix_key;
+    if (pixKey) {
+      resposta = `${resposta}\nPix: ${pixKey}`;
+    }
+
+    // Simulate typing delay (4‑6 s)
+    const { randomDelay } = await import("./randomDelay");
+    await new Promise(r => setTimeout(r, randomDelay()));
+
+    // 4. Execute the send action via Evolution API
+    if (tipo === "imagem") {
+      // Select a random image from the model's media library
+      const mediaRow = db.prepare(`
+        SELECT * FROM media 
+        WHERE profile_id = ? AND kind = 'image' 
+        ORDER BY RANDOM() LIMIT 1
+      `).get(profileId) as any;
+
+      if (mediaRow) {
+        const fileBuffer = readFileSync(mediaRow.path);
+        const base64 = fileBuffer.toString("base64");
+        await sendEvolutionMedia(
+          instanceName,
+          remoteJid,
+          base64,
+          mediaRow.mime || "image/jpeg",
+          resposta,
+        );
+      } else {
+        // Fallback to text if no image is available
+        await sendEvolutionText(instanceName, remoteJid, resposta);
+      }
+    } else {
+      await sendEvolutionText(instanceName, remoteJid, resposta);
+    }
+
+    // 5. Save the AI response into the history (store full response)
+    db.prepare(`
+      INSERT INTO whatsapp_messages (id, chat_id, role, content, type, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(uuidv4(), chatId, "assistant", resposta, tipo, Date.now());
+
     // 3. Call the AI (using Grok provider)
     const rawAiResponse = await callAiRaw(
       JSON.stringify(messagesPayload),

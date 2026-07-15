@@ -263,6 +263,15 @@ function migrate(d: Database.Database) {
       prompt        TEXT,
       enable_media  INTEGER NOT NULL DEFAULT 1,
       enable_billing INTEGER NOT NULL DEFAULT 1,
+      ai_provider   TEXT NOT NULL DEFAULT 'grok',
+      pix_key       TEXT,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS model_prompts (
+      id          TEXT PRIMARY KEY,
+      profile_id  TEXT NOT NULL UNIQUE,
+      prompt      TEXT NOT NULL,
       FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
     );
 

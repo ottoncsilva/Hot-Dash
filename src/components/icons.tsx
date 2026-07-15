@@ -381,3 +381,10 @@ export const IconRefresh = (p: IconProps) => (
     <path d="M3 21v-5h5" />
   </Base>
 );
+
+export const IconMenu = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M4 6h16M4 12h16M4 18h16" />
+  </Base>
+);
+

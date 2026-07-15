@@ -291,9 +291,22 @@ function migrate(d: Database.Database) {
       chat_id    TEXT NOT NULL,
       role       TEXT NOT NULL,
       content    TEXT NOT NULL,
-      type       TEXT NOT NULL DEFAULT 'text',
+      type       TEXT DEFAULT 'text',
       created_at INTEGER NOT NULL,
       FOREIGN KEY (chat_id) REFERENCES whatsapp_chats(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_tasks (
+      id          TEXT PRIMARY KEY,
+      profile_id  TEXT NOT NULL,
+      provider    TEXT NOT NULL, -- 'magnific', 'kling'
+      type        TEXT NOT NULL, -- 'image', 'video'
+      status      TEXT NOT NULL, -- 'pending', 'processing', 'success', 'failed'
+      result_url  TEXT,
+      error       TEXT,
+      created_at  INTEGER NOT NULL,
+      updated_at  INTEGER NOT NULL,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
     );
 
     CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_chat ON whatsapp_messages(chat_id);

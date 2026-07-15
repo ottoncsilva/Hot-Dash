@@ -213,6 +213,15 @@ export async function testAiProviderKey(
       if (data.status === "success") return { ok: true };
       return { ok: false, message: data.error?.message || "Erro na validação" };
     }
+    if (provider === "magnific") {
+      const res = await fetch("https://api.magnific.com/v1/analytics/team-api-keys", {
+        headers: { "x-magnific-api-key": apiKey },
+      });
+      if (res.ok) return { ok: true };
+      const data = await res.json().catch(() => ({}));
+      const msg = data.error?.message || `erro ${res.status}`;
+      return { ok: false, message: msg };
+    }
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,

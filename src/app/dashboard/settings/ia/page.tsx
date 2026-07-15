@@ -70,6 +70,9 @@ export default function AiSettingsPage() {
   const [sightengineUser, setSightengineUser] = useState("");
   const [sightengineKey, setSightengineKey] = useState("");
 
+  const [magnificEnabled, setMagnificEnabled] = useState(false);
+  const [magnificKey, setMagnificKey] = useState("");
+
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const openaiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -88,6 +91,7 @@ export default function AiSettingsPage() {
         setGrokModel(d.settings.grok.model);
         setGrokBaseUrl(d.settings.grok.baseUrl || "https://api.x.ai/v1");
         setSightengineEnabled(d.settings.sightengine.enabled);
+        setMagnificEnabled(d.settings.magnific?.enabled || false);
         if (d.settings.openai.hasKey) {
           fetchAiModels("openai", "", setOpenaiModels, setOpenaiModelsLoading, setOpenaiModelsError);
         }
@@ -138,6 +142,7 @@ export default function AiSettingsPage() {
           gemini: { enabled: geminiEnabled, model: geminiModel, ...(geminiKey ? { apiKey: geminiKey } : {}) },
           grok: { enabled: grokEnabled, model: grokModel, baseUrl: grokBaseUrl, ...(grokKey ? { apiKey: grokKey } : {}) },
           sightengine: { enabled: sightengineEnabled, ...(sightengineKey ? { apiKey: sightengineKey } : {}), ...(sightengineUser ? { apiUser: sightengineUser } : {}) },
+          magnific: { enabled: magnificEnabled, ...(magnificKey ? { apiKey: magnificKey } : {}) },
         },
       );
       setCfg(settings);
@@ -146,6 +151,7 @@ export default function AiSettingsPage() {
       setGrokKey("");
       setSightengineKey("");
       setSightengineUser("");
+      setMagnificKey("");
       setSaved(true);
     } finally {
       setSaving(false);
@@ -437,6 +443,44 @@ export default function AiSettingsPage() {
                   buildBody={() => ({ provider: "sightengine", apiKey: sightengineKey || undefined, apiUser: sightengineUser || undefined })}
                   autoTest={true}
                   enabled={sightengineEnabled}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Magnific AI (SeeDream & Kling) */}
+        <div className="card p-4">
+          <label className="flex items-center justify-between">
+            <span className="font-medium text-white">Magnific AI (SeeDream & Kling)</span>
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-white"
+              checked={magnificEnabled}
+              onChange={(e) => setMagnificEnabled(e.target.checked)}
+            />
+          </label>
+          <p className="mt-2 text-xs text-zinc-500">
+            Usado no Estúdio de Criação para edição mágica de fotos com SeeDream (consistência de rosto/corpo) e geração de vídeos/dancinhas com Kling (Motion Control). Ambos são acessados através da API do Magnific.
+          </p>
+          {magnificEnabled && (
+            <div className="grid gap-4 md:grid-cols-2 mt-4">
+              <div className="md:col-span-2">
+                <label className="eyebrow mb-1.5 block">Chave API Magnific</label>
+                <input
+                  className="input font-mono"
+                  type="password"
+                  placeholder={cfg?.magnific?.hasKey ? "•••••••• (em branco = manter)" : "sk_..."}
+                  value={magnificKey}
+                  onChange={(e) => setMagnificKey(e.target.value)}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <ConnectionBadge
+                  testUrl="/api/settings/ai/test"
+                  buildBody={() => ({ provider: "magnific", apiKey: magnificKey || undefined })}
+                  autoTest={true}
+                  enabled={magnificEnabled}
                 />
               </div>
             </div>

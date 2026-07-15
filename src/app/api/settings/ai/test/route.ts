@@ -11,9 +11,10 @@ export async function POST(req: NextRequest) {
     await requireUser(req);
     const body = await req.json().catch(() => ({}));
     const provider = body.provider;
-    if (!["openai", "gemini", "grok", "sightengine"].includes(provider)) throw new ApiError(400, "Provedor inválido.");
+    if (!["openai", "gemini", "grok", "sightengine", "magnific", "kling"].includes(provider)) throw new ApiError(400, "Provedor inválido.");
 
-    const apiKey = typeof body.apiKey === "string" && body.apiKey ? body.apiKey : getAiKeyForTest(provider);
+    const testProvider = (provider === "kling") ? "magnific" : provider;
+    const apiKey = typeof body.apiKey === "string" && body.apiKey ? body.apiKey : getAiKeyForTest(testProvider);
     if (!apiKey) {
       return NextResponse.json({ connected: false, message: "Cole a chave de API." });
     }
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
       apiUser = require("@/lib/settings").getSettings().sightengine.apiUser;
     }
 
-    const result = await testAiProviderKey(provider, apiKey, { baseUrl: body.baseUrl, apiUser });
+    const result = await testAiProviderKey(testProvider, apiKey, { baseUrl: body.baseUrl, apiUser });
     return NextResponse.json({ connected: result.ok, message: result.message });
   } catch (err) {
     return errorResponse(err);

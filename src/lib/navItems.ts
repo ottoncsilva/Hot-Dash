@@ -10,8 +10,7 @@ export type NavKey =
   | "profiles"
   | "media"
   | "payments"
-  | "telegram_bot"
-  | "telegram_autopost"
+  | "telegram"
   | "schedule";
 
 export type NavItem = { key: NavKey; label: string; href: string };
@@ -21,9 +20,8 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   profiles: { key: "profiles", label: "Modelos", href: "/dashboard/profiles" },
   media: { key: "media", label: "Mídia", href: "/dashboard/media" },
   payments: { key: "payments", label: "Financeiro", href: "/dashboard/payments" },
-  telegram_bot: { key: "telegram_bot", label: "Bot VIP & Funis", href: "/dashboard/telegram/bot" },
-  telegram_autopost: { key: "telegram_autopost", label: "Autopost VIP", href: "/dashboard/telegram/autopost" },
-  whatsapp: { key: "whatsapp", label: "WhatsApp VIP", href: "/dashboard/whatsapp" },
+  telegram: { key: "telegram", label: "Telegram", href: "/dashboard/telegram/bot" },
+  whatsapp: { key: "whatsapp", label: "Whatsapp", href: "/dashboard/whatsapp" },
   whatsapp_settings: { key: "whatsapp_settings", label: "Config. WhatsApp", href: "/dashboard/whatsapp/settings" },
   whatsapp_chat: { key: "whatsapp_chat", label: "Chat ao vivo", href: "/dashboard/whatsapp/chat" },
   schedule: { key: "schedule", label: "Cronograma de postagens", href: "/dashboard/schedule" },
@@ -36,8 +34,7 @@ export const DEFAULT_MENU_ORDER: NavKey[] = [
   "media",
   "schedule",
   "payments",
-  "telegram_bot",
-  "telegram_autopost",
+  "telegram",
   "whatsapp",
   "settings",
 ];

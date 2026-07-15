@@ -35,6 +35,8 @@ export async function PATCH(req: NextRequest) {
       gemini: parseProviderPatch(body.gemini),
       sightengine: parseProviderPatch(body.sightengine),
       grok: parseProviderPatch(body.grok),
+      magnific: parseProviderPatch(body.magnific),
+      kling: parseProviderPatch(body.kling),
     });
     return NextResponse.json({ settings });
   } catch (err) {

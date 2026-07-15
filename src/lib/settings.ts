@@ -173,19 +173,21 @@ export function updateFinanceSettings(
 // gerador de cronograma. Cada provedor é independente (ativado + chave +
 // modelo próprios); qual usar é escolhido na hora de cada atividade, não
 // há mais um "provedor ativo" fixo aqui. ----
-export type AiProvider = "openai" | "gemini" | "sightengine" | "grok";
+export type AiProvider = "openai" | "gemini" | "sightengine" | "grok" | "magnific" | "kling";
 
 export type AiProviderPublic = { enabled: boolean; hasKey: boolean; model: string; baseUrl?: string; apiUser?: string };
-export type AiSettingsPublic = { openai: AiProviderPublic; gemini: AiProviderPublic; sightengine: AiProviderPublic; grok: AiProviderPublic };
+export type AiSettingsPublic = { openai: AiProviderPublic; gemini: AiProviderPublic; sightengine: AiProviderPublic; grok: AiProviderPublic; magnific: AiProviderPublic; kling: AiProviderPublic; };
 
 type AiProviderStored = { enabled: boolean; apiKeyEnc?: string; model?: string; baseUrl?: string; apiUserEnc?: string };
-type AiSettingsStored = { openai?: AiProviderStored; gemini?: AiProviderStored; sightengine?: AiProviderStored; grok?: AiProviderStored };
+type AiSettingsStored = { openai?: AiProviderStored; gemini?: AiProviderStored; sightengine?: AiProviderStored; grok?: AiProviderStored; magnific?: AiProviderStored; kling?: AiProviderStored; };
 
 export const DEFAULT_AI_MODELS: Record<AiProvider, string> = {
   openai: "gpt-4o-mini",
   gemini: "gemini-2.0-flash",
   sightengine: "nudity-2.0",
   grok: "grok-4.20-0309-reasoning",
+  magnific: "seedream-v5-pro-edit",
+  kling: "kling-v2-6-pro-motion-control"
 };
 
 function rawAi(): AiSettingsStored {
@@ -206,12 +208,28 @@ export function getAiSettingsPublic(): AiSettingsPublic {
     gemini: build("gemini"),
     sightengine: build("sightengine"),
     grok: build("grok"),
+    magnific: build("magnific"),
+    kling: build("kling"),
   };
 }
 
 /** Credenciais do provedor pedido, descriptografadas (server-side apenas). */
 export function getAiCredentials(provider: AiProvider): { apiKey: string; model: string; baseUrl?: string; apiUser?: string } | null {
   const s = rawAi();
+  if (provider === "kling" || provider === "magnific") {
+    const m = s.magnific;
+    if (!m?.enabled || !m.apiKeyEnc) return null;
+    try {
+      return {
+        apiKey: decryptSecret(m.apiKeyEnc),
+        model: s[provider]?.model || DEFAULT_AI_MODELS[provider],
+        baseUrl: m.baseUrl || undefined,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   const p = s[provider];
   if (!p?.enabled || !p.apiKeyEnc) return null;
   try {
@@ -232,7 +250,7 @@ export function getAiCredentials(provider: AiProvider): { apiKey: string; model:
  */
 export function getAiKeyForTest(provider: AiProvider): string | null {
   const s = rawAi();
-  const p = s[provider];
+  const p = (provider === "kling" || provider === "magnific") ? s.magnific : s[provider];
   if (!p?.apiKeyEnc) return null;
   try {
     return decryptSecret(p.apiKeyEnc);
@@ -246,9 +264,11 @@ export function updateAiSettings(patch: {
   gemini?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   sightengine?: { enabled?: boolean; apiKey?: string; model?: string; apiUser?: string };
   grok?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
+  magnific?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
+  kling?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
 }): AiSettingsPublic {
   const s = rawAi();
-  for (const provider of ["openai", "gemini", "sightengine", "grok"] as const) {
+  for (const provider of ["openai", "gemini", "sightengine", "grok", "magnific", "kling"] as const) {
     const p = patch[provider];
     if (!p) continue;
     const cur: AiProviderStored = s[provider] || { enabled: false };
@@ -263,6 +283,13 @@ export function updateAiSettings(patch: {
     }
     s[provider] = cur;
   }
+
+  // Sincroniza a ativação do kling com a do magnific
+  if (patch.magnific && patch.magnific.enabled !== undefined) {
+    if (!s.kling) s.kling = { enabled: false };
+    s.kling.enabled = patch.magnific.enabled;
+  }
+
   setJson("ai", s);
   return getAiSettingsPublic();
 }

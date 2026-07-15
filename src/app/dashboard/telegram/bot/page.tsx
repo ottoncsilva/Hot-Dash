@@ -252,16 +252,22 @@ export default function TelegramBotPage() {
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto bg-ink-950 p-6 text-white">
+      <div className="mb-6 rounded-xl border border-sky-500/30 bg-sky-500/5 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
+        <div>
+          <h2 className="text-sm font-bold text-sky-400 uppercase tracking-wider">Modelo em Edição</h2>
+          <p className="text-xs text-zinc-400">Todas as configurações desta página serão aplicadas ao perfil selecionado.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <select value={selectedProfileId} onChange={(e) => setSelectedProfileId(e.target.value)} className="w-full md:w-auto min-w-[250px] rounded-lg border border-sky-500/50 bg-ink-900 px-4 py-2.5 text-base font-semibold text-white shadow-xl focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer">
+            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+      </div>
+
       <div className="flex flex-col gap-4 border-b border-white/[0.06] pb-6 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white/90">Bot VIP & Funis</h1>
           <p className="text-sm text-zinc-400">Gerencie seu robô, planos e sequências dinâmicas de venda e remarketing.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <label className="text-sm font-medium text-zinc-300">Modelo:</label>
-          <select value={selectedProfileId} onChange={(e) => setSelectedProfileId(e.target.value)} className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-sky-500">
-            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
         </div>
       </div>
 

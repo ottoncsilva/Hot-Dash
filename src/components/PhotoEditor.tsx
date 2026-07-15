@@ -14,6 +14,7 @@ import {
   IconQuestion,
   IconUndo,
   IconTrash,
+  IconSparkle,
 } from "@/components/icons";
 import { mediaFileUrl, type MediaItem } from "@/lib/types";
 import {
@@ -54,6 +55,7 @@ export default function PhotoEditor({
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState<"new" | "overwrite" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [censoring, setCensoring] = useState(false);
 
   const dragRef = useRef<{
     id: string;
@@ -371,6 +373,65 @@ export default function PhotoEditor({
     }
   }
 
+  async function autoCensor() {
+    setCensoring(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/ai/censor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mediaId: item.id })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro ao censurar.");
+      
+      const canvas = canvasRef.current;
+      const img = imgRef.current;
+      if (!canvas || !img) return;
+      
+      const w = canvas.width;
+      const h = canvas.height;
+
+      const newObjs = data.boxes.map((b: any) => {
+        let bx = b.left;
+        let by = b.top;
+        let bw = b.width;
+        let bh = b.height;
+        // Se a API retornar pixels absolutos, convertemos pra relativo.
+        if (bx > 1 || bw > 1) { 
+          bx = bx / img.naturalWidth;
+          by = by / img.naturalHeight;
+          bw = bw / img.naturalWidth;
+          bh = bh / img.naturalHeight;
+        }
+        
+        // Agora convertemos a coordenada relativa para o tamanho escalado no Canvas
+        // Multiplicamos a caixa em 15% pra garantir que o blur cubra com folga
+        const finalW = bw * w * 1.15;
+        const finalH = bh * h * 1.15;
+        
+        return {
+          id: crypto.randomUUID(),
+          type: "blur",
+          x: (bx * w) - ((finalW - (bw * w))/2),
+          y: (by * h) - ((finalH - (bh * h))/2),
+          w: finalW,
+          h: finalH
+        };
+      }) as BlurObject[];
+
+      if (newObjs.length === 0) {
+         alert("Nenhum conteúdo adulto (ou compatível com a censura) foi encontrado.");
+      } else {
+         setObjects(prev => [...prev, ...newObjs]);
+      }
+    } catch(e) {
+      setError(e instanceof Error ? e.message : "Falha na censura com IA.");
+    } finally {
+      setCensoring(false);
+    }
+  }
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !emojiPickerOpen) onClose();
@@ -442,6 +503,11 @@ export default function PhotoEditor({
             setMode((m) => (m === "blur" ? "select" : "blur"));
             setSelectedId(null);
           }}
+        />
+        <ToolButton 
+          icon={<IconSparkle size={18} />} 
+          label={censoring ? "Analisando..." : "Censura IA"} 
+          onClick={autoCensor} 
         />
         <ToolButton icon={<IconQuestion size={18} />} label="Pergunta" onClick={addQuestionBox} />
         <ToolButton

@@ -137,17 +137,18 @@ export function updateFinanceSettings(
 // gerador de cronograma. Cada provedor é independente (ativado + chave +
 // modelo próprios); qual usar é escolhido na hora de cada atividade, não
 // há mais um "provedor ativo" fixo aqui. ----
-export type AiProvider = "openai" | "gemini";
+export type AiProvider = "openai" | "gemini" | "sightengine";
 
-export type AiProviderPublic = { enabled: boolean; hasKey: boolean; model: string; baseUrl?: string };
-export type AiSettingsPublic = { openai: AiProviderPublic; gemini: AiProviderPublic };
+export type AiProviderPublic = { enabled: boolean; hasKey: boolean; model: string; baseUrl?: string; apiUser?: string };
+export type AiSettingsPublic = { openai: AiProviderPublic; gemini: AiProviderPublic; sightengine: AiProviderPublic };
 
-type AiProviderStored = { enabled: boolean; apiKeyEnc?: string; model?: string; baseUrl?: string };
-type AiSettingsStored = { openai?: AiProviderStored; gemini?: AiProviderStored };
+type AiProviderStored = { enabled: boolean; apiKeyEnc?: string; model?: string; baseUrl?: string; apiUserEnc?: string };
+type AiSettingsStored = { openai?: AiProviderStored; gemini?: AiProviderStored; sightengine?: AiProviderStored };
 
 export const DEFAULT_AI_MODELS: Record<AiProvider, string> = {
   openai: "gpt-4o-mini",
   gemini: "gemini-2.0-flash",
+  sightengine: "nudity-2.0",
 };
 
 function rawAi(): AiSettingsStored {
@@ -160,6 +161,7 @@ function providerToPublic(p: AiProviderStored | undefined, provider: AiProvider)
     hasKey: Boolean(p?.apiKeyEnc),
     model: p?.model || DEFAULT_AI_MODELS[provider],
     baseUrl: p?.baseUrl || undefined,
+    apiUser: p?.apiUserEnc ? "********" : undefined, // mascaremos na visualização
   };
 }
 
@@ -168,19 +170,21 @@ export function getAiSettingsPublic(): AiSettingsPublic {
   return {
     openai: providerToPublic(s.openai, "openai"),
     gemini: providerToPublic(s.gemini, "gemini"),
+    sightengine: providerToPublic(s.sightengine, "sightengine"),
   };
 }
 
 /** Credenciais do provedor pedido, descriptografadas (server-side apenas). */
-export function getAiCredentials(provider: AiProvider): { apiKey: string; model: string; baseUrl?: string } | null {
+export function getAiCredentials(provider: AiProvider): { apiKey: string; model: string; baseUrl?: string; apiUser?: string } | null {
   const s = rawAi();
-  const p = provider === "openai" ? s.openai : s.gemini;
+  const p = s[provider];
   if (!p?.enabled || !p.apiKeyEnc) return null;
   try {
     return {
       apiKey: decryptSecret(p.apiKeyEnc),
       model: p.model || DEFAULT_AI_MODELS[provider],
       baseUrl: p.baseUrl || undefined,
+      apiUser: p.apiUserEnc ? decryptSecret(p.apiUserEnc) : undefined,
     };
   } catch {
     return null;
@@ -193,7 +197,7 @@ export function getAiCredentials(provider: AiProvider): { apiKey: string; model:
  */
 export function getAiKeyForTest(provider: AiProvider): string | null {
   const s = rawAi();
-  const p = provider === "openai" ? s.openai : s.gemini;
+  const p = s[provider];
   if (!p?.apiKeyEnc) return null;
   try {
     return decryptSecret(p.apiKeyEnc);
@@ -205,9 +209,10 @@ export function getAiKeyForTest(provider: AiProvider): string | null {
 export function updateAiSettings(patch: {
   openai?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   gemini?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
+  sightengine?: { enabled?: boolean; apiKey?: string; model?: string; apiUser?: string };
 }): AiSettingsPublic {
   const s = rawAi();
-  for (const provider of ["openai", "gemini"] as const) {
+  for (const provider of ["openai", "gemini", "sightengine"] as const) {
     const p = patch[provider];
     if (!p) continue;
     const cur: AiProviderStored = s[provider] || { enabled: false };
@@ -216,6 +221,9 @@ export function updateAiSettings(patch: {
     if (p.baseUrl !== undefined) cur.baseUrl = p.baseUrl ? p.baseUrl.trim() : undefined;
     if (p.apiKey !== undefined) {
       cur.apiKeyEnc = p.apiKey ? encryptSecret(p.apiKey) : undefined;
+    }
+    if ('apiUser' in p && p.apiUser !== undefined) {
+      cur.apiUserEnc = p.apiUser ? encryptSecret(p.apiUser) : undefined;
     }
     s[provider] = cur;
   }

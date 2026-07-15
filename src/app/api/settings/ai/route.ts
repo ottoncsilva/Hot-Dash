@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-function parseProviderPatch(raw: unknown): { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string } | undefined {
+function parseProviderPatch(raw: unknown): { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string; apiUser?: string } | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const r = raw as Record<string, unknown>;
   return {
@@ -22,6 +22,7 @@ function parseProviderPatch(raw: unknown): { enabled?: boolean; apiKey?: string;
     apiKey: typeof r.apiKey === "string" ? r.apiKey : undefined,
     model: typeof r.model === "string" ? r.model : undefined,
     baseUrl: typeof r.baseUrl === "string" ? r.baseUrl : undefined,
+    apiUser: typeof r.apiUser === "string" ? r.apiUser : undefined,
   };
 }
 
@@ -32,6 +33,7 @@ export async function PATCH(req: NextRequest) {
     const settings = updateAiSettings({
       openai: parseProviderPatch(body.openai),
       gemini: parseProviderPatch(body.gemini),
+      sightengine: parseProviderPatch(body.sightengine),
     });
     return NextResponse.json({ settings });
   } catch (err) {

@@ -85,13 +85,116 @@ export default function DashboardLayout({
       </div>
     );
   }
+        <Brand compact />
+        <button
+          onClick={signOut}
+          className="grid h-9 w-9 place-items-center rounded-lg border border-white/10 text-zinc-400"
+          aria-label="Sair"
+        >
+          <IconLogout size={18} />
+        </button>
+      </header>
+
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
+import { useAuth } from "@/context/AuthContext";
+import {
+  DEFAULT_MENU_ORDER,
+  NAV_ITEMS,
+  normalizeMenu,
+  type MenuEntry,
+  type NavKey,
+} from "@/lib/navItems";
+import {
+  IconDashboard,
+  IconProfiles,
+  IconMedia,
+  IconCalendar,
+  IconPayments,
+  IconTelegram,
+  IconSettings,
+  IconLogout,
+  IconChevronDown,
+  IconChevronUp,
+  IconWhatsapp,
+} from "@/components/icons";
+
+const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
+  whatsapp: IconWhatsapp,
+  whatsapp_settings: IconSettings,
+  whatsapp_chat: IconWhatsapp,
+  settings: IconSettings,
+  dashboard: IconDashboard,
+  profiles: IconProfiles,
+  media: IconMedia,
+  calendar: IconCalendar,
+  payments: IconPayments,
+  telegram: IconTelegram,
+};
+
+// Submenu de Configurações — abre dentro da própria sidebar (desktop).
+const SETTINGS_SUBSECTIONS: { label: string; anchor: string }[] = [
+  { label: "Menu", anchor: "menu" },
+  { label: "Etiquetas", anchor: "etiquetas" },
+  { label: "Status de modelos", anchor: "status" },
+  { label: "Pagamentos", anchor: "pagamentos" },
+  { label: "Conexão com IA", anchor: "ia" },
+  { label: "WhatsApp (Evolution)", anchor: "whatsapp" },
+  { label: "Segurança", anchor: "seguranca" },
+];
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const { user, loading, signOut } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const [menu, setMenu] = useState<MenuEntry[]>(
+    normalizeMenu(DEFAULT_MENU_ORDER.map((key) => ({ key, hidden: false }))),
+  );
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    if (!loading && !user) router.replace("/login");
+  }, [user, loading, router]);
+
+  useEffect(() => {
+    if (pathname?.startsWith("/dashboard/settings")) setSettingsOpen(true);
+  }, [pathname]);
+
+  useEffect(() => {
+    fetch("/api/settings/menu")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d?.menu && setMenu(normalizeMenu(d.menu)))
+      .catch(() => {});
+  }, []);
+
+  const isActive = (href: string) =>
+    href === "/dashboard"
+      ? pathname === href
+      : pathname === href || pathname.startsWith(href + "/");
+
+  const visible = menu.filter((m) => !m.hidden);
+
+  if (loading || !user) {
+    return (
+      <div className="grid min-h-dvh place-items-center">
+        <div className="h-8 w-8 animate-spin rounded-full border border-white/20 border-t-white" />
+      </div>
+    );
+  }
 
   return (
-    <div className="flex min-h-dvh flex-col md:h-dvh md:flex-row md:overflow-hidden">
-      {/* Sidebar (desktop) */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-white/[0.06] bg-ink-900/40 p-4 md:flex md:h-dvh">
+    <div className="flex min-h-dvh bg-ink-950 text-white">
+      {/* Sidebar Desktop */}
+      <aside className="hidden w-64 flex-col border-r border-white/[0.06] bg-ink-950 p-6 md:flex">
         <Brand />
-        <nav className="mt-8 flex flex-1 flex-col gap-0.5">
+        <nav className="mt-8 flex flex-col gap-1">
           {visible.map(({ key }) => {
             const item = NAV_ITEMS[key];
             const Icon = ICONS[key];
@@ -100,44 +203,29 @@ export default function DashboardLayout({
             if (key === "settings") {
               return (
                 <div key={key}>
-                  <div
-                    className={`group flex items-center gap-3 rounded-lg pl-3 pr-1 text-sm transition-all ${
-                      active
-                        ? "bg-white/[0.06] text-white"
-                        : "text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-200"
+                  <button
+                    onClick={() => setSettingsOpen(!settingsOpen)}
+                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                      active ? "bg-white/5 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
                     }`}
                   >
-                    <Link href={item.href} className="flex flex-1 items-center gap-3 py-2.5">
+                    <div className="flex items-center gap-3">
                       <Icon size={18} />
-                      <span className="font-medium">{item.label}</span>
-                    </Link>
-                    <button
-                      onClick={() => setSettingsOpen((v) => !v)}
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg hover:bg-white/[0.06]"
-                      aria-label={settingsOpen ? "Recolher" : "Expandir"}
-                    >
-                      {settingsOpen ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
-                    </button>
-                  </div>
+                      {item.label}
+                    </div>
+                    {settingsOpen ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                  </button>
                   {settingsOpen && (
-                    <div className="ml-4 mt-0.5 flex flex-col gap-0.5 border-l border-white/[0.06] pl-4">
-                      {SETTINGS_SUBSECTIONS.map((s) => {
-                        const href = `${item.href}/${s.anchor}`;
-                        const subActive = pathname === href;
-                        return (
-                          <Link
-                            key={s.anchor}
-                            href={href}
-                            className={`rounded-lg px-2 py-2 text-xs transition-all ${
-                              subActive
-                                ? "bg-white/[0.06] text-white"
-                                : "text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-200"
-                            }`}
-                          >
-                            {s.label}
-                          </Link>
-                        );
-                      })}
+                    <div className="mt-1 flex flex-col border-l border-white/10 pl-4">
+                      {SETTINGS_SUBSECTIONS.map((sub) => (
+                        <Link
+                          key={sub.anchor}
+                          href={`/dashboard/settings#${sub.anchor}`}
+                          className="px-3 py-1.5 text-xs text-zinc-500 hover:text-white"
+                        >
+                          {sub.label}
+                        </Link>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -148,35 +236,20 @@ export default function DashboardLayout({
               <Link
                 key={key}
                 href={item.href}
-                className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all ${
-                  active
-                    ? "bg-white/[0.06] text-white"
-                    : "text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-200"
+                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  active ? "bg-white/5 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
                 }`}
               >
                 <Icon size={18} />
-                <span className="font-medium">{item.label}</span>
-                {active && (
-                  <span className="ml-auto h-1 w-1 rounded-full bg-white" />
-                )}
+                {item.label}
               </Link>
             );
           })}
         </nav>
-        <UserBox email={user.email} onSignOut={signOut} />
+        <div className="mt-auto">
+          <UserBox email={user.email} onSignOut={signOut} />
+        </div>
       </aside>
-
-      {/* Topbar (mobile) */}
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/[0.06] bg-ink-950/80 px-4 py-3 backdrop-blur-xl safe-top md:hidden">
-        <Brand compact />
-        <button
-          onClick={signOut}
-          className="grid h-9 w-9 place-items-center rounded-lg border border-white/10 text-zinc-400"
-          aria-label="Sair"
-        >
-          <IconLogout size={18} />
-        </button>
-      </header>
 
       {/* Conteúdo */}
       <main className="flex-1 px-4 pb-24 pt-6 md:h-dvh md:overflow-y-auto md:px-10 md:py-10">

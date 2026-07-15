@@ -52,6 +52,11 @@ const SETTINGS_SUBSECTIONS: { label: string; anchor: string }[] = [
   { label: "Segurança", anchor: "seguranca" },
 ];
 
+const WHATSAPP_SUBSECTIONS: { label: string; href: string }[] = [
+  { label: "Configurações", href: "/dashboard/whatsapp/settings" },
+  { label: "Chat ao vivo", href: "/dashboard/whatsapp/chat" },
+];
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, signOut } = useAuth();
   const router = useRouter();
@@ -60,6 +65,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     normalizeMenu(DEFAULT_MENU_ORDER.map((key) => ({ key, hidden: false })))
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [whatsappOpen, setWhatsappOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
@@ -67,6 +73,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     if (pathname?.startsWith("/dashboard/settings")) setSettingsOpen(true);
+    if (pathname?.startsWith("/dashboard/whatsapp")) setWhatsappOpen(true);
   }, [pathname]);
 
   useEffect(() => {
@@ -94,6 +101,43 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             const item = NAV_ITEMS[key];
             const Icon = ICONS[key];
             const active = isActive(item.href);
+
+            if (key === "whatsapp") {
+              const isWhatsappActive = pathname?.startsWith("/dashboard/whatsapp");
+              return (
+                <div key={key}>
+                  <button
+                    onClick={() => setWhatsappOpen(!whatsappOpen)}
+                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                      isWhatsappActive ? "bg-white/5 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Icon size={18} />
+                      {item.label}
+                    </div>
+                    {whatsappOpen ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                  </button>
+                  {whatsappOpen && (
+                    <div className="mt-1 flex flex-col border-l border-white/10 pl-4">
+                      {WHATSAPP_SUBSECTIONS.map((sub) => (
+                        <Link
+                          key={sub.href}
+                          href={sub.href}
+                          className={`px-3 py-1.5 text-xs transition-colors ${
+                            pathname === sub.href
+                              ? "text-white"
+                              : "text-zinc-500 hover:text-white"
+                          }`}
+                        >
+                          {sub.label}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            }
 
             if (key === "settings") {
               return (

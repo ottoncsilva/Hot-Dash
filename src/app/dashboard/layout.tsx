@@ -240,17 +240,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      {/* Header Mobile (Barra Superior com Hambúrguer) */}
-      <header className="fixed top-0 left-0 right-0 z-40 flex h-14 items-center justify-between border-b border-white/[0.06] bg-ink-950/80 px-6 backdrop-blur-md md:hidden">
-        <Brand />
-        <button
-          onClick={() => setMobileMenuOpen(true)}
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-400 hover:bg-white/5 hover:text-white"
-          aria-label="Abrir menu"
-        >
-          <IconMenu size={20} />
-        </button>
-      </header>
+      {/* Botão Flutuante do Menu Hambúrguer (Mobile) */}
+      <button
+        onClick={() => setMobileMenuOpen(true)}
+        className="fixed top-[calc(1rem+env(safe-area-inset-top,0px))] right-4 z-40 flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-ink-950/80 text-zinc-400 backdrop-blur-md transition-colors hover:bg-white/5 hover:text-white shadow-lg md:hidden"
+        aria-label="Abrir menu"
+      >
+        <IconMenu size={20} />
+      </button>
 
       {/* Drawer Mobile Overlay (Menu Hambúrguer) */}
       {mobileMenuOpen && (
@@ -412,7 +409,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )}
 
       {/* Conteúdo */}
-      <main className="flex-1 px-4 pb-6 pt-20 md:h-dvh md:overflow-y-auto md:px-10 md:py-10">
+      <main className="flex-1 px-4 pb-6 pt-6 md:h-dvh md:overflow-y-auto md:px-10 md:py-10">
         <div className="animate-fade-in">{children}</div>
       </main>
     </div>

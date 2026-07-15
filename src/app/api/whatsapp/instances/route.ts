@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { getDb } from "@/lib/db";
-import { createEvolutionInstance, connectEvolutionInstance, getStateEvolutionInstance, logoutEvolutionInstance } from "@/lib/evolution";
+import { createEvolutionInstance, connectEvolutionInstance, getStateEvolutionInstance, logoutEvolutionInstance, setEvolutionWebhook } from "@/lib/evolution";
 import { v4 as uuidv4 } from "uuid";
 
 export const runtime = "nodejs";
@@ -64,6 +64,11 @@ export async function POST(req: NextRequest) {
         instanceName = `hotdash_${slug}`;
         const res = await createEvolutionInstance(instanceName);
         qrcodeData = res?.qrcode?.base64 || res?.base64; // depende da versão da evolution api
+
+        // Configura o webhook automaticamente usando a origem da requisição
+        const origin = new URL(req.url).origin;
+        const webhookUrl = `${origin}/api/webhooks/evolution`;
+        await setEvolutionWebhook(instanceName, webhookUrl);
 
         db.prepare(
           `INSERT INTO whatsapp_instances (id, profile_id, instance_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`

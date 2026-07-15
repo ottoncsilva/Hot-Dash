@@ -17,7 +17,11 @@ export async function createEvolutionInstance(instanceName: string) {
     body: JSON.stringify({
       instanceName,
       qrcode: true,
-      integration: "WHATSAPP-BAILEYS"
+      integration: "WHATSAPP-BAILEYS",
+      // Evolution flags to sync history
+      syncFullHistory: true,
+      readMessages: false,
+      readStatus: false
     })
   });
   if (!res.ok) throw new Error(`Falha ao criar instância: ${await res.text()}`);
@@ -100,4 +104,48 @@ export async function sendEvolutionMedia(instanceName: string, remoteJid: string
   });
   if (!res.ok) throw new Error(`Falha ao enviar midia: ${await res.text()}`);
   return res.json();
+}
+
+export async function setEvolutionWebhook(instanceName: string, webhookUrl: string) {
+  const creds = getEvolutionCredentials();
+  if (!creds) throw new Error("Evolution API não configurada");
+
+  const EVENTS = [
+    "APPLICATION_STARTUP",
+    "MESSAGES_UPSERT",
+    "MESSAGES_UPDATE",
+    "MESSAGES_DELETE",
+    "SEND_MESSAGE",
+    "CONTACTS_SET",
+    "CONTACTS_UPSERT",
+    "CONTACTS_UPDATE",
+    "PRESENCE_UPDATE",
+    "CHATS_SET",
+    "CHATS_UPSERT",
+    "CHATS_UPDATE",
+    "CHATS_DELETE",
+    "CONNECTION_UPDATE",
+    "CALL"
+  ];
+
+  const res = await fetch(`${creds.url}/webhook/set/${instanceName}`, {
+    method: "POST",
+    headers: getHeaders(creds.apiKey),
+    body: JSON.stringify({
+      enabled: true,
+      url: webhookUrl,
+      webhookByEvents: false,
+      webhook_by_events: false,
+      webhookBase64: false,
+      webhook_base64: false,
+      events: EVENTS,
+      webhook_events: EVENTS
+    })
+  });
+  if (!res.ok) {
+    console.error(`Falha ao configurar webhook: ${await res.text()}`);
+    // Não vamos lançar erro para não quebrar a criação da instância, mas vamos logar
+  } else {
+    return res.json();
+  }
 }

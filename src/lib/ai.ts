@@ -135,7 +135,8 @@ export async function callAiRaw(
       }
     }
     if (!res.ok) {
-      const msg = ((data.error as Record<string, unknown>)?.message as string) || "";
+      const errObj = data.error;
+      const msg = (typeof errObj === 'string' ? errObj : (errObj as Record<string, unknown>)?.message as string) || "";
       throw new Error(`OpenAI (${res.status}): ${msg || "falha ao gerar conteúdo"}`);
     }
     const text = (data.choices as { message?: { content?: string } }[])?.[0]?.message
@@ -201,7 +202,8 @@ export async function testAiProviderKey(
       });
       if (res.ok) return { ok: true };
       const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      const msg = ((data.error as Record<string, unknown>)?.message as string) || `erro ${res.status}`;
+      const errObj = data.error;
+      const msg = (typeof errObj === 'string' ? errObj : (errObj as Record<string, unknown>)?.message as string) || `erro ${res.status}`;
       return { ok: false, message: msg };
     }
     if (provider === "sightengine") {
@@ -283,7 +285,8 @@ export async function listAiModels(
       });
       const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
       if (!res.ok) {
-        const msg = ((data.error as Record<string, unknown>)?.message as string) || `erro ${res.status}`;
+        const errObj = data.error;
+        const msg = (typeof errObj === 'string' ? errObj : (errObj as Record<string, unknown>)?.message as string) || `erro ${res.status}`;
         return { ok: false, message: msg };
       }
       const raw = (data.data as { id: string; created?: number }[]) || [];

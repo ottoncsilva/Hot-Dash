@@ -37,7 +37,7 @@ async function telegramFormFetch(
     formData.append("parse_mode", "HTML");
   }
 
-  const blob = new Blob([buffer], { type: mime });
+  const blob = new Blob([buffer as any], { type: mime });
   formData.append(fileField, blob, `file${ext}`);
 
   const res = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {

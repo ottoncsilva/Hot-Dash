@@ -28,6 +28,42 @@ function setJson(key: string, value: unknown): void {
     .run(key, JSON.stringify(value));
 }
 
+// ---- Evolution API (WhatsApp) ----
+export type EvolutionSettingsPublic = { url?: string; hasKey: boolean };
+type EvolutionSettingsStored = { url?: string; apiKeyEnc?: string };
+
+function rawEvolution(): EvolutionSettingsStored {
+  return getJson<EvolutionSettingsStored>("evolution", {});
+}
+
+export function getEvolutionSettingsPublic(): EvolutionSettingsPublic {
+  const s = rawEvolution();
+  return {
+    url: s.url,
+    hasKey: Boolean(s.apiKeyEnc),
+  };
+}
+
+export function getEvolutionCredentials(): { url: string; apiKey: string } | null {
+  const s = rawEvolution();
+  if (!s.url || !s.apiKeyEnc) return null;
+  try {
+    return { url: s.url, apiKey: decryptSecret(s.apiKeyEnc) };
+  } catch {
+    return null;
+  }
+}
+
+export function updateEvolutionSettings(patch: { url?: string; apiKey?: string }): EvolutionSettingsPublic {
+  const s = rawEvolution();
+  if (patch.url !== undefined) s.url = patch.url.trim().replace(/\/+$/, "");
+  if (patch.apiKey !== undefined) {
+    s.apiKeyEnc = patch.apiKey ? encryptSecret(patch.apiKey) : undefined;
+  }
+  setJson("evolution", s);
+  return getEvolutionSettingsPublic();
+}
+
 // ---- Menu ----
 export function getMenu(): MenuEntry[] {
   return normalizeMenu(getJson<MenuEntry[]>("menu", []));
@@ -137,40 +173,39 @@ export function updateFinanceSettings(
 // gerador de cronograma. Cada provedor é independente (ativado + chave +
 // modelo próprios); qual usar é escolhido na hora de cada atividade, não
 // há mais um "provedor ativo" fixo aqui. ----
-export type AiProvider = "openai" | "gemini" | "sightengine";
+export type AiProvider = "openai" | "gemini" | "sightengine" | "grok";
 
 export type AiProviderPublic = { enabled: boolean; hasKey: boolean; model: string; baseUrl?: string; apiUser?: string };
-export type AiSettingsPublic = { openai: AiProviderPublic; gemini: AiProviderPublic; sightengine: AiProviderPublic };
+export type AiSettingsPublic = { openai: AiProviderPublic; gemini: AiProviderPublic; sightengine: AiProviderPublic; grok: AiProviderPublic };
 
 type AiProviderStored = { enabled: boolean; apiKeyEnc?: string; model?: string; baseUrl?: string; apiUserEnc?: string };
-type AiSettingsStored = { openai?: AiProviderStored; gemini?: AiProviderStored; sightengine?: AiProviderStored };
+type AiSettingsStored = { openai?: AiProviderStored; gemini?: AiProviderStored; sightengine?: AiProviderStored; grok?: AiProviderStored };
 
 export const DEFAULT_AI_MODELS: Record<AiProvider, string> = {
   openai: "gpt-4o-mini",
   gemini: "gemini-2.0-flash",
   sightengine: "nudity-2.0",
+  grok: "grok-4.20-0309-reasoning",
 };
 
 function rawAi(): AiSettingsStored {
   return getJson<AiSettingsStored>("ai", {});
 }
 
-function providerToPublic(p: AiProviderStored | undefined, provider: AiProvider): AiProviderPublic {
-  return {
-    enabled: Boolean(p?.enabled),
-    hasKey: Boolean(p?.apiKeyEnc),
-    model: p?.model || DEFAULT_AI_MODELS[provider],
-    baseUrl: p?.baseUrl || undefined,
-    apiUser: p?.apiUserEnc ? "********" : undefined, // mascaremos na visualização
-  };
-}
-
 export function getAiSettingsPublic(): AiSettingsPublic {
   const s = rawAi();
+  const build = (provider: AiProvider): AiProviderPublic => ({
+    enabled: Boolean(s[provider]?.enabled),
+    hasKey: Boolean(s[provider]?.apiKeyEnc),
+    model: s[provider]?.model || DEFAULT_AI_MODELS[provider],
+    baseUrl: s[provider]?.baseUrl,
+    ...(provider === "sightengine" && { apiUser: s[provider]?.apiUserEnc ? "(salvo)" : "" })
+  });
   return {
-    openai: providerToPublic(s.openai, "openai"),
-    gemini: providerToPublic(s.gemini, "gemini"),
-    sightengine: providerToPublic(s.sightengine, "sightengine"),
+    openai: build("openai"),
+    gemini: build("gemini"),
+    sightengine: build("sightengine"),
+    grok: build("grok"),
   };
 }
 
@@ -210,9 +245,10 @@ export function updateAiSettings(patch: {
   openai?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   gemini?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   sightengine?: { enabled?: boolean; apiKey?: string; model?: string; apiUser?: string };
+  grok?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
 }): AiSettingsPublic {
   const s = rawAi();
-  for (const provider of ["openai", "gemini", "sightengine"] as const) {
+  for (const provider of ["openai", "gemini", "sightengine", "grok"] as const) {
     const p = patch[provider];
     if (!p) continue;
     const cur: AiProviderStored = s[provider] || { enabled: false };

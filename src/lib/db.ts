@@ -246,6 +246,48 @@ function migrate(d: Database.Database) {
       created_at          INTEGER NOT NULL,
       FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS whatsapp_instances (
+      id            TEXT PRIMARY KEY,
+      profile_id    TEXT NOT NULL UNIQUE,
+      instance_name TEXT NOT NULL UNIQUE,
+      status        TEXT NOT NULL DEFAULT 'disconnected',
+      token         TEXT,
+      created_at    INTEGER NOT NULL,
+      updated_at    INTEGER NOT NULL,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS whatsapp_agent_settings (
+      profile_id    TEXT PRIMARY KEY,
+      prompt        TEXT,
+      enable_media  INTEGER NOT NULL DEFAULT 1,
+      enable_billing INTEGER NOT NULL DEFAULT 1,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS whatsapp_chats (
+      id                  TEXT PRIMARY KEY,
+      profile_id          TEXT NOT NULL,
+      remote_jid          TEXT NOT NULL,
+      state               TEXT NOT NULL DEFAULT 'active',
+      last_interaction_at INTEGER NOT NULL,
+      created_at          INTEGER NOT NULL,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+      UNIQUE(profile_id, remote_jid)
+    );
+
+    CREATE TABLE IF NOT EXISTS whatsapp_messages (
+      id         TEXT PRIMARY KEY,
+      chat_id    TEXT NOT NULL,
+      role       TEXT NOT NULL,
+      content    TEXT NOT NULL,
+      type       TEXT NOT NULL DEFAULT 'text',
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (chat_id) REFERENCES whatsapp_chats(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_chat ON whatsapp_messages(chat_id);
   `);
 
   // Migrações incrementais (adiciona colunas que ainda não existem em bancos já criados).

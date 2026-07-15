@@ -61,6 +61,11 @@ export default function AiSettingsPage() {
   const [geminiModelsLoading, setGeminiModelsLoading] = useState(false);
   const [geminiModelsError, setGeminiModelsError] = useState<string | null>(null);
 
+  const [grokEnabled, setGrokEnabled] = useState(false);
+  const [grokKey, setGrokKey] = useState("");
+  const [grokModel, setGrokModel] = useState("grok-4.20-0309-reasoning");
+  const [grokBaseUrl, setGrokBaseUrl] = useState("https://api.x.ai/v1/chat/completions");
+
   const [sightengineEnabled, setSightengineEnabled] = useState(false);
   const [sightengineUser, setSightengineUser] = useState("");
   const [sightengineKey, setSightengineKey] = useState("");
@@ -79,6 +84,9 @@ export default function AiSettingsPage() {
         setOpenaiBaseUrl(d.settings.openai.baseUrl || "");
         setGeminiEnabled(d.settings.gemini.enabled);
         setGeminiModel(d.settings.gemini.model);
+        setGrokEnabled(d.settings.grok.enabled);
+        setGrokModel(d.settings.grok.model);
+        setGrokBaseUrl(d.settings.grok.baseUrl || "https://api.x.ai/v1");
         setSightengineEnabled(d.settings.sightengine.enabled);
         if (d.settings.openai.hasKey) {
           fetchAiModels("openai", "", setOpenaiModels, setOpenaiModelsLoading, setOpenaiModelsError);
@@ -128,12 +136,14 @@ export default function AiSettingsPage() {
         {
           openai: { enabled: openaiEnabled, model: openaiModel, baseUrl: openaiBaseUrl, ...(openaiKey ? { apiKey: openaiKey } : {}) },
           gemini: { enabled: geminiEnabled, model: geminiModel, ...(geminiKey ? { apiKey: geminiKey } : {}) },
+          grok: { enabled: grokEnabled, model: grokModel, baseUrl: grokBaseUrl, ...(grokKey ? { apiKey: grokKey } : {}) },
           sightengine: { enabled: sightengineEnabled, ...(sightengineKey ? { apiKey: sightengineKey } : {}), ...(sightengineUser ? { apiUser: sightengineUser } : {}) },
         },
       );
       setCfg(settings);
       setOpenaiKey("");
       setGeminiKey("");
+      setGrokKey("");
       setSightengineKey("");
       setSightengineUser("");
       setSaved(true);
@@ -301,6 +311,56 @@ export default function AiSettingsPage() {
                 buildBody={() => ({ provider: "gemini", apiKey: geminiKey || undefined })}
               />
             </>
+          )}
+        </div>
+
+        {/* Grok (xAI) / OpenRouter */}
+        <div className="card p-4 sm:col-span-2">
+          <label className="flex items-center justify-between">
+            <span className="font-medium text-white">Grok (xAI) / Sem Censura</span>
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-white"
+              checked={grokEnabled}
+              onChange={(e) => setGrokEnabled(e.target.checked)}
+            />
+          </label>
+          <p className="mt-2 text-xs text-zinc-500">
+            Usado exclusivamente como o "Cérebro" sem censura do seu Agente de Vendas no WhatsApp (xAI ou OpenRouter).
+          </p>
+          {grokEnabled && (
+            <div className="grid gap-4 md:grid-cols-2 mt-4">
+              <div>
+                <label className="eyebrow mb-1.5 block">Nome do Modelo</label>
+                <input
+                  className="input font-mono"
+                  type="text"
+                  placeholder="Ex: grok-4.20-0309-reasoning"
+                  value={grokModel}
+                  onChange={(e) => setGrokModel(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="eyebrow mb-1.5 block">API Key</label>
+                <input
+                  className="input font-mono"
+                  type="password"
+                  placeholder={cfg?.grok.hasKey ? "•••••••• (em branco = manter)" : "xoxb-..."}
+                  value={grokKey}
+                  onChange={(e) => setGrokKey(e.target.value)}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="eyebrow mb-1.5 block">Base URL</label>
+                <input
+                  className="input font-mono"
+                  type="text"
+                  placeholder="https://api.x.ai/v1/chat/completions"
+                  value={grokBaseUrl}
+                  onChange={(e) => setGrokBaseUrl(e.target.value)}
+                />
+              </div>
+            </div>
           )}
         </div>
 

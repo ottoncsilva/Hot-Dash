@@ -58,14 +58,7 @@ export function ConnectionBadge({
 
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2">
-      <button
-        type="button"
-        onClick={test}
-        disabled={status === "testing"}
-        className="btn-ghost px-3 py-1.5 text-xs"
-      >
-        {status === "testing" ? "Testando..." : "Testar conexão"}
-      </button>
+
       <span className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider">
         <span className={`h-2 w-2 rounded-full ${dotClass}`} />
         <span className={textClass}>{label}</span>

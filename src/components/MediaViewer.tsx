@@ -88,9 +88,32 @@ export default function MediaViewer({
       onClick={onClose}
     >
       <div
-        className="card flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden bg-ink-900"
+        className={`card flex w-full max-w-2xl flex-col overflow-hidden bg-ink-900 ${editing ? 'h-[88vh]' : 'max-h-[88vh]'}`}
         onClick={(e) => e.stopPropagation()}
       >
+        {editing && profileId && onEdited && item.kind === "image" ? (
+          <PhotoEditor
+            item={item}
+            profileId={profileId}
+            onClose={() => setEditing(false)}
+            onSaved={(newItem) => {
+              setEditing(false);
+              onEdited(newItem);
+              // não fecha o viewer, apenas volta para o preview da nova imagem
+            }}
+          />
+        ) : editing && profileId && onEdited && item.kind === "video" ? (
+          <VideoEditor
+            item={item}
+            profileId={profileId}
+            onClose={() => setEditing(false)}
+            onSaved={(newItem) => {
+              setEditing(false);
+              onEdited(newItem);
+            }}
+          />
+        ) : (
+          <>
         {/* Topo */}
         <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
           <button
@@ -238,39 +261,11 @@ export default function MediaViewer({
             no iphone/ipad: toque em salvar → escolha &quot;salvar imagem/vídeo&quot;
           </p>
         </div>
+          </>
+        )}
       </div>
 
     </div>
-
-    {/* Renderizado FORA do backdrop com onClick={onClose}: como o PhotoEditor
-        é filho React deste componente, um clique dentro dele borbulharia pela
-        árvore do React até o backdrop e fecharia o visualizador — mesmo o
-        editor estando em outro portal. Mantê-lo como irmão do backdrop evita
-        isso. */}
-    {editing && profileId && onEdited && item.kind === "image" && (
-      <PhotoEditor
-        item={item}
-        profileId={profileId}
-        onClose={() => setEditing(false)}
-        onSaved={(newItem) => {
-          setEditing(false);
-          onEdited(newItem);
-          onClose();
-        }}
-      />
-    )}
-    {editing && profileId && onEdited && item.kind === "video" && (
-      <VideoEditor
-        item={item}
-        profileId={profileId}
-        onClose={() => setEditing(false)}
-        onSaved={(newItem) => {
-          setEditing(false);
-          onEdited(newItem);
-          onClose();
-        }}
-      />
-    )}
     </>,
     document.body,
   );

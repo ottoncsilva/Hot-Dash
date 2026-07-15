@@ -53,7 +53,7 @@ const SETTINGS_SUBSECTIONS: { label: string; anchor: string }[] = [
 ];
 
 const WHATSAPP_SUBSECTIONS: { label: string; href: string }[] = [
-  { label: "Configurações", href: "/dashboard/whatsapp/settings" },
+  { label: "Configurações", href: "/dashboard/whatsapp" },
   { label: "Chat ao vivo", href: "/dashboard/whatsapp/chat" },
 ];
 

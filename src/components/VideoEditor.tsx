@@ -483,9 +483,9 @@ export default function VideoEditor({
 
   if (!mounted) return null;
 
-  return createPortal(
+  return (
     <div
-      className="fixed inset-0 z-[80] flex flex-col bg-black/95 backdrop-blur-sm"
+      className="flex h-full w-full flex-col bg-ink-900 relative"
       onClick={(e) => e.stopPropagation()}
     >
       {/* Topo */}
@@ -732,7 +732,6 @@ export default function VideoEditor({
       <Modal open={emojiPickerOpen} onClose={() => setEmojiPickerOpen(false)} maxWidth="max-w-md">
         <EmojiPicker onPick={addEmoji} />
       </Modal>
-    </div>,
-    document.body,
+    </div>
   );
 }

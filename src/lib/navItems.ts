@@ -17,14 +17,28 @@ export type NavKey =
 export type NavItem = { key: NavKey; label: string; href: string };
 
 export const NAV_ITEMS: Record<NavKey, NavItem> = {
+  dashboard: { key: "dashboard", label: "Dashboard", href: "/dashboard" },
+  profiles: { key: "profiles", label: "Perfis", href: "/dashboard/profiles" },
+  media: { key: "media", label: "Mídia", href: "/dashboard/media" },
+  calendar: { key: "calendar", label: "Agenda", href: "/dashboard/schedule" },
+  payments: { key: "payments", label: "Pagamentos", href: "/dashboard/payments" },
+  telegram: { key: "telegram", label: "Telegram", href: "/dashboard/telegram/bot" },
   whatsapp: { key: "whatsapp", label: "WhatsApp", href: "/dashboard/whatsapp" },
-  whatsapp_settings: { key: "whatsapp_settings", label: "Configurações", href: "/dashboard/whatsapp/settings" },
+  whatsapp_settings: { key: "whatsapp_settings", label: "Config. WhatsApp", href: "/dashboard/whatsapp/settings" },
   whatsapp_chat: { key: "whatsapp_chat", label: "Chat ao vivo", href: "/dashboard/whatsapp/chat" },
+  schedule: { key: "schedule", label: "Agenda", href: "/dashboard/schedule" },
   settings: { key: "settings", label: "Configurações", href: "/dashboard/settings" },
 };
 
 export const DEFAULT_MENU_ORDER: NavKey[] = [
+  "dashboard",
+  "profiles",
+  "media",
+  "calendar",
+  "payments",
+  "telegram",
   "whatsapp",
+  "settings",
 ];
 
 export type MenuEntry = { key: NavKey; hidden: boolean };

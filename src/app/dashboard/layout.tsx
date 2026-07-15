@@ -25,17 +25,18 @@ import {
   IconWhatsapp,
 } from "@/components/icons";
 
-const ICONS: Record<string, (p: { size?: number }) => JSX.Element> = {
-  whatsapp: IconWhatsapp,
-  whatsapp_settings: IconSettings,
-  whatsapp_chat: IconWhatsapp,
-  settings: IconSettings,
+const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   dashboard: IconDashboard,
   profiles: IconProfiles,
   media: IconMedia,
   calendar: IconCalendar,
   payments: IconPayments,
   telegram: IconTelegram,
+  whatsapp: IconWhatsapp,
+  whatsapp_settings: IconSettings,
+  whatsapp_chat: IconWhatsapp,
+  schedule: IconCalendar,
+  settings: IconSettings,
 };
 
 // Submenu de Configurações — abre dentro da própria sidebar (desktop).

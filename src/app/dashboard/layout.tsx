@@ -23,15 +23,17 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconWhatsapp,
+  IconBot,
+  IconSend,
 } from "@/components/icons";
 
 const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   dashboard: IconDashboard,
   profiles: IconProfiles,
   media: IconMedia,
-  calendar: IconCalendar,
   payments: IconPayments,
-  telegram: IconTelegram,
+  telegram_bot: IconBot,
+  telegram_autopost: IconSend,
   whatsapp: IconWhatsapp,
   whatsapp_settings: IconSettings,
   whatsapp_chat: IconWhatsapp,

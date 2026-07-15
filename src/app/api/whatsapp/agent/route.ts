@@ -36,6 +36,8 @@ export async function GET(req: NextRequest) {
         prompt: row.prompt || "",
         enable_media: Boolean(row.enable_media),
         enable_billing: Boolean(row.enable_billing),
+        ai_provider: row.ai_provider || "grok",
+        pix_key: row.pix_key || null,
       },
     });
   } catch (err) {
@@ -58,15 +60,17 @@ export async function PATCH(req: NextRequest) {
     // Assegura que o registro exista
     const row = db.prepare(`SELECT 1 FROM whatsapp_agent_settings WHERE profile_id = ?`).get(profileId);
     if (!row) {
-      db.prepare(`INSERT INTO whatsapp_agent_settings (profile_id, prompt, enable_media, enable_billing) VALUES (?, ?, ?, ?)`).run(profileId, prompt, enable_media ? 1 : 0, enable_billing ? 1 : 0);
+      db.prepare(`INSERT INTO whatsapp_agent_settings (profile_id, prompt, enable_media, enable_billing, ai_provider, pix_key) VALUES (?, ?, ?, ?, ?, ?)`).run(profileId, prompt, enable_media ? 1 : 0, enable_billing ? 1 : 0, typeof body.ai_provider === "string" ? body.ai_provider : "grok", typeof body.pix_key === "string" ? body.pix_key : null);
     } else {
       const update = db.prepare(
-        `UPDATE whatsapp_agent_settings SET prompt = ?, enable_media = ?, enable_billing = ? WHERE profile_id = ?`
+        `UPDATE whatsapp_agent_settings SET prompt = ?, enable_media = ?, enable_billing = ?, ai_provider = ?, pix_key = ? WHERE profile_id = ?`
       );
       update.run(
         typeof prompt === "string" ? prompt : "",
         enable_media ? 1 : 0,
         enable_billing ? 1 : 0,
+        typeof body.ai_provider === "string" ? body.ai_provider : "grok",
+        typeof body.pix_key === "string" ? body.pix_key : null,
         profileId
       );
     }

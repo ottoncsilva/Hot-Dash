@@ -6,7 +6,7 @@ import { apiGet, apiSend } from "@/lib/api";
 import Link from "next/link";
 
 type Profile = { id: string; name: string };
-type AgentSettings = { prompt: string; enable_media: boolean; enable_billing: boolean };
+type AgentSettings = { prompt: string; enable_media: boolean; enable_billing: boolean; ai_provider: string; pix_key: string };
 
 export default function WhatsAppVipPage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -25,6 +25,8 @@ export default function WhatsAppVipPage() {
     prompt: "",
     enable_media: true,
     enable_billing: true,
+    ai_provider: "grok",
+    pix_key: "",
   });
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -261,6 +263,28 @@ export default function WhatsAppVipPage() {
                     />
                     <span className="text-sm text-zinc-300">Permitir cobrança via Pix Integrado</span>
                   </label>
+                  
+                  {/* AI Provider Dropdown */}
+                  <label className="mt-4 block text-sm font-medium text-zinc-300">Modelo de IA</label>
+                  <select
+                    value={agent.ai_provider}
+                    onChange={(e) => setAgent({ ...agent, ai_provider: e.target.value })}
+                    className="w-full rounded-lg border border-emerald-500/50 bg-ink-900 px-4 py-2.5 text-base font-semibold text-white shadow-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    <option value="gemini">Gemini</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="grok">Grok</option>
+                  </select>
+                  
+                  {/* PIX Key Input */}
+                  <label className="mt-4 block text-sm font-medium text-zinc-300">Chave PIX (telefone, CNPJ ou CPF)</label>
+                  <input
+                    type="text"
+                    placeholder="ex: +5511999999999"
+                    value={agent.pix_key}
+                    onChange={(e) => setAgent({ ...agent, pix_key: e.target.value })}
+                    className="w-full rounded-lg border border-emerald-500/50 bg-ink-900 px-4 py-2.5 text-base font-semibold text-white shadow-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
                 </div>
 
                 <button onClick={saveAgent} disabled={savingAgent} className="mt-6 w-full rounded-lg bg-white px-4 py-2 text-sm font-semibold text-ink-950 hover:bg-zinc-200 transition-colors disabled:opacity-50">

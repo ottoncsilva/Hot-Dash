@@ -57,10 +57,13 @@ export async function POST(req: NextRequest) {
       let qrcodeData = null;
 
       if (!row) {
-        // Criar a instancia do zero
-        instanceName = `hotdash_${profileId.replace(/-/g, "")}`;
+        // Obtain profile name to generate slug
+        const profileRow = db.prepare(`SELECT name FROM profiles WHERE id = ?`).get(profileId) as any;
+        const profileName = profileRow?.name || "model";
+        const slug = profileName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^\-+|\-+$/g, "");
+        instanceName = `hotdash_${slug}`;
         const res = await createEvolutionInstance(instanceName);
-        qrcodeData = res?.qrcode?.base64 || res?.base64; // depende da versao da evolution api
+        qrcodeData = res?.qrcode?.base64 || res?.base64; // depende da versão da evolution api
 
         db.prepare(
           `INSERT INTO whatsapp_instances (id, profile_id, instance_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`

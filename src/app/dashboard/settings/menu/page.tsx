@@ -86,7 +86,7 @@ export default function MenuSettingsPage() {
                 </button>
                 <button
                   onClick={() => toggleHidden(i)}
-                  disabled={isDashboard}
+                  disabled={isSettings}
                   className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 hover:bg-white/5 hover:text-white disabled:opacity-20"
                   aria-label="Mostrar/ocultar"
                 >

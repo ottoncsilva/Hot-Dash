@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     formData.append("api_secret", credentials.apiKey);
     
     // Converte o Buffer em Blob para o FormData nativo do Node
-    const blob = new Blob([fileBuffer]);
+    const blob = new Blob([new Uint8Array(fileBuffer)]);
     formData.append("media", blob, media.path.split('/').pop() || "image.jpg");
 
     // 4. Disparar HTTP Request para a Nuvem

@@ -29,6 +29,7 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   whatsapp: IconWhatsapp,
   whatsapp_settings: IconSettings,
   whatsapp_chat: IconWhatsapp,
+  settings: IconSettings,
 };
 
 // Submenu de Configurações — abre dentro da própria sidebar (desktop).

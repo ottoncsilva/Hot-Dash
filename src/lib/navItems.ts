@@ -4,7 +4,8 @@
 export type NavKey =
   | "whatsapp"
   | "whatsapp_settings"
-  | "whatsapp_chat";
+  | "whatsapp_chat"
+  | "settings";
 
 export type NavItem = { key: NavKey; label: string; href: string };
 
@@ -12,6 +13,7 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   whatsapp: { key: "whatsapp", label: "WhatsApp", href: "/dashboard/whatsapp" },
   whatsapp_settings: { key: "whatsapp_settings", label: "Configurações", href: "/dashboard/whatsapp/settings" },
   whatsapp_chat: { key: "whatsapp_chat", label: "Chat ao vivo", href: "/dashboard/whatsapp/chat" },
+  settings: { key: "settings", label: "Configurações", href: "/dashboard/settings" },
 };
 
 export const DEFAULT_MENU_ORDER: NavKey[] = [

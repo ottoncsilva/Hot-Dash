@@ -54,7 +54,7 @@ export default function MenuSettingsPage() {
       <div className="mt-4 card divide-y divide-white/[0.06]">
         {menu.map((entry, i) => {
           const item = NAV_ITEMS[entry.key];
-          const isDashboard = entry.key === "dashboard";
+          const isSettings = entry.key === "settings";
           return (
             <div key={entry.key} className="flex items-center gap-3 px-4 py-3">
               <span className="font-mono text-xs text-zinc-600">

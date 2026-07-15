@@ -65,6 +65,8 @@ export async function POST(req: NextRequest) {
             sub.status = "active";
             sub.expiresAt = Date.now() + durationDays * 24 * 60 * 60 * 1000;
             sub.inviteLink = invite.invite_link;
+            sub.lastUpsellAt = Date.now();
+            sub.upsellStepIndex = 0;
             saveSubscription(sub);
 
             // Envia mensagem de sucesso personalizada com o link para o cliente

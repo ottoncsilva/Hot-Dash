@@ -30,7 +30,8 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   media: IconMedia,
   schedule: IconCalendar,
   payments: IconPayments,
-  telegram: IconTelegram,
+  telegram_bot: IconTelegram,
+  telegram_autopost: IconTelegram,
   settings: IconSettings,
 };
 

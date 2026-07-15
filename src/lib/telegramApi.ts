@@ -19,7 +19,8 @@ async function telegramFormFetch(
   chatId: string,
   caption: string | undefined,
   relPath: string,
-  fileField: "photo" | "video"
+  fileField: "photo" | "video",
+  options: Record<string, unknown> = {}
 ) {
   const buffer = await readBuffer(relPath);
   const ext = relPath.slice(relPath.lastIndexOf(".")).toLowerCase();
@@ -39,6 +40,10 @@ async function telegramFormFetch(
 
   const blob = new Blob([buffer as any], { type: mime });
   formData.append(fileField, blob, `file${ext}`);
+
+  if (options.reply_markup) {
+    formData.append("reply_markup", JSON.stringify(options.reply_markup));
+  }
 
   const res = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
     method: "POST",
@@ -73,14 +78,15 @@ export async function sendTelegramMedia(
   botToken: string,
   chatId: string,
   relPath: string,
-  caption?: string
+  caption?: string,
+  options: Record<string, unknown> = {}
 ): Promise<unknown> {
   const ext = relPath.slice(relPath.lastIndexOf(".")).toLowerCase();
   const isVideo = [".mp4", ".mov", ".mkv", ".webm"].includes(ext);
   if (isVideo) {
-    return telegramFormFetch(botToken, "sendVideo", chatId, caption, relPath, "video");
+    return telegramFormFetch(botToken, "sendVideo", chatId, caption, relPath, "video", options);
   } else {
-    return telegramFormFetch(botToken, "sendPhoto", chatId, caption, relPath, "photo");
+    return telegramFormFetch(botToken, "sendPhoto", chatId, caption, relPath, "photo", options);
   }
 }
 

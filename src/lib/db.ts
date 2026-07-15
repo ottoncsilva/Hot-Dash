@@ -181,7 +181,10 @@ function migrate(d: Database.Database) {
       id_registro       TEXT,
       support_username  TEXT,
       welcome_message   TEXT NOT NULL,
+      welcome_media_tags TEXT,
       success_message   TEXT NOT NULL DEFAULT '✅ Pagamento aprovado! Acesse o Grupo VIP aqui: {link_vip}',
+      downsell_funnel   TEXT,
+      upsell_funnel     TEXT,
       created_at        INTEGER NOT NULL,
       FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
     );
@@ -214,6 +217,8 @@ function migrate(d: Database.Database) {
       invite_link       TEXT,
       status            TEXT NOT NULL DEFAULT 'active',
       expires_at        INTEGER NOT NULL,
+      last_upsell_at    INTEGER,
+      upsell_step_index INTEGER NOT NULL DEFAULT 0,
       created_at        INTEGER NOT NULL,
       FOREIGN KEY (bot_id) REFERENCES telegram_bots(id) ON DELETE CASCADE,
       FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE SET NULL
@@ -231,6 +236,16 @@ function migrate(d: Database.Database) {
       last_warmup_post_at INTEGER,
       FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS telegram_leads (
+      id                  TEXT PRIMARY KEY,
+      profile_id          TEXT NOT NULL,
+      chat_id             TEXT NOT NULL,
+      last_interaction_at INTEGER NOT NULL,
+      downsell_step_index INTEGER NOT NULL DEFAULT 0,
+      created_at          INTEGER NOT NULL,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
   `);
 
   // Migrações incrementais (adiciona colunas que ainda não existem em bancos já criados).
@@ -240,6 +255,11 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "media", "public_token", "TEXT");
   ensureColumn(d, "media", "updated_at", "INTEGER");
   ensureColumn(d, "profiles", "status", "TEXT NOT NULL DEFAULT 'configuring'");
+  ensureColumn(d, "telegram_bots", "welcome_media_tags", "TEXT");
+  ensureColumn(d, "telegram_bots", "downsell_funnel", "TEXT");
+  ensureColumn(d, "telegram_bots", "upsell_funnel", "TEXT");
+  ensureColumn(d, "telegram_subscriptions", "last_upsell_at", "INTEGER");
+  ensureColumn(d, "telegram_subscriptions", "upsell_step_index", "INTEGER NOT NULL DEFAULT 0");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
 

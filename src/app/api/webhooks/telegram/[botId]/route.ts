@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getBotConfig, listPlans, listCustomButtons, saveSubscription, getPlan, findActiveSubscription } from "@/lib/telegramDb";
-import { sendTelegramMessage, approveTelegramJoinRequest, declineTelegramJoinRequest } from "@/lib/telegramApi";
+import { getBotConfig, listPlans, listCustomButtons, saveSubscription, getPlan, findActiveSubscription, upsertTelegramLead } from "@/lib/telegramDb";
+import { sendTelegramMessage, sendTelegramMedia, approveTelegramJoinRequest, declineTelegramJoinRequest } from "@/lib/telegramApi";
+import { listMedia, getMediaRow } from "@/lib/media";
 import { activeProvider } from "@/lib/payments";
 import { recordTransaction } from "@/lib/transactions";
 import { randomUUID } from "node:crypto";
@@ -26,6 +27,15 @@ export async function POST(
       const isStart = typeof text === "string" && text.startsWith("/start");
 
       if (isStart && from) {
+        upsertTelegramLead({
+          id: `${bot.id}_${from.id}`,
+          profileId: bot.profileId,
+          chatId: String(chat.id),
+          lastInteractionAt: Date.now(),
+          downsellStepIndex: 0,
+          createdAt: Date.now(),
+        });
+
         const plans = listPlans(bot.id);
         const customButtons = listCustomButtons(bot.id);
 
@@ -67,9 +77,30 @@ export async function POST(
         // Personaliza a mensagem substituindo o placeholder do nome
         const welcomeText = bot.welcomeMessage.replace(/{nome}/gi, from.first_name || "linda(o)");
 
-        await sendTelegramMessage(bot.botToken, String(chat.id), welcomeText, {
-          reply_markup: replyMarkup,
-        });
+        let sentWithMedia = false;
+        if (bot.welcomeMediaTags) {
+          const tagsArray = bot.welcomeMediaTags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+          if (tagsArray.length > 0) {
+            const allMedia = listMedia(bot.profileId);
+            const candidates = allMedia.filter(m => m.tags.some(t => tagsArray.includes(t.name.toLowerCase())));
+            if (candidates.length > 0) {
+              const randomMedia = candidates[Math.floor(Math.random() * candidates.length)];
+              const row = getMediaRow(randomMedia.id);
+              if (row) {
+                await sendTelegramMedia(bot.botToken, String(chat.id), row.path, welcomeText, {
+                  reply_markup: replyMarkup,
+                });
+                sentWithMedia = true;
+              }
+            }
+          }
+        }
+
+        if (!sentWithMedia) {
+          await sendTelegramMessage(bot.botToken, String(chat.id), welcomeText, {
+            reply_markup: replyMarkup,
+          });
+        }
       }
     }
 
@@ -78,7 +109,10 @@ export async function POST(
       const { id, data, from, message } = update.callback_query;
 
       if (typeof data === "string" && data.startsWith("buy_plan_")) {
-        const planId = data.replace("buy_plan_", "");
+        const parts = data.replace("buy_plan_", "").split("_");
+        const planId = parts[0];
+        const discountPercent = parseInt(parts[1]) || 0;
+
         const plan = getPlan(planId);
 
         if (!plan) {
@@ -107,7 +141,10 @@ export async function POST(
           "⏳ Gerando cobrança PIX..."
         );
 
-        const amountCents = plan.priceCents;
+        let amountCents = plan.priceCents;
+        if (discountPercent > 0 && discountPercent <= 100) {
+          amountCents = Math.floor(amountCents * (1 - discountPercent / 100));
+        }
         const postbackUrl = `${req.nextUrl.origin}/api/webhooks/syncpay?token=${process.env.SESSION_SECRET}`;
 
         // Cria cobrança PIX no SyncPay

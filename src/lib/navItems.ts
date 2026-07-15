@@ -7,7 +7,8 @@ export type NavKey =
   | "media"
   | "schedule"
   | "payments"
-  | "telegram"
+  | "telegram_bot"
+  | "telegram_autopost"
   | "settings";
 
 export type NavItem = { key: NavKey; label: string; href: string };
@@ -26,10 +27,15 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
     label: "Financeiro",
     href: "/dashboard/payments",
   },
-  telegram: {
-    key: "telegram",
-    label: "Telegram",
-    href: "/dashboard/telegram",
+  telegram_bot: {
+    key: "telegram_bot",
+    label: "Bot VIP & Funis",
+    href: "/dashboard/telegram/bot",
+  },
+  telegram_autopost: {
+    key: "telegram_autopost",
+    label: "Autopost VIP",
+    href: "/dashboard/telegram/autopost",
   },
   settings: {
     key: "settings",
@@ -44,7 +50,8 @@ export const DEFAULT_MENU_ORDER: NavKey[] = [
   "media",
   "schedule",
   "payments",
-  "telegram",
+  "telegram_bot",
+  "telegram_autopost",
   "settings",
 ];
 

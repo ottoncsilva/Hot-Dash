@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     const db = getDb();
 
     if (action === "save-bot") {
-      const { profileId, botToken, idVip, idAquecimento, idRegistro, supportUsername, welcomeMessage, successMessage } = body;
+      const { profileId, botToken, idVip, idAquecimento, idRegistro, supportUsername, welcomeMessage, welcomeMediaTags, successMessage, downsellFunnel, upsellFunnel } = body;
 
       if (!profileId || !botToken || !idVip || !idAquecimento || !welcomeMessage) {
         throw new ApiError(400, "Preencha todos os campos obrigatórios.");
@@ -99,7 +99,10 @@ export async function POST(req: NextRequest) {
         idRegistro: idRegistro ? idRegistro.trim() : undefined,
         supportUsername: supportUsername ? supportUsername.trim() : undefined,
         welcomeMessage: welcomeMessage.trim(),
+        welcomeMediaTags: welcomeMediaTags ? welcomeMediaTags.trim() : undefined,
         successMessage: successMessage ? successMessage.trim() : undefined,
+        downsellFunnel: downsellFunnel && typeof downsellFunnel === 'string' ? downsellFunnel : undefined,
+        upsellFunnel: upsellFunnel && typeof upsellFunnel === 'string' ? upsellFunnel : undefined,
       });
 
       // 2. Registra automaticamente o webhook no Telegram

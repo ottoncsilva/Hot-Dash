@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect as import_react_useEffect } from "react";
 import { apiSend } from "@/lib/api";
 import { IconArrowLeft } from "@/components/icons";
 
@@ -9,12 +9,22 @@ import { IconArrowLeft } from "@/components/icons";
 export function ConnectionBadge({
   testUrl,
   buildBody,
+  autoTest,
+  enabled,
 }: {
   testUrl: string;
   buildBody: () => Record<string, unknown>;
+  autoTest?: boolean;
+  enabled?: boolean;
 }) {
   const [status, setStatus] = useState<"idle" | "testing" | "connected" | "error">("idle");
   const [message, setMessage] = useState<string | null>(null);
+
+  import_react_useEffect(() => {
+    if (autoTest && enabled && status === "idle") {
+      test();
+    }
+  }, [autoTest, enabled]);
 
   async function test() {
     setStatus("testing");

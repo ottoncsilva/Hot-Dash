@@ -189,12 +189,14 @@ export async function callAiRaw(
  * só confirma que a chave é válida (chamada leve de listagem de modelos).
  */
 export async function testAiProviderKey(
-  provider: AiProvider,
+  provider: AiProvider | "grok" | "sightengine",
   apiKey: string,
+  opts?: { baseUrl?: string; apiUser?: string }
 ): Promise<{ ok: boolean; message?: string }> {
   try {
-    if (provider === "openai") {
-      const res = await fetch("https://api.openai.com/v1/models", {
+    if (provider === "openai" || provider === "grok") {
+      const url = opts?.baseUrl ? opts.baseUrl.replace(/\/chat\/completions$/, "") + "/models" : provider === "grok" ? "https://api.x.ai/v1/models" : "https://api.openai.com/v1/models";
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${apiKey}` },
       });
       if (res.ok) return { ok: true };
@@ -202,6 +204,14 @@ export async function testAiProviderKey(
       const msg = ((data.error as Record<string, unknown>)?.message as string) || `erro ${res.status}`;
       return { ok: false, message: msg };
     }
+    if (provider === "sightengine") {
+      if (!opts?.apiUser) return { ok: false, message: "Falta API User." };
+      const res = await fetch(`https://api.sightengine.com/1.0/check.json?models=nudity-2.0&api_user=${encodeURIComponent(opts.apiUser)}&api_secret=${encodeURIComponent(apiKey)}`);
+      const data = await res.json().catch(() => ({}));
+      if (data.status === "success") return { ok: true };
+      return { ok: false, message: data.error?.message || "Erro na validação" };
+    }
+
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
     );

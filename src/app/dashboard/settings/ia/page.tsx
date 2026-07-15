@@ -164,7 +164,7 @@ export default function AiSettingsPage() {
         cada atividade, não há um provedor fixo.
       </p>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <div className="mt-4 flex flex-col gap-4">
         {/* OpenAI */}
         <div className="card p-4">
           <label className="flex items-center justify-between">
@@ -182,66 +182,79 @@ export default function AiSettingsPage() {
             />
           </label>
           {openaiEnabled && (
-            <>
-              <label className="eyebrow mb-1.5 mt-3 flex items-center justify-between">
-                <span>Modelo</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    fetchAiModels("openai", openaiKey, setOpenaiModels, setOpenaiModelsLoading, setOpenaiModelsError)
-                  }
-                  disabled={openaiModelsLoading}
-                  className="normal-case text-zinc-500 hover:text-white disabled:opacity-40"
-                  title="Atualizar lista de modelos"
-                >
-                  <IconRefresh size={13} />
-                </button>
-              </label>
-              {openaiModelsLoading ? (
-                <select className="input" disabled>
-                  <option>Carregando modelos…</option>
-                </select>
-              ) : (
-                <select className="input" value={openaiModel} onChange={(e) => setOpenaiModel(e.target.value)}>
-                  {openaiOptions.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {openaiModelsError && (
-                <p className="mt-1 text-[11px] text-amber-500">
-                  Não foi possível carregar a lista ao vivo — mostrando modelos padrão.
+            <div className="grid gap-4 md:grid-cols-2 mt-4">
+              <div>
+                <label className="eyebrow mb-1.5 flex items-center justify-between">
+                  <span>Modelo</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      fetchAiModels("openai", openaiKey, setOpenaiModels, setOpenaiModelsLoading, setOpenaiModelsError)
+                    }
+                    disabled={openaiModelsLoading}
+                    className="normal-case text-zinc-500 hover:text-white disabled:opacity-40"
+                    title="Atualizar lista de modelos"
+                  >
+                    <IconRefresh size={13} />
+                  </button>
+                </label>
+                {openaiModelsLoading ? (
+                  <select className="input" disabled>
+                    <option>Carregando modelos…</option>
+                  </select>
+                ) : (
+                  <select className="input" value={openaiModel} onChange={(e) => setOpenaiModel(e.target.value)}>
+                    {openaiOptions.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {openaiModelsError && (
+                  <p className="mt-1 text-[11px] text-amber-500">
+                    Não foi possível carregar a lista ao vivo — mostrando modelos padrão.
+                  </p>
+                )}
+              </div>
+              
+              <div>
+                <label className="eyebrow mb-1.5 block">API key</label>
+                <input
+                  className="input font-mono"
+                  type="password"
+                  placeholder={cfg?.openai.hasKey ? "•••••••• (em branco = manter)" : "sk-..."}
+                  value={openaiKey}
+                  onChange={(e) => setOpenaiKey(e.target.value)}
+                />
+                <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                  platform.openai.com → api keys
                 </p>
-              )}
-              <label className="eyebrow mb-1.5 mt-3 block">API key</label>
-              <input
-                className="input font-mono"
-                type="password"
-                placeholder={cfg?.openai.hasKey ? "•••••••• (em branco = manter)" : "sk-..."}
-                value={openaiKey}
-                onChange={(e) => setOpenaiKey(e.target.value)}
-              />
-              <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-                platform.openai.com → api keys
-              </p>
-              <label className="eyebrow mb-1.5 mt-3 block">Base URL (opcional para OpenRouter)</label>
-              <input
-                className="input font-mono"
-                type="text"
-                placeholder="https://api.openai.com/v1"
-                value={openaiBaseUrl}
-                onChange={(e) => setOpenaiBaseUrl(e.target.value)}
-              />
-              <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-                Padrão: OpenAI. Use para OpenRouter ou outras APIs.
-              </p>
-              <ConnectionBadge
-                testUrl="/api/settings/ai/test"
-                buildBody={() => ({ provider: "openai", apiKey: openaiKey || undefined })}
-              />
-            </>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="eyebrow mb-1.5 block">Base URL (opcional para OpenRouter)</label>
+                <input
+                  className="input font-mono"
+                  type="text"
+                  placeholder="https://api.openai.com/v1"
+                  value={openaiBaseUrl}
+                  onChange={(e) => setOpenaiBaseUrl(e.target.value)}
+                />
+                <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                  Padrão: OpenAI. Use para OpenRouter ou outras APIs.
+                </p>
+              </div>
+
+              <div className="md:col-span-2">
+                <ConnectionBadge
+                  testUrl="/api/settings/ai/test"
+                  buildBody={() => ({ provider: "openai", apiKey: openaiKey || undefined, baseUrl: openaiBaseUrl || undefined })}
+                  autoTest={true}
+                  enabled={openaiEnabled}
+                />
+              </div>
+            </div>
           )}
         </div>
 
@@ -262,60 +275,70 @@ export default function AiSettingsPage() {
             />
           </label>
           {geminiEnabled && (
-            <>
-              <label className="eyebrow mb-1.5 mt-3 flex items-center justify-between">
-                <span>Modelo</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    fetchAiModels("gemini", geminiKey, setGeminiModels, setGeminiModelsLoading, setGeminiModelsError)
-                  }
-                  disabled={geminiModelsLoading}
-                  className="normal-case text-zinc-500 hover:text-white disabled:opacity-40"
-                  title="Atualizar lista de modelos"
-                >
-                  <IconRefresh size={13} />
-                </button>
-              </label>
-              {geminiModelsLoading ? (
-                <select className="input" disabled>
-                  <option>Carregando modelos…</option>
-                </select>
-              ) : (
-                <select className="input" value={geminiModel} onChange={(e) => setGeminiModel(e.target.value)}>
-                  {geminiOptions.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {geminiModelsError && (
-                <p className="mt-1 text-[11px] text-amber-500">
-                  Não foi possível carregar a lista ao vivo — mostrando modelos padrão.
+            <div className="grid gap-4 md:grid-cols-2 mt-4">
+              <div>
+                <label className="eyebrow mb-1.5 flex items-center justify-between">
+                  <span>Modelo</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      fetchAiModels("gemini", geminiKey, setGeminiModels, setGeminiModelsLoading, setGeminiModelsError)
+                    }
+                    disabled={geminiModelsLoading}
+                    className="normal-case text-zinc-500 hover:text-white disabled:opacity-40"
+                    title="Atualizar lista de modelos"
+                  >
+                    <IconRefresh size={13} />
+                  </button>
+                </label>
+                {geminiModelsLoading ? (
+                  <select className="input" disabled>
+                    <option>Carregando modelos…</option>
+                  </select>
+                ) : (
+                  <select className="input" value={geminiModel} onChange={(e) => setGeminiModel(e.target.value)}>
+                    {geminiOptions.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {geminiModelsError && (
+                  <p className="mt-1 text-[11px] text-amber-500">
+                    Não foi possível carregar a lista ao vivo — mostrando modelos padrão.
+                  </p>
+                )}
+              </div>
+              
+              <div>
+                <label className="eyebrow mb-1.5 block">API key</label>
+                <input
+                  className="input font-mono"
+                  type="password"
+                  placeholder={cfg?.gemini.hasKey ? "•••••••• (em branco = manter)" : "AIza..."}
+                  value={geminiKey}
+                  onChange={(e) => setGeminiKey(e.target.value)}
+                />
+                <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                  aistudio.google.com → get api key
                 </p>
-              )}
-              <label className="eyebrow mb-1.5 mt-3 block">API key</label>
-              <input
-                className="input font-mono"
-                type="password"
-                placeholder={cfg?.gemini.hasKey ? "•••••••• (em branco = manter)" : "AIza..."}
-                value={geminiKey}
-                onChange={(e) => setGeminiKey(e.target.value)}
-              />
-              <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-                aistudio.google.com → get api key
-              </p>
-              <ConnectionBadge
-                testUrl="/api/settings/ai/test"
-                buildBody={() => ({ provider: "gemini", apiKey: geminiKey || undefined })}
-              />
-            </>
+              </div>
+
+              <div className="md:col-span-2">
+                <ConnectionBadge
+                  testUrl="/api/settings/ai/test"
+                  buildBody={() => ({ provider: "gemini", apiKey: geminiKey || undefined })}
+                  autoTest={true}
+                  enabled={geminiEnabled}
+                />
+              </div>
+            </div>
           )}
         </div>
 
         {/* Grok (xAI) / OpenRouter */}
-        <div className="card p-4 sm:col-span-2">
+        <div className="card p-4">
           <label className="flex items-center justify-between">
             <span className="font-medium text-white">Grok (xAI) / Sem Censura</span>
             <input
@@ -360,12 +383,20 @@ export default function AiSettingsPage() {
                   onChange={(e) => setGrokBaseUrl(e.target.value)}
                 />
               </div>
+              <div className="md:col-span-2">
+                <ConnectionBadge
+                  testUrl="/api/settings/ai/test"
+                  buildBody={() => ({ provider: "grok", apiKey: grokKey || undefined, baseUrl: grokBaseUrl || undefined })}
+                  autoTest={true}
+                  enabled={grokEnabled}
+                />
+              </div>
             </div>
           )}
         </div>
 
         {/* Sightengine (Censura de Imagem) */}
-        <div className="card p-4 sm:col-span-2">
+        <div className="card p-4">
           <label className="flex items-center justify-between">
             <span className="font-medium text-white">Sightengine (IA de Censura de Imagens)</span>
             <input
@@ -398,6 +429,14 @@ export default function AiSettingsPage() {
                   placeholder={cfg?.sightengine.hasKey ? "•••••••• (em branco = manter)" : "sk_..."}
                   value={sightengineKey}
                   onChange={(e) => setSightengineKey(e.target.value)}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <ConnectionBadge
+                  testUrl="/api/settings/ai/test"
+                  buildBody={() => ({ provider: "sightengine", apiKey: sightengineKey || undefined, apiUser: sightengineUser || undefined })}
+                  autoTest={true}
+                  enabled={sightengineEnabled}
                 />
               </div>
             </div>

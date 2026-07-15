@@ -56,6 +56,9 @@ export async function POST(req: NextRequest) {
       let instanceName = row?.instance_name;
       let qrcodeData = null;
 
+      const origin = new URL(req.url).origin;
+      const webhookUrl = `${origin}/api/webhooks/evolution`;
+
       if (!row) {
         // Obtain profile name to generate slug
         const profileRow = db.prepare(`SELECT name FROM profiles WHERE id = ?`).get(profileId) as any;
@@ -66,8 +69,6 @@ export async function POST(req: NextRequest) {
         qrcodeData = res?.qrcode?.base64 || res?.base64; // depende da versão da evolution api
 
         // Configura o webhook automaticamente usando a origem da requisição
-        const origin = new URL(req.url).origin;
-        const webhookUrl = `${origin}/api/webhooks/evolution`;
         await setEvolutionWebhook(instanceName, webhookUrl);
 
         db.prepare(
@@ -78,6 +79,9 @@ export async function POST(req: NextRequest) {
         // Ja existe, tenta conectar
         const res = await connectEvolutionInstance(instanceName);
         qrcodeData = res?.qrcode?.base64 || res?.base64 || res?.qrcode;
+        
+        // Também garante que o webhook está configurado corretamente
+        await setEvolutionWebhook(instanceName, webhookUrl);
         
         db.prepare(`UPDATE whatsapp_instances SET status = 'connecting', updated_at = ? WHERE id = ?`).run(now, row.id);
       }

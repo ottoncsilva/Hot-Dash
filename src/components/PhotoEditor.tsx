@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { apiUpload } from "@/lib/api";
+import { showToast } from "@/lib/toast";
 import Modal from "@/components/Modal";
 import ToolButton from "@/components/ToolButton";
 import EmojiPicker from "@/components/EmojiPicker";
@@ -421,7 +422,7 @@ export default function PhotoEditor({
       }) as BlurObject[];
 
       if (newObjs.length === 0) {
-         alert("Nenhum conteúdo adulto (ou compatível com a censura) foi encontrado.");
+         showToast("Nenhum conteúdo adulto (ou compatível com a censura) foi encontrado.", "warning");
       } else {
          setObjects(prev => [...prev, ...newObjs]);
       }

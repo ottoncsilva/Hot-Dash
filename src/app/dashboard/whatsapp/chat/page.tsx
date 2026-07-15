@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { IconArrowLeft, IconSend, IconBot, IconUser } from "@/components/icons";
 import { apiGet, apiSend } from "@/lib/api";
 import Link from "next/link";
+import { showToast } from "@/lib/toast";
 
 type ChatPreview = {
   id: string;
@@ -91,7 +92,7 @@ export default function LiveChatPage() {
       setChatState(d.state);
       setChats(chats.map(c => c.id === selectedChatId ? { ...c, state: d.state } : c));
     } catch (e: any) {
-      alert(e.message);
+      showToast(e.message, "error");
     }
   };
 
@@ -106,7 +107,7 @@ export default function LiveChatPage() {
       fetchMessages();
       fetchChats();
     } catch (e: any) {
-      alert("Erro ao enviar: " + e.message);
+      showToast("Erro ao enviar: " + e.message, "error");
     } finally {
       setSending(false);
     }
@@ -121,7 +122,7 @@ export default function LiveChatPage() {
       fetchMessages();
       fetchChats();
     } catch (e: any) {
-      alert("Erro ao enviar mídia: " + e.message);
+      showToast("Erro ao enviar mídia: " + e.message, "error");
     } finally {
       setSending(false);
     }

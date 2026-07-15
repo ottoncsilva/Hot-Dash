@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { IconWhatsapp, IconSettings, IconRefresh } from "@/components/icons";
 import { apiGet, apiSend } from "@/lib/api";
 import Link from "next/link";
+import { showToast } from "@/lib/toast";
 
 type Profile = { id: string; name: string };
 type AgentSettings = { prompt: string; enable_media: boolean; enable_billing: boolean; ai_provider: string; pix_key: string };
@@ -98,11 +99,11 @@ export default function WhatsAppVipPage() {
         setQrCode(d.qrcode);
       } else {
         setQrCode(null);
-        alert("Nenhum QRCode retornado (a instância já pode estar conectada).");
+        showToast("Nenhum QRCode retornado (a instância já pode estar conectada).", "warning");
         loadInstance(selectedProfileId);
       }
     } catch (e: any) {
-      alert("Erro ao conectar: " + e.message);
+      showToast("Erro ao conectar: " + e.message, "error");
     } finally {
       setConnecting(false);
     }
@@ -116,7 +117,7 @@ export default function WhatsAppVipPage() {
       setInstanceName(null);
       setQrCode(null);
     } catch (e: any) {
-      alert("Erro ao desconectar: " + e.message);
+      showToast("Erro ao desconectar: " + e.message, "error");
     }
   };
 
@@ -127,9 +128,9 @@ export default function WhatsAppVipPage() {
         profileId: selectedProfileId,
         ...agent
       });
-      alert("Configurações do Agente salvas com sucesso!");
+      showToast("Configurações do Agente salvas com sucesso!", "success");
     } catch (e: any) {
-      alert("Erro ao salvar: " + e.message);
+      showToast("Erro ao salvar: " + e.message, "error");
     } finally {
       setSavingAgent(false);
     }

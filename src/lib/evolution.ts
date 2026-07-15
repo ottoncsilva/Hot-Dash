@@ -132,14 +132,13 @@ export async function setEvolutionWebhook(instanceName: string, webhookUrl: stri
     method: "POST",
     headers: getHeaders(creds.apiKey),
     body: JSON.stringify({
-      enabled: true,
-      url: webhookUrl,
-      webhookByEvents: false,
-      webhook_by_events: false,
-      webhookBase64: false,
-      webhook_base64: false,
-      events: EVENTS,
-      webhook_events: EVENTS
+      webhook: {
+        enabled: true,
+        url: webhookUrl,
+        byEvents: false,
+        base64: false,
+        events: EVENTS
+      }
     })
   });
   if (!res.ok) {

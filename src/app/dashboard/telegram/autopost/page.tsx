@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { IconSettings } from "@/components/icons";
 
+import { showToast } from "@/lib/toast";
+
 const toast = {
-  success: (msg: string) => alert("✅ " + msg),
-  error: (msg: string) => alert("❌ " + msg),
-  warning: (msg: string) => alert("⚠️ " + msg),
+  success: (msg: string) => showToast(msg, "success"),
+  error: (msg: string) => showToast(msg, "error"),
+  warning: (msg: string) => showToast(msg, "warning"),
 };
 
 type Profile = { id: string; name: string };

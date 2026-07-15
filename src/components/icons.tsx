@@ -73,13 +73,6 @@ export const IconSettings = (p: IconProps) => (
   </Base>
 );
 
-export const IconTelegram = (p: IconProps) => (
-  <Base {...p}>
-    <path d="m22 2-7 20-4-9-9-4Z" />
-    <path d="M22 2 11 13" />
-  </Base>
-);
-
 export const IconUpload = (p: IconProps) => (
   <Base {...p}>
     <path d="M12 15V4" />

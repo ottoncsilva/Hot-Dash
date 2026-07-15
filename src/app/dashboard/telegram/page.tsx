@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { toast } from "react-toastify";
+const toast = {
+  success: (msg: string) => alert("✅ " + msg),
+  error: (msg: string) => alert("❌ " + msg),
+  warning: (msg: string) => alert("⚠️ " + msg),
+};
 
 type Profile = { id: string; name: string };
 type Tag = { id: string; name: string; color: string };

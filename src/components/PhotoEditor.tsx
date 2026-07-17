@@ -29,6 +29,12 @@ import {
   drawOverlayObjects,
   hitTestObjects,
   hitResizeHandle,
+  hitRotateHandle,
+  hitDeleteHandle,
+  computeBounds,
+  centerOf,
+  rotationOf,
+  preloadEmojiImages,
 } from "@/lib/editorObjects";
 
 const MAX_DIM = 3000;
@@ -57,13 +63,20 @@ export default function PhotoEditor({
   const [saving, setSaving] = useState<"new" | "overwrite" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [censoring, setCensoring] = useState(false);
+  // Contador que força re-render quando a imagem de um emoji termina de
+  // carregar (o desenho é síncrono; a imagem chega depois).
+  const [emojiTick, setEmojiTick] = useState(0);
 
   const dragRef = useRef<{
     id: string;
-    kind: "move" | "resize";
+    kind: "move" | "resize" | "rotate";
     startX: number;
     startY: number;
     orig: EditorObject;
+    cx: number;
+    cy: number;
+    startAngle: number;
+    startDist: number;
   } | null>(null);
   const drawingBlurId = useRef<string | null>(null);
 
@@ -108,14 +121,24 @@ export default function PhotoEditor({
     };
   }, [item.id]);
 
+  /** Escala px-do-canvas por px-de-tela — mantém alças e tracejado com
+   *  tamanho visual constante independente do zoom de exibição. */
+  function displayScale(canvas: HTMLCanvasElement): number {
+    const rect = canvas.getBoundingClientRect();
+    return rect.width > 0 ? canvas.width / rect.width : 1;
+  }
+
   function renderFrame(ctx: CanvasRenderingContext2D, forExport: boolean) {
     const canvas = ctx.canvas;
     const img = imgRef.current;
     if (!img) return;
+    const scale = forExport ? 1 : displayScale(canvas);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    drawBlurObjects(ctx, objects, selectedId, forExport);
-    drawOverlayObjects(ctx, objects, selectedId, forExport);
+    drawBlurObjects(ctx, objects, selectedId, forExport, scale);
+    drawOverlayObjects(ctx, objects, selectedId, forExport, scale, () =>
+      setEmojiTick((t) => t + 1),
+    );
   }
 
   useEffect(() => {
@@ -124,7 +147,7 @@ export default function PhotoEditor({
     const ctx = canvas.getContext("2d");
     if (ctx) renderFrame(ctx, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [objects, selectedId, loaded]);
+  }, [objects, selectedId, loaded, emojiTick]);
 
   function toCanvasCoords(clientX: number, clientY: number) {
     const canvas = canvasRef.current!;
@@ -146,15 +169,48 @@ export default function PhotoEditor({
       setObjects((prev) => [...prev, obj]);
       setSelectedId(id);
       drawingBlurId.current = id;
-      dragRef.current = { id, kind: "resize", startX: x, startY: y, orig: obj };
+      dragRef.current = {
+        id, kind: "resize", startX: x, startY: y, orig: obj,
+        cx: x, cy: y, startAngle: 0, startDist: 0,
+      };
       return;
+    }
+
+    // As alças (girar/redimensionar/excluir) pertencem ao objeto selecionado e
+    // podem ficar FORA do seu contorno (a de girar fica acima) — por isso são
+    // testadas antes do hit-test do corpo.
+    if (selected) {
+      const b = computeBounds(ctx, selected);
+      const { cx, cy } = centerOf(b);
+      if (hitDeleteHandle(ctx, selected, x, y, scaleX)) {
+        removeSelected();
+        return;
+      }
+      if (hitRotateHandle(ctx, selected, x, y, scaleX)) {
+        dragRef.current = {
+          id: selected.id, kind: "rotate", startX: x, startY: y, orig: { ...selected },
+          cx, cy, startAngle: Math.atan2(y - cy, x - cx), startDist: 0,
+        };
+        return;
+      }
+      if (hitResizeHandle(ctx, selected, x, y, scaleX)) {
+        dragRef.current = {
+          id: selected.id, kind: "resize", startX: x, startY: y, orig: { ...selected },
+          cx, cy, startAngle: 0, startDist: Math.hypot(x - cx, y - cy),
+        };
+        return;
+      }
     }
 
     const hit = hitTestObjects(ctx, objects, x, y);
     if (hit) {
       setSelectedId(hit.id);
-      const kind = hitResizeHandle(ctx, hit, x, y, scaleX) ? "resize" : "move";
-      dragRef.current = { id: hit.id, kind, startX: x, startY: y, orig: { ...hit } };
+      const b = computeBounds(ctx, hit);
+      const { cx, cy } = centerOf(b);
+      dragRef.current = {
+        id: hit.id, kind: "move", startX: x, startY: y, orig: { ...hit },
+        cx, cy, startAngle: 0, startDist: 0,
+      };
     } else {
       setSelectedId(null);
     }
@@ -186,6 +242,15 @@ export default function PhotoEditor({
       return;
     }
 
+    if (drag.kind === "rotate") {
+      const ang = Math.atan2(y - drag.cy, x - drag.cx);
+      const next = rotationOf(drag.orig) + (ang - drag.startAngle);
+      setObjects((prev) =>
+        prev.map((o) => (o.id === drag.id ? { ...o, rotation: next } : o)),
+      );
+      return;
+    }
+
     setObjects((prev) =>
       prev.map((o) => {
         if (o.id !== drag.id) return o;
@@ -199,15 +264,18 @@ export default function PhotoEditor({
           return { ...o, w: Math.max(12, orig.w + dx), h: Math.max(12, orig.h + dy) };
         }
         if (o.type === "question") {
+          // Cresce ao longo do eixo horizontal LOCAL (respeitando a rotação).
           const orig = drag.orig as QuestionObject;
-          return { ...o, w: Math.max(100, orig.w + dx) };
+          const rot = rotationOf(orig);
+          const localDx = dx * Math.cos(rot) + dy * Math.sin(rot);
+          return { ...o, w: Math.max(100, orig.w + localDx) };
         }
-        // Texto/emoji: cresce com o arraste na diagonal (média de dx e dy),
-        // não só na vertical — arrastar pra baixo-direita cresce, pra
-        // cima-esquerda encolhe, e arrastar só na horizontal também funciona.
+        // Texto/emoji: escala pela razão de distância do ponteiro ao centro —
+        // funciona igual em qualquer ângulo de rotação.
         const orig = drag.orig as TextObject | EmojiObject;
-        const delta = (dx + dy) / 2;
-        const next = Math.max(12, Math.min(400, orig.size + delta));
+        const distNow = Math.hypot(x - drag.cx, y - drag.cy);
+        const ratio = drag.startDist > 0 ? distNow / drag.startDist : 1;
+        const next = Math.max(12, Math.min(600, orig.size * ratio));
         return { ...o, size: next };
       }),
     );
@@ -312,6 +380,8 @@ export default function PhotoEditor({
   async function exportBlob(canvas: HTMLCanvasElement): Promise<Blob> {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas indisponível.");
+    // Garante que os emojis saiam nítidos (imagem) e não no fallback de fonte.
+    await preloadEmojiImages(objects);
     renderFrame(ctx, true);
     return new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
@@ -385,46 +455,41 @@ export default function PhotoEditor({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao censurar.");
-      
+
       const canvas = canvasRef.current;
-      const img = imgRef.current;
-      if (!canvas || !img) return;
-      
+      if (!canvas) return;
       const w = canvas.width;
       const h = canvas.height;
 
-      const newObjs = data.boxes.map((b: any) => {
-        let bx = b.left;
-        let by = b.top;
-        let bw = b.width;
-        let bh = b.height;
-        // Se a API retornar pixels absolutos, convertemos pra relativo.
-        if (bx > 1 || bw > 1) { 
-          bx = bx / img.naturalWidth;
-          by = by / img.naturalHeight;
-          bw = bw / img.naturalWidth;
-          bh = bh / img.naturalHeight;
-        }
-        
-        // Agora convertemos a coordenada relativa para o tamanho escalado no Canvas
-        // Multiplicamos a caixa em 15% pra garantir que o blur cubra com folga
-        const finalW = bw * w * 1.15;
-        const finalH = bh * h * 1.15;
-        
+      // A rota devolve regiões em coordenadas RELATIVAS (0..1). Aplicamos uma
+      // folga de 12% ao redor para o borrão cobrir com margem.
+      const PAD = 0.12;
+      const regions = (data.regions || []) as {
+        part: string;
+        x: number;
+        y: number;
+        w: number;
+        h: number;
+      }[];
+
+      const newObjs: BlurObject[] = regions.map((r) => {
+        const finalW = r.w * (1 + PAD) * w;
+        const finalH = r.h * (1 + PAD) * h;
         return {
           id: crypto.randomUUID(),
           type: "blur",
-          x: (bx * w) - ((finalW - (bw * w))/2),
-          y: (by * h) - ((finalH - (bh * h))/2),
+          style: "pixelate",
+          x: r.x * w - (finalW - r.w * w) / 2,
+          y: r.y * h - (finalH - r.h * h) / 2,
           w: finalW,
-          h: finalH
+          h: finalH,
         };
-      }) as BlurObject[];
+      });
 
       if (newObjs.length === 0) {
-         showToast("Nenhum conteúdo adulto (ou compatível com a censura) foi encontrado.", "warning");
+        showToast("Nenhuma parte explícita foi encontrada pela IA.", "warning");
       } else {
-         setObjects(prev => [...prev, ...newObjs]);
+        setObjects((prev) => [...prev, ...newObjs]);
       }
     } catch(e) {
       setError(e instanceof Error ? e.message : "Falha na censura com IA.");
@@ -600,8 +665,9 @@ export default function PhotoEditor({
           {(selected.type === "emoji" || selected.type === "blur") && (
             <div className="flex items-center justify-between">
               <p className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
-                {selected.type === "emoji" ? "emoji selecionado" : "área borrada"} · arraste o
-                canto para redimensionar
+                {selected.type === "emoji"
+                  ? "emoji · canto p/ redimensionar, alça de cima p/ girar"
+                  : "área borrada · arraste o canto para redimensionar"}
               </p>
               <button
                 onClick={removeSelected}

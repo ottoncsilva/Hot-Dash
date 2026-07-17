@@ -1,86 +1,78 @@
 import { NextRequest, NextResponse } from "next/server";
+import { extname, join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
-import { getAiCredentials } from "@/lib/settings";
 import { getDb } from "@/lib/db";
-import { readFile } from "fs/promises";
-import { join } from "path";
+import { detectExplicitRegions } from "@/lib/nudenet";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
+/**
+ * Detecção de partes explícitas por IA (NudeNet).
+ *
+ * Aceita a imagem de duas formas:
+ *  - JSON `{ mediaId, minScore? }` — usa um arquivo já na galeria (editor de foto).
+ *  - multipart `file` (+ campo `minScore`) — imagem avulsa (página de censura em lote).
+ *
+ * Responde com regiões em coordenadas RELATIVAS (0..1):
+ *   { regions: [{ part, score, x, y, w, h }], imageWidth, imageHeight }
+ */
 export async function POST(req: NextRequest) {
   try {
     await requireUser(req);
-    const { mediaId } = await req.json().catch(() => ({}));
-    if (!mediaId) {
-      return NextResponse.json({ error: "Faltando mediaId." }, { status: 400 });
+
+    const contentType = req.headers.get("content-type") || "";
+    let buf: Buffer;
+    let filename = "image.jpg";
+    let minScore = 0.3;
+
+    if (contentType.includes("multipart/form-data")) {
+      const form = await req.formData();
+      const file = form.get("file");
+      if (!(file instanceof File) || file.size === 0) {
+        return NextResponse.json({ error: "Arquivo inválido." }, { status: 400 });
+      }
+      buf = Buffer.from(await file.arrayBuffer());
+      filename = file.name || filename;
+      const s = Number(form.get("minScore"));
+      if (Number.isFinite(s)) minScore = s;
+    } else {
+      const body = await req.json().catch(() => ({}));
+      const mediaId = body?.mediaId;
+      if (!mediaId) {
+        return NextResponse.json({ error: "Faltando mediaId." }, { status: 400 });
+      }
+      if (Number.isFinite(Number(body?.minScore))) minScore = Number(body.minScore);
+
+      const db = getDb();
+      const media = db
+        .prepare("SELECT path FROM media WHERE id = ?")
+        .get(mediaId) as { path: string } | undefined;
+      if (!media) {
+        return NextResponse.json({ error: "Mídia não encontrada." }, { status: 404 });
+      }
+      const fullPath = join(process.env.MEDIA_STORAGE_DIR || "./data", media.path);
+      try {
+        buf = await readFile(fullPath);
+      } catch {
+        return NextResponse.json({ error: "Arquivo físico não encontrado." }, { status: 404 });
+      }
+      filename = media.path.split("/").pop() || filename;
     }
 
-    // 1. Validar se a chave API está configurada
-    const credentials = getAiCredentials("sightengine");
-    if (!credentials || !credentials.apiUser || !credentials.apiKey) {
+    const ext = extname(filename).toLowerCase();
+    if (![".jpg", ".jpeg", ".png", ".webp", ".bmp"].includes(ext)) {
+      // NudeNet/OpenCV só decodifica imagens; vídeos e afins não passam por aqui.
       return NextResponse.json(
-        { error: "Credenciais do Sightengine não configuradas no menu de IA." },
-        { status: 400 }
+        { error: "A censura por IA só funciona em imagens." },
+        { status: 415 },
       );
     }
 
-    // 2. Localizar o arquivo local
-    const db = getDb();
-    const media = db.prepare("SELECT path FROM media WHERE id = ?").get(mediaId) as { path: string } | undefined;
-    
-    if (!media) {
-      return NextResponse.json({ error: "Mídia não encontrada no banco de dados." }, { status: 404 });
-    }
-
-    const fullPath = join(process.env.MEDIA_STORAGE_DIR || "./data", media.path);
-    
-    let fileBuffer: Buffer;
-    try {
-      fileBuffer = await readFile(fullPath);
-    } catch (e) {
-      return NextResponse.json({ error: "Arquivo físico não encontrado." }, { status: 404 });
-    }
-
-    // 3. Montar FormData para o Sightengine
-    const formData = new FormData();
-    formData.append("models", "nudity-2.0");
-    formData.append("api_user", credentials.apiUser);
-    formData.append("api_secret", credentials.apiKey);
-    
-    // Converte o Buffer em Blob para o FormData nativo do Node
-    const blob = new Blob([new Uint8Array(fileBuffer)]);
-    formData.append("media", blob, media.path.split('/').pop() || "image.jpg");
-
-    // 4. Disparar HTTP Request para a Nuvem
-    const sightengineRes = await fetch("https://api.sightengine.com/1.0/check.json", {
-      method: "POST",
-      body: formData,
-    });
-
-    const data = await sightengineRes.json();
-
-    if (!sightengineRes.ok || data.status === "failure") {
-      console.error("Sightengine Error:", data);
-      return NextResponse.json(
-        { error: data.error?.message || "Erro retornado pela API da Sightengine." },
-        { status: 500 }
-      );
-    }
-
-    // 5. Mapear o retorno da Sightengine para um formato simples de caixas
-    // O Sightengine nudity-2.0 retorna data.nudity.parts = [{ type, left, top, width, height }]
-    
-    const parts = data.nudity?.parts || [];
-    const boxes = parts.map((p: any) => ({
-      type: p.type, // 'female_breast', 'female_genitalia', etc.
-      score: p.score,
-      left: p.left, // coordenadas relativas (ex: 0.5 é no meio da tela) ou pixels, varia conforme API, repassamos cru.
-      top: p.top,
-      width: p.width,
-      height: p.height,
-    }));
-
-    return NextResponse.json({ boxes, raw: data });
+    const result = await detectExplicitRegions(buf, filename, { minScore });
+    return NextResponse.json(result);
   } catch (err) {
     return errorResponse(err);
   }

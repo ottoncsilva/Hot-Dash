@@ -13,8 +13,11 @@ export default function PaymentSettingsPage() {
   const [syncClientSecret, setSyncClientSecret] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [origin, setOrigin] = useState("");
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
+    if (typeof window !== "undefined") setOrigin(window.location.origin);
     apiGet<{ settings: PaymentSettingsPublic }>("/api/payments/settings")
       .then((d) => {
         setCfg(d.settings);
@@ -23,6 +26,21 @@ export default function PaymentSettingsPage() {
       })
       .catch(() => {});
   }, []);
+
+  const webhookUrl = cfg?.syncpay.webhookToken
+    ? `${origin}/api/webhooks/syncpay?token=${cfg.syncpay.webhookToken}`
+    : "";
+
+  async function copyWebhook() {
+    if (!webhookUrl) return;
+    try {
+      await navigator.clipboard.writeText(webhookUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard indisponível — o usuário pode copiar manualmente */
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -94,6 +112,37 @@ export default function PaymentSettingsPage() {
             clientSecret: syncClientSecret || undefined,
           })}
         />
+
+        {/* Webhook de recebimento — alimenta o Financeiro e o Dashboard */}
+        <div className="mt-4 rounded-lg border border-white/10 bg-ink-900 p-3">
+          <p className="eyebrow">webhook de recebimento</p>
+          <p className="mt-1.5 text-xs text-zinc-500">
+            Cole esta URL na SyncPay em <b>Developer → API → Webhooks</b> (campo
+            “Url alvo do disparo”), evento <b>Recebimento — Cash in</b>, com
+            “Disparar para todos os produtos” ativo. É isso que confirma as
+            vendas e alimenta o Financeiro e o Dashboard.
+          </p>
+          <div className="mt-2.5 flex items-center gap-2">
+            <input
+              readOnly
+              value={webhookUrl}
+              onFocus={(e) => e.currentTarget.select()}
+              className="input flex-1 font-mono text-xs"
+              placeholder="carregando…"
+            />
+            <button
+              type="button"
+              onClick={copyWebhook}
+              disabled={!webhookUrl}
+              className="btn-ghost shrink-0 px-3 py-2 text-xs"
+            >
+              {copied ? "Copiado ✓" : "Copiar"}
+            </button>
+          </div>
+          <p className="mt-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+            o token autentica o webhook — mantenha esta URL privada
+          </p>
+        </div>
       </div>
 
       <div className="mt-3 flex items-center gap-3">

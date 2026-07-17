@@ -1,4 +1,5 @@
 import "server-only";
+import { randomBytes } from "node:crypto";
 import { getDb } from "./db";
 import { decryptSecret, encryptSecret } from "./crypto";
 import {
@@ -77,11 +78,11 @@ export function setMenu(menu: MenuEntry[]): MenuEntry[] {
 
 // ---- Configuração de pagamentos ----
 export type PaymentSettingsPublic = {
-  syncpay: { enabled: boolean; hasSecret: boolean; clientId: string };
+  syncpay: { enabled: boolean; hasSecret: boolean; clientId: string; webhookToken: string };
 };
 
 type PaymentSettingsStored = {
-  syncpay: { enabled: boolean; clientId?: string; clientSecretEnc?: string };
+  syncpay: { enabled: boolean; clientId?: string; clientSecretEnc?: string; webhookToken?: string };
 };
 
 function rawPayments(): PaymentSettingsStored {
@@ -90,7 +91,23 @@ function rawPayments(): PaymentSettingsStored {
   });
 }
 
-/** Versão segura (sem segredos) para enviar ao cliente. */
+/**
+ * Token que autentica o webhook da SyncPay (vai como ?token= na postbackUrl).
+ * Gerado uma única vez e guardado; estável entre deploys. Não usa o
+ * SESSION_SECRET para não acoplar a autenticação do webhook à sessão.
+ */
+export function ensureSyncpayWebhookToken(): string {
+  const s = rawPayments();
+  if (!s.syncpay) s.syncpay = { enabled: false };
+  if (!s.syncpay.webhookToken) {
+    s.syncpay.webhookToken = randomBytes(24).toString("hex");
+    setJson("payments", s);
+  }
+  return s.syncpay.webhookToken;
+}
+
+/** Versão segura para enviar ao cliente (o webhookToken vai junto porque o
+ *  usuário precisa dele para montar a URL a colar na SyncPay). */
 export function getPaymentSettingsPublic(): PaymentSettingsPublic {
   const s = rawPayments();
   return {
@@ -98,6 +115,7 @@ export function getPaymentSettingsPublic(): PaymentSettingsPublic {
       enabled: Boolean(s.syncpay?.enabled),
       hasSecret: Boolean(s.syncpay?.clientId && s.syncpay?.clientSecretEnc),
       clientId: s.syncpay?.clientId || "",
+      webhookToken: ensureSyncpayWebhookToken(),
     },
   };
 }

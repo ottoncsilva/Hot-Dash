@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { showToast } from "@/lib/toast";
+import TelegramCalendar from "@/components/telegram/TelegramCalendar";
 
 const toast = {
   success: (msg: string) => showToast(msg, "success"),
@@ -25,7 +26,7 @@ type TelegramSettings = {
   warmupPostInterval: number;
   warmupTags: string;
   warmupPrompt: string;
-  warmupLink: string;
+
   warmupScheduleType: "manual" | "interval" | "fixed";
   warmupFixedTimes: string;
 };
@@ -42,6 +43,12 @@ export default function TelegramUnifiedPage() {
   const [newWarmupTime, setNewWarmupTime] = useState("");
   const [showNewWarmupTimeInput, setShowNewWarmupTimeInput] = useState(false);
 
+  // Estados do gerador
+  const [daysToGenerateVip, setDaysToGenerateVip] = useState(7);
+  const [daysToGenerateWarmup, setDaysToGenerateWarmup] = useState(7);
+  const [generatingVip, setGeneratingVip] = useState(false);
+  const [generatingWarmup, setGeneratingWarmup] = useState(false);
+
   const [settings, setSettings] = useState<TelegramSettings>({
     botToken: "",
     idVip: "",
@@ -55,7 +62,6 @@ export default function TelegramUnifiedPage() {
     warmupPostInterval: 120,
     warmupTags: "",
     warmupPrompt: "",
-    warmupLink: "",
     warmupScheduleType: "manual",
     warmupFixedTimes: "",
   });
@@ -100,7 +106,6 @@ export default function TelegramUnifiedPage() {
         warmupPostInterval: warmupInt,
         warmupTags: d.autopost?.warmup_tags || "",
         warmupPrompt: d.autopost?.warmup_prompt || "",
-        warmupLink: d.autopost?.warmup_link || "",
         warmupScheduleType: warmupType as any,
         warmupFixedTimes: d.autopost?.warmup_fixed_times || "",
       });
@@ -128,16 +133,31 @@ export default function TelegramUnifiedPage() {
     }
   };
 
-  const forceAutopost = async (target: "vip" | "warmup") => {
-    if (!confirm(`Deseja disparar um post imediato no canal ${target.toUpperCase()}?`)) return;
+  const generateSchedule = async (target: "vip" | "warmup") => {
+    const days = target === "vip" ? daysToGenerateVip : daysToGenerateWarmup;
+    if (!confirm(`Deseja gerar os posts dos próximos ${days} dias para o canal ${target.toUpperCase()}?`)) return;
+    
+    const setGen = target === "vip" ? setGeneratingVip : setGeneratingWarmup;
+    setGen(true);
     try {
-      const res = await fetch(`/api/cron/telegram/autopost?token=YOUR_DEV_SECRET_REPLACE_LATER&forceProfile=${selectedProfileId}&target=${target}`);
-      // Nota: o cron route não possui suporte a forceProfile no código que analisei, mas adicionei a chamada padrão de teste.
+      const res = await fetch("/api/telegram/generate-schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profileId: selectedProfileId,
+          target,
+          days,
+        }),
+      });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "Erro ao postar.");
-      toast.success("Postagem realizada e enviada ao Telegram!");
+      if (!res.ok) throw new Error(d.error || "Erro ao gerar posts.");
+      toast.success(`${d.generated} posts gerados com sucesso! Verifique o calendário.`);
+      // Emit event so calendar component reloads
+      window.dispatchEvent(new Event("reloadTelegramCalendar"));
     } catch (err: any) {
       toast.error(err.message);
+    } finally {
+      setGen(false);
     }
   };
 
@@ -276,7 +296,12 @@ export default function TelegramUnifiedPage() {
               <div className="rounded-xl border border-sky-500/20 bg-sky-950/10 p-5 space-y-6">
                 <div className="flex items-center justify-between">
                    <h3 className="font-semibold text-sky-400 flex items-center gap-2">Canal / Grupo VIP</h3>
-                   <button type="button" onClick={() => forceAutopost("vip")} className="rounded-lg bg-sky-500/20 text-sky-300 px-3 py-1.5 text-xs font-semibold hover:bg-sky-500/30 transition-colors">🔥 Disparar Agora</button>
+                   <div className="flex items-center gap-2">
+                      <input type="number" min={1} max={30} value={daysToGenerateVip} onChange={e => setDaysToGenerateVip(parseInt(e.target.value) || 1)} className="w-16 rounded border border-sky-500/20 bg-sky-950/20 px-2 py-1 text-xs text-sky-200 text-center focus:outline-none" title="Dias a gerar" />
+                      <button type="button" onClick={() => generateSchedule("vip")} disabled={generatingVip} className="rounded-lg bg-sky-500/20 text-sky-300 px-3 py-1.5 text-xs font-semibold hover:bg-sky-500/30 transition-colors disabled:opacity-50">
+                        {generatingVip ? "⏳ Gerando..." : "✨ Gerar Dias"}
+                      </button>
+                   </div>
                 </div>
                 
                 {/* Agendamento VIP */}
@@ -442,7 +467,12 @@ export default function TelegramUnifiedPage() {
               <div className="rounded-xl border border-orange-500/20 bg-orange-950/10 p-5 space-y-6">
                 <div className="flex items-center justify-between">
                    <h3 className="font-semibold text-orange-400 flex items-center gap-2">Canal / Grupo Prévias</h3>
-                   <button type="button" onClick={() => forceAutopost("warmup")} className="rounded-lg bg-orange-500/20 text-orange-300 px-3 py-1.5 text-xs font-semibold hover:bg-orange-500/30 transition-colors">🔥 Disparar Agora</button>
+                   <div className="flex items-center gap-2">
+                      <input type="number" min={1} max={30} value={daysToGenerateWarmup} onChange={e => setDaysToGenerateWarmup(parseInt(e.target.value) || 1)} className="w-16 rounded border border-orange-500/20 bg-orange-950/20 px-2 py-1 text-xs text-orange-200 text-center focus:outline-none" title="Dias a gerar" />
+                      <button type="button" onClick={() => generateSchedule("warmup")} disabled={generatingWarmup} className="rounded-lg bg-orange-500/20 text-orange-300 px-3 py-1.5 text-xs font-semibold hover:bg-orange-500/30 transition-colors disabled:opacity-50">
+                        {generatingWarmup ? "⏳ Gerando..." : "✨ Gerar Dias"}
+                      </button>
+                   </div>
                 </div>
                 
                 {/* Agendamento Prévias */}
@@ -599,9 +629,11 @@ export default function TelegramUnifiedPage() {
                        className="w-full rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none resize-none font-mono"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold text-zinc-300 flex items-center gap-2">Link da Legenda (Call To Action) <span className="bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded text-[10px]">Sempre anexado no final</span></label>
-                    <input type="text" placeholder="Ex: https://meu-site-vip.com" value={settings.warmupLink} onChange={(e) => setSettings({ ...settings, warmupLink: e.target.value })} className="w-full rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none" />
+                  <div className="space-y-2 rounded-lg border border-orange-500/10 bg-orange-900/10 p-3">
+                    <label className="text-xs font-semibold text-orange-300 flex items-center gap-2">Link da Legenda (Call To Action) <span className="bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded text-[10px]">Sempre anexado no final</span></label>
+                    <p className="text-xs text-orange-200/60 mt-1">
+                      O link do grupo VIP é puxado automaticamente das configurações de <strong>Edição de Perfil</strong> (campo "Link do Bot/Assinatura VIP").
+                    </p>
                   </div>
                 </div>
 
@@ -609,7 +641,9 @@ export default function TelegramUnifiedPage() {
             </div>
 
           </div>
-          
+
+          {/* Calendário de Agendamentos (Renderiza posts gerados) */}
+          <TelegramCalendar profileId={selectedProfileId} />
 
           <div className="mt-8 border-t border-white/[0.06] pt-6 flex justify-end">
             <button type="button" onClick={saveSettings} className="rounded-lg bg-sky-600 px-8 py-3 text-sm font-semibold hover:bg-sky-500 transition-colors shadow-lg shadow-sky-900/20">Salvar Todas Configurações</button>

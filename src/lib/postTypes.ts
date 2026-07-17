@@ -11,7 +11,7 @@ export const POST_TYPES: Record<SocialNetwork, string[]> = {
   youtube: ["Vídeo", "Short", "Outro"],
   onlyfans: ["Post", "Stories", "Mensagem", "Outro"],
   privacy: ["Post", "Mensagem", "Outro"],
-  telegram: ["Mensagem", "Outro"],
+  telegram: ["VIP", "Prévias", "Mensagem", "Outro"],
   whatsapp: ["Status", "Mensagem", "Outro"],
   email: ["Campanha", "Outro"],
   outro: ["Publicação"],

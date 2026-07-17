@@ -20,7 +20,7 @@ export default function TelegramCalendar({ profileId }: { profileId: string }) {
     if (!profileId) return;
     setLoading(true);
     try {
-      const res = await apiGet<{ posts: ScheduledPost[] }>(`/api/posts?profileId=${profileId}&status=scheduled`);
+      const res = await apiGet<{ posts: ScheduledPost[] }>(`/api/posts?profileId=${profileId}`);
       // Filtra apenas posts da rede Telegram
       const telegramPosts = (res.posts || []).filter(p => p.networks.some(n => n.network === "telegram"));
       setPosts(telegramPosts);
@@ -124,17 +124,24 @@ export default function TelegramCalendar({ profileId }: { profileId: string }) {
                 return (
                   <div 
                     key={post.id} 
-                    onClick={() => openEdit(post)}
-                    className="cursor-pointer group relative flex flex-col rounded-xl border border-white/[0.08] bg-zinc-950/50 overflow-hidden shadow-md hover:border-white/20 hover:shadow-lg transition-all"
+                    onClick={() => post.status !== "posted" && openEdit(post)}
+                    className={`group relative flex flex-col rounded-xl border border-white/[0.08] bg-zinc-950/50 overflow-hidden shadow-md transition-all ${post.status === "posted" ? "opacity-60 grayscale-[30%] cursor-default" : "cursor-pointer hover:border-white/20 hover:shadow-lg"}`}
                   >
                     <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06] bg-zinc-900/50">
                       <div className="flex flex-col">
                         <span className="text-xs font-bold text-white">{date.toLocaleDateString("pt-BR", { weekday: 'short', day: '2-digit', month: '2-digit' }).toUpperCase()}</span>
                         <span className="text-[10px] text-zinc-400">{date.toLocaleTimeString("pt-BR", { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isVip ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'}`}>
-                        {targetType.toUpperCase()}
-                      </span>
+                      <div className="flex gap-1.5 items-center">
+                        {post.status === "posted" && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                            ENVIADO ✅
+                          </span>
+                        )}
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isVip ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'}`}>
+                          {targetType.toUpperCase()}
+                        </span>
+                      </div>
                     </div>
                     
                     <div className="relative aspect-[3/4] w-full bg-zinc-900 border-b border-white/5">
@@ -148,15 +155,17 @@ export default function TelegramCalendar({ profileId }: { profileId: string }) {
                         <div className="flex h-full items-center justify-center text-zinc-700 text-xs">Sem mídia</div>
                       )}
                       
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); deletePost(post.id); }} 
-                        className="absolute top-2 right-2 rounded-md bg-black/60 p-1.5 text-zinc-300 opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all z-10"
-                        title="Excluir Post"
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
+                      {post.status !== "posted" && (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); deletePost(post.id); }} 
+                          className="absolute top-2 right-2 rounded-md bg-black/60 p-1.5 text-zinc-300 opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all z-10"
+                          title="Excluir Post"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      )}
                     </div>
                     
                     <div className="p-3 text-xs text-zinc-300 line-clamp-3 leading-relaxed bg-[#0a0a0a]">
@@ -196,14 +205,21 @@ export default function TelegramCalendar({ profileId }: { profileId: string }) {
                         return (
                           <div 
                             key={post.id} 
-                            onClick={() => openEdit(post)}
-                            className="cursor-pointer group relative flex flex-col rounded-xl border border-white/[0.08] bg-zinc-950/80 overflow-hidden shadow-sm hover:border-white/20 hover:shadow-lg transition-all shrink-0"
+                            onClick={() => post.status !== "posted" && openEdit(post)}
+                            className={`group relative flex flex-col rounded-xl border border-white/[0.08] bg-zinc-950/80 overflow-hidden shadow-sm transition-all shrink-0 ${post.status === "posted" ? "opacity-60 grayscale-[30%] cursor-default" : "cursor-pointer hover:border-white/20 hover:shadow-lg"}`}
                           >
                             <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06]">
                               <span className="text-xs font-bold text-white tracking-wider">{date.toLocaleTimeString("pt-BR", { hour: '2-digit', minute: '2-digit' })}</span>
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isVip ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'}`}>
-                                {targetType.toUpperCase()}
-                              </span>
+                              <div className="flex gap-1.5 items-center">
+                                {post.status === "posted" && (
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                    ENVIADO ✅
+                                  </span>
+                                )}
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isVip ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'}`}>
+                                  {targetType.toUpperCase()}
+                                </span>
+                              </div>
                             </div>
                             
                             <div className="relative aspect-[3/4] w-full bg-zinc-900 border-b border-white/5">
@@ -217,15 +233,17 @@ export default function TelegramCalendar({ profileId }: { profileId: string }) {
                                 <div className="flex h-full items-center justify-center text-zinc-700 text-xs">Sem mídia</div>
                               )}
                               
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); deletePost(post.id); }} 
-                                className="absolute top-2 right-2 rounded-md bg-black/60 p-1.5 text-zinc-300 opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all z-10"
-                                title="Excluir Post"
-                              >
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                              </button>
+                              {post.status !== "posted" && (
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); deletePost(post.id); }} 
+                                  className="absolute top-2 right-2 rounded-md bg-black/60 p-1.5 text-zinc-300 opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all z-10"
+                                  title="Excluir Post"
+                                >
+                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              )}
                             </div>
                             
                             <div className="p-3 text-[11px] text-zinc-400 line-clamp-3 leading-relaxed bg-[#0a0a0a]">

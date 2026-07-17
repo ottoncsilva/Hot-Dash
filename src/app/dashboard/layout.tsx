@@ -96,6 +96,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const visible = menu.filter((m) => !m.hidden);
 
+  // Tab bar inferior (mobile): os 4 primeiros destinos simples (sem submenu) +
+  // "Mais", que abre o menu completo. Respeita a ordem/visibilidade do menu.
+  const TAB_EXCLUDE: NavKey[] = ["settings", "whatsapp", "whatsapp_settings", "whatsapp_chat"];
+  const tabItems = visible.filter((m) => !TAB_EXCLUDE.includes(m.key)).slice(0, 4);
+
 
   return (
     <div className="flex min-h-dvh bg-ink-950 text-white">
@@ -202,14 +207,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      {/* Botão Flutuante do Menu Hambúrguer (Mobile) */}
-      <button
-        onClick={() => setMobileMenuOpen(true)}
-        className="fixed top-[calc(1rem+env(safe-area-inset-top,0px))] right-4 z-40 flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-ink-950/80 text-zinc-400 backdrop-blur-md transition-colors hover:bg-white/5 hover:text-white shadow-lg md:hidden"
-        aria-label="Abrir menu"
-      >
-        <IconMenu size={20} />
-      </button>
+      {/* Tab bar inferior (Mobile) — substitui o antigo botão flutuante, que
+          colidia com as ações no topo das páginas. */}
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-white/10 bg-ink-950/90 backdrop-blur-md safe-bottom md:hidden">
+        {tabItems.map(({ key }) => {
+          const item = NAV_ITEMS[key];
+          const Icon = ICONS[key];
+          const active = isActive(item.href);
+          return (
+            <Link
+              key={key}
+              href={item.href}
+              className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
+                active ? "text-white" : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              <Icon size={20} />
+              <span className="max-w-full truncate px-1">{item.label}</span>
+            </Link>
+          );
+        })}
+        <button
+          onClick={() => setMobileMenuOpen(true)}
+          className="flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium text-zinc-500 transition-colors hover:text-zinc-300"
+          aria-label="Abrir menu completo"
+        >
+          <IconMenu size={20} />
+          <span>Mais</span>
+        </button>
+      </nav>
 
       {/* Drawer Mobile Overlay (Menu Hambúrguer) */}
       {mobileMenuOpen && (
@@ -335,7 +361,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )}
 
       {/* Conteúdo */}
-      <main className="flex-1 px-4 pb-6 pt-6 md:h-dvh md:overflow-y-auto md:px-10 md:py-10">
+      <main className="flex-1 px-4 pb-24 pt-6 md:h-dvh md:overflow-y-auto md:px-10 md:py-10">
         <div className="animate-fade-in">{children}</div>
       </main>
     </div>

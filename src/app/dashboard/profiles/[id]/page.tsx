@@ -210,12 +210,7 @@ export default function ProfileDetailPage() {
 
           <div className="flex-1 space-y-4">
             <div>
-              <div className="flex items-center gap-2 mb-1 font-display text-sm font-semibold text-white/90">
-                <svg className="h-4.5 w-4.5 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <circle cx="12" cy="10" r="3" />
-                  <path d="M7 21v-2a3 3 0 0 1 6 0v2" />
-                </svg>
+              <div className="mb-1 font-display text-sm font-semibold text-white/90">
                 Perfil da modelo · <span className="text-zinc-500 font-normal">a I.A. escreve a Copy</span>
               </div>
               <p className="text-xs text-zinc-500 mb-4">A I.A. cria uma legenda com micro-história no fetiche da modelo, no formato certo pro Telegram.</p>

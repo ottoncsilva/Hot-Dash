@@ -56,6 +56,10 @@ export default function ProfilesPage() {
     apiGet<{ statuses: ProfileStatusDef[] }>("/api/profile-statuses")
       .then((d) => setStatuses(d.statuses))
       .catch(() => {});
+    // Abre o modal de criação quando vindo da paleta de comandos (?new=1).
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("new") === "1") {
+      setCreating(true);
+    }
   }, []);
 
   async function create(e: React.FormEvent) {

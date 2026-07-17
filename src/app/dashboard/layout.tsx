@@ -28,7 +28,9 @@ import {
   IconMenu,
   IconX,
   IconBlur,
+  IconSearch,
 } from "@/components/icons";
+import CommandPalette from "@/components/CommandPalette";
 
 const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   dashboard: IconDashboard,
@@ -107,7 +109,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Sidebar Desktop */}
       <aside className="hidden w-64 flex-col border-r border-white/[0.06] bg-ink-950 p-6 md:flex">
         <Brand />
-        <nav className="mt-8 flex flex-col gap-1">
+        <button
+          onClick={() => window.dispatchEvent(new Event("hotdash:command"))}
+          className="mt-6 flex w-full items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-300"
+        >
+          <IconSearch size={16} /> Buscar
+          <span className="ml-auto font-mono text-[10px] tracking-wider text-zinc-600">⌘K</span>
+        </button>
+        <nav className="mt-4 flex flex-col gap-1">
           {visible.map(({ key }) => {
             const item = NAV_ITEMS[key];
             const Icon = ICONS[key];
@@ -364,6 +373,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <main className="flex-1 px-4 pb-24 pt-6 md:h-dvh md:overflow-y-auto md:px-10 md:py-10">
         <div className="animate-fade-in">{children}</div>
       </main>
+
+      <CommandPalette />
     </div>
   );
 }

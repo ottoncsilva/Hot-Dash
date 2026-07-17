@@ -449,11 +449,11 @@ export default function TelegramUnifiedPage() {
 
                 {/* VIP Prompt */}
                 <div className="space-y-2">
-                  <label className="text-xs font-semibold text-zinc-300">Modelo de Legenda (Prompt para o Grok - VIP)</label>
-                  <p className="text-[11px] text-zinc-500 mb-1">Cole aqui suas instruções ou modelos de legenda. O Grok irá usar este texto como diretriz.</p>
+                  <label className="text-xs font-semibold text-zinc-300">Prompt de Geração de Legenda (VIP)</label>
+                  <p className="text-[11px] text-zinc-500 mb-1">Escreva as instruções completas para a Inteligência Artificial. Peça para ela analisar a foto, defina o tom de voz e integre seus modelos de legenda desejados aqui dentro.</p>
                   <textarea 
                      rows={8}
-                     placeholder="Cole aqui o seu modelo de legenda VIP..."
+                     placeholder="Ex: Analise a foto anexada e crie uma legenda sedutora. Siga estes modelos como exemplo: 'Que tal um docinho hoje? 🍬', etc..."
                      value={settings.vipPrompt}
                      onChange={(e) => setSettings({ ...settings, vipPrompt: e.target.value })}
                      className="w-full rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none resize-none font-mono"
@@ -621,10 +621,11 @@ export default function TelegramUnifiedPage() {
                 {/* Prévias Prompt e Link */}
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-zinc-300">Modelo de Legenda (Prompt para o Grok - Prévias)</label>
-                    <textarea 
-                       rows={6}
-                       placeholder="Cole aqui o seu modelo de legenda Prévias..."
+                    <label className="text-xs font-semibold text-zinc-300">Prompt de Geração de Legenda (Prévias)</label>
+                  <p className="text-[11px] text-zinc-500 mb-1">Escreva as instruções completas para a Inteligência Artificial. Peça para ela analisar a foto, defina o tom de voz e integre seus modelos de legenda desejados aqui dentro.</p>
+                  <textarea 
+                     rows={8}
+                     placeholder="Ex: Analise a foto anexada e crie uma legenda convidativa. Siga estes modelos como exemplo: 'Vem ver o que te espera no VIP 🔥', etc..."
                        value={settings.warmupPrompt}
                        onChange={(e) => setSettings({ ...settings, warmupPrompt: e.target.value })}
                        className="w-full rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none resize-none font-mono"

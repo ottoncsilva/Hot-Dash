@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
             networks: [{ network: "telegram", postType: postTypeTarget }],
             profileName: profile.name,
             profileNotes: richNotes,
-            theme: `MODELO DE LEGENDA: ${promptTemplate || "Crie uma legenda natural."}\n\nATENÇÃO MÁXIMA: É ESTRITAMENTE NECESSÁRIO QUE VOCÊ USE O 'MODELO DE LEGENDA' ACIMA COMO BASE PARA SEU TEXTO. ADAPTE O QUE FOR PRECISO PARA A IMAGEM, MAS MANTENHA A ESTRUTURA DO MODELO.`,
+            theme: promptTemplate || "Analise a foto e crie uma legenda natural e envolvente.",
             images,
           });
         } catch (aiErr) {

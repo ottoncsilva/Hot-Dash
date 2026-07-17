@@ -323,6 +323,13 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "telegram_bots", "welcome_media_tags", "TEXT");
   ensureColumn(d, "telegram_bots", "downsell_funnel", "TEXT");
   ensureColumn(d, "telegram_bots", "upsell_funnel", "TEXT");
+  ensureColumn(d, "telegram_autopost_settings", "vip_prompt", "TEXT");
+  ensureColumn(d, "telegram_autopost_settings", "warmup_prompt", "TEXT");
+  ensureColumn(d, "telegram_autopost_settings", "warmup_link", "TEXT");
+  ensureColumn(d, "telegram_autopost_settings", "vip_schedule_type", "TEXT DEFAULT 'interval'");
+  ensureColumn(d, "telegram_autopost_settings", "vip_fixed_times", "TEXT");
+  ensureColumn(d, "telegram_autopost_settings", "warmup_schedule_type", "TEXT DEFAULT 'interval'");
+  ensureColumn(d, "telegram_autopost_settings", "warmup_fixed_times", "TEXT");
   ensureColumn(d, "telegram_subscriptions", "last_upsell_at", "INTEGER");
   ensureColumn(d, "telegram_subscriptions", "upsell_step_index", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(d, "whatsapp_agent_settings", "ai_provider", "TEXT NOT NULL DEFAULT 'grok'");

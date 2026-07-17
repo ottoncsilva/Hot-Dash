@@ -36,15 +36,28 @@ export async function GET(req: NextRequest) {
 
       if (!settings || !settings.enabled) continue;
 
-      const hasOpenAi = getAiCredentials("openai") !== null;
-      const hasGemini = getAiCredentials("gemini") !== null;
-      const provider = hasOpenAi ? "openai" : (hasGemini ? "gemini" : null);
+      const provider = getAiCredentials("grok") !== null ? "grok" : null;
+
+      function isPostDue(type: string, interval: number, fixedTimes: string, lastPost: number): boolean {
+        if (type === "fixed") {
+          const times = (fixedTimes || "").split(",").map(t => t.trim()).filter(Boolean);
+          if (times.length === 0) return false;
+          for (const timeStr of times) {
+            const [hStr, mStr] = timeStr.split(":");
+            if (!hStr || !mStr) continue;
+            const target = new Date(now);
+            target.setHours(parseInt(hStr, 10), parseInt(mStr, 10), 0, 0);
+            if (now >= target.getTime() && lastPost < target.getTime()) return true;
+          }
+          return false;
+        }
+        return interval > 0 && now - lastPost >= interval * 60 * 60 * 1000;
+      }
 
       // ---- 1. Processar postagem no VIP ----
       if (
         settings.vip_tags &&
-        settings.vip_post_interval > 0 &&
-        now - (settings.last_vip_post_at || 0) >= settings.vip_post_interval * 60 * 60 * 1000
+        isPostDue(settings.vip_schedule_type || "interval", settings.vip_post_interval, settings.vip_fixed_times, settings.last_vip_post_at || 0)
       ) {
         const posted = await attemptAutopost(
           profile,
@@ -53,7 +66,8 @@ export async function GET(req: NextRequest) {
           provider,
           "vip",
           bot.idVip,
-          settings.vip_tags
+          settings.vip_tags,
+          settings.vip_prompt || "Legenda no tom provocante."
         );
         if (posted) {
           db.prepare(
@@ -66,8 +80,7 @@ export async function GET(req: NextRequest) {
       // ---- 2. Processar postagem no Aquecimento ----
       if (
         settings.warmup_tags &&
-        settings.warmup_post_interval > 0 &&
-        now - (settings.last_warmup_post_at || 0) >= settings.warmup_post_interval * 60 * 60 * 1000
+        isPostDue(settings.warmup_schedule_type || "interval", settings.warmup_post_interval, settings.warmup_fixed_times, settings.last_warmup_post_at || 0)
       ) {
         const posted = await attemptAutopost(
           profile,
@@ -76,7 +89,9 @@ export async function GET(req: NextRequest) {
           provider,
           "warmup",
           bot.idAquecimento,
-          settings.warmup_tags
+          settings.warmup_tags,
+          settings.warmup_prompt || "Legenda para chamar os inscritos para o VIP.",
+          settings.warmup_link
         );
         if (posted) {
           db.prepare(
@@ -98,10 +113,12 @@ async function attemptAutopost(
   profile: any,
   bot: any,
   settings: any,
-  provider: "openai" | "gemini" | null,
+  provider: "openai" | "gemini" | "grok" | null,
   target: "vip" | "warmup",
   chatId: string,
-  tagsString: string
+  tagsString: string,
+  promptTemplate: string,
+  link?: string
 ): Promise<boolean> {
   const allowedTagNames = tagsString
     .split(",")
@@ -153,7 +170,7 @@ async function attemptAutopost(
         networks: [{ network: "telegram", postType: "Mensagem" }],
         profileName: profile.name,
         profileNotes: profile.notes || "",
-        theme: settings.ai_prompt_style || "provocante",
+        theme: promptTemplate,
         images,
       });
     } catch (aiErr) {
@@ -162,6 +179,10 @@ async function attemptAutopost(
     }
   } else {
     caption = "Novo conteúdo disponível no canal! 🔥😘";
+  }
+
+  if (target === "warmup" && link) {
+    caption = `${caption}\n\n👉 Acesse: ${link}`;
   }
 
   // Dispara no Telegram

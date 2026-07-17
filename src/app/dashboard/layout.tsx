@@ -58,10 +58,7 @@ const WHATSAPP_SUBSECTIONS: { label: string; href: string }[] = [
   { label: "Chat ao vivo", href: "/dashboard/whatsapp/chat" },
 ];
 
-const TELEGRAM_SUBSECTIONS: { label: string; href: string }[] = [
-  { label: "Autopost", href: "/dashboard/telegram/autopost" },
-  { label: "Configurações", href: "/dashboard/telegram/settings" },
-];
+
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, signOut } = useAuth();
@@ -72,7 +69,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [whatsappOpen, setWhatsappOpen] = useState(false);
-  const [telegramOpen, setTelegramOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -82,7 +78,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     if (pathname?.startsWith("/dashboard/settings")) setSettingsOpen(true);
     if (pathname?.startsWith("/dashboard/whatsapp")) setWhatsappOpen(true);
-    if (pathname?.startsWith("/dashboard/telegram")) setTelegramOpen(true);
   }, [pathname]);
 
   useEffect(() => {
@@ -111,42 +106,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             const Icon = ICONS[key];
             const active = isActive(item.href);
 
-            if (key === "telegram") {
-              const isTelegramActive = pathname?.startsWith("/dashboard/telegram");
-              return (
-                <div key={key}>
-                  <button
-                    onClick={() => setTelegramOpen(!telegramOpen)}
-                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      isTelegramActive ? "bg-white/5 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Icon size={18} />
-                      {item.label}
-                    </div>
-                    {telegramOpen ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-                  </button>
-                  {telegramOpen && (
-                    <div className="mt-1 flex flex-col border-l border-white/10 pl-4">
-                      {TELEGRAM_SUBSECTIONS.map((sub) => (
-                        <Link
-                          key={sub.href}
-                          href={sub.href}
-                          className={`px-3 py-1.5 text-xs transition-colors ${
-                            pathname === sub.href
-                              ? "text-white"
-                              : "text-zinc-500 hover:text-white"
-                          }`}
-                        >
-                          {sub.label}
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            }
+
 
             if (key === "whatsapp") {
               const isWhatsappActive = pathname?.startsWith("/dashboard/whatsapp");
@@ -273,43 +233,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 setMobileMenuOpen(false);
               };
 
-              if (key === "telegram") {
-                const isTelegramActive = pathname?.startsWith("/dashboard/telegram");
-                return (
-                  <div key={key}>
-                    <button
-                      onClick={() => setTelegramOpen(!telegramOpen)}
-                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                        isTelegramActive ? "bg-white/5 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Icon size={18} />
-                        {item.label}
-                      </div>
-                      {telegramOpen ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-                    </button>
-                    {telegramOpen && (
-                      <div className="mt-1 flex flex-col border-l border-white/10 pl-4">
-                        {TELEGRAM_SUBSECTIONS.map((sub) => (
-                          <Link
-                            key={sub.href}
-                            href={sub.href}
-                            onClick={handleLinkClick}
-                            className={`px-3 py-2 text-xs transition-colors ${
-                              pathname === sub.href
-                                ? "text-white"
-                                : "text-zinc-500 hover:text-white"
-                            }`}
-                          >
-                            {sub.label}
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              }
+
 
               if (key === "whatsapp") {
                 const isWhatsappActive = pathname?.startsWith("/dashboard/whatsapp");

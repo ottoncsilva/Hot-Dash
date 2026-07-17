@@ -67,9 +67,15 @@ export async function POST(req: NextRequest) {
         enabled,
         vipPostInterval,
         vipTags,
+        vipPrompt,
+        vipScheduleType,
+        vipFixedTimes,
         warmupPostInterval,
         warmupTags,
-        aiPromptStyle
+        warmupPrompt,
+        warmupLink,
+        warmupScheduleType,
+        warmupFixedTimes,
       } = body;
 
       if (!profileId || !botToken || !idVip || !idAquecimento) {
@@ -92,23 +98,39 @@ export async function POST(req: NextRequest) {
 
       // 2. Salva a config de Autopost
       db.prepare(
-        `INSERT INTO telegram_autopost_settings (profile_id, enabled, vip_post_interval, vip_tags, warmup_post_interval, warmup_tags, ai_prompt_style)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO telegram_autopost_settings (
+          profile_id, enabled, 
+          vip_post_interval, vip_tags, vip_prompt, vip_schedule_type, vip_fixed_times,
+          warmup_post_interval, warmup_tags, warmup_prompt, warmup_link, warmup_schedule_type, warmup_fixed_times
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(profile_id) DO UPDATE SET
            enabled = excluded.enabled,
            vip_post_interval = excluded.vip_post_interval,
            vip_tags = excluded.vip_tags,
+           vip_prompt = excluded.vip_prompt,
+           vip_schedule_type = excluded.vip_schedule_type,
+           vip_fixed_times = excluded.vip_fixed_times,
            warmup_post_interval = excluded.warmup_post_interval,
            warmup_tags = excluded.warmup_tags,
-           ai_prompt_style = excluded.ai_prompt_style`
+           warmup_prompt = excluded.warmup_prompt,
+           warmup_link = excluded.warmup_link,
+           warmup_schedule_type = excluded.warmup_schedule_type,
+           warmup_fixed_times = excluded.warmup_fixed_times`
       ).run(
         profileId,
         enabled ? 1 : 0,
         Number(vipPostInterval || 12),
         vipTags || "",
+        vipPrompt || "",
+        vipScheduleType || "interval",
+        vipFixedTimes || "",
         Number(warmupPostInterval || 24),
         warmupTags || "",
-        aiPromptStyle || "provocante"
+        warmupPrompt || "",
+        warmupLink || "",
+        warmupScheduleType || "interval",
+        warmupFixedTimes || ""
       );
 
       return NextResponse.json({ ok: true });

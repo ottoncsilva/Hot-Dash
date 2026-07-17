@@ -9,6 +9,7 @@ import "server-only";
  */
 
 import type { BodyPart } from "./bodyParts";
+import { getNudenetConfig } from "./settings";
 
 export type { BodyPart } from "./bodyParts";
 export { BODY_PARTS, BODY_PART_LABELS, DEFAULT_PART_EMOJI } from "./bodyParts";
@@ -48,14 +49,23 @@ export type DetectResult = {
   imageHeight: number;
 };
 
-function serviceUrl(): string {
-  const url = (process.env.NUDENET_URL || "").trim().replace(/\/+$/, "");
-  if (!url) {
-    throw new Error(
-      "Detecção por IA indisponível: configure NUDENET_URL apontando para o serviço NudeNet.",
-    );
-  }
-  return url;
+/**
+ * Resolve URL + token do serviço NudeNet. Prioriza o que foi salvo na UI
+ * (Configurações → Conexão com IA); se não houver, cai para as variáveis de
+ * ambiente NUDENET_URL / NUDENET_API_KEY. Assim dá para configurar sem
+ * redeploy, mas o env continua funcionando.
+ */
+function resolveService(): { base: string; token?: string } {
+  const fromDb = getNudenetConfig();
+  if (fromDb) return { base: fromDb.url, token: fromDb.token };
+
+  const base = (process.env.NUDENET_URL || "").trim().replace(/\/+$/, "");
+  const token = (process.env.NUDENET_API_KEY || "").trim() || undefined;
+  if (base) return { base, token };
+
+  throw new Error(
+    "Detecção por IA indisponível: em Configurações → Conexão com IA, ative o NudeNet e informe a URL do serviço (ou defina NUDENET_URL no ambiente).",
+  );
 }
 
 /**
@@ -70,8 +80,7 @@ export async function detectExplicitRegions(
   filename: string,
   opts: { minScore?: number } = {},
 ): Promise<DetectResult> {
-  const base = serviceUrl();
-  const apiKey = (process.env.NUDENET_API_KEY || "").trim();
+  const { base, token } = resolveService();
   const minScore = opts.minScore ?? 0.3;
 
   const form = new FormData();
@@ -82,7 +91,7 @@ export async function detectExplicitRegions(
   try {
     res = await fetch(`${base}/detect`, {
       method: "POST",
-      headers: apiKey ? { "X-API-Key": apiKey } : undefined,
+      headers: token ? { "X-API-Key": token } : undefined,
       body: form,
     });
   } catch (e) {
@@ -123,4 +132,33 @@ export async function detectExplicitRegions(
     .filter((r): r is DetectedRegion => r !== null);
 
   return { regions, imageWidth: iw, imageHeight: ih };
+}
+
+/**
+ * Testa se o serviço NudeNet está acessível (endpoint /health). Usado pela
+ * tela de Configurações. Nunca lança — resolve com {ok,message}.
+ */
+export async function pingNudenet(
+  rawUrl: string,
+  token?: string,
+): Promise<{ ok: boolean; message?: string }> {
+  const base = (rawUrl || "").trim().replace(/\/+$/, "");
+  if (!base) return { ok: false, message: "Informe a URL do serviço NudeNet." };
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(`${base}/health`, {
+      headers: token ? { "X-API-Key": token } : undefined,
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    if (res.ok) return { ok: true };
+    if (res.status === 401) return { ok: false, message: "Token (X-API-Key) inválido." };
+    return { ok: false, message: `Serviço respondeu ${res.status}.` };
+  } catch (e) {
+    return {
+      ok: false,
+      message: `Não foi possível alcançar ${base}. Verifique a URL e se o serviço está no ar.`,
+    };
+  }
 }

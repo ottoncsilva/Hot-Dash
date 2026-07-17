@@ -37,6 +37,7 @@ export async function PATCH(req: NextRequest) {
       grok: parseProviderPatch(body.grok),
       magnific: parseProviderPatch(body.magnific),
       kling: parseProviderPatch(body.kling),
+      nudenet: parseProviderPatch(body.nudenet),
     });
     return NextResponse.json({ settings });
   } catch (err) {

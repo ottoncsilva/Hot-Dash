@@ -173,13 +173,13 @@ export function updateFinanceSettings(
 // gerador de cronograma. Cada provedor é independente (ativado + chave +
 // modelo próprios); qual usar é escolhido na hora de cada atividade, não
 // há mais um "provedor ativo" fixo aqui. ----
-export type AiProvider = "openai" | "gemini" | "sightengine" | "grok" | "magnific" | "kling";
+export type AiProvider = "openai" | "gemini" | "sightengine" | "grok" | "magnific" | "kling" | "nudenet";
 
 export type AiProviderPublic = { enabled: boolean; hasKey: boolean; model: string; baseUrl?: string; apiUser?: string };
-export type AiSettingsPublic = { openai: AiProviderPublic; gemini: AiProviderPublic; sightengine: AiProviderPublic; grok: AiProviderPublic; magnific: AiProviderPublic; kling: AiProviderPublic; };
+export type AiSettingsPublic = { openai: AiProviderPublic; gemini: AiProviderPublic; sightengine: AiProviderPublic; grok: AiProviderPublic; magnific: AiProviderPublic; kling: AiProviderPublic; nudenet: AiProviderPublic; };
 
 type AiProviderStored = { enabled: boolean; apiKeyEnc?: string; model?: string; baseUrl?: string; apiUserEnc?: string };
-type AiSettingsStored = { openai?: AiProviderStored; gemini?: AiProviderStored; sightengine?: AiProviderStored; grok?: AiProviderStored; magnific?: AiProviderStored; kling?: AiProviderStored; };
+type AiSettingsStored = { openai?: AiProviderStored; gemini?: AiProviderStored; sightengine?: AiProviderStored; grok?: AiProviderStored; magnific?: AiProviderStored; kling?: AiProviderStored; nudenet?: AiProviderStored; };
 
 export const DEFAULT_AI_MODELS: Record<AiProvider, string> = {
   openai: "gpt-4o-mini",
@@ -187,7 +187,8 @@ export const DEFAULT_AI_MODELS: Record<AiProvider, string> = {
   sightengine: "nudity-2.0",
   grok: "grok-4.20-0309-reasoning",
   magnific: "seedream-v5-pro-edit",
-  kling: "kling-v2-6-pro-motion-control"
+  kling: "kling-v2-6-pro-motion-control",
+  nudenet: "nudenet-detector"
 };
 
 function rawAi(): AiSettingsStored {
@@ -210,7 +211,30 @@ export function getAiSettingsPublic(): AiSettingsPublic {
     grok: build("grok"),
     magnific: build("magnific"),
     kling: build("kling"),
+    nudenet: build("nudenet"),
   };
+}
+
+/**
+ * Configuração do serviço de detecção NudeNet salva na UI (Configurações →
+ * Conexão com IA). Requer estar ativado e ter uma URL; o token é opcional.
+ * Retorna null quando não configurado — aí o nudenet.ts cai no fallback por
+ * variável de ambiente (NUDENET_URL / NUDENET_API_KEY).
+ */
+export function getNudenetConfig(): { url: string; token?: string } | null {
+  const p = rawAi().nudenet;
+  if (!p?.enabled) return null;
+  const url = (p.baseUrl || "").trim().replace(/\/+$/, "");
+  if (!url) return null;
+  let token: string | undefined;
+  if (p.apiKeyEnc) {
+    try {
+      token = decryptSecret(p.apiKeyEnc);
+    } catch {
+      token = undefined;
+    }
+  }
+  return { url, token };
 }
 
 /** Credenciais do provedor pedido, descriptografadas (server-side apenas). */
@@ -266,9 +290,10 @@ export function updateAiSettings(patch: {
   grok?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   magnific?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   kling?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
+  nudenet?: { enabled?: boolean; apiKey?: string; baseUrl?: string; model?: string };
 }): AiSettingsPublic {
   const s = rawAi();
-  for (const provider of ["openai", "gemini", "sightengine", "grok", "magnific", "kling"] as const) {
+  for (const provider of ["openai", "gemini", "sightengine", "grok", "magnific", "kling", "nudenet"] as const) {
     const p = patch[provider];
     if (!p) continue;
     const cur: AiProviderStored = s[provider] || { enabled: false };

@@ -73,6 +73,10 @@ export default function AiSettingsPage() {
   const [magnificEnabled, setMagnificEnabled] = useState(false);
   const [magnificKey, setMagnificKey] = useState("");
 
+  const [nudenetEnabled, setNudenetEnabled] = useState(false);
+  const [nudenetUrl, setNudenetUrl] = useState("");
+  const [nudenetToken, setNudenetToken] = useState("");
+
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const openaiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -92,6 +96,8 @@ export default function AiSettingsPage() {
         setGrokBaseUrl(d.settings.grok.baseUrl || "https://api.x.ai/v1");
         setSightengineEnabled(d.settings.sightengine.enabled);
         setMagnificEnabled(d.settings.magnific?.enabled || false);
+        setNudenetEnabled(d.settings.nudenet?.enabled || false);
+        setNudenetUrl(d.settings.nudenet?.baseUrl || "");
         if (d.settings.openai.hasKey) {
           fetchAiModels("openai", "", setOpenaiModels, setOpenaiModelsLoading, setOpenaiModelsError);
         }
@@ -143,6 +149,7 @@ export default function AiSettingsPage() {
           grok: { enabled: grokEnabled, model: grokModel, baseUrl: grokBaseUrl, ...(grokKey ? { apiKey: grokKey } : {}) },
           sightengine: { enabled: sightengineEnabled, ...(sightengineKey ? { apiKey: sightengineKey } : {}), ...(sightengineUser ? { apiUser: sightengineUser } : {}) },
           magnific: { enabled: magnificEnabled, ...(magnificKey ? { apiKey: magnificKey } : {}) },
+          nudenet: { enabled: nudenetEnabled, baseUrl: nudenetUrl, ...(nudenetToken ? { apiKey: nudenetToken } : {}) },
         },
       );
       setCfg(settings);
@@ -152,6 +159,7 @@ export default function AiSettingsPage() {
       setSightengineKey("");
       setSightengineUser("");
       setMagnificKey("");
+      setNudenetToken("");
       setSaved(true);
     } finally {
       setSaving(false);
@@ -481,6 +489,60 @@ export default function AiSettingsPage() {
                   buildBody={() => ({ provider: "magnific", apiKey: magnificKey || undefined })}
                   autoTest={true}
                   enabled={magnificEnabled}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* NudeNet (Censura por IA — detecção de partes explícitas) */}
+        <div className="card p-4">
+          <label className="flex items-center justify-between">
+            <span className="font-medium text-white">NudeNet (Censura por IA)</span>
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-white"
+              checked={nudenetEnabled}
+              onChange={(e) => setNudenetEnabled(e.target.checked)}
+            />
+          </label>
+          <p className="mt-2 text-xs text-zinc-500">
+            Motor da <b>Censura de imagem com IA</b>: detecta seios, genitálias, bunda e ânus
+            (com coordenadas) para cobrir automaticamente. Rode o serviço{" "}
+            <span className="font-mono">nudenet-service</span> (Docker) e cole aqui a URL interna
+            dele — sem precisar de variável de ambiente nem redeploy.
+          </p>
+          {nudenetEnabled && (
+            <div className="grid gap-4 md:grid-cols-2 mt-4">
+              <div className="md:col-span-2">
+                <label className="eyebrow mb-1.5 block">URL do serviço</label>
+                <input
+                  className="input font-mono"
+                  type="text"
+                  placeholder="http://nudenet-service:8000"
+                  value={nudenetUrl}
+                  onChange={(e) => setNudenetUrl(e.target.value)}
+                />
+                <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                  Host interno do container NudeNet + porta 8000
+                </p>
+              </div>
+              <div className="md:col-span-2">
+                <label className="eyebrow mb-1.5 block">Token (opcional)</label>
+                <input
+                  className="input font-mono"
+                  type="password"
+                  placeholder={cfg?.nudenet?.hasKey ? "•••••••• (em branco = manter)" : "só se definiu NUDENET_API_KEY no serviço"}
+                  value={nudenetToken}
+                  onChange={(e) => setNudenetToken(e.target.value)}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <ConnectionBadge
+                  testUrl="/api/settings/ai/test"
+                  buildBody={() => ({ provider: "nudenet", baseUrl: nudenetUrl || undefined, apiKey: nudenetToken || undefined })}
+                  autoTest={true}
+                  enabled={nudenetEnabled && Boolean(nudenetUrl)}
                 />
               </div>
             </div>

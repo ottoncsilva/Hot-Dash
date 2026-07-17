@@ -21,17 +21,32 @@ docker run -d --name hotdash-nudenet -p 8000:8000 \
   hotdash-nudenet
 ```
 
-No EasyPanel: crie um serviço a partir deste diretório (Dockerfile), exponha
-a porta 8000 e defina `NUDENET_API_KEY`.
+## Subir tudo junto (mais fácil)
 
-## Configurar o Hot Dash
+Na raiz do projeto há um `docker-compose.yml` que sobe o app **e** este
+serviço já conectados:
 
-No `.env` do app (não neste serviço):
-
+```bash
+docker compose up -d --build
 ```
-NUDENET_URL=http://hotdash-nudenet:8000
-NUDENET_API_KEY=um-token-secreto   # o mesmo valor acima
-```
+
+Nesse caso não precisa configurar mais nada — o app já fala com
+`http://nudenet:8000`.
+
+## No EasyPanel (passo a passo)
+
+1. **Crie um serviço** a partir deste diretório (`nudenet-service/`, tipo
+   *Dockerfile*). Porta interna **8000**. (Opcional: defina
+   `NUDENET_API_KEY` no serviço se quiser exigir token.)
+2. Anote o **domínio interno** que o EasyPanel dá ao serviço
+   (algo como `http://meuprojeto_nudenet:8000`).
+3. No **Hot Dash**, abra **Configurações → Conexão com IA → NudeNet**,
+   marque *ativar*, cole a URL interna (e o token, se usou um) e salve.
+   A luz de status fica **verde** quando conecta. Pronto — sem redeploy.
+
+> Alternativa: em vez da tela de IA, dá para definir `NUDENET_URL`
+> (e `NUDENET_API_KEY`) como variáveis de ambiente **no serviço do app** e
+> dar *redeploy*. A configuração pela tela tem prioridade.
 
 ## API
 

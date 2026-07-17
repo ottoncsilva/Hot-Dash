@@ -1,0 +1,39 @@
+# =========================================================================
+# Hot Dash — sobe o app + o serviço de detecção NudeNet já conectados.
+#
+#   docker compose up -d --build
+#
+# O app enxerga o NudeNet em http://nudenet:8000 (rede interna do compose),
+# então a censura por IA já funciona sem configurar mais nada. Você também
+# pode configurar a URL pela tela Configurações → Conexão com IA.
+# =========================================================================
+
+services:
+  nudenet:
+    build: ./nudenet-service
+    restart: unless-stopped
+    # Sem token por padrão. Para exigir token, descomente e use o MESMO valor
+    # no app (variável NUDENET_API_KEY ou o campo "Token" na tela de IA).
+    # environment:
+    #   NUDENET_API_KEY: troque-por-um-token
+    expose:
+      - "8000"
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - nudenet
+    env_file:
+      - .env
+    environment:
+      # Endereço interno do serviço NudeNet (fallback; a UI tem prioridade).
+      NUDENET_URL: http://nudenet:8000
+      # NUDENET_API_KEY: troque-por-um-token   # só se ativou o token acima
+    ports:
+      - "3000:3000"
+    volumes:
+      - hotdash-data:/app/data
+
+volumes:
+  hotdash-data:

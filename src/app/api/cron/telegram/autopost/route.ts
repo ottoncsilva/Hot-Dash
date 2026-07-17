@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
       const provider = getAiCredentials("grok") !== null ? "grok" : null;
 
       function isPostDue(type: string, interval: number, fixedTimes: string, lastPost: number): boolean {
+        if (type === "manual") return false;
         if (type === "fixed") {
           const times = (fixedTimes || "").split(",").map(t => t.trim()).filter(Boolean);
           if (times.length === 0) return false;
@@ -51,7 +52,7 @@ export async function GET(req: NextRequest) {
           }
           return false;
         }
-        return interval > 0 && now - lastPost >= interval * 60 * 60 * 1000;
+        return interval > 0 && now - lastPost >= interval * 60 * 1000;
       }
 
       // ---- 1. Processar postagem no VIP ----

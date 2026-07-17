@@ -20,7 +20,7 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   profiles: { key: "profiles", label: "Modelos", href: "/dashboard/profiles" },
   media: { key: "media", label: "Mídia", href: "/dashboard/media" },
   payments: { key: "payments", label: "Financeiro", href: "/dashboard/payments" },
-  telegram: { key: "telegram", label: "Telegram", href: "/dashboard/telegram/bot" },
+  telegram: { key: "telegram", label: "Telegram", href: "/dashboard/telegram" },
   whatsapp: { key: "whatsapp", label: "Whatsapp", href: "/dashboard/whatsapp" },
   whatsapp_settings: { key: "whatsapp_settings", label: "Config. WhatsApp", href: "/dashboard/whatsapp/settings" },
   whatsapp_chat: { key: "whatsapp_chat", label: "Chat ao vivo", href: "/dashboard/whatsapp/chat" },

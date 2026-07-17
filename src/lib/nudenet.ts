@@ -8,28 +8,10 @@ import "server-only";
  * tamanho do canvas.
  */
 
-/** Partes do corpo que o app sabe censurar (chaves estáveis, usadas na UI). */
-export type BodyPart = "seios" | "vagina" | "penis" | "bunda" | "anus";
+import type { BodyPart } from "./bodyParts";
 
-export const BODY_PARTS: BodyPart[] = ["seios", "vagina", "penis", "bunda", "anus"];
-
-export const BODY_PART_LABELS: Record<BodyPart, string> = {
-  seios: "Seios",
-  vagina: "Vagina",
-  penis: "Pênis",
-  bunda: "Bunda",
-  anus: "Ânus",
-};
-
-/** Emoji sugerido por padrão para cada parte (usado quando o usuário não escolhe).
- *  Todos precisam existir em CENSOR_EMOJIS (src/lib/censorEmojis.ts). */
-export const DEFAULT_PART_EMOJI: Record<BodyPart, string> = {
-  seios: "🍑",
-  vagina: "🌸",
-  penis: "🍆",
-  bunda: "🍑",
-  anus: "🔥",
-};
+export type { BodyPart } from "./bodyParts";
+export { BODY_PARTS, BODY_PART_LABELS, DEFAULT_PART_EMOJI } from "./bodyParts";
 
 // Rótulos do NudeNet (v3) → parte do corpo. Só os "EXPOSED" interessam;
 // as versões "COVERED" (partes cobertas por roupa) são ignoradas.

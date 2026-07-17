@@ -27,12 +27,14 @@ import {
   IconSend,
   IconMenu,
   IconX,
+  IconBlur,
 } from "@/components/icons";
 
 const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   dashboard: IconDashboard,
   profiles: IconProfiles,
   media: IconMedia,
+  censura: IconBlur,
   payments: IconPayments,
   telegram: IconTelegram,
   whatsapp: IconWhatsapp,

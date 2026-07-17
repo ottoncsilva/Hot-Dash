@@ -137,7 +137,6 @@ export default function TelegramUnifiedPage() {
 
   const generateSchedule = async (target: "vip" | "warmup") => {
     const days = target === "vip" ? daysToGenerateVip : daysToGenerateWarmup;
-    if (!(await confirm(`Deseja gerar os posts dos próximos ${days} dias para o canal ${target.toUpperCase()}?`))) return;
     
     const setGen = target === "vip" ? setGeneratingVip : setGeneratingWarmup;
     setGen(true);
@@ -301,7 +300,7 @@ export default function TelegramUnifiedPage() {
                    <div className="flex items-center gap-2">
                       <input type="number" min={1} max={30} value={daysToGenerateVip} onChange={e => setDaysToGenerateVip(parseInt(e.target.value) || 1)} className="w-16 rounded border border-sky-500/20 bg-sky-950/20 px-2 py-1 text-xs text-sky-200 text-center focus:outline-none" title="Dias a gerar" />
                       <button type="button" onClick={() => generateSchedule("vip")} disabled={generatingVip} className="rounded-lg bg-sky-500/20 text-sky-300 px-3 py-1.5 text-xs font-semibold hover:bg-sky-500/30 transition-colors disabled:opacity-50">
-                        {generatingVip ? "⏳ Gerando..." : "✨ Gerar Dias"}
+                        {generatingVip ? "⏳ Gerando..." : "✨ Gerar postagens"}
                       </button>
                    </div>
                 </div>
@@ -472,7 +471,7 @@ export default function TelegramUnifiedPage() {
                    <div className="flex items-center gap-2">
                       <input type="number" min={1} max={30} value={daysToGenerateWarmup} onChange={e => setDaysToGenerateWarmup(parseInt(e.target.value) || 1)} className="w-16 rounded border border-orange-500/20 bg-orange-950/20 px-2 py-1 text-xs text-orange-200 text-center focus:outline-none" title="Dias a gerar" />
                       <button type="button" onClick={() => generateSchedule("warmup")} disabled={generatingWarmup} className="rounded-lg bg-orange-500/20 text-orange-300 px-3 py-1.5 text-xs font-semibold hover:bg-orange-500/30 transition-colors disabled:opacity-50">
-                        {generatingWarmup ? "⏳ Gerando..." : "✨ Gerar Dias"}
+                        {generatingWarmup ? "⏳ Gerando..." : "✨ Gerar postagens"}
                       </button>
                    </div>
                 </div>

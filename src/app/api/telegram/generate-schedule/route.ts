@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
     // Usamos um set na memória que será atualizado durante o loop
     const usedIds = listUsedMediaIds(profile.id);
 
-    const provider = getAiCredentials("grok") !== null ? "grok" : null;
+    const provider = getAiCredentials("gemini") !== null ? "gemini" : (getAiCredentials("openai") !== null ? "openai" : "grok");
 
     let generatedCount = 0;
 
@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
             networks: [{ network: "telegram", postType: postTypeTarget }],
             profileName: profile.name,
             profileNotes: richNotes,
-            theme: promptTemplate || "Crie uma legenda natural.",
+            theme: `MODELO DE LEGENDA: ${promptTemplate || "Crie uma legenda natural."}\n\nATENÇÃO MÁXIMA: É ESTRITAMENTE NECESSÁRIO QUE VOCÊ USE O 'MODELO DE LEGENDA' ACIMA COMO BASE PARA SEU TEXTO. ADAPTE O QUE FOR PRECISO PARA A IMAGEM, MAS MANTENHA A ESTRUTURA DO MODELO.`,
             images,
           });
         } catch (aiErr) {

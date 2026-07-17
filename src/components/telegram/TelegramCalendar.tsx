@@ -115,7 +115,7 @@ export default function TelegramCalendar({ profileId }: { profileId: string }) {
                     mediaObj.kind === "video" ? (
                       <video src={`/api/media/${mediaObj.id}/file`} className="h-full w-full object-cover opacity-80" muted playsInline />
                     ) : (
-                      <img src={`/api/media/${mediaObj.id}/thumbnail`} className="h-full w-full object-cover opacity-80" />
+                      <img src={`/api/media/${mediaObj.id}/file`} className="h-full w-full object-cover opacity-80" />
                     )
                   ) : (
                     <div className="flex h-full items-center justify-center text-zinc-700 text-xs">Sem mídia</div>
@@ -142,41 +142,76 @@ export default function TelegramCalendar({ profileId }: { profileId: string }) {
         </div>
       )}
 
-      {/* Modal de Edição Rápida */}
+      {/* Modal de Edição Emulando Telegram */}
       {editingPost && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-xl border border-white/[0.08] bg-zinc-900 p-6 shadow-2xl flex flex-col">
-            <h3 className="mb-2 text-lg font-bold text-white flex items-center gap-2">
-              <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-              </svg>
-              Editar Legenda
-            </h3>
-            <p className="text-xs text-zinc-400 mb-4">Ajuste o texto que foi gerado pela IA para este post do Telegram.</p>
-            
-            <textarea
-              className="w-full flex-1 rounded-lg border border-white/10 bg-zinc-950 p-4 text-sm text-zinc-200 focus:border-sky-500/50 focus:outline-none focus:ring-1 focus:ring-sky-500 resize-none font-mono"
-              rows={10}
-              value={editCaption}
-              onChange={(e) => setEditCaption(e.target.value)}
-              placeholder="Digite a legenda..."
-            />
-            
-            <div className="mt-6 flex justify-end gap-3">
-              <button 
-                onClick={() => setEditingPost(null)} 
-                disabled={saving}
-                className="rounded-lg px-4 py-2 text-sm font-semibold text-zinc-400 hover:text-white hover:bg-white/5 transition-colors"
-              >
-                Cancelar
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-md">
+          <div className="w-full max-w-sm rounded-xl bg-[#1e2329] shadow-2xl flex flex-col overflow-hidden border border-white/5">
+            {/* Header / Nav do Telegram (Fake) */}
+            <div className="flex items-center gap-3 bg-[#242b33] px-4 py-3 shadow-md z-10">
+              <button onClick={() => setEditingPost(null)} className="text-[#3390ec] hover:bg-white/5 rounded-full p-1 -ml-2 transition-colors">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
+                </svg>
               </button>
-              <button 
-                onClick={saveEdit} 
-                disabled={saving}
-                className="rounded-lg bg-sky-600 px-6 py-2 text-sm font-semibold text-white hover:bg-sky-500 transition-colors shadow-lg shadow-sky-900/20 disabled:opacity-50"
-              >
-                {saving ? "Salvando..." : "Salvar Legenda"}
-              </button>
+              <div className="flex-1 flex flex-col">
+                <span className="text-white font-semibold text-base leading-tight">Pré-visualização</span>
+                <span className="text-[#8e98a3] text-xs">
+                  {new Date(editingPost.scheduledAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto bg-[#0f0f0f] custom-scrollbar flex flex-col relative max-h-[70vh]">
+              {/* Media Preview */}
+              {editingPost.media?.[0] ? (
+                <div className="w-full bg-black flex justify-center items-center overflow-hidden">
+                  {editingPost.media[0].kind === "video" ? (
+                    <video src={`/api/media/${editingPost.media[0].id}/file`} className="w-full h-auto max-h-[45vh] object-contain" autoPlay muted loop playsInline />
+                  ) : (
+                    <img src={`/api/media/${editingPost.media[0].id}/file`} className="w-full h-auto max-h-[45vh] object-contain" />
+                  )}
+                </div>
+              ) : (
+                <div className="w-full h-32 bg-zinc-900 flex items-center justify-center text-zinc-600 text-sm">
+                  Mensagem apenas (Sem Mídia)
+                </div>
+              )}
+
+              {/* Caption Edit Area (Telegram Input Style) */}
+              <div className="p-3 bg-[#1e2329] flex-1 flex flex-col border-t border-white/5">
+                <p className="text-xs text-[#8e98a3] mb-2 font-semibold">LEGENDA DO POST:</p>
+                <textarea
+                  className="w-full flex-1 rounded-lg bg-[#2b313b] px-3 py-3 text-[15px] text-white focus:outline-none focus:ring-1 focus:ring-[#3390ec] resize-none font-sans leading-snug min-h-[120px]"
+                  value={editCaption}
+                  onChange={(e) => setEditCaption(e.target.value)}
+                  placeholder="Escreva a mensagem..."
+                />
+              </div>
+            </div>
+            
+            {/* Footer com botões de ação */}
+            <div className="bg-[#1e2329] px-4 py-3 border-t border-white/5 flex justify-between items-center gap-3">
+               <button 
+                  onClick={() => setEditingPost(null)} 
+                  disabled={saving}
+                  className="text-[#8e98a3] hover:text-white text-sm font-semibold transition-colors px-2 py-1"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={saveEdit} 
+                  disabled={saving}
+                  className="rounded-full bg-[#3390ec] px-6 py-2 text-sm font-bold text-white hover:bg-[#2f84d9] transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  {saving ? "Salvando..." : (
+                    <>
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                      Salvar Alterações
+                    </>
+                  )}
+                </button>
             </div>
           </div>
         </div>

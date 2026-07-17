@@ -103,6 +103,10 @@ export async function POST(
     const editedFrom =
       typeof editedFromRaw === "string" && editedFromRaw ? editedFromRaw : undefined;
 
+    const fileCreatedAtRaw = form.get("fileCreatedAt");
+    const fileCreatedAt =
+      typeof fileCreatedAtRaw === "string" && fileCreatedAtRaw ? parseInt(fileCreatedAtRaw, 10) : undefined;
+
     const dimensions = kind === "image" ? getImageDimensions(cleaned, ext) : null;
 
     const item = insertMedia({
@@ -116,6 +120,7 @@ export async function POST(
       editedFrom,
       width: dimensions?.width,
       height: dimensions?.height,
+      fileCreatedAt: !isNaN(fileCreatedAt as number) ? fileCreatedAt : undefined,
     });
 
     // Foto editada herda as etiquetas da original.

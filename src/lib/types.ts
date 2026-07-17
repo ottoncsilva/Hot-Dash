@@ -84,6 +84,8 @@ export type MediaItem = {
   createdAt: number;
   /** Última modificação do conteúdo (usado para cache-busting da imagem). */
   updatedAt?: number;
+  /** Data original de criação do arquivo, se disponível. */
+  fileCreatedAt?: number;
   tags: Tag[];
   editedFrom?: string;
   width?: number;

@@ -21,6 +21,7 @@ type MediaRow = {
   width: number | null;
   height: number | null;
   public_token: string | null;
+  file_created_at: number | null;
 };
 
 function toClient(r: MediaRow, tags: Tag[]): MediaItem {
@@ -38,6 +39,7 @@ function toClient(r: MediaRow, tags: Tag[]): MediaItem {
     width: r.width || undefined,
     height: r.height || undefined,
     publicToken: r.public_token || undefined,
+    fileCreatedAt: r.file_created_at || undefined,
   };
 }
 
@@ -85,12 +87,13 @@ export function insertMedia(input: {
   editedFrom?: string;
   width?: number;
   height?: number;
+  fileCreatedAt?: number;
 }): MediaItem {
   const now = Date.now();
   getDb()
     .prepare(
-      `INSERT INTO media (id, profile_id, filename, path, kind, mime, size, created_at, updated_at, edited_from, width, height)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO media (id, profile_id, filename, path, kind, mime, size, created_at, updated_at, edited_from, width, height, file_created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.id,
@@ -105,6 +108,7 @@ export function insertMedia(input: {
       input.editedFrom || null,
       input.width || null,
       input.height || null,
+      input.fileCreatedAt || null,
     );
   return toClient(
     {
@@ -121,6 +125,7 @@ export function insertMedia(input: {
       width: input.width || null,
       height: input.height || null,
       public_token: null,
+      file_created_at: input.fileCreatedAt || null,
     },
     [],
   );

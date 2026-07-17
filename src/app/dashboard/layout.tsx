@@ -59,8 +59,8 @@ const WHATSAPP_SUBSECTIONS: { label: string; href: string }[] = [
 ];
 
 const TELEGRAM_SUBSECTIONS: { label: string; href: string }[] = [
-  { label: "Bots e Funis", href: "/dashboard/telegram/bot" },
   { label: "Autopost", href: "/dashboard/telegram/autopost" },
+  { label: "Configurações", href: "/dashboard/telegram/settings" },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

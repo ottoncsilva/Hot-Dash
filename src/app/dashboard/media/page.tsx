@@ -22,7 +22,7 @@ import { RATIO_BUCKETS, ratioBucket, mediaFileUrl, mediaThumbUrl, type MediaItem
 
 const MAX_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? "200");
 
-type SortKey = "date_desc" | "date_asc" | "size_desc" | "size_asc" | "tag_asc";
+type SortKey = "date_desc" | "date_asc" | "size_desc" | "size_asc" | "tag_asc" | "file_date_desc" | "file_date_asc";
 
 export default function MediaPage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -119,6 +119,9 @@ export default function MediaPage() {
       try {
         const form = new FormData();
         form.append("file", file);
+        if (file.lastModified) {
+          form.append("fileCreatedAt", file.lastModified.toString());
+        }
         const { media: item } = await apiUpload<{ media: MediaItem }>(
           `/api/profiles/${profileId}/media`,
           form,
@@ -335,6 +338,12 @@ export default function MediaPage() {
       case "date_asc":
         list.sort((a, b) => a.createdAt - b.createdAt);
         break;
+      case "file_date_desc":
+        list.sort((a, b) => (b.fileCreatedAt || b.createdAt) - (a.fileCreatedAt || a.createdAt));
+        break;
+      case "file_date_asc":
+        list.sort((a, b) => (a.fileCreatedAt || a.createdAt) - (b.fileCreatedAt || b.createdAt));
+        break;
       case "size_desc":
         list.sort((a, b) => b.size - a.size);
         break;
@@ -514,8 +523,10 @@ export default function MediaPage() {
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortKey)}
               >
-                <option value="date_desc">Mais recentes</option>
-                <option value="date_asc">Mais antigas</option>
+                <option value="date_desc">Inserção (recente)</option>
+                <option value="date_asc">Inserção (antiga)</option>
+                <option value="file_date_desc">Arquivo (recente)</option>
+                <option value="file_date_asc">Arquivo (antiga)</option>
                 <option value="size_desc">Maior tamanho</option>
                 <option value="size_asc">Menor tamanho</option>
                 {tags.length > 0 && <option value="tag_asc">Etiqueta (A-Z)</option>}

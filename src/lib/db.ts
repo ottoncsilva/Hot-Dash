@@ -318,6 +318,7 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "media", "height", "INTEGER");
   ensureColumn(d, "media", "public_token", "TEXT");
   ensureColumn(d, "media", "updated_at", "INTEGER");
+  ensureColumn(d, "media", "file_created_at", "INTEGER");
   ensureColumn(d, "profiles", "status", "TEXT NOT NULL DEFAULT 'configuring'");
   ensureColumn(d, "telegram_bots", "welcome_media_tags", "TEXT");
   ensureColumn(d, "telegram_bots", "downsell_funnel", "TEXT");

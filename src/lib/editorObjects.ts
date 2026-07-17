@@ -144,14 +144,37 @@ export function drawSelectionBox(
   b: { x: number; y: number; w: number; h: number },
 ) {
   ctx.save();
+  // Borda pontilhada branca e preta para dar contraste em fundos claros e escuros
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(b.x, b.y, b.w, b.h);
+  
   ctx.strokeStyle = "#ffffff";
   ctx.lineWidth = 2;
-  ctx.setLineDash([7, 5]);
-  ctx.strokeRect(b.x - 4, b.y - 4, b.w + 8, b.h + 8);
+  ctx.setLineDash([6, 4]);
+  ctx.strokeRect(b.x, b.y, b.w, b.h);
   ctx.setLineDash([]);
-  const hs = 20;
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(b.x + b.w - hs / 2, b.y + b.h - hs / 2, hs, hs);
+  
+  // Alça superior esquerda (Movimentar)
+  const rMove = 8;
+  ctx.beginPath();
+  ctx.arc(b.x, b.y, rMove, 0, 2 * Math.PI);
+  ctx.fillStyle = "#3b82f6"; // Azul para mover
+  ctx.fill();
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Alça inferior direita (Redimensionar)
+  const rResize = 10;
+  ctx.beginPath();
+  ctx.arc(b.x + b.w, b.y + b.h, rResize, 0, 2 * Math.PI);
+  ctx.fillStyle = "#10b981"; // Verde para redimensionar
+  ctx.fill();
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
   ctx.restore();
 }
 
@@ -213,8 +236,11 @@ export function drawOverlayObjects(
       ctx.fillText(o.text || "", o.x, o.y);
     } else if (o.type === "emoji") {
       ctx.font = `${o.size}px sans-serif`;
-      ctx.textBaseline = "top";
-      ctx.fillText(o.emoji, o.x, o.y);
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "center";
+      // Centraliza perfeitamente no container w/h = size/size
+      ctx.fillText(o.emoji, o.x + o.size / 2, o.y + o.size / 2 + o.size * 0.05); // pequeno ajuste de centro visual
+      ctx.textAlign = "left";
     } else if (o.type === "question") {
       const {
         outerPad,

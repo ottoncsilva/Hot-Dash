@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { activeProvider } from "@/lib/payments";
 import { recordTransaction } from "@/lib/transactions";
+import { ensureSyncpayWebhookToken } from "@/lib/settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +30,10 @@ export async function POST(req: NextRequest) {
       );
     }
     const amountCents = Math.round(amount * 100);
-    const postbackUrl = `${req.nextUrl.origin}/api/webhooks/${provider.key}`;
+    // Inclui o token — sem ele a SyncPay recebe 401 e a venda nunca é
+    // confirmada (era o motivo do dashboard não receber os pagamentos).
+    const token = ensureSyncpayWebhookToken();
+    const postbackUrl = `${req.nextUrl.origin}/api/webhooks/${provider.key}?token=${encodeURIComponent(token)}`;
 
     const result = await provider.createPixCharge({
       amountCents,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeStatus, recordTransaction, updateStatusByRef } from "@/lib/transactions";
+import { ensureSyncpayWebhookToken } from "@/lib/settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,9 +20,14 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: NextRequest) {
   try {
-    // Validação básica de autenticidade do webhook
-    const secretToken = req.nextUrl.searchParams.get("token");
-    if (!secretToken || secretToken !== process.env.SESSION_SECRET) {
+    // Autenticidade do webhook: aceita o token gerenciado (o que a UI mostra
+    // para colar na SyncPay) ou, por retrocompatibilidade, o SESSION_SECRET
+    // usado nas versões antigas. O token pode vir em ?token= ou no header.
+    const provided =
+      req.nextUrl.searchParams.get("token") || req.headers.get("x-webhook-token") || "";
+    const expected = ensureSyncpayWebhookToken();
+    const legacy = process.env.SESSION_SECRET || "";
+    if (!provided || (provided !== expected && !(legacy && provided === legacy))) {
       return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
     }
 

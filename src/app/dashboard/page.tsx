@@ -51,6 +51,7 @@ function timeAgo(ms: number): string {
 export default function DashboardHome() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [data, setData] = useState<Data | null>(null);
+  const [aiConnected, setAiConnected] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [profileId, setProfileId] = useState<string>("");
   const [period, setPeriod] = useState<PeriodKey>("month");
@@ -81,6 +82,19 @@ export default function DashboardHome() {
     apiGet<{ profiles: Profile[] }>("/api/profiles")
       .then((d) => setProfiles(d.profiles))
       .catch(() => setProfiles([]));
+    // Status de IA para o checklist de primeiros passos.
+    apiGet<{ settings: { openai: { enabled: boolean; hasKey: boolean }; gemini: { enabled: boolean; hasKey: boolean } } }>(
+      "/api/settings/ai",
+    )
+      .then((d) =>
+        setAiConnected(
+          Boolean(
+            (d.settings.openai.enabled && d.settings.openai.hasKey) ||
+              (d.settings.gemini.enabled && d.settings.gemini.hasKey),
+          ),
+        ),
+      )
+      .catch(() => setAiConnected(false));
   }, []);
 
   useEffect(() => {
@@ -126,6 +140,14 @@ export default function DashboardHome() {
       <p className="mt-2 max-w-xl text-sm text-zinc-500">
         Resumo financeiro e operacional das suas personagens.
       </p>
+
+      {profiles !== null && aiConnected !== null && data !== null && (
+        <SetupChecklist
+          profileDone={profiles.length > 0}
+          aiDone={aiConnected}
+          payDone={Boolean(data.providers.syncpay.enabled)}
+        />
+      )}
 
       {newSale && (
         <div className="mt-5 flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/[0.08] px-4 py-3">
@@ -340,6 +362,65 @@ function MetricCard({
       >
         {value ?? <span className="inline-block h-6 w-16 animate-pulse rounded bg-white/5" />}
       </p>
+    </div>
+  );
+}
+
+function SetupChecklist({
+  profileDone,
+  aiDone,
+  payDone,
+}: {
+  profileDone: boolean;
+  aiDone: boolean;
+  payDone: boolean;
+}) {
+  const steps = [
+    { done: profileDone, label: "Crie seu primeiro modelo", href: "/dashboard/profiles" },
+    { done: aiDone, label: "Conecte uma IA (legendas e cronograma)", href: "/dashboard/settings/ia" },
+    { done: payDone, label: "Conecte os pagamentos (SyncPay)", href: "/dashboard/settings/pagamentos" },
+  ];
+  const doneCount = steps.filter((s) => s.done).length;
+  // Some quando tudo está configurado.
+  if (doneCount === steps.length) return null;
+
+  return (
+    <div className="mt-5 rounded-xl border border-white/15 bg-white/[0.03] p-4">
+      <div className="flex items-center justify-between">
+        <p className="font-display text-base font-semibold text-white">Primeiros passos</p>
+        <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
+          {doneCount}/{steps.length}
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-zinc-500">
+        Complete a configuração para o painel funcionar por inteiro.
+      </p>
+      <div className="mt-3 space-y-1.5">
+        {steps.map((s) => (
+          <div
+            key={s.href}
+            className="flex items-center gap-3 rounded-lg border border-white/[0.06] px-3 py-2.5"
+          >
+            <span
+              className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border ${
+                s.done ? "border-emerald-500 bg-emerald-500 text-black" : "border-white/25 text-transparent"
+              }`}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                <path d="M5 13l4 4 10-10" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+            <span className={`flex-1 text-sm ${s.done ? "text-zinc-500 line-through" : "text-zinc-200"}`}>
+              {s.label}
+            </span>
+            {!s.done && (
+              <Link href={s.href} className="btn-ghost px-3 py-1.5 text-xs">
+                Configurar
+              </Link>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

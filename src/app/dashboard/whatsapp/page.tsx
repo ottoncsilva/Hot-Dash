@@ -5,11 +5,13 @@ import { IconWhatsapp, IconSettings, IconRefresh } from "@/components/icons";
 import { apiGet, apiSend } from "@/lib/api";
 import Link from "next/link";
 import { showToast } from "@/lib/toast";
+import { useConfirm } from "@/hooks/useConfirm";
 
 type Profile = { id: string; name: string };
 type AgentSettings = { prompt: string; enable_media: boolean; enable_billing: boolean; ai_provider: string; pix_key: string };
 
 export default function WhatsAppVipPage() {
+  const { confirm, ConfirmDialog } = useConfirm();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [loading, setLoading] = useState(false);
@@ -110,7 +112,7 @@ export default function WhatsAppVipPage() {
   };
 
   const handleDisconnect = async () => {
-    if (!confirm("Tem certeza que deseja desconectar e excluir a instância desta modelo?")) return;
+    if (!(await confirm("Tem certeza que deseja desconectar e excluir a instância desta modelo?"))) return;
     try {
       await apiSend("/api/whatsapp/instances", "POST", { action: "disconnect", profileId: selectedProfileId });
       setInstanceStatus("disconnected");
@@ -297,6 +299,8 @@ export default function WhatsAppVipPage() {
 
         </div>
       )}
+      
+      {ConfirmDialog}
     </div>
   );
 }

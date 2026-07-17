@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { showToast } from "@/lib/toast";
 import TelegramCalendar from "@/components/telegram/TelegramCalendar";
+import { useConfirm } from "@/hooks/useConfirm";
 
 const toast = {
   success: (msg: string) => showToast(msg, "success"),
@@ -32,6 +33,7 @@ type TelegramSettings = {
 };
 
 export default function TelegramUnifiedPage() {
+  const { confirm, ConfirmDialog } = useConfirm();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState("");
@@ -135,7 +137,7 @@ export default function TelegramUnifiedPage() {
 
   const generateSchedule = async (target: "vip" | "warmup") => {
     const days = target === "vip" ? daysToGenerateVip : daysToGenerateWarmup;
-    if (!confirm(`Deseja gerar os posts dos próximos ${days} dias para o canal ${target.toUpperCase()}?`)) return;
+    if (!(await confirm(`Deseja gerar os posts dos próximos ${days} dias para o canal ${target.toUpperCase()}?`))) return;
     
     const setGen = target === "vip" ? setGeneratingVip : setGeneratingWarmup;
     setGen(true);
@@ -650,6 +652,7 @@ export default function TelegramUnifiedPage() {
           </div>
         </div>
       )}
+      {ConfirmDialog}
     </div>
   );
 }

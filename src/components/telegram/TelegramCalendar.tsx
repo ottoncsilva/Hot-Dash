@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
 import type { ScheduledPost } from "@/lib/postTypes";
+import { useConfirm } from "@/hooks/useConfirm";
+import { showToast } from "@/lib/toast";
 
 export default function TelegramCalendar({ profileId }: { profileId: string }) {
   const [posts, setPosts] = useState<ScheduledPost[]>([]);
@@ -10,6 +12,8 @@ export default function TelegramCalendar({ profileId }: { profileId: string }) {
   const [editingPost, setEditingPost] = useState<ScheduledPost | null>(null);
   const [editCaption, setEditCaption] = useState("");
   const [saving, setSaving] = useState(false);
+  
+  const { confirm, ConfirmDialog } = useConfirm();
 
   async function load() {
     if (!profileId) return;
@@ -35,12 +39,13 @@ export default function TelegramCalendar({ profileId }: { profileId: string }) {
   }, [profileId]);
 
   async function deletePost(id: string) {
-    if (!confirm("Deseja realmente remover este agendamento?")) return;
+    if (!(await confirm("Deseja realmente remover este agendamento?"))) return;
     try {
       await apiSend(`/api/posts/${id}`, "DELETE");
       setPosts(ps => ps.filter(p => p.id !== id));
+      showToast("Agendamento excluído.", "success");
     } catch (e) {
-      alert("Erro ao excluir.");
+      showToast("Erro ao excluir.", "error");
     }
   }
 
@@ -56,8 +61,9 @@ export default function TelegramCalendar({ profileId }: { profileId: string }) {
       const res = await apiSend<{ post: ScheduledPost }>(`/api/posts/${editingPost.id}`, "PATCH", { caption: editCaption });
       setPosts(ps => ps.map(p => p.id === res.post.id ? res.post : p));
       setEditingPost(null);
+      showToast("Legenda salva com sucesso!", "success");
     } catch (e) {
-      alert("Erro ao salvar edição.");
+      showToast("Erro ao salvar edição.", "error");
     } finally {
       setSaving(false);
     }
@@ -217,6 +223,7 @@ export default function TelegramCalendar({ profileId }: { profileId: string }) {
         </div>
       )}
 
+      {ConfirmDialog}
     </div>
   );
 }

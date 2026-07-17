@@ -7,6 +7,8 @@ import AuthImage from "@/components/AuthImage";
 import Modal from "@/components/Modal";
 import NetworkIcon from "@/components/NetworkIcon";
 import { IconPlus, IconProfiles, IconChevronRight } from "@/components/icons";
+import PageHeader from "@/components/PageHeader";
+import { showToast } from "@/lib/toast";
 import {
   NETWORK_LABELS,
   type Profile,
@@ -71,7 +73,9 @@ export default function ProfilesPage() {
       );
       setNewName("");
       setCreating(false);
+      showToast(`Modelo "${profile.name}" criado.`);
     } catch (err) {
+      showToast(err instanceof Error ? err.message : "Falha ao criar.", "error");
       setError(err instanceof Error ? err.message : "Falha ao criar.");
     } finally {
       setSaving(false);
@@ -87,7 +91,7 @@ export default function ProfilesPage() {
       setProfiles(
         (prev) => prev?.map((p) => (p.id === profile.id ? { ...p, status: prevStatus } : p)) ?? prev,
       );
-      setError(err instanceof Error ? err.message : "Falha ao atualizar status.");
+      showToast(err instanceof Error ? err.message : "Falha ao atualizar status.", "error");
     }
   }
 
@@ -117,21 +121,17 @@ export default function ProfilesPage() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="flex items-end justify-between">
-        <div>
-          <p className="eyebrow">gestão</p>
-          <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight">
-            Modelos
-          </h1>
-          <p className="mt-2 text-sm text-zinc-500">
-            Suas personagens de IA e as contas de cada uma.
-          </p>
-        </div>
-        <button onClick={() => setCreating(true)} className="btn-primary">
-          <IconPlus size={16} />
-          <span className="hidden sm:inline">Novo modelo</span>
-        </button>
-      </div>
+      <PageHeader
+        eyebrow="gestão"
+        title="Modelos"
+        description="Suas personagens de IA e as contas de cada uma."
+        actions={
+          <button onClick={() => setCreating(true)} className="btn-primary">
+            <IconPlus size={16} />
+            <span className="hidden sm:inline">Novo modelo</span>
+          </button>
+        }
+      />
 
       {error && (
         <div className="mt-5 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-4 py-3 text-sm text-red-300">

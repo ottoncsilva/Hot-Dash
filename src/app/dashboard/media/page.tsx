@@ -56,6 +56,23 @@ export default function MediaPage() {
 
   const { confirm, ConfirmDialog } = useConfirm();
   const selecting = selectMode || selected.size > 0;
+  const [dragging, setDragging] = useState(false);
+
+  function onDragOverFiles(e: React.DragEvent) {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    if (profileId) setDragging(true);
+  }
+  function onDragLeaveFiles(e: React.DragEvent) {
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setDragging(false);
+  }
+  function onDropFiles(e: React.DragEvent) {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    setDragging(false);
+    if (profileId) handleFiles(e.dataTransfer.files);
+  }
 
   // Carrega perfis e pré-seleciona pelo ?profile= da URL.
   useEffect(() => {
@@ -458,8 +475,37 @@ export default function MediaPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [tagPickerOpen, viewerIndex]);
 
+  // Colar (Ctrl/Cmd+V) uma imagem envia direto para o modelo selecionado.
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      if (!profileId) return;
+      const files = e.clipboardData?.files;
+      if (files && files.length > 0 && Array.from(files).some((f) => f.type.startsWith("image/"))) {
+        handleFiles(files);
+      }
+    }
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileId]);
+
   return (
-    <div className="mx-auto max-w-5xl pb-20">
+    <div
+      className="mx-auto max-w-5xl pb-20"
+      onDragOver={onDragOverFiles}
+      onDragLeave={onDragLeaveFiles}
+      onDrop={onDropFiles}
+    >
+      {dragging && (
+        <div className="pointer-events-none fixed inset-0 z-[80] grid place-items-center bg-ink-950/70 backdrop-blur-sm">
+          <div className="rounded-2xl border-2 border-dashed border-white/40 bg-ink-900/60 px-10 py-8 text-center">
+            <div className="mx-auto grid h-11 w-11 place-items-center rounded-lg border border-white/15 text-zinc-200">
+              <IconUpload size={22} />
+            </div>
+            <p className="mt-3 text-sm text-zinc-200">Solte para enviar ao modelo selecionado</p>
+          </div>
+        </div>
+      )}
       <PageHeader
         eyebrow="biblioteca"
         title="Mídia"
@@ -964,7 +1010,7 @@ function MediaGrid({
             )}
 
             {!selecting && (
-              <div className="pointer-events-none absolute bottom-0 left-0 right-0 flex items-center justify-end gap-1 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
+              <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-1 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-100 pointer-events-auto transition-opacity md:opacity-0 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto">
                 <CopyLinkButton
                   mediaId={item.id}
                   publicToken={item.publicToken}

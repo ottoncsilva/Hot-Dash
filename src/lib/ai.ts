@@ -148,7 +148,7 @@ export async function callAiRaw(
   // Google Gemini
   const parts: Record<string, unknown>[] = [
     { text: prompt },
-    ...images.map((img) => ({ inline_data: { mime_type: img.mime, data: img.base64 } })),
+    ...images.map((img) => ({ inlineData: { mimeType: img.mime, data: img.base64 } })),
   ];
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(

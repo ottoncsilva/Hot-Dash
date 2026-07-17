@@ -25,6 +25,10 @@ type ProfileRow = {
   avatar_path: string | null;
   notes: string | null;
   status: string;
+  bio_physical: string | null;
+  bio_unique: string | null;
+  bio_personality: string | null;
+  bio_vip_link: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -58,6 +62,10 @@ function profileToClient(p: ProfileRow): Profile {
     notes: p.notes || undefined,
     accounts: loadAccounts(p.id),
     status: p.status,
+    bioPhysical: p.bio_physical || undefined,
+    bioUnique: p.bio_unique || undefined,
+    bioPersonality: (p.bio_personality as any) || "safadinha",
+    bioVipLink: p.bio_vip_link || undefined,
     createdAt: p.created_at,
     updatedAt: p.updated_at,
   };
@@ -100,8 +108,8 @@ export async function createProfile(input: {
   const id = randomUUID();
   getDb()
     .prepare(
-      `INSERT INTO profiles (id, name, avatar_path, notes, status, created_at, updated_at)
-       VALUES (?, ?, NULL, ?, ?, ?, ?)`,
+      `INSERT INTO profiles (id, name, avatar_path, notes, status, bio_personality, created_at, updated_at)
+       VALUES (?, ?, NULL, ?, ?, 'safadinha', ?, ?)`,
     )
     .run(id, input.name.trim(), input.notes?.trim() || "", defaultStatus.id, now, now);
   return (await getProfile(id))!;
@@ -114,6 +122,10 @@ export async function updateProfile(
     notes?: string;
     avatarPath?: string | null;
     status?: string;
+    bioPhysical?: string;
+    bioUnique?: string;
+    bioPersonality?: "santinha" | "safadinha" | "explicita";
+    bioVipLink?: string;
   },
 ): Promise<Profile | null> {
   const existing = getDb()
@@ -138,6 +150,22 @@ export async function updateProfile(
   if (patch.avatarPath !== undefined) {
     sets.push("avatar_path = ?");
     vals.push(patch.avatarPath);
+  }
+  if (patch.bioPhysical !== undefined) {
+    sets.push("bio_physical = ?");
+    vals.push(patch.bioPhysical.trim());
+  }
+  if (patch.bioUnique !== undefined) {
+    sets.push("bio_unique = ?");
+    vals.push(patch.bioUnique.trim());
+  }
+  if (patch.bioPersonality !== undefined) {
+    sets.push("bio_personality = ?");
+    vals.push(patch.bioPersonality);
+  }
+  if (patch.bioVipLink !== undefined) {
+    sets.push("bio_vip_link = ?");
+    vals.push(patch.bioVipLink.trim());
   }
   sets.push("updated_at = ?");
   vals.push(Date.now());

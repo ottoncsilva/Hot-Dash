@@ -45,6 +45,10 @@ export type Profile = {
   mediaCount?: number;
   /** Id de um item do catálogo `ProfileStatusDef`. */
   status: string;
+  bioPhysical?: string;
+  bioUnique?: string;
+  bioPersonality?: "santinha" | "safadinha" | "explicita";
+  bioVipLink?: string;
   /** Quantidade de posts (agendados + postados) do perfil. */
   postCount?: number;
   /** Soma das transações pagas vinculadas a este perfil. */

@@ -320,6 +320,10 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "media", "updated_at", "INTEGER");
   ensureColumn(d, "media", "file_created_at", "INTEGER");
   ensureColumn(d, "profiles", "status", "TEXT NOT NULL DEFAULT 'configuring'");
+  ensureColumn(d, "profiles", "bio_physical", "TEXT");
+  ensureColumn(d, "profiles", "bio_unique", "TEXT");
+  ensureColumn(d, "profiles", "bio_personality", "TEXT DEFAULT 'safadinha'");
+  ensureColumn(d, "profiles", "bio_vip_link", "TEXT");
   ensureColumn(d, "telegram_bots", "welcome_media_tags", "TEXT");
   ensureColumn(d, "telegram_bots", "downsell_funnel", "TEXT");
   ensureColumn(d, "telegram_bots", "upsell_funnel", "TEXT");

@@ -36,6 +36,10 @@ export default function ProfileDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
+  const [bioPhysical, setBioPhysical] = useState("");
+  const [bioUnique, setBioUnique] = useState("");
+  const [bioPersonality, setBioPersonality] = useState<"santinha" | "safadinha" | "explicita">("safadinha");
+  const [bioVipLink, setBioVipLink] = useState("");
   const [savingInfo, setSavingInfo] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarKey, setAvatarKey] = useState(0);
@@ -51,6 +55,10 @@ export default function ProfileDetailPage() {
       setProfile(data.profile);
       setName(data.profile.name);
       setNotes(data.profile.notes || "");
+      setBioPhysical(data.profile.bioPhysical || "");
+      setBioUnique(data.profile.bioUnique || "");
+      setBioPersonality(data.profile.bioPersonality || "safadinha");
+      setBioVipLink(data.profile.bioVipLink || "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao carregar.");
     } finally {
@@ -70,7 +78,14 @@ export default function ProfileDetailPage() {
       const { profile: p } = await apiSend<{ profile: Profile }>(
         `/api/profiles/${id}`,
         "PATCH",
-        { name, notes },
+        {
+          name,
+          notes,
+          bioPhysical,
+          bioUnique,
+          bioPersonality,
+          bioVipLink,
+        },
       );
       setProfile(p);
     } catch (err) {
@@ -134,7 +149,12 @@ export default function ProfileDetailPage() {
   }
 
   const infoChanged =
-    name.trim() !== profile.name || (notes || "") !== (profile.notes || "");
+    name.trim() !== profile.name ||
+    (notes || "") !== (profile.notes || "") ||
+    bioPhysical !== (profile.bioPhysical || "") ||
+    bioUnique !== (profile.bioUnique || "") ||
+    bioPersonality !== (profile.bioPersonality || "safadinha") ||
+    bioVipLink !== (profile.bioVipLink || "");
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -188,25 +208,94 @@ export default function ProfileDetailPage() {
             />
           </div>
 
-          <div className="flex-1 space-y-3">
+          <div className="flex-1 space-y-4">
             <div>
-              <label className="eyebrow mb-1.5 block">Nome</label>
+              <div className="flex items-center gap-2 mb-1 font-display text-sm font-semibold text-white/90">
+                <svg className="h-4.5 w-4.5 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <circle cx="12" cy="10" r="3" />
+                  <path d="M7 21v-2a3 3 0 0 1 6 0v2" />
+                </svg>
+                Perfil da modelo · <span className="text-zinc-500 font-normal">a I.A. escreve a Copy</span>
+              </div>
+              <p className="text-xs text-zinc-500 mb-4">A I.A. cria uma legenda com micro-história no fetiche da modelo, no formato certo pro Telegram.</p>
+            </div>
+
+            <div>
+              <label className="eyebrow mb-1.5 block">Nome da Modelo</label>
               <input
                 className="input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
+            
             <div>
-              <label className="eyebrow mb-1.5 block">Observações</label>
+              <label className="eyebrow mb-1.5 block">Características Físicas</label>
               <textarea
-                className="input min-h-[64px] resize-y"
-                placeholder="Notas sobre a personagem..."
+                className="input min-h-[72px] resize-y"
+                placeholder="Ex: Loira corpo levemente malhado, silicone médio..."
+                value={bioPhysical}
+                onChange={(e) => setBioPhysical(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="eyebrow mb-1.5 block">Mecanismo Único / Fetiche <span className="text-zinc-500 font-normal">(o diferencial — vira a história)</span></label>
+              <input
+                className="input"
+                placeholder="Ex: Coroa 40 anos divorciada"
+                value={bioUnique}
+                onChange={(e) => setBioUnique(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="eyebrow mb-1.5 block">Como ela é</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: "santinha", title: "Santinha", desc: "inocente por fora" },
+                  { id: "safadinha", title: "Safadinha", desc: "safada na medida" },
+                  { id: "explicita", title: "Explícita", desc: "sem papas na língua" }
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setBioPersonality(item.id as any)}
+                    className={`flex flex-col items-start px-3 py-2 rounded-lg border transition-all text-left ${
+                      bioPersonality === item.id
+                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400 shadow-md'
+                        : 'border-white/[0.06] bg-zinc-900/40 text-zinc-400 hover:bg-zinc-900/60'
+                    }`}
+                  >
+                    <span className={`text-xs font-bold ${bioPersonality === item.id ? 'text-emerald-400' : 'text-zinc-200'}`}>{item.title}</span>
+                    <span className="text-[10px] text-zinc-500 mt-0.5">{item.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="eyebrow mb-1.5 block">Link do VIP / Bot <span className="text-zinc-500 font-normal">(entra nos botões da copy)</span></label>
+              <input
+                className="input"
+                placeholder="Ex: https://t.me/..."
+                value={bioVipLink}
+                onChange={(e) => setBioVipLink(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="eyebrow mb-1.5 block">Observações do Sistema</label>
+              <textarea
+                className="input min-h-[48px] resize-y"
+                placeholder="Notas internas..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
               />
             </div>
-            <div className="flex items-center gap-3">
+
+            <div className="flex items-center gap-3 pt-2">
               <button
                 onClick={saveInfo}
                 disabled={!infoChanged || savingInfo || !name.trim()}

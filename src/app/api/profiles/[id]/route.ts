@@ -40,6 +40,10 @@ export async function PATCH(
       name: body.name,
       notes: body.notes,
       status: body.status,
+      bioPhysical: body.bioPhysical,
+      bioUnique: body.bioUnique,
+      bioPersonality: body.bioPersonality,
+      bioVipLink: body.bioVipLink,
     });
     if (!profile) {
       return NextResponse.json(

@@ -117,7 +117,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <button
                     onClick={() => setWhatsappOpen(!whatsappOpen)}
                     className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      isWhatsappActive ? "bg-white/5 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                      isWhatsappActive ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
                     }`}
                   >
                     <div className="flex items-center gap-3">
@@ -153,7 +153,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <button
                     onClick={() => setSettingsOpen(!settingsOpen)}
                     className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      active ? "bg-white/5 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                      active ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
                     }`}
                   >
                     <div className="flex items-center gap-3">
@@ -188,7 +188,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 key={key}
                 href={item.href}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  active ? "bg-white/5 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                  active ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
                 }`}
               >
                 <Icon size={18} />
@@ -244,7 +244,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <button
                       onClick={() => setWhatsappOpen(!whatsappOpen)}
                       className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                        isWhatsappActive ? "bg-white/5 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                        isWhatsappActive ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
                       }`}
                     >
                       <div className="flex items-center gap-3">
@@ -281,7 +281,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <button
                       onClick={() => setSettingsOpen(!settingsOpen)}
                       className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                        active ? "bg-white/5 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                        active ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
                       }`}
                     >
                       <div className="flex items-center gap-3">
@@ -318,7 +318,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   href={item.href}
                   onClick={handleLinkClick}
                   className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                    active ? "bg-white/5 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                    active ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
                   }`}
                 >
                   <Icon size={18} />

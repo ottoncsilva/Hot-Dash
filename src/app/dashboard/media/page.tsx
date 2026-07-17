@@ -19,6 +19,9 @@ import {
   IconTag,
 } from "@/components/icons";
 import { RATIO_BUCKETS, ratioBucket, mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type RatioBucket, type Tag } from "@/lib/types";
+import PageHeader from "@/components/PageHeader";
+import { showToast } from "@/lib/toast";
+import Link from "next/link";
 
 const MAX_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? "200");
 
@@ -147,9 +150,14 @@ export default function MediaPage() {
 
   async function removeOne(item: MediaItem) {
     if (!(await confirm("Excluir esta mídia? Ela será removida do servidor."))) return;
-    await apiSend(`/api/media/${item.id}`, "DELETE");
-    setMedia((m) => (m || []).filter((x) => x.id !== item.id));
-    setViewerIndex(null);
+    try {
+      await apiSend(`/api/media/${item.id}`, "DELETE");
+      setMedia((m) => (m || []).filter((x) => x.id !== item.id));
+      setViewerIndex(null);
+      showToast("Mídia excluída.");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Falha ao excluir.", "error");
+    }
   }
 
   function toggleSelect(id: string) {
@@ -180,8 +188,10 @@ export default function MediaPage() {
       const ids = Array.from(selected);
       await Promise.all(ids.map((id) => apiSend(`/api/media/${id}`, "DELETE")));
       setMedia((m) => (m || []).filter((x) => !selected.has(x.id)));
+      showToast(`${ids.length} mídia(s) excluída(s).`);
       clearSelection();
     } catch (err) {
+      showToast(err instanceof Error ? err.message : "Falha ao excluir.", "error");
       setError(err instanceof Error ? err.message : "Falha ao excluir.");
     } finally {
       setBulkBusy(false);
@@ -450,46 +460,41 @@ export default function MediaPage() {
 
   return (
     <div className="mx-auto max-w-5xl pb-20">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="eyebrow">biblioteca</p>
-          <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight">
-            Mídia
-          </h1>
-          <p className="mt-2 text-sm text-zinc-500">
-            Suba fotos e vídeos aqui: todos os metadados são removidos
-            automaticamente e o arquivo é salvo já vinculado ao perfil.
-          </p>
-        </div>
-        {profiles.length > 0 && (
-          <div className="flex gap-2">
-            <button
-              onClick={() => (selectMode ? clearSelection() : setSelectMode(true))}
-              className={selectMode ? "btn-ghost border-white/40 bg-white/10 text-white" : "btn-ghost"}
-            >
-              {selectMode ? "Cancelar seleção" : "Selecionar"}
-            </button>
-            <button
-              onClick={() => fileRef.current?.click()}
-              disabled={!profileId}
-              className="btn-primary"
-            >
-              <IconUpload size={16} /> Enviar mídia
-            </button>
-          </div>
-        )}
-        <input
-          ref={fileRef}
-          type="file"
-          multiple
-          accept="image/*,video/*"
-          className="hidden"
-          onChange={(e) => {
-            handleFiles(e.target.files);
-            e.target.value = "";
-          }}
-        />
-      </div>
+      <PageHeader
+        eyebrow="biblioteca"
+        title="Mídia"
+        description="Suba fotos e vídeos aqui: todos os metadados são removidos automaticamente e o arquivo é salvo já vinculado ao perfil."
+        actions={
+          profiles.length > 0 ? (
+            <>
+              <button
+                onClick={() => (selectMode ? clearSelection() : setSelectMode(true))}
+                className={selectMode ? "btn-ghost border-white/40 bg-white/10 text-white" : "btn-ghost"}
+              >
+                {selectMode ? "Cancelar seleção" : "Selecionar"}
+              </button>
+              <button
+                onClick={() => fileRef.current?.click()}
+                disabled={!profileId}
+                className="btn-primary"
+              >
+                <IconUpload size={16} /> Enviar mídia
+              </button>
+            </>
+          ) : null
+        }
+      />
+      <input
+        ref={fileRef}
+        type="file"
+        multiple
+        accept="image/*,video/*"
+        className="hidden"
+        onChange={(e) => {
+          handleFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
 
       {/* Seletor de perfil */}
       {profiles.length > 0 && (
@@ -692,7 +697,14 @@ export default function MediaPage() {
 
       {/* Grade */}
       {profiles.length === 0 ? (
-        <EmptyState text="Crie um modelo antes de enviar mídias." />
+        <EmptyState
+          text="Crie um modelo antes de enviar mídias."
+          action={
+            <Link href="/dashboard/profiles" className="btn-primary">
+              Criar modelo
+            </Link>
+          }
+        />
       ) : media === null ? (
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
@@ -700,7 +712,14 @@ export default function MediaPage() {
           ))}
         </div>
       ) : media.length === 0 ? (
-        <EmptyState text="Nenhuma mídia neste modelo ainda." />
+        <EmptyState
+          text="Nenhuma mídia neste modelo ainda."
+          action={
+            <button onClick={() => fileRef.current?.click()} disabled={!profileId} className="btn-primary">
+              <IconUpload size={16} /> Enviar mídia
+            </button>
+          }
+        />
       ) : filteredMedia.length === 0 ? (
         <EmptyState text="Nenhuma mídia com esse filtro." />
       ) : groups ? (
@@ -976,13 +995,14 @@ function MediaGrid({
   );
 }
 
-function EmptyState({ text }: { text: string }) {
+function EmptyState({ text, action }: { text: string; action?: React.ReactNode }) {
   return (
     <div className="mt-6 flex flex-col items-center gap-3 rounded-xl border border-dashed border-white/10 p-12 text-center">
       <div className="grid h-12 w-12 place-items-center rounded-lg border border-white/10 text-zinc-400">
         <IconMedia size={22} />
       </div>
       <p className="text-sm text-zinc-500">{text}</p>
+      {action && <div className="mt-1">{action}</div>}
     </div>
   );
 }

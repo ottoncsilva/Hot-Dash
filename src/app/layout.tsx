@@ -44,8 +44,8 @@ export const viewport: Viewport = {
   themeColor: "#070708",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // Zoom liberado (acessibilidade) — antes estava travado com
+  // maximumScale/userScalable, o que impedia ampliar a tela.
   viewportFit: "cover",
 };
 

@@ -21,6 +21,7 @@ import {
   IconDownload,
 } from "@/components/icons";
 import { NETWORK_LABELS, mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type SocialAccount, type SocialNetwork } from "@/lib/types";
+import { showToast } from "@/lib/toast";
 import type { AiProvider } from "@/lib/settings";
 import {
   NETWORK_DOT_COLORS,
@@ -51,11 +52,107 @@ function fmtDayLong(ms: number): string {
   });
 }
 
+// O Telegram (VIP/Prévias) é uma atividade à parte, gerida no menu Telegram —
+// não faz parte do Cronograma de postagens (redes sociais / captação).
+const isTelegramPost = (p: ScheduledPost) => p.networks.some((n) => n.network === "telegram");
+
+/** Post "pronto" para postar = tem mídia E legenda. */
+const isReady = (p: ScheduledPost) => p.media.length > 0 && Boolean(p.caption && p.caption.trim());
+
+/** Atrasado = ainda agendado e o horário já passou. */
+const isOverdue = (p: ScheduledPost) => p.status === "scheduled" && p.scheduledAt < Date.now();
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Salva/compartilha a mídia do post no dispositivo (Web Share no iPhone → Fotos;
+ *  fallback baixa arquivo único ou .zip). Compartilhado entre o detalhe e a fila. */
+async function sharePostMedia(post: ScheduledPost): Promise<void> {
+  if (post.media.length === 0) return;
+  const nav = navigator as Navigator & {
+    canShare?: (data?: ShareData) => boolean;
+    share?: (data: ShareData) => Promise<void>;
+  };
+  const fallback = async () => {
+    if (post.media.length === 1) {
+      const m = post.media[0];
+      const res = await fetch(mediaUrl(m));
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = m.filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      return;
+    }
+    const res = await fetch("/api/media/zip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: post.media.map((m) => m.id) }),
+    });
+    if (!res.ok) throw new Error(`Erro ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `hotdash-post-${post.media.length}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+  if (!nav.share || !nav.canShare) {
+    await fallback();
+    return;
+  }
+  const files = await Promise.all(
+    post.media.map(async (m) => {
+      const res = await fetch(mediaUrl(m));
+      const blob = await res.blob();
+      return new File([blob], m.filename, { type: blob.type || "application/octet-stream" });
+    }),
+  );
+  if (!nav.canShare({ files })) {
+    await fallback();
+    return;
+  }
+  try {
+    await nav.share({ files });
+  } catch (err) {
+    if ((err as Error)?.name !== "AbortError") await fallback();
+  }
+}
+
+/** Selo de prontidão (pronto = mídia + legenda). */
+function ReadyBadge({ post }: { post: ScheduledPost }) {
+  const ready = isReady(post);
+  return (
+    <span
+      className={`chip ${
+        ready
+          ? "border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-300"
+          : "border-amber-500/30 bg-amber-500/[0.08] text-amber-300"
+      }`}
+    >
+      {ready ? "pronto" : "incompleto"}
+    </span>
+  );
+}
+
 export default function SchedulePage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [posts, setPosts] = useState<ScheduledPost[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"calendar" | "list">("calendar");
+  const [view, setView] = useState<"calendar" | "list" | "queue">("calendar");
   const [profileId, setProfileId] = useState("");
   const [networkFilter, setNetworkFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -95,11 +192,37 @@ export default function SchedulePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId, statusFilter]);
 
+  const selectedProfile = profiles.find((p) => p.id === profileId);
+
+  // Opções do filtro de rede: quando há uma modelo selecionada, mostra as
+  // CONTAS dela (permite escolher um Instagram específico entre vários); com
+  // "Todos os modelos", mostra as redes em uso. Telegram fica sempre de fora.
+  const filterOptions = useMemo(() => {
+    if (selectedProfile) {
+      return selectedProfile.accounts
+        .filter((a) => a.network !== "telegram")
+        .map((a) => ({ value: a.id, label: `${NETWORK_LABELS[a.network]} · @${a.username}` }));
+    }
+    const nets = new Set<SocialNetwork>();
+    (posts || []).forEach((p) =>
+      p.networks.forEach((n) => {
+        if (n.network !== "telegram") nets.add(n.network);
+      }),
+    );
+    return Array.from(nets).map((n) => ({ value: n, label: NETWORK_LABELS[n] }));
+  }, [selectedProfile, posts]);
+
   const filtered = useMemo(() => {
     if (!posts) return [];
-    if (!networkFilter) return posts;
-    return posts.filter((p) => p.networks.some((n) => n.network === networkFilter));
-  }, [posts, networkFilter]);
+    // Telegram é gerido no menu Telegram — não aparece no Cronograma.
+    let list = posts.filter((p) => !isTelegramPost(p));
+    if (networkFilter) {
+      list = profileId
+        ? list.filter((p) => p.networks.some((n) => n.accountId === networkFilter))
+        : list.filter((p) => p.networks.some((n) => n.network === networkFilter));
+    }
+    return list;
+  }, [posts, networkFilter, profileId]);
 
   async function togglePosted(post: ScheduledPost) {
     const next = post.status === "posted" ? "scheduled" : "posted";
@@ -110,8 +233,9 @@ export default function SchedulePage() {
         { status: next },
       );
       setPosts((ps) => (ps || []).map((p) => (p.id === updated.id ? updated : p)));
+      showToast(updated.status === "posted" ? "Marcado como postado." : "Voltou para agendado.");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Falha ao atualizar.");
+      showToast(e instanceof Error ? e.message : "Falha ao atualizar.", "error");
     }
   }
 
@@ -120,9 +244,10 @@ export default function SchedulePage() {
     try {
       await apiSend(`/api/posts/${post.id}`, "DELETE");
       setPosts((ps) => (ps || []).filter((p) => p.id !== post.id));
+      showToast("Post excluído.");
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Falha ao excluir.");
+      showToast(e instanceof Error ? e.message : "Falha ao excluir.", "error");
       return false;
     }
   }
@@ -182,6 +307,7 @@ export default function SchedulePage() {
               [
                 ["calendar", "Calendário"],
                 ["list", "Lista"],
+                ["queue", "Para postar"],
               ] as const
             ).map(([key, label]) => (
               <button
@@ -196,7 +322,14 @@ export default function SchedulePage() {
             ))}
           </div>
           <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-3 sm:justify-end">
-            <select className="input py-2 text-sm" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
+            <select
+              className="input py-2 text-sm"
+              value={profileId}
+              onChange={(e) => {
+                setProfileId(e.target.value);
+                setNetworkFilter(""); // as contas mudam de modelo p/ modelo
+              }}
+            >
               <option value="">Todos os modelos</option>
               {profiles.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -209,10 +342,10 @@ export default function SchedulePage() {
               value={networkFilter}
               onChange={(e) => setNetworkFilter(e.target.value)}
             >
-              <option value="">Todas as redes</option>
-              {Object.entries(NETWORK_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
+              <option value="">{selectedProfile ? "Todas as contas" : "Todas as redes"}</option>
+              {filterOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
                 </option>
               ))}
             </select>
@@ -237,12 +370,18 @@ export default function SchedulePage() {
           onDayClick={(d) => openNew(d)}
           onPostClick={setDetailPost}
         />
-      ) : (
+      ) : view === "list" ? (
         <ListView
           posts={filtered}
           onToggle={togglePosted}
           onEdit={openEdit}
           onDelete={removePost}
+          onDetail={setDetailPost}
+        />
+      ) : (
+        <PostQueue
+          posts={filtered}
+          onToggle={togglePosted}
           onDetail={setDetailPost}
         />
       )}
@@ -421,6 +560,12 @@ function PostDetail({
             {n.accountUsername ? ` (@${n.accountUsername})` : ""} · {n.postType}
           </span>
         ))}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {isOverdue(post) && (
+          <span className="chip border-amber-500/30 bg-amber-500/[0.08] text-amber-300">atrasado</span>
+        )}
+        <ReadyBadge post={post} />
       </div>
 
       {post.media.length > 0 && (
@@ -608,7 +753,9 @@ function CalendarView({
                     className={`block rounded-md border px-1.5 py-1 text-[10px] leading-tight transition-colors ${
                       p.status === "posted"
                         ? "border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-200"
-                        : "border-white/10 bg-white/[0.04] text-zinc-300 hover:border-white/25"
+                        : isOverdue(p)
+                          ? "border-amber-500/30 bg-amber-500/[0.08] text-amber-200"
+                          : "border-white/10 bg-white/[0.04] text-zinc-300 hover:border-white/25"
                     }`}
                   >
                     <span className="flex items-center gap-1">
@@ -763,6 +910,10 @@ function ListView({
                         {n.accountUsername ? ` (@${n.accountUsername})` : ""} · {n.postType}
                       </span>
                     ))}
+                    {isOverdue(p) && (
+                      <span className="chip border-amber-500/30 bg-amber-500/[0.08] text-amber-300">atrasado</span>
+                    )}
+                    <ReadyBadge post={p} />
                   </p>
                   {p.caption && (
                     <p className="mt-0.5 truncate text-xs text-zinc-500">{p.caption}</p>
@@ -796,6 +947,178 @@ function ListView({
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ---- Fila "Para postar" (operação diária, mobile-first) ----
+function PostQueue({
+  posts,
+  onToggle,
+  onDetail,
+}: {
+  posts: ScheduledPost[];
+  onToggle: (p: ScheduledPost) => void;
+  onDetail: (p: ScheduledPost) => void;
+}) {
+  const scheduled = useMemo(
+    () =>
+      posts.filter((p) => p.status === "scheduled").sort((a, b) => a.scheduledAt - b.scheduledAt),
+    [posts],
+  );
+  const overdue = scheduled.filter(isOverdue);
+  const upcoming = scheduled.filter((p) => !isOverdue(p));
+
+  if (scheduled.length === 0) {
+    return (
+      <div className="mt-4 card flex flex-col items-center gap-2 p-10 text-center">
+        <div className="grid h-11 w-11 place-items-center rounded-lg border border-white/10 text-zinc-500">
+          <IconCalendar size={20} />
+        </div>
+        <p className="text-sm text-zinc-500">
+          Nada na fila — tudo com esses filtros já foi postado.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 space-y-6">
+      {overdue.length > 0 && (
+        <div>
+          <p className="eyebrow text-amber-400">atrasados · {overdue.length}</p>
+          <div className="mt-2 space-y-2">
+            {overdue.map((p) => (
+              <QueueCard key={p.id} post={p} onToggle={onToggle} onDetail={onDetail} overdue />
+            ))}
+          </div>
+        </div>
+      )}
+      {upcoming.length > 0 && (
+        <div>
+          <p className="eyebrow">próximos · {upcoming.length}</p>
+          <div className="mt-2 space-y-2">
+            {upcoming.map((p) => (
+              <QueueCard key={p.id} post={p} onToggle={onToggle} onDetail={onDetail} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QueueCard({
+  post,
+  onToggle,
+  onDetail,
+  overdue,
+}: {
+  post: ScheduledPost;
+  onToggle: (p: ScheduledPost) => void;
+  onDetail: (p: ScheduledPost) => void;
+  overdue?: boolean;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function prepare() {
+    setBusy(true);
+    try {
+      const copied = post.caption && post.caption.trim() ? await copyText(post.caption) : false;
+      await sharePostMedia(post);
+      if (copied && post.media.length > 0) showToast("Legenda copiada e mídia pronta para salvar.");
+      else if (copied) showToast("Legenda copiada.");
+      else if (post.media.length > 0) showToast("Mídia pronta para salvar.");
+      else showToast("Este post está sem legenda e sem mídia.", "warning");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha ao preparar.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const when = new Date(post.scheduledAt).toLocaleDateString("pt-BR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+  });
+
+  return (
+    <div className={`card p-3 ${overdue ? "border-amber-500/30" : ""}`}>
+      <div className="flex gap-3">
+        {post.media[0] ? (
+          <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-ink-800">
+            {post.media[0].kind === "image" ? (
+              <AuthImage
+                src={mediaUrl(post.media[0])}
+                alt={post.media[0].filename}
+                className="h-full w-full object-cover"
+                fallback={<div className="h-full w-full bg-ink-800" />}
+              />
+            ) : (
+              <>
+                <AuthImage
+                  src={thumbUrl(post.media[0])}
+                  alt={post.media[0].filename}
+                  className="h-full w-full object-cover"
+                  fallback={<div className="h-full w-full bg-ink-800" />}
+                />
+                <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                  <IconPlay size={16} className="text-white drop-shadow" />
+                </div>
+              </>
+            )}
+            {post.media.length > 1 && (
+              <span className="absolute bottom-0 right-0 rounded-tl-md bg-black/70 px-1 font-mono text-[9px] text-white">
+                +{post.media.length - 1}
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="grid h-14 w-14 shrink-0 place-items-center rounded-lg border border-dashed border-white/10 text-zinc-700">
+            <IconCalendar size={18} />
+          </div>
+        )}
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={`font-mono text-xs ${overdue ? "text-amber-400" : "text-zinc-400"}`}>
+              {when} · {fmtTime(post.scheduledAt)}
+            </span>
+            <ReadyBadge post={post} />
+          </div>
+          <p className="mt-1 truncate text-sm font-medium text-zinc-200">{post.profileName}</p>
+          <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
+            {post.networks.map((n) => (
+              <span
+                key={n.accountId || n.network}
+                className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-zinc-500"
+              >
+                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: NETWORK_DOT_COLORS[n.network] }} />
+                {NETWORK_LABELS[n.network]}
+                {n.accountUsername ? ` @${n.accountUsername}` : ""} · {n.postType}
+              </span>
+            ))}
+          </div>
+          {post.caption && <p className="mt-1 line-clamp-2 text-xs text-zinc-500">{post.caption}</p>}
+        </div>
+      </div>
+
+      <div className="mt-3 flex gap-2">
+        <button onClick={prepare} disabled={busy} className="btn-primary flex-1 px-3 py-2 text-xs">
+          <IconDownload size={14} /> {busy ? "Preparando…" : "Preparar para postar"}
+        </button>
+        <button onClick={() => onToggle(post)} className="btn-ghost px-3 py-2 text-xs">
+          Marcar postado
+        </button>
+        <button
+          onClick={() => onDetail(post)}
+          className="btn-ghost shrink-0 px-2.5 py-2"
+          aria-label="Detalhes"
+        >
+          <IconChevronRight size={16} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -864,7 +1187,8 @@ function PostForm({
   }, []);
 
   const selectedProfile = profiles.find((p) => p.id === profileId);
-  const accounts = selectedProfile?.accounts || [];
+  // Telegram é gerido no menu Telegram — não é uma opção de rede no Cronograma.
+  const accounts = (selectedProfile?.accounts || []).filter((a) => a.network !== "telegram");
 
   function toggleAccount(acc: SocialAccount) {
     setNetworks((prev) => {

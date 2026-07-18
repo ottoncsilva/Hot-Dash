@@ -644,8 +644,9 @@ export default function TelegramUnifiedPage() {
 
           </div>
 
-          {/* Calendário de Agendamentos (Renderiza posts gerados) */}
-          <TelegramCalendar profileId={selectedProfileId} />
+          <div className="mt-8 border-t border-white/[0.06] pt-8">
+            <TelegramCalendar profileId={selectedProfileId} profiles={profiles} />
+          </div>
 
           <div className="mt-8 border-t border-white/[0.06] pt-6 flex justify-end">
             <button type="button" onClick={saveSettings} className="rounded-lg bg-sky-600 px-8 py-3 text-sm font-semibold hover:bg-sky-500 transition-colors shadow-lg shadow-sky-900/20">Salvar Todas Configurações</button>

@@ -7,6 +7,7 @@ import AuthImage from "@/components/AuthImage";
 import ToggleChip from "@/components/ToggleChip";
 import ScheduleTemplateModal from "@/components/schedule/ScheduleTemplateModal";
 import GenerateScheduleModal from "@/components/schedule/GenerateScheduleModal";
+import { PushNotificationButton } from "./PushNotificationButton";
 import { useConfirm } from "@/hooks/useConfirm";
 import {
   IconArrowLeft,
@@ -311,6 +312,9 @@ export default function SchedulePage() {
             Planeje as postagens de cada personagem — a publicação é feita
             manualmente no celular de cada perfil.
           </p>
+          <div className="mt-3">
+            <PushNotificationButton />
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => setTemplateOpen(true)} className="btn-ghost">

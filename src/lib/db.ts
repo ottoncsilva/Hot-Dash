@@ -141,6 +141,12 @@ function migrate(d: Database.Database) {
       FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id                TEXT PRIMARY KEY,
+      subscription_json TEXT NOT NULL,
+      created_at        INTEGER NOT NULL
+    );
+
     -- Programa semanal global (recorrente), reaplicado a cada perfil ao gerar
     -- um cronograma com IA. Não pertence a nenhum perfil específico.
     CREATE TABLE IF NOT EXISTS schedule_template_slots (
@@ -339,6 +345,7 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "whatsapp_agent_settings", "ai_provider", "TEXT NOT NULL DEFAULT 'grok'");
   ensureColumn(d, "whatsapp_agent_settings", "enable_billing", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(d, "whatsapp_agent_settings", "pix_key", "TEXT");
+  ensureColumn(d, "posts", "reminded", "INTEGER NOT NULL DEFAULT 0");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
 

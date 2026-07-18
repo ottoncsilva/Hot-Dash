@@ -14,4 +14,18 @@ export async function register() {
   console.log(
     `[hotdash] servidor iniciado · node ${process.version} · pid ${process.pid}`,
   );
+
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    // Importamos dinamicamente para evitar carregar módulos de servidor no build global.
+    const { processReminders } = await import("@/lib/cronTasks");
+    
+    // Roda a cada 1 minuto (para garantir pontualidade, ou a cada 5)
+    setInterval(async () => {
+      try {
+        await processReminders();
+      } catch (err) {
+        console.error("[hotdash] Erro no background cron (processReminders):", err);
+      }
+    }, 60 * 1000);
+  }
 }

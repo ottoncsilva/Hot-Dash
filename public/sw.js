@@ -40,3 +40,43 @@ self.addEventListener("fetch", (event) => {
       .catch(() => caches.match(request).then((r) => r || caches.match("/dashboard"))),
   );
 });
+
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+  try {
+    const data = event.data.json();
+    const title = data.title || "Notificação";
+    const options = {
+      body: data.body,
+      icon: "/logo.png",
+      badge: "/logo.png", // Ícone para PWA no Android/iOS
+      data: {
+        url: data.url || "/dashboard",
+      },
+    };
+    event.waitUntil(self.registration.showNotification(title, options));
+  } catch (e) {
+    console.error("Erro ao fazer parse do push data", e);
+  }
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const urlToOpen = event.notification.data.url;
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      // Se já houver uma aba aberta com esse app, foca nela e redireciona.
+      for (const client of clientList) {
+        if (client.url.includes(self.location.origin) && "focus" in client) {
+          client.navigate(urlToOpen);
+          return client.focus();
+        }
+      }
+      // Se não, abre uma nova aba com a URL desejada.
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(urlToOpen);
+      }
+    })
+  );
+});

@@ -3,11 +3,15 @@ import { apiGet, apiSend } from "@/lib/api";
 import type { ScheduledPost } from "@/lib/postTypes";
 import { useConfirm } from "@/hooks/useConfirm";
 import { showToast } from "@/lib/toast";
+import CalendarGrid from "@/components/schedule/CalendarGrid";
 
 export default function TelegramCalendar({ profileId }: { profileId: string }) {
   const [posts, setPosts] = useState<ScheduledPost[]>([]);
   const [loading, setLoading] = useState(false);
-  const [viewMode, setViewMode] = useState<"list" | "weekly">("weekly");
+  const [month, setMonth] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
 
   // Estados de edição
   const [editingPost, setEditingPost] = useState<ScheduledPost | null>(null);
@@ -50,6 +54,30 @@ export default function TelegramCalendar({ profileId }: { profileId: string }) {
     }
   }
 
+  async function movePost(postId: string, newDate: Date) {
+    const post = posts.find((p) => p.id === postId);
+    if (!post) return;
+    const oldD = new Date(post.scheduledAt);
+    const updatedDate = new Date(
+      newDate.getFullYear(),
+      newDate.getMonth(),
+      newDate.getDate(),
+      oldD.getHours(),
+      oldD.getMinutes()
+    );
+    try {
+      const res = await apiSend<{ post: ScheduledPost }>(
+        `/api/posts/${post.id}`,
+        "PATCH",
+        { scheduledAt: updatedDate.getTime() }
+      );
+      setPosts((ps) => ps.map((p) => (p.id === res.post.id ? res.post : p)));
+      showToast("Reagendado para " + updatedDate.toLocaleDateString("pt-BR"), "success");
+    } catch (e) {
+      showToast("Falha ao reagendar.", "error");
+    }
+  }
+
   function openEdit(post: ScheduledPost) {
     setEditingPost(post);
     setEditCaption(post.caption || "");
@@ -80,20 +108,6 @@ export default function TelegramCalendar({ profileId }: { profileId: string }) {
           <p className="text-xs text-zinc-400">Próximos posts gerados e prontos para envio.</p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex bg-zinc-950/50 rounded-lg p-1 border border-white/5">
-            <button 
-              onClick={() => setViewMode("list")} 
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${viewMode === 'list' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-            >
-              Lista
-            </button>
-            <button 
-              onClick={() => setViewMode("weekly")} 
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${viewMode === 'weekly' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-            >
-              Semanal
-            </button>
-          </div>
           <button onClick={load} className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700 hover:text-white transition-colors border border-white/5 h-[32px] flex items-center justify-center">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -112,153 +126,14 @@ export default function TelegramCalendar({ profileId }: { profileId: string }) {
           <p className="text-xs mt-1">Use os botões "✨ Gerar Dias" acima para projetar o cronograma.</p>
         </div>
       ) : (
-        <>
-          {viewMode === "list" ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-              {posts.map(post => {
-                const targetType = post.networks.find(n => n.network === "telegram")?.postType || "Mensagem";
-                const isVip = targetType === "VIP";
-                const date = new Date(post.scheduledAt);
-                const mediaObj = post.media[0];
-
-                return (
-                  <div 
-                    key={post.id} 
-                    onClick={() => post.status !== "posted" && openEdit(post)}
-                    className={`group relative flex flex-col rounded-xl border border-white/[0.08] bg-zinc-950/50 overflow-hidden shadow-md transition-all ${post.status === "posted" ? "opacity-60 grayscale-[30%] cursor-default" : "cursor-pointer hover:border-white/20 hover:shadow-lg"}`}
-                  >
-                    <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06] bg-zinc-900/50">
-                      <div className="flex flex-col">
-                        <span className="text-xs font-bold text-white">{date.toLocaleDateString("pt-BR", { weekday: 'short', day: '2-digit', month: '2-digit' }).toUpperCase()}</span>
-                        <span className="text-[10px] text-zinc-400">{date.toLocaleTimeString("pt-BR", { hour: '2-digit', minute: '2-digit' })}</span>
-                      </div>
-                      <div className="flex gap-1.5 items-center">
-                        {post.status === "posted" && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                            ENVIADO ✅
-                          </span>
-                        )}
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isVip ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'}`}>
-                          {targetType.toUpperCase()}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <div className="relative aspect-[3/4] w-full bg-zinc-900 border-b border-white/5">
-                      {mediaObj ? (
-                        mediaObj.kind === "video" ? (
-                          <video src={`/api/media/${mediaObj.id}/file`} className="h-full w-full object-cover opacity-80" muted playsInline />
-                        ) : (
-                          <img src={`/api/media/${mediaObj.id}/file`} className="h-full w-full object-cover opacity-80" />
-                        )
-                      ) : (
-                        <div className="flex h-full items-center justify-center text-zinc-700 text-xs">Sem mídia</div>
-                      )}
-                      
-                      {post.status !== "posted" && (
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); deletePost(post.id); }} 
-                          className="absolute top-2 right-2 rounded-md bg-black/60 p-1.5 text-zinc-300 opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all z-10"
-                          title="Excluir Post"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
-                      )}
-                    </div>
-                    
-                    <div className="p-3 text-xs text-zinc-300 line-clamp-3 leading-relaxed bg-[#0a0a0a]">
-                      {post.caption || <span className="italic text-zinc-600">Sem legenda...</span>}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="flex overflow-x-auto pb-4 custom-scrollbar snap-x snap-mandatory h-full min-h-[400px]">
-              {(() => {
-                const postsByDate: Record<string, typeof posts> = {};
-                const sortedPosts = [...posts].sort((a, b) => a.scheduledAt - b.scheduledAt);
-                
-                sortedPosts.forEach(post => {
-                  const d = new Date(post.scheduledAt);
-                  const dateStr = d.toLocaleDateString("pt-BR", { weekday: 'long', day: '2-digit', month: '2-digit' }).toUpperCase();
-                  if (!postsByDate[dateStr]) postsByDate[dateStr] = [];
-                  postsByDate[dateStr].push(post);
-                });
-
-                return Object.entries(postsByDate).map(([dateStr, dayPosts]) => (
-                  <div key={dateStr} className="flex flex-col min-w-[280px] w-[280px] shrink-0 mr-4 snap-start border border-white/[0.05] bg-zinc-900/20 rounded-xl overflow-hidden">
-                    <div className="bg-zinc-950/80 px-4 py-3 border-b border-white/[0.05] sticky top-0 z-10 flex items-center justify-between">
-                      <span className="font-bold text-sm text-white">{dateStr}</span>
-                      <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded-full">{dayPosts.length} posts</span>
-                    </div>
-                    
-                    <div className="flex-1 p-3 overflow-y-auto custom-scrollbar flex flex-col gap-4">
-                      {dayPosts.map(post => {
-                        const targetType = post.networks.find(n => n.network === "telegram")?.postType || "Mensagem";
-                        const isVip = targetType === "VIP";
-                        const date = new Date(post.scheduledAt);
-                        const mediaObj = post.media[0];
-
-                        return (
-                          <div 
-                            key={post.id} 
-                            onClick={() => post.status !== "posted" && openEdit(post)}
-                            className={`group relative flex flex-col rounded-xl border border-white/[0.08] bg-zinc-950/80 overflow-hidden shadow-sm transition-all shrink-0 ${post.status === "posted" ? "opacity-60 grayscale-[30%] cursor-default" : "cursor-pointer hover:border-white/20 hover:shadow-lg"}`}
-                          >
-                            <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06]">
-                              <span className="text-xs font-bold text-white tracking-wider">{date.toLocaleTimeString("pt-BR", { hour: '2-digit', minute: '2-digit' })}</span>
-                              <div className="flex gap-1.5 items-center">
-                                {post.status === "posted" && (
-                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                                    ENVIADO ✅
-                                  </span>
-                                )}
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isVip ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'}`}>
-                                  {targetType.toUpperCase()}
-                                </span>
-                              </div>
-                            </div>
-                            
-                            <div className="relative aspect-[3/4] w-full bg-zinc-900 border-b border-white/5">
-                              {mediaObj ? (
-                                mediaObj.kind === "video" ? (
-                                  <video src={`/api/media/${mediaObj.id}/file`} className="h-full w-full object-cover opacity-80" muted playsInline />
-                                ) : (
-                                  <img src={`/api/media/${mediaObj.id}/file`} className="h-full w-full object-cover opacity-80" />
-                                )
-                              ) : (
-                                <div className="flex h-full items-center justify-center text-zinc-700 text-xs">Sem mídia</div>
-                              )}
-                              
-                              {post.status !== "posted" && (
-                                <button 
-                                  onClick={(e) => { e.stopPropagation(); deletePost(post.id); }} 
-                                  className="absolute top-2 right-2 rounded-md bg-black/60 p-1.5 text-zinc-300 opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all z-10"
-                                  title="Excluir Post"
-                                >
-                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
-                                </button>
-                              )}
-                            </div>
-                            
-                            <div className="p-3 text-[11px] text-zinc-400 line-clamp-3 leading-relaxed bg-[#0a0a0a]">
-                              {post.caption || <span className="italic text-zinc-600">Sem legenda...</span>}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ));
-              })()}
-            </div>
-          )}
-        </>
+        <CalendarGrid
+          month={month}
+          onMonthChange={setMonth}
+          posts={posts}
+          onDayClick={() => {}} // Sem ação de criar post ao clicar no dia no Telegram
+          onPostClick={openEdit} // Abre o modal do Telegram
+          onPostMove={movePost}
+        />
       )}
 
       {/* Modal de Edição Emulando Telegram */}

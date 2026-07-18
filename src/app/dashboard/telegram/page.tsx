@@ -135,7 +135,7 @@ export default function TelegramUnifiedPage() {
     }
   };
 
-  const generateSchedule = async (target: "vip" | "warmup") => {
+  const generateSchedule = async (target: "vip" | "warmup", single = false) => {
     const days = target === "vip" ? daysToGenerateVip : daysToGenerateWarmup;
     
     const setGen = target === "vip" ? setGeneratingVip : setGeneratingWarmup;
@@ -148,11 +148,16 @@ export default function TelegramUnifiedPage() {
           profileId: selectedProfileId,
           target,
           days,
+          single,
         }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Erro ao gerar posts.");
-      toast.success(`${d.generated} posts gerados com sucesso! Verifique o calendário.`);
+      toast.success(
+        single
+          ? "Postagem única gerada com sucesso! Verifique o calendário."
+          : `${d.generated} posts gerados com sucesso! Verifique o calendário.`
+      );
       // Emit event so calendar component reloads
       window.dispatchEvent(new Event("reloadTelegramCalendar"));
     } catch (err: any) {
@@ -295,15 +300,22 @@ export default function TelegramUnifiedPage() {
             {/* VIP Group */}
             <div className="space-y-6">
               <div className="rounded-xl border border-sky-500/20 bg-sky-950/10 p-5 space-y-6">
-                <div className="flex items-center justify-between">
-                   <h3 className="font-semibold text-sky-400 flex items-center gap-2">Canal / Grupo VIP</h3>
-                   <div className="flex items-center gap-2">
-                      <input type="number" min={1} max={30} value={daysToGenerateVip} onChange={e => setDaysToGenerateVip(parseInt(e.target.value) || 1)} className="w-16 rounded border border-sky-500/20 bg-sky-950/20 px-2 py-1 text-xs text-sky-200 text-center focus:outline-none" title="Dias a gerar" />
-                      <button type="button" onClick={() => generateSchedule("vip")} disabled={generatingVip} className="rounded-lg bg-sky-500/20 text-sky-300 px-3 py-1.5 text-xs font-semibold hover:bg-sky-500/30 transition-colors disabled:opacity-50">
-                        {generatingVip ? "⏳ Gerando..." : "✨ Gerar postagens"}
-                      </button>
-                   </div>
-                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <h3 className="font-semibold text-sky-400 flex items-center gap-2">Canal / Grupo VIP</h3>
+                    <div className="flex flex-wrap items-center gap-2">
+                       {settings.vipScheduleType === "manual" && (
+                         <button type="button" onClick={() => generateSchedule("vip", true)} disabled={generatingVip} className="rounded-lg bg-sky-500/20 text-sky-300 px-3 py-1.5 text-xs font-semibold hover:bg-sky-500/30 transition-colors disabled:opacity-50">
+                           {generatingVip ? "⏳ Gerando..." : "✨ Gerar postagem única (IA)"}
+                         </button>
+                       )}
+                       <div className="flex items-center gap-1.5 bg-black/10 p-1.5 rounded-lg border border-white/5">
+                         <input type="number" min={1} max={30} value={daysToGenerateVip} onChange={e => setDaysToGenerateVip(parseInt(e.target.value) || 1)} className="w-12 rounded border border-sky-500/20 bg-sky-950/20 px-2 py-1 text-xs text-sky-200 text-center focus:outline-none" title="Dias a gerar" />
+                         <button type="button" onClick={() => generateSchedule("vip", false)} disabled={generatingVip} className="rounded-lg bg-sky-500/20 text-sky-300 px-3 py-1.5 text-xs font-semibold hover:bg-sky-500/30 transition-colors disabled:opacity-50">
+                           {generatingVip ? "⏳ Gerando..." : "✨ Gerar postagens com IA em massa"}
+                         </button>
+                       </div>
+                    </div>
+                 </div>
                 
                 {/* Agendamento VIP */}
                 <div className="space-y-4 rounded-xl border border-white/[0.06] bg-zinc-950/60 p-5">
@@ -466,15 +478,22 @@ export default function TelegramUnifiedPage() {
             {/* Warmup Group */}
             <div className="space-y-6">
               <div className="rounded-xl border border-orange-500/20 bg-orange-950/10 p-5 space-y-6">
-                <div className="flex items-center justify-between">
-                   <h3 className="font-semibold text-orange-400 flex items-center gap-2">Canal / Grupo Prévias</h3>
-                   <div className="flex items-center gap-2">
-                      <input type="number" min={1} max={30} value={daysToGenerateWarmup} onChange={e => setDaysToGenerateWarmup(parseInt(e.target.value) || 1)} className="w-16 rounded border border-orange-500/20 bg-orange-950/20 px-2 py-1 text-xs text-orange-200 text-center focus:outline-none" title="Dias a gerar" />
-                      <button type="button" onClick={() => generateSchedule("warmup")} disabled={generatingWarmup} className="rounded-lg bg-orange-500/20 text-orange-300 px-3 py-1.5 text-xs font-semibold hover:bg-orange-500/30 transition-colors disabled:opacity-50">
-                        {generatingWarmup ? "⏳ Gerando..." : "✨ Gerar postagens"}
-                      </button>
-                   </div>
-                </div>
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <h3 className="font-semibold text-orange-400 flex items-center gap-2">Canal / Grupo Prévias</h3>
+                    <div className="flex flex-wrap items-center gap-2">
+                       {settings.warmupScheduleType === "manual" && (
+                         <button type="button" onClick={() => generateSchedule("warmup", true)} disabled={generatingWarmup} className="rounded-lg bg-orange-500/20 text-orange-300 px-3 py-1.5 text-xs font-semibold hover:bg-orange-500/30 transition-colors disabled:opacity-50">
+                           {generatingWarmup ? "⏳ Gerando..." : "✨ Gerar postagem única (IA)"}
+                         </button>
+                       )}
+                       <div className="flex items-center gap-1.5 bg-black/10 p-1.5 rounded-lg border border-white/5">
+                         <input type="number" min={1} max={30} value={daysToGenerateWarmup} onChange={e => setDaysToGenerateWarmup(parseInt(e.target.value) || 1)} className="w-12 rounded border border-orange-500/20 bg-orange-950/20 px-2 py-1 text-xs text-orange-200 text-center focus:outline-none" title="Dias a gerar" />
+                         <button type="button" onClick={() => generateSchedule("warmup", false)} disabled={generatingWarmup} className="rounded-lg bg-orange-500/20 text-orange-300 px-3 py-1.5 text-xs font-semibold hover:bg-orange-500/30 transition-colors disabled:opacity-50">
+                           {generatingWarmup ? "⏳ Gerando..." : "✨ Gerar postagens com IA em massa"}
+                         </button>
+                       </div>
+                    </div>
+                 </div>
                 
                 {/* Agendamento Prévias */}
                 <div className="space-y-4 rounded-xl border border-white/[0.06] bg-zinc-950/60 p-5">

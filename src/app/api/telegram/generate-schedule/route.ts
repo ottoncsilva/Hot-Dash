@@ -52,6 +52,7 @@ export async function POST(req: NextRequest) {
     const profileId = body.profileId;
     const target = body.target as "vip" | "warmup";
     const days = parseInt(body.days, 10) || 7;
+    const single = !!body.single;
 
     if (!profileId || !target) {
       return NextResponse.json({ error: "Parâmetros inválidos." }, { status: 400 });
@@ -86,7 +87,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Calcula todos os horários projetados para os próximos X dias
-    const slots = generateSlots(scheduleType || "interval", interval, fixedTimes, days);
+    const slots = single 
+      ? [Date.now() + 10 * 1000]
+      : generateSlots(scheduleType || "interval", interval, fixedTimes, days);
+
     if (slots.length === 0) {
       return NextResponse.json({ error: "Nenhum horário projetado com as configurações atuais." }, { status: 400 });
     }

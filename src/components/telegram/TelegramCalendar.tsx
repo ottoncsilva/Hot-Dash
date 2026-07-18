@@ -20,6 +20,9 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
   const [typeFilter, setTypeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
+  // Seleção múltipla para exclusão em lote
+  const [selectedPostIds, setSelectedPostIds] = useState<string[]>([]);
+
   // Estados de edição (preview do telegram)
   const [editingPost, setEditingPost] = useState<ScheduledPost | null>(null);
   const [editCaption, setEditCaption] = useState("");
@@ -39,6 +42,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
       // Filtra apenas posts da rede Telegram
       const telegramPosts = (res.posts || []).filter(p => p.networks.some(n => n.network === "telegram"));
       setPosts(telegramPosts);
+      setSelectedPostIds([]); // Limpa seleções ao recarregar
     } catch (e) {
       console.error("Erro ao carregar calendário:", e);
     } finally {
@@ -58,10 +62,24 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
     try {
       await apiSend(`/api/posts/${id}`, "DELETE");
       setPosts(ps => ps.filter(p => p.id !== id));
+      setSelectedPostIds(prev => prev.filter(x => x !== id));
       setEditingPost(null);
       showToast("Agendamento excluído.", "success");
     } catch (e) {
       showToast("Erro ao excluir.", "error");
+    }
+  }
+
+  async function deleteSelected() {
+    if (selectedPostIds.length === 0) return;
+    if (!(await confirm(`Deseja realmente excluir os ${selectedPostIds.length} agendamentos selecionados?`))) return;
+    try {
+      await Promise.all(selectedPostIds.map(id => apiSend(`/api/posts/${id}`, "DELETE")));
+      setPosts(ps => ps.filter(p => !selectedPostIds.includes(p.id)));
+      setSelectedPostIds([]);
+      showToast(`${selectedPostIds.length} agendamentos excluídos com sucesso.`, "success");
+    } catch (e) {
+      showToast("Erro ao excluir alguns posts.", "error");
     }
   }
 
@@ -131,6 +149,22 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
     });
   }, [posts, statusFilter, typeFilter]);
 
+  const allSelected = filtered.length > 0 && selectedPostIds.length === filtered.length;
+
+  function toggleSelectAll() {
+    if (allSelected) {
+      setSelectedPostIds([]);
+    } else {
+      setSelectedPostIds(filtered.map(p => p.id));
+    }
+  }
+
+  function toggleSelectPost(id: string) {
+    setSelectedPostIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  }
+
   if (!profileId) return null;
 
   return (
@@ -184,6 +218,29 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
             </button>
           </div>
         </div>
+
+        {/* Barra de Ações em Lote */}
+        {selectedPostIds.length > 0 && (
+          <div className="flex items-center justify-between bg-sky-500/10 border border-sky-500/20 rounded-lg p-3 animate-fade-in">
+            <span className="text-xs font-semibold text-sky-200">
+              {selectedPostIds.length} agendamento(s) selecionado(s)
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSelectedPostIds([])}
+                className="text-xs text-zinc-400 hover:text-white px-2 py-1"
+              >
+                Limpar Seleção
+              </button>
+              <button
+                onClick={deleteSelected}
+                className="btn-danger flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold"
+              >
+                <IconTrash size={14} /> Excluir Selecionados
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {loading && filtered.length === 0 ? (
@@ -204,50 +261,128 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
           onPostMove={movePost}
         />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 mt-4">
-          {filtered.sort((a,b) => a.scheduledAt - b.scheduledAt).map(post => (
-            <div key={post.id} onClick={() => openPreview(post)} className="card p-3 cursor-pointer hover:border-white/20 transition-colors">
-               <div className="flex justify-between items-start mb-2">
-                 <div className="flex flex-col">
-                   <span className="text-xs font-semibold text-white">
-                     {new Date(post.scheduledAt).toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" })}
-                     {" às "}
-                     {new Date(post.scheduledAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                   </span>
-                   <span className="text-[10px] text-[#3390ec] font-bold uppercase tracking-wider mt-0.5">
-                     {post.networks.find(n => n.network === "telegram")?.postType || "Telegram"}
-                   </span>
-                 </div>
-                 {post.status === "posted" ? (
-                    <span className="flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-400">
-                      <IconCheck size={10} /> Postado
-                    </span>
-                 ) : (
-                    <span className="flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold text-amber-400">
-                      Agendado
-                    </span>
-                 )}
-               </div>
-               {post.media && post.media.length > 0 && (
-                 <div className="w-full h-24 bg-black rounded overflow-hidden mb-2 relative">
-                    <img src={`/api/media/${post.media[0].id}/thumbnail`} className="w-full h-full object-cover opacity-70" />
-                    <div className="absolute inset-0 flex items-center justify-center text-white/80 font-semibold text-xs">
-                       {post.media.length} mídia(s)
-                    </div>
-                 </div>
-               )}
-               {post.caption && <p className="text-xs text-zinc-400 line-clamp-3">{post.caption}</p>}
-               
-               <div className="mt-3 flex justify-between gap-2 border-t border-white/5 pt-2">
-                 <button onClick={(e) => { e.stopPropagation(); togglePostedStatus(post); }} className="text-xs text-zinc-500 hover:text-white px-2 py-1">
-                   {post.status === "posted" ? "Desmarcar" : "Marcar Postado"}
-                 </button>
-                 <button onClick={(e) => { e.stopPropagation(); setFormInitial(post); setFormOpen(true); }} className="text-xs text-zinc-300 hover:text-white px-2 py-1">
-                   Editar
-                 </button>
-               </div>
-            </div>
-          ))}
+        /* Modo Lista Verdadeira */
+        <div className="mt-4 overflow-hidden rounded-lg border border-white/5 bg-black/10">
+          <table className="w-full text-left border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-white/5 bg-white/[0.02] text-zinc-400 uppercase text-[10px] tracking-wider font-bold">
+                <th className="p-3 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleSelectAll}
+                    className="rounded border-white/10 bg-zinc-900 text-sky-500 focus:ring-sky-500"
+                  />
+                </th>
+                <th className="p-3 w-16">Miniatura</th>
+                <th className="p-3 w-28">Tipo</th>
+                <th className="p-3 w-40">Agendado Para</th>
+                <th className="p-3">Legenda</th>
+                <th className="p-3 w-28 text-center">Status</th>
+                <th className="p-3 w-36 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/[0.04]">
+              {filtered.sort((a,b) => a.scheduledAt - b.scheduledAt).map(post => {
+                const isSelected = selectedPostIds.includes(post.id);
+                return (
+                  <tr
+                    key={post.id}
+                    onClick={() => openPreview(post)}
+                    className={`hover:bg-white/[0.01] cursor-pointer transition-colors ${
+                      isSelected ? "bg-sky-500/[0.02]" : ""
+                    }`}
+                  >
+                    <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelectPost(post.id)}
+                        className="rounded border-white/10 bg-zinc-900 text-sky-500 focus:ring-sky-500"
+                      />
+                    </td>
+                    <td className="p-3">
+                      {post.media && post.media.length > 0 ? (
+                        <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded bg-ink-800 border border-white/5">
+                          <img
+                            src={`/api/media/${post.media[0].id}/thumbnail`}
+                            className="h-full w-full object-cover"
+                            alt="Preview"
+                          />
+                          {post.media.length > 1 && (
+                            <span className="absolute bottom-0 right-0 bg-black/80 text-[8px] px-1 rounded-tl text-white font-bold">
+                              +{post.media.length - 1}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="h-11 w-11 rounded border border-dashed border-white/10 flex items-center justify-center text-zinc-600 bg-zinc-900/50">
+                          <IconCalendar size={14} />
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-3 font-semibold">
+                      <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                        (post.networks.find(n => n.network === "telegram")?.postType || "Telegram") === "VIP"
+                          ? "bg-sky-500/10 text-sky-400"
+                          : "bg-orange-500/10 text-orange-400"
+                      }`}>
+                        {post.networks.find(n => n.network === "telegram")?.postType || "Telegram"}
+                      </span>
+                    </td>
+                    <td className="p-3 font-mono text-xs text-zinc-300">
+                      {new Date(post.scheduledAt).toLocaleDateString("pt-BR", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit"
+                      })}
+                    </td>
+                    <td className="p-3 text-zinc-400 truncate max-w-[200px] sm:max-w-xs md:max-w-md lg:max-w-lg">
+                      {post.caption || <span className="text-zinc-600 italic">Sem legenda</span>}
+                    </td>
+                    <td className="p-3 text-center">
+                      {post.status === "posted" ? (
+                        <span className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/20">
+                          <IconCheck size={8} /> Postado
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-400 border border-amber-500/20">
+                          Agendado
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => togglePostedStatus(post)}
+                          className="p-1.5 rounded hover:bg-white/5 text-zinc-400 hover:text-white transition-colors"
+                          title={post.status === "posted" ? "Marcar como agendado" : "Marcar como postado"}
+                        >
+                          <IconCheck size={14} />
+                        </button>
+                        <button
+                          onClick={() => { setFormInitial(post); setFormOpen(true); }}
+                          className="p-1.5 rounded hover:bg-white/5 text-zinc-400 hover:text-white transition-colors"
+                          title="Editar"
+                        >
+                          <IconEdit size={14} />
+                        </button>
+                        <button
+                          onClick={() => deletePost(post.id)}
+                          className="p-1.5 rounded hover:bg-red-500/10 text-zinc-400 hover:text-red-400 transition-colors"
+                          title="Excluir"
+                        >
+                          <IconTrash size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 

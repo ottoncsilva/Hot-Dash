@@ -20,6 +20,7 @@ import {
   IconPlay,
   IconCopy,
   IconDownload,
+  IconCheck,
 } from "@/components/icons";
 import { NETWORK_LABELS, mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type SocialAccount, type SocialNetwork, type Tag } from "@/lib/types";
 import { showToast } from "@/lib/toast";
@@ -685,6 +686,7 @@ function CalendarView({
   posts,
   onDayClick,
   onPostClick,
+  onPostMove,
 }: {
   month: { year: number; month: number };
   onMonthChange: (m: { year: number; month: number }) => void;

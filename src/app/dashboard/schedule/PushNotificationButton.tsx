@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { showToast } from "@/components/ui/Toast";
+import { showToast } from "@/lib/toast";
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -56,10 +56,10 @@ export function PushNotificationButton() {
       });
 
       setIsSubscribed(true);
-      showToast({ title: "Notificações Ativadas", type: "success" });
+      showToast("Notificações Ativadas", "success");
     } catch (err) {
       console.error(err);
-      showToast({ title: "Erro ao ativar notificações", type: "error" });
+      showToast("Erro ao ativar notificações", "error");
     }
   }
 

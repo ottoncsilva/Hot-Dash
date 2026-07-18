@@ -395,3 +395,9 @@ export const IconSearch = (p: IconProps) => (
     <path d="M21 21l-4.3-4.3" />
   </Base>
 );
+
+export const IconCheck = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M20 6L9 17l-5-5" />
+  </Base>
+);

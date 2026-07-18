@@ -153,7 +153,7 @@ function ReadyBadge({ post }: { post: ScheduledPost }) {
 export default function SchedulePage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [posts, setPosts] = useState<ScheduledPost[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [nowTick, setNowTick] = useState(Date.now());
   const [view, setView] = useState<"calendar" | "list" | "queue">("calendar");
   const [profileId, setProfileId] = useState("");
   const [networkFilter, setNetworkFilter] = useState("");
@@ -177,11 +177,15 @@ export default function SchedulePage() {
       if (statusFilter) qs.set("status", statusFilter);
       const d = await apiGet<{ posts: ScheduledPost[] }>(`/api/posts?${qs.toString()}`);
       setPosts(d.posts);
-      setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Falha ao carregar.");
+      showToast(e instanceof Error ? e.message : "Falha ao carregar.", "error");
     }
   }
+
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 60000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     apiGet<{ profiles: Profile[] }>("/api/profiles")
@@ -254,6 +258,31 @@ export default function SchedulePage() {
     }
   }
 
+  async function movePost(postId: string, newDate: Date) {
+    if (!posts) return;
+    const post = posts.find((p) => p.id === postId);
+    if (!post) return;
+    const oldD = new Date(post.scheduledAt);
+    const updatedDate = new Date(
+      newDate.getFullYear(),
+      newDate.getMonth(),
+      newDate.getDate(),
+      oldD.getHours(),
+      oldD.getMinutes()
+    );
+    try {
+      const { post: updated } = await apiSend<{ post: ScheduledPost }>(
+        `/api/posts/${post.id}`,
+        "PATCH",
+        { scheduledAt: updatedDate.getTime() }
+      );
+      setPosts((ps) => (ps || []).map((p) => (p.id === updated.id ? updated : p)));
+      showToast("Reagendado para " + updatedDate.toLocaleDateString("pt-BR"));
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha ao reagendar.", "error");
+    }
+  }
+
   function openNew(date?: Date) {
     setEditing(null);
     setPrefillDate(date || null);
@@ -261,6 +290,11 @@ export default function SchedulePage() {
   }
   function openEdit(post: ScheduledPost) {
     setEditing(post);
+    setPrefillDate(null);
+    setFormOpen(true);
+  }
+  function openDuplicate(post: ScheduledPost) {
+    setEditing({ ...post, id: "" });
     setPrefillDate(null);
     setFormOpen(true);
   }
@@ -294,12 +328,6 @@ export default function SchedulePage() {
           </button>
         </div>
       </div>
-
-      {error && (
-        <div className="mt-5 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-4 py-3 text-sm text-red-300">
-          {error}
-        </div>
-      )}
 
       {/* Filtros + abas */}
       <div className="mt-6 card p-4">
@@ -371,6 +399,7 @@ export default function SchedulePage() {
           posts={filtered}
           onDayClick={(d) => openNew(d)}
           onPostClick={setDetailPost}
+          onPostMove={movePost}
         />
       ) : view === "list" ? (
         <ListView
@@ -379,6 +408,7 @@ export default function SchedulePage() {
           onEdit={openEdit}
           onDelete={removePost}
           onDetail={setDetailPost}
+          onDuplicate={openDuplicate}
         />
       ) : (
         <PostQueue
@@ -427,6 +457,10 @@ export default function SchedulePage() {
             openEdit(detailPost);
             setDetailPost(null);
           }}
+          onDuplicate={() => {
+            openDuplicate(detailPost);
+            setDetailPost(null);
+          }}
           onDelete={async () => {
             if (await removePost(detailPost)) setDetailPost(null);
           }}
@@ -449,12 +483,14 @@ function PostDetail({
   onEdit,
   onDelete,
   onToggle,
+  onDuplicate,
 }: {
   post: ScheduledPost;
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onToggle: () => void;
+  onDuplicate: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -622,8 +658,13 @@ function PostDetail({
         <button onClick={onToggle} className="btn-ghost flex-1">
           {post.status === "posted" ? "Marcar agendado" : "Marcar postado"}
         </button>
+      </div>
+      <div className="mt-2 flex gap-2">
         <button onClick={onEdit} className="btn-primary flex-1">
           <IconEdit size={16} /> Editar
+        </button>
+        <button onClick={onDuplicate} className="btn-ghost flex-1">
+          <IconCopy size={16} /> Duplicar
         </button>
       </div>
       <button onClick={onDelete} className="btn-danger mt-2 w-full">
@@ -646,6 +687,7 @@ function CalendarView({
   posts: ScheduledPost[];
   onDayClick: (d: Date) => void;
   onPostClick: (p: ScheduledPost) => void;
+  onPostMove: (postId: string, newDate: Date) => void;
 }) {
   const first = new Date(month.year, month.month, 1);
   const start = new Date(first);
@@ -725,6 +767,15 @@ function CalendarView({
             <button
               key={i}
               onClick={() => onDayClick(new Date(d))}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const postId = e.dataTransfer.getData("text/plain");
+                if (postId) onPostMove(postId, new Date(d));
+              }}
               className={`min-h-[72px] border-b border-r border-white/[0.04] p-1 text-left align-top transition-colors hover:bg-white/[0.03] sm:min-h-[96px] ${
                 inMonth ? "" : "opacity-35"
               }`}
@@ -742,6 +793,10 @@ function CalendarView({
                     key={p.id}
                     role="button"
                     tabIndex={0}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("text/plain", p.id);
+                    }}
                     onClick={(e) => {
                       e.stopPropagation();
                       onPostClick(p);
@@ -769,6 +824,9 @@ function CalendarView({
                         />
                       ))}
                       <span className="font-mono">{fmtTime(p.scheduledAt)}</span>
+                      {!isReady(p) && (
+                        <span className="ml-auto inline-block h-1.5 w-1.5 rounded-full bg-red-500" title="Incompleto (falta mídia ou legenda)" />
+                      )}
                     </span>
                     <span className="block truncate text-zinc-400">
                       {p.profileName} · {p.networks[0]?.postType}
@@ -797,12 +855,14 @@ function ListView({
   onEdit,
   onDelete,
   onDetail,
+  onDuplicate,
 }: {
   posts: ScheduledPost[];
   onToggle: (p: ScheduledPost) => void;
   onEdit: (p: ScheduledPost) => void;
   onDelete: (p: ScheduledPost) => void;
   onDetail: (p: ScheduledPost) => void;
+  onDuplicate: (p: ScheduledPost) => void;
 }) {
   const groups = useMemo(() => {
     const map = new Map<string, { day: number; items: ScheduledPost[] }>();
@@ -922,26 +982,27 @@ function ListView({
                   )}
                 </div>
 
-                <div className="flex shrink-0 gap-1">
+                <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onEdit(p);
-                    }}
-                    className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 hover:bg-white/5 hover:text-white"
-                    aria-label="Editar"
+                    onClick={() => onDuplicate(p)}
+                    className="grid h-7 w-7 place-items-center rounded hover:bg-white/10 hover:text-white text-zinc-400"
+                    title="Duplicar"
                   >
-                    <IconEdit size={16} />
+                    <IconCopy size={14} />
                   </button>
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDelete(p);
-                    }}
-                    className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 hover:bg-white/5 hover:text-red-400"
-                    aria-label="Excluir"
+                    onClick={() => onEdit(p)}
+                    className="grid h-7 w-7 place-items-center rounded hover:bg-white/10 hover:text-white text-zinc-400"
+                    title="Editar"
                   >
-                    <IconTrash size={16} />
+                    <IconEdit size={14} />
+                  </button>
+                  <button
+                    onClick={() => onDelete(p)}
+                    className="grid h-7 w-7 place-items-center rounded hover:bg-red-500/20 hover:text-red-400 text-zinc-400"
+                    title="Excluir"
+                  >
+                    <IconTrash size={14} />
                   </button>
                 </div>
               </div>
@@ -1165,15 +1226,27 @@ function PostForm({
   const [tags, setTags] = useState<Tag[]>([]);
   const [mediaTagFilter, setMediaTagFilter] = useState<string>("");
   const [mediaSortOrder, setMediaSortOrder] = useState<"desc" | "asc">("desc");
+  const [usedMedia, setUsedMedia] = useState<Set<string>>(new Set());
+  const [reusableBlocks, setReusableBlocks] = useState<{ id: string; name: string; content: string }[]>([]);
 
   // Carrega a biblioteca do perfil selecionado (mídias por referência).
   useEffect(() => {
     if (!profileId) return;
     setLibrary(null);
-    apiGet<{ media: MediaItem[] }>(`/api/profiles/${profileId}/media`)
-      .then((d) => setLibrary(d.media))
+    setUsedMedia(new Set());
+    apiGet<{ media: MediaItem[]; usedMediaIds?: string[] }>(`/api/profiles/${profileId}/media`)
+      .then((d) => {
+        setLibrary(d.media);
+        if (d.usedMediaIds) setUsedMedia(new Set(d.usedMediaIds));
+      })
       .catch(() => setLibrary([]));
   }, [profileId]);
+
+  useEffect(() => {
+    apiGet<{ blocks: { id: string; name: string; content: string }[] }>("/api/settings/reusable-blocks")
+      .then((d) => setReusableBlocks(d.blocks))
+      .catch(() => {});
+  }, []);
 
   // Provedores de IA conectados (ativado + chave salva) — a escolha é feita
   // aqui, na hora de gerar, não há mais um "provedor ativo" fixo.
@@ -1269,7 +1342,7 @@ function PostForm({
     const scheduledAt = new Date(yy, mm - 1, dd, h || 0, m || 0).getTime();
     setSaving(true);
     try {
-      if (initial) {
+      if (initial && initial.id) {
         const { post } = await apiSend<{ post: ScheduledPost }>(
           `/api/posts/${initial.id}`,
           "PATCH",
@@ -1296,9 +1369,9 @@ function PostForm({
   return (
     <Modal open onClose={onClose} maxWidth="max-w-2xl">
       <div className="max-h-[80vh] overflow-y-auto pr-1">
-        <p className="eyebrow">{initial ? "editar" : "novo"}</p>
+        <p className="eyebrow">{initial?.id ? "editar" : "novo"}</p>
         <h2 className="mt-1.5 font-display text-lg font-semibold">
-          {initial ? "Editar post" : "Novo post"}
+          {initial?.id ? "Editar post" : "Novo post"}
         </h2>
 
         {err && (
@@ -1437,6 +1510,7 @@ function PostForm({
                 {filteredLibrary.map((m) => {
                   const idx = mediaIds.indexOf(m.id);
                   const selected = idx !== -1;
+                  const used = usedMedia.has(m.id);
                   return (
                     <button
                       key={m.id}
@@ -1473,6 +1547,11 @@ function PostForm({
                           {idx + 1}
                         </span>
                       )}
+                      {used && !selected && (
+                        <span className="absolute right-1 top-1 grid h-4 w-4 place-items-center rounded-full bg-amber-500 text-white" title="Mídia já utilizada por este perfil">
+                          <IconCheck size={10} />
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -1482,7 +1561,22 @@ function PostForm({
 
           {/* Legenda + IA — a IA analisa a(s) mídia(s) selecionada(s) acima */}
           <div>
-            <label className="eyebrow mb-1.5 block">Legenda</label>
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+              <label className="eyebrow block">Legenda</label>
+              {reusableBlocks.length > 0 && (
+                <select
+                  className="input py-1 text-xs w-48"
+                  value=""
+                  onChange={(e) => {
+                    const block = reusableBlocks.find(b => b.id === e.target.value);
+                    if (block) setCaption(prev => prev ? prev + "\n" + block.content : block.content);
+                  }}
+                >
+                  <option value="" disabled>Inserir Bloco...</option>
+                  {reusableBlocks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              )}
+            </div>
             <textarea
               className="input min-h-[110px]"
               placeholder="Escreva a legenda ou selecione mídias acima e gere com IA…"
@@ -1532,7 +1626,7 @@ function PostForm({
             Cancelar
           </button>
           <button type="button" onClick={save} className="btn-primary flex-1" disabled={saving}>
-            {saving ? "Salvando…" : initial ? "Salvar alterações" : "Agendar post"}
+            {saving ? "Salvando…" : initial?.id ? "Salvar alterações" : "Agendar post"}
           </button>
         </div>
       </div>

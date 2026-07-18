@@ -336,3 +336,19 @@ export function updateAiSettings(patch: {
   setJson("ai", s);
   return getAiSettingsPublic();
 }
+
+// ---- Blocos Reutilizáveis (Legenda) ----
+export type ReusableBlock = {
+  id: string;
+  name: string;
+  content: string;
+};
+
+export function getReusableBlocks(): ReusableBlock[] {
+  return getJson<ReusableBlock[]>("reusable_blocks", []);
+}
+
+export function setReusableBlocks(blocks: ReusableBlock[]): void {
+  setJson("reusable_blocks", blocks);
+}
+

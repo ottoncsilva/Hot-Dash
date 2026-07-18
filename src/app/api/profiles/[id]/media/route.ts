@@ -8,6 +8,7 @@ import {
   getOrCreatePublicToken,
   insertMedia,
   listMedia,
+  listUsedMediaIds,
   newMediaPath,
 } from "@/lib/media";
 import { saveFile } from "@/lib/storage";
@@ -36,7 +37,10 @@ export async function GET(
         { status: 404 },
       );
     }
-    return NextResponse.json({ media: listMedia(params.id) });
+    return NextResponse.json({
+      media: listMedia(params.id),
+      usedMediaIds: Array.from(listUsedMediaIds(params.id)),
+    });
   } catch (err) {
     return errorResponse(err);
   }

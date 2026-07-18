@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { showToast } from "@/lib/toast";
 import TelegramCalendar from "@/components/telegram/TelegramCalendar";
 import { useConfirm } from "@/hooks/useConfirm";
+import type { Profile } from "@/lib/types";
 
 const toast = {
   success: (msg: string) => showToast(msg, "success"),
@@ -11,7 +12,6 @@ const toast = {
   warning: (msg: string) => showToast(msg, "warning"),
 };
 
-type Profile = { id: string; name: string };
 type Tag = { id: string; name: string; color: string };
 
 type TelegramSettings = {

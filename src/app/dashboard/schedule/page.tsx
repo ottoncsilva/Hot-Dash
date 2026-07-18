@@ -20,7 +20,7 @@ import {
   IconCopy,
   IconDownload,
 } from "@/components/icons";
-import { NETWORK_LABELS, mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type SocialAccount, type SocialNetwork } from "@/lib/types";
+import { NETWORK_LABELS, mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type SocialAccount, type SocialNetwork, type Tag } from "@/lib/types";
 import { showToast } from "@/lib/toast";
 import type { AiProvider } from "@/lib/settings";
 import {
@@ -31,6 +31,8 @@ import {
 } from "@/lib/postTypes";
 
 const WEEKDAYS = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+
+const ALLOWED_SCHEDULE_NETWORKS = ["instagram", "threads", "tiktok", "facebook", "x", "youtube"];
 
 function mediaUrl(m: { id: string; updatedAt?: number }): string {
   return `/api/media/${m.id}/file?v=${m.updatedAt || 0}`;
@@ -200,13 +202,13 @@ export default function SchedulePage() {
   const filterOptions = useMemo(() => {
     if (selectedProfile) {
       return selectedProfile.accounts
-        .filter((a) => a.network !== "telegram")
+        .filter((a) => ALLOWED_SCHEDULE_NETWORKS.includes(a.network))
         .map((a) => ({ value: a.id, label: `${NETWORK_LABELS[a.network]} · @${a.username}` }));
     }
     const nets = new Set<SocialNetwork>();
     (posts || []).forEach((p) =>
       p.networks.forEach((n) => {
-        if (n.network !== "telegram") nets.add(n.network);
+        if (ALLOWED_SCHEDULE_NETWORKS.includes(n.network)) nets.add(n.network);
       }),
     );
     return Array.from(nets).map((n) => ({ value: n, label: NETWORK_LABELS[n] }));
@@ -1160,6 +1162,9 @@ function PostForm({
   const [aiBusy, setAiBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [mediaTagFilter, setMediaTagFilter] = useState<string>("");
+  const [mediaSortOrder, setMediaSortOrder] = useState<"desc" | "asc">("desc");
 
   // Carrega a biblioteca do perfil selecionado (mídias por referência).
   useEffect(() => {
@@ -1186,9 +1191,28 @@ function PostForm({
       .catch(() => setAiOptions([]));
   }, []);
 
+  useEffect(() => {
+    apiGet<{ tags: Tag[] }>("/api/tags")
+      .then((d) => setTags(d.tags))
+      .catch(() => {});
+  }, []);
+
   const selectedProfile = profiles.find((p) => p.id === profileId);
-  // Telegram é gerido no menu Telegram — não é uma opção de rede no Cronograma.
-  const accounts = (selectedProfile?.accounts || []).filter((a) => a.network !== "telegram");
+  // Apenas redes permitidas para o cronograma
+  const accounts = (selectedProfile?.accounts || []).filter((a) => ALLOWED_SCHEDULE_NETWORKS.includes(a.network));
+
+  const filteredLibrary = useMemo(() => {
+    if (!library) return null;
+    let list = library;
+    if (mediaTagFilter) {
+      list = list.filter((m) => m.tags?.some((t) => t.id === mediaTagFilter));
+    }
+    list = [...list].sort((a, b) => {
+      if (mediaSortOrder === "asc") return a.createdAt - b.createdAt;
+      return b.createdAt - a.createdAt;
+    });
+    return list;
+  }, [library, mediaTagFilter, mediaSortOrder]);
 
   function toggleAccount(acc: SocialAccount) {
     setNetworks((prev) => {
@@ -1368,25 +1392,49 @@ function PostForm({
 
           {/* Mídias da biblioteca (por referência — nada é duplicado) */}
           <div>
-            <label className="eyebrow mb-1.5 block">
-              Mídias da biblioteca{" "}
-              <span className="normal-case text-zinc-600">
-                (clique para selecionar; o número indica a ordem no carrossel)
-              </span>
-            </label>
-            {library === null ? (
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+              <label className="eyebrow block">
+                Mídias da biblioteca{" "}
+                <span className="normal-case text-zinc-600">
+                  (clique para selecionar; o número indica a ordem no carrossel)
+                </span>
+              </label>
+              <div className="flex gap-2">
+                <select
+                  className="input py-1 text-xs"
+                  value={mediaTagFilter}
+                  onChange={(e) => setMediaTagFilter(e.target.value)}
+                >
+                  <option value="">Todas as etiquetas</option>
+                  {tags.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="input py-1 text-xs"
+                  value={mediaSortOrder}
+                  onChange={(e) => setMediaSortOrder(e.target.value as "desc" | "asc")}
+                >
+                  <option value="desc">Mais recentes</option>
+                  <option value="asc">Mais antigas</option>
+                </select>
+              </div>
+            </div>
+            {filteredLibrary === null ? (
               <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
                 {[0, 1, 2, 3, 4, 5].map((i) => (
                   <div key={i} className="aspect-square animate-pulse rounded-lg bg-white/5" />
                 ))}
               </div>
-            ) : library.length === 0 ? (
+            ) : filteredLibrary.length === 0 ? (
               <p className="rounded-lg border border-dashed border-white/10 p-4 text-center text-xs text-zinc-600">
-                Este modelo ainda não tem mídias na biblioteca.
+                Nenhuma mídia encontrada com os filtros atuais.
               </p>
             ) : (
               <div className="grid max-h-64 grid-cols-4 gap-2 overflow-y-auto sm:grid-cols-6">
-                {library.map((m) => {
+                {filteredLibrary.map((m) => {
                   const idx = mediaIds.indexOf(m.id);
                   const selected = idx !== -1;
                   return (

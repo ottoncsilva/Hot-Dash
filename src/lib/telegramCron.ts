@@ -37,6 +37,24 @@ import { listMedia, getMediaRow } from "@/lib/media";
  * interrompa o processamento dos demais perfis.
  */
 
+/** Escapa os caracteres especiais de HTML no texto — o envio ao Telegram usa
+ *  parse_mode "HTML", então o corpo da legenda precisa ser neutralizado antes
+ *  de anexarmos tags <a> (hiperlinks) do CTA. */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Monta a legenda das Prévias: corpo (limpo/escapado) + 3 chamadas para ação
+ *  em HIPERLINK ("ACESSAR O VIP 🎁"), em vez do link cru. Remove também o CTA
+ *  em texto puro ("👉 Acesse: ...") que ficou salvo em posts de versões antigas. */
+function buildWarmupCaption(rawCaption: string, vipLink: string): string {
+  const body = (rawCaption || "").replace(/\n*👉\s*Acesse:.*$/s, "").trimEnd();
+  const href = vipLink.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  const linkLine = `<a href="${href}">ACESSAR O VIP 🎁</a>`;
+  const cta = `${linkLine}\n${linkLine}\n${linkLine}`;
+  return body ? `${escapeHtml(body)}\n\n${cta}` : cta;
+}
+
 // ---------------------------------------------------------------------------
 // 1) AUTOPOST — envia posts agendados (VIP / Prévias) cujo horário já chegou
 // ---------------------------------------------------------------------------
@@ -87,21 +105,17 @@ export async function runTelegramAutopost(): Promise<number> {
         if (row) mediaPath = row.path;
       }
 
-      // Prepara call-to-action (o link/botões SÓ vão para as Prévias, nunca no VIP)
-      const options: Record<string, any> = {};
-      if (isWarmup && profile.bioVipLink) {
-        options.reply_markup = {
-          inline_keyboard: [
-            [{ text: "👉 VEM PRO MEU VIP AGORA", url: profile.bioVipLink }],
-            [{ text: "👉 VEM PRO MEU VIP AGORA", url: profile.bioVipLink }],
-            [{ text: "👉 VEM PRO MEU VIP AGORA", url: profile.bioVipLink }],
-          ],
-        };
-      }
+      // Monta a legenda final. O CTA de acesso ao VIP (3 hiperlinks
+      // "ACESSAR O VIP 🎁") vai SÓ nas Prévias, nunca no VIP. Como o envio usa
+      // parse_mode HTML, as tags <a> viram links clicáveis no lugar do link cru.
+      const finalCaption =
+        isWarmup && profile.bioVipLink
+          ? buildWarmupCaption(post.caption || "", profile.bioVipLink)
+          : post.caption || "";
 
       // Dispara no Telegram
       try {
-        await sendTelegramMedia(bot.botToken, chatId, mediaPath, post.caption || "", options);
+        await sendTelegramMedia(bot.botToken, chatId, mediaPath, finalCaption);
         updatePost(post.id, { status: "posted" });
         totalPosted++;
       } catch (e) {

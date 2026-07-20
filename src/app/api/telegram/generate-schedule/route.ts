@@ -159,15 +159,15 @@ export async function POST(req: NextRequest) {
     ];
 
     for (const [slotIndex, slot] of emptySlots.entries()) {
-      // Pega próxima mídia disponível com as tags
+      // Mídias disponíveis com as etiquetas (ainda não usadas neste perfil)
       const candidates = library
         .filter((m) => !usedIds.has(m.id))
-        .filter((m) => m.tags.some((tag) => allowedTagNames.includes(tag.name.toLowerCase())))
-        .sort((a, b) => a.createdAt - b.createdAt); // Mais antiga primeiro
-      
+        .filter((m) => m.tags.some((tag) => allowedTagNames.includes(tag.name.toLowerCase())));
+
       if (candidates.length === 0) break; // Acabou o estoque de mídias
 
-      const media = candidates[0];
+      // Escolhe uma mídia ALEATÓRIA (antes era sempre da mais antiga para a mais nova).
+      const media = candidates[Math.floor(Math.random() * candidates.length)];
       const row = getMediaRow(media.id);
       if (!row) continue;
 
@@ -250,10 +250,9 @@ export async function POST(req: NextRequest) {
         caption = FALLBACK_CAPTION;
       }
 
-      // Regra do Link: Injeta o bioVipLink APENAS no alvo Prévias (warmup)
-      if (!isVip && profile.bioVipLink) {
-        caption = `${caption}\n\n👉 Acesse: ${profile.bioVipLink}`;
-      }
+      // O CTA de acesso ao VIP (3 hiperlinks "ACESSAR O VIP 🎁") é adicionado no
+      // momento do envio (telegramCron), apenas nas Prévias. A legenda salva no
+      // banco fica limpa, sem link cru nem HTML.
 
       // Cria o post agendado no banco
       createPost({

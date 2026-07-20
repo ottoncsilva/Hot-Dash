@@ -2,17 +2,19 @@ import React, { useState } from "react";
 import { IconArrowLeft, IconChevronRight } from "@/components/icons";
 import { NETWORK_DOT_COLORS, type ScheduledPost } from "@/lib/postTypes";
 
-const WEEKDAYS = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+// A semana começa na SEGUNDA-FEIRA.
+const WEEKDAYS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
 
 function fmtTime(ms: number): string {
   return new Date(ms).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-/** Domingo (00:00) da semana que contém a data informada. */
-function sundayOf(date: Date): Date {
+/** Segunda-feira (00:00) da semana que contém a data informada. */
+function startOfWeek(date: Date): Date {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - d.getDay());
+  // getDay(): 0=Dom..6=Sáb. Dias decorridos desde a segunda: (getDay() + 6) % 7.
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
   return d;
 }
 
@@ -48,7 +50,7 @@ export default function CalendarGrid({
   defaultView?: "month" | "week";
 }) {
   const [view, setView] = useState<"month" | "week">(defaultView);
-  const [weekStart, setWeekStart] = useState<Date>(() => sundayOf(new Date()));
+  const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()));
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -64,7 +66,7 @@ export default function CalendarGrid({
   } else {
     const first = new Date(month.year, month.month, 1);
     const start = new Date(first);
-    start.setDate(1 - first.getDay()); // volta até domingo
+    start.setDate(1 - ((first.getDay() + 6) % 7)); // volta até a segunda-feira
     for (let i = 0; i < 42; i++) {
       const d = new Date(start);
       d.setDate(start.getDate() + i);
@@ -93,7 +95,7 @@ export default function CalendarGrid({
 
   function goToday() {
     if (view === "week") {
-      setWeekStart(sundayOf(new Date()));
+      setWeekStart(startOfWeek(new Date()));
     } else {
       const d = new Date();
       onMonthChange({ year: d.getFullYear(), month: d.getMonth() });

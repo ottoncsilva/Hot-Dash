@@ -406,6 +406,7 @@ export default function SchedulePage() {
           onDayClick={(d) => openNew(d)}
           onPostClick={(p) => setDetailPost(p)}
           onPostMove={movePost}
+          defaultView="week"
         />
       ) : view === "list" ? (
         <ListView

@@ -6,7 +6,7 @@ import { useConfirm } from "@/hooks/useConfirm";
 import { showToast } from "@/lib/toast";
 import CalendarGrid from "@/components/schedule/CalendarGrid";
 import TelegramPostForm from "@/components/telegram/TelegramPostForm";
-import CaptionEditor from "@/components/telegram/CaptionEditor";
+import CaptionEditor, { CaptionPreview, captionPlainText } from "@/components/telegram/CaptionEditor";
 import { IconCalendar, IconList, IconPlus, IconTrash, IconEdit, IconCheck } from "@/components/icons";
 
 export default function TelegramCalendar({ profileId, profiles }: { profileId: string, profiles: Profile[] }) {
@@ -347,7 +347,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                       })}
                     </td>
                     <td className="p-3 text-zinc-400 truncate max-w-[200px] sm:max-w-xs md:max-w-md lg:max-w-lg">
-                      {post.caption || <span className="text-zinc-600 italic">Sem legenda</span>}
+                      {post.caption ? captionPlainText(post.caption) : <span className="text-zinc-600 italic">Sem legenda</span>}
                     </td>
                     <td className="p-3 text-center">
                       {post.status === "posted" ? (
@@ -441,6 +441,12 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
               {/* Caption Edit Area */}
               <div className="flex flex-1 flex-col border-t border-white/5 bg-[#1e2329] p-3">
                 <p className="mb-2 text-xs font-semibold text-[#8e98a3]">LEGENDA DO POST:</p>
+                {/(<a\s)/i.test(editCaption) && (
+                  <div className="mb-2 rounded-lg border border-white/5 bg-[#0f0f0f] px-3 py-2">
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[#8e98a3]">Como vai aparecer</p>
+                    <CaptionPreview text={editCaption} className="text-[13px] leading-snug text-zinc-200" />
+                  </div>
+                )}
                 <CaptionEditor
                   value={editCaption}
                   onChange={setEditCaption}

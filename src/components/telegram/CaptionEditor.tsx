@@ -1,9 +1,65 @@
 "use client";
-import { useRef, useState } from "react";
+import { useRef, useState, Fragment, type ReactNode } from "react";
 
 /** Escapa caracteres especiais de HTML (o envio ao Telegram usa parse_mode HTML). */
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Desescapa as entidades HTML básicas para exibir o texto "cru". */
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&");
+}
+
+/**
+ * Converte uma legenda com hiperlinks `<a href="url">texto</a>` em nós React,
+ * exibindo os links como clicáveis e o restante como texto (quebras de linha
+ * preservadas via CSS). SOMENTE a tag <a> é interpretada — nenhum outro HTML é
+ * renderizado, então não há risco de XSS (não usa dangerouslySetInnerHTML).
+ */
+export function renderCaptionWithLinks(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const regex = /<a\s+href="([^"]*)"[^>]*>(.*?)<\/a>/gis;
+  let last = 0;
+  let key = 0;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(text)) !== null) {
+    if (m.index > last) {
+      nodes.push(<Fragment key={key++}>{decodeEntities(text.slice(last, m.index))}</Fragment>);
+    }
+    nodes.push(
+      <a
+        key={key++}
+        href={decodeEntities(m[1])}
+        target="_blank"
+        rel="noreferrer"
+        className="text-[#3390ec] underline"
+      >
+        {decodeEntities(m[2])}
+      </a>,
+    );
+    last = regex.lastIndex;
+  }
+  if (last < text.length) {
+    nodes.push(<Fragment key={key++}>{decodeEntities(text.slice(last))}</Fragment>);
+  }
+  return nodes;
+}
+
+/** Prévia da legenda com os hiperlinks já clicáveis (o painel não mostra o HTML cru). */
+export function CaptionPreview({ text, className = "" }: { text: string; className?: string }) {
+  return <div className={`whitespace-pre-wrap break-words ${className}`}>{renderCaptionWithLinks(text)}</div>;
+}
+
+/** Texto puro da legenda para exibição compacta (listas): remove as tags <a>,
+ *  mantendo apenas o texto clicável, e desescapa as entidades. */
+export function captionPlainText(text: string): string {
+  const withoutLinks = text.replace(/<a\s+href="[^"]*"[^>]*>(.*?)<\/a>/gis, "$1");
+  return decodeEntities(withoutLinks);
 }
 
 /**

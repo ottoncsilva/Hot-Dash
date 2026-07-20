@@ -44,6 +44,16 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/** Como escapeHtml, mas PRESERVA os hiperlinks <a ...>...</a> que o usuário
+ *  inseriu na legenda pelo painel — só escapa o texto ao redor deles. Assim os
+ *  links manuais viram clicáveis no Telegram sem quebrar o parse. */
+function escapeHtmlAllowingLinks(s: string): string {
+  return s
+    .split(/(<a\s[^>]*>.*?<\/a>)/gis)
+    .map((part, i) => (i % 2 === 1 ? part : escapeHtml(part)))
+    .join("");
+}
+
 /** Monta a legenda das Prévias: corpo (limpo/escapado) + 3 chamadas para ação
  *  em HIPERLINK ("ACESSAR O VIP 🎁"), em vez do link cru. Remove também o CTA
  *  em texto puro ("👉 Acesse: ...") que ficou salvo em posts de versões antigas. */
@@ -52,7 +62,7 @@ function buildWarmupCaption(rawCaption: string, vipLink: string): string {
   const href = vipLink.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
   const linkLine = `<a href="${href}">ACESSAR O VIP 🎁</a>`;
   const cta = `${linkLine}\n${linkLine}\n${linkLine}`;
-  return body ? `${escapeHtml(body)}\n\n${cta}` : cta;
+  return body ? `${escapeHtmlAllowingLinks(body)}\n\n${cta}` : cta;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,7 +121,7 @@ export async function runTelegramAutopost(): Promise<number> {
       const finalCaption =
         isWarmup && profile.bioVipLink
           ? buildWarmupCaption(post.caption || "", profile.bioVipLink)
-          : post.caption || "";
+          : escapeHtmlAllowingLinks(post.caption || "");
 
       // Dispara no Telegram
       try {

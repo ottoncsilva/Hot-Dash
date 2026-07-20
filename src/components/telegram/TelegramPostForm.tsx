@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import Modal from "@/components/Modal";
 import AuthImage from "@/components/AuthImage";
+import CaptionEditor from "@/components/telegram/CaptionEditor";
 import { apiGet, apiSend } from "@/lib/api";
 import { IconCheck, IconPlay, IconSparkle } from "@/components/icons";
 import type { ScheduledPost, PostNetwork } from "@/lib/postTypes";
@@ -355,11 +356,11 @@ export default function TelegramPostForm({
                 </select>
               )}
             </div>
-            <textarea
-              className="input min-h-[110px]"
-              placeholder="Escreva a legenda..."
+            <CaptionEditor
               value={caption}
-              onChange={(e) => setCaption(e.target.value)}
+              onChange={setCaption}
+              placeholder="Escreva a legenda..."
+              textAreaClassName="input min-h-[110px]"
             />
             <div className="mt-2 flex flex-wrap gap-2">
               <input

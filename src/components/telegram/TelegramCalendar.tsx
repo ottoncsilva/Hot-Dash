@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { apiGet, apiSend } from "@/lib/api";
 import type { ScheduledPost } from "@/lib/postTypes";
 import type { Profile } from "@/lib/types";
@@ -32,6 +33,19 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
   // Estados do formulário completo
   const [formOpen, setFormOpen] = useState(false);
   const [formInitial, setFormInitial] = useState<ScheduledPost | null>(null);
+
+  // Necessário para renderizar o modal via portal (document.body só existe no cliente).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  // Trava a rolagem do fundo enquanto a pré-visualização está aberta.
+  useEffect(() => {
+    if (!editingPost) return;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [editingPost]);
 
   const { confirm, ConfirmDialog } = useConfirm();
 
@@ -393,9 +407,13 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
         </div>
       )}
 
-      {/* Modal de Edição Emulando Telegram (Pré-visualização rápida) */}
-      {editingPost && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/90 p-4 backdrop-blur-md">
+      {/* Modal de Edição Emulando Telegram (Pré-visualização rápida).
+          Renderizado via portal em document.body: evita ficar preso dentro de
+          ancestrais com transform/animação (que quebram o position:fixed e
+          jogavam a janela para fora da área visível). */}
+      {editingPost && mounted && createPortal(
+        (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-black/90 p-4 backdrop-blur-md">
           <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-xl border border-white/5 bg-[#1e2329] shadow-2xl">
             {/* Header / Nav do Telegram */}
             <div className="flex shrink-0 items-center justify-between gap-3 bg-[#242b33] px-4 py-3 shadow-md">
@@ -476,6 +494,8 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
             </div>
           </div>
         </div>
+        ),
+        document.body,
       )}
 
       {/* Formulário Completo (Postagem Manual / Editar) */}

@@ -259,6 +259,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
           onDayClick={(d) => { /* Não preencher formulário no clique do dia por enquanto */ }}
           onPostClick={openPreview}
           onPostMove={movePost}
+          defaultView="week"
         />
       ) : (
         /* Modo Lista Verdadeira */

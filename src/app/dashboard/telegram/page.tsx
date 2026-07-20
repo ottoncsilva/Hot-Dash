@@ -153,13 +153,19 @@ export default function TelegramUnifiedPage() {
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Erro ao gerar posts.");
+      // Emit event so calendar component reloads
+      window.dispatchEvent(new Event("reloadTelegramCalendar"));
+      // Se a IA falhou (ou não está conectada), os posts saem com o texto padrão
+      // — avisa o motivo em vez de fingir sucesso total.
+      if (d.aiError) {
+        toast.error(`Posts gerados, mas as legendas usaram o texto padrão. Motivo: ${d.aiError}`);
+        return;
+      }
       toast.success(
         single
           ? "Postagem única gerada com sucesso! Verifique o calendário."
           : `${d.generated} posts gerados com sucesso! Verifique o calendário.`
       );
-      // Emit event so calendar component reloads
-      window.dispatchEvent(new Event("reloadTelegramCalendar"));
     } catch (err: any) {
       toast.error(err.message);
     } finally {

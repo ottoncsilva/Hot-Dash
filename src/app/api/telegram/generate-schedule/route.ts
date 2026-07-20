@@ -4,7 +4,7 @@ import { getProfile } from "@/lib/profiles";
 import { getBotConfigByProfile } from "@/lib/telegramDb";
 import { listMedia, listUsedMediaIds, getMediaRow, ensureVideoThumbnail, videoThumbRelPath } from "@/lib/media";
 import { generateCaption } from "@/lib/ai";
-import { getAiCredentials } from "@/lib/settings";
+import { getAiCredentials, type AiProvider } from "@/lib/settings";
 import { createPost } from "@/lib/posts";
 import { readBuffer } from "@/lib/storage";
 
@@ -117,9 +117,31 @@ export async function POST(req: NextRequest) {
     // Usamos um set na memória que será atualizado durante o loop
     const usedIds = listUsedMediaIds(profile.id);
 
-    const provider = getAiCredentials("gemini") !== null ? "gemini" : (getAiCredentials("openai") !== null ? "openai" : "grok");
+    // Escolhe SOMENTE um provedor efetivamente conectado (chave salva + ativado).
+    // Se nenhum estiver, `provider` fica null e as legendas usam o texto padrão —
+    // mas o motivo é reportado ao usuário (campo `aiError`), em vez de falhar em
+    // silêncio como antes.
+    const provider: AiProvider | null = getAiCredentials("gemini")
+      ? "gemini"
+      : getAiCredentials("openai")
+        ? "openai"
+        : getAiCredentials("grok")
+          ? "grok"
+          : null;
 
+    const FALLBACK_CAPTION = "Novo conteúdo disponível no canal! 🔥😘";
     let generatedCount = 0;
+    // Primeiro erro de IA encontrado (reportado ao final). `aiFailed` interrompe
+    // novas tentativas de IA no lote: uma falha aqui é sistêmica (provedor/modelo/
+    // cota), então não faz sentido repeti-la a cada slot — os demais posts saem
+    // com o texto padrão e o usuário vê o motivo.
+    let aiError: string | null = null;
+    let aiFailed = false;
+
+    if (!provider) {
+      aiError =
+        "Nenhum provedor de IA está conectado. Ative um em Configurações → Conexão com IA. As legendas foram criadas com o texto padrão.";
+    }
 
     for (const slot of emptySlots) {
       // Pega próxima mídia disponível com as tags
@@ -136,7 +158,7 @@ export async function POST(req: NextRequest) {
 
       // Gera legenda via IA
       let caption = "";
-      if (provider) {
+      if (provider && !aiFailed) {
         const images: any[] = [];
         // Envia a mídia para a IA analisar de verdade. Para vídeos, extrai a
         // miniatura (primeiro frame) — mesma abordagem do endpoint de legenda
@@ -177,12 +199,17 @@ export async function POST(req: NextRequest) {
             theme: promptTemplate || "Analise a foto e crie uma legenda natural e envolvente.",
             images,
           });
+          if (!caption.trim()) throw new Error("A IA retornou uma legenda vazia.");
         } catch (aiErr) {
           console.error("Erro ao gerar legenda com IA:", aiErr);
-          caption = "Novo conteúdo disponível no canal! 🔥😘";
+          if (!aiError) {
+            aiError = aiErr instanceof Error ? aiErr.message : "Falha ao gerar a legenda com a IA.";
+          }
+          aiFailed = true; // Interrompe novas tentativas neste lote (falha sistêmica)
+          caption = FALLBACK_CAPTION;
         }
       } else {
-        caption = "Novo conteúdo disponível no canal! 🔥😘";
+        caption = FALLBACK_CAPTION;
       }
 
       // Regra do Link: Injeta o bioVipLink APENAS no alvo Prévias (warmup)
@@ -204,7 +231,7 @@ export async function POST(req: NextRequest) {
       generatedCount++;
     }
 
-    return NextResponse.json({ ok: true, generated: generatedCount });
+    return NextResponse.json({ ok: true, generated: generatedCount, aiError });
   } catch (err) {
     console.error("Generate Schedule Error:", err);
     return NextResponse.json({ error: "Erro interno." }, { status: 500 });

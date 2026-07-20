@@ -28,17 +28,28 @@ function buildPrompt(req: CaptionRequest): string {
     .map((n) => `${NETWORK_LABELS[n.network] || n.network} (${n.postType})`)
     .join(", ");
   const hasImages = Boolean(req.images && req.images.length > 0);
+  const instructions = (req.theme || "").trim();
+  const hasInstructions = instructions.length > 0;
   return [
     `Você é social media da influenciadora "${req.profileName}".`,
     req.profileNotes ? `Sobre a personagem: ${req.profileNotes}` : "",
     `Escreva UMA legenda em português do Brasil para: ${alvos}.`,
+    // As instruções do usuário são a DIRETRIZ PRINCIPAL: elas contêm o tom de
+    // voz e, principalmente, os MODELOS/EXEMPLOS de legenda que devem ser
+    // seguidos. Precisam vir antes (e acima) de qualquer regra genérica — caso
+    // contrário a IA tende a ignorar os modelos fornecidos.
+    hasInstructions
+      ? `INSTRUÇÕES DO USUÁRIO (siga à risca, incluindo o estilo e quaisquer modelos/exemplos de legenda fornecidos):\n${instructions}`
+      : "",
     hasImages
-      ? "Analise a(s) imagem(ns) anexada(s) e escreva a legenda combinando com o que está nelas de verdade."
-      : `Tema/contexto do post: ${req.theme || ""}`,
-    hasImages && req.theme ? `Contexto extra do usuário: ${req.theme}` : "",
-    "Regras:",
+      ? "Analise a(s) imagem(ns) anexada(s) e escreva a legenda combinando o que está nelas de verdade com as instruções acima."
+      : hasInstructions
+        ? ""
+        : "Crie uma legenda natural e envolvente para o post.",
+    "Regras gerais (as INSTRUÇÕES DO USUÁRIO acima têm prioridade sobre estas):",
     "- Tom envolvente e autêntico, na voz da personagem (primeira pessoa).",
-    "- Use emojis com moderação e inclua 3 a 6 hashtags relevantes no final.",
+    "- Use emojis com moderação.",
+    "- Em redes de feed (Instagram/TikTok) pode incluir 3 a 6 hashtags relevantes no final; em Telegram e mensagens diretas NÃO use hashtags.",
     "- Se for Stories ou mensagem, seja curta e direta; se for Feed/Reels, pode desenvolver um pouco mais.",
     "- Responda SOMENTE com o texto da legenda, sem aspas nem explicações.",
   ]

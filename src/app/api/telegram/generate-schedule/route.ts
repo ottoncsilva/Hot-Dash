@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getProfile } from "@/lib/profiles";
 import { getBotConfigByProfile } from "@/lib/telegramDb";
-import { listMedia, listUsedMediaIds, getMediaRow } from "@/lib/media";
+import { listMedia, listUsedMediaIds, getMediaRow, ensureVideoThumbnail, videoThumbRelPath } from "@/lib/media";
 import { generateCaption } from "@/lib/ai";
 import { getAiCredentials } from "@/lib/settings";
 import { createPost } from "@/lib/posts";
@@ -138,16 +138,21 @@ export async function POST(req: NextRequest) {
       let caption = "";
       if (provider) {
         const images: any[] = [];
-        if (media.kind === "image") {
-          try {
+        // Envia a mídia para a IA analisar de verdade. Para vídeos, extrai a
+        // miniatura (primeiro frame) — mesma abordagem do endpoint de legenda
+        // manual — para que a legenda combine com o conteúdo, e não seja escrita
+        // "às cegas".
+        try {
+          if (media.kind === "video") {
+            const thumbPath = (await ensureVideoThumbnail(row.path)) || videoThumbRelPath(row.path);
+            const buf = await readBuffer(thumbPath);
+            images.push({ mime: "image/jpeg", base64: buf.toString("base64") });
+          } else {
             const buf = await readBuffer(row.path);
-            images.push({
-              mime: media.mime || "image/jpeg",
-              base64: buf.toString("base64"),
-            });
-          } catch (err) {
-            console.error("Erro ao ler imagem para IA:", err);
+            images.push({ mime: media.mime || "image/jpeg", base64: buf.toString("base64") });
           }
+        } catch (err) {
+          console.error("Erro ao ler mídia para IA:", err);
         }
 
         // Personalização Profunda baseada no Perfil

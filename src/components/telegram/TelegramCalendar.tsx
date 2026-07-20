@@ -6,6 +6,7 @@ import { useConfirm } from "@/hooks/useConfirm";
 import { showToast } from "@/lib/toast";
 import CalendarGrid from "@/components/schedule/CalendarGrid";
 import TelegramPostForm from "@/components/telegram/TelegramPostForm";
+import CaptionEditor from "@/components/telegram/CaptionEditor";
 import { IconCalendar, IconList, IconPlus, IconTrash, IconEdit, IconCheck } from "@/components/icons";
 
 export default function TelegramCalendar({ profileId, profiles }: { profileId: string, profiles: Profile[] }) {
@@ -394,10 +395,10 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
 
       {/* Modal de Edição Emulando Telegram (Pré-visualização rápida) */}
       {editingPost && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-md">
-          <div className="w-full max-w-sm rounded-xl bg-[#1e2329] shadow-2xl flex flex-col overflow-hidden border border-white/5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/90 p-4 backdrop-blur-md">
+          <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-xl border border-white/5 bg-[#1e2329] shadow-2xl">
             {/* Header / Nav do Telegram */}
-            <div className="flex items-center justify-between gap-3 bg-[#242b33] px-4 py-3 shadow-md z-10">
+            <div className="flex shrink-0 items-center justify-between gap-3 bg-[#242b33] px-4 py-3 shadow-md">
               <div className="flex items-center gap-2">
                 <button onClick={() => setEditingPost(null)} className="text-[#3390ec] hover:bg-white/5 rounded-full p-1 transition-colors">
                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -421,36 +422,37 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto bg-[#0f0f0f] custom-scrollbar flex flex-col relative max-h-[70vh]">
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[#0f0f0f] custom-scrollbar">
               {/* Media Preview */}
               {editingPost.media?.[0] ? (
-                <div className="w-full bg-black flex justify-center items-center overflow-hidden">
+                <div className="flex w-full shrink-0 items-center justify-center overflow-hidden bg-black">
                   {editingPost.media[0].kind === "video" ? (
-                    <video src={`/api/media/${editingPost.media[0].id}/file`} className="w-full h-auto max-h-[45vh] object-contain" autoPlay muted loop playsInline />
+                    <video src={`/api/media/${editingPost.media[0].id}/file`} className="h-auto w-full max-h-[45vh] object-contain" autoPlay muted loop playsInline />
                   ) : (
-                    <img src={`/api/media/${editingPost.media[0].id}/file`} className="w-full h-auto max-h-[45vh] object-contain" />
+                    <img src={`/api/media/${editingPost.media[0].id}/file`} className="h-auto w-full max-h-[45vh] object-contain" />
                   )}
                 </div>
               ) : (
-                <div className="w-full h-32 bg-zinc-900 flex items-center justify-center text-zinc-600 text-sm">
+                <div className="flex h-32 w-full shrink-0 items-center justify-center bg-zinc-900 text-sm text-zinc-600">
                   Mensagem apenas (Sem Mídia)
                 </div>
               )}
 
               {/* Caption Edit Area */}
-              <div className="p-3 bg-[#1e2329] flex-1 flex flex-col border-t border-white/5">
-                <p className="text-xs text-[#8e98a3] mb-2 font-semibold">LEGENDA DO POST:</p>
-                <textarea
-                  className="w-full flex-1 rounded-lg bg-[#2b313b] px-3 py-3 text-[15px] text-white focus:outline-none focus:ring-1 focus:ring-[#3390ec] resize-none font-sans leading-snug min-h-[120px]"
+              <div className="flex flex-1 flex-col border-t border-white/5 bg-[#1e2329] p-3">
+                <p className="mb-2 text-xs font-semibold text-[#8e98a3]">LEGENDA DO POST:</p>
+                <CaptionEditor
                   value={editCaption}
-                  onChange={(e) => setEditCaption(e.target.value)}
+                  onChange={setEditCaption}
                   placeholder="Escreva a mensagem..."
+                  rootClassName="flex-1"
+                  textAreaClassName="w-full flex-1 rounded-lg bg-[#2b313b] px-3 py-3 text-[15px] text-white focus:outline-none focus:ring-1 focus:ring-[#3390ec] resize-none font-sans leading-snug min-h-[120px]"
                 />
               </div>
             </div>
             
             {/* Footer */}
-            <div className="bg-[#1e2329] px-4 py-3 border-t border-white/5 flex justify-end gap-3">
+            <div className="flex shrink-0 justify-end gap-3 border-t border-white/5 bg-[#1e2329] px-4 py-3">
                <button 
                   onClick={() => setEditingPost(null)} 
                   disabled={saving}

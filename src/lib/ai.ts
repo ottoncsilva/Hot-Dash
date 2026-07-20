@@ -48,6 +48,7 @@ function buildPrompt(req: CaptionRequest): string {
         : "Crie uma legenda natural e envolvente para o post.",
     "Regras gerais (as INSTRUÇÕES DO USUÁRIO acima têm prioridade sobre estas):",
     "- Tom envolvente e autêntico, na voz da personagem (primeira pessoa).",
+    "- Mantenha a legenda CURTA, com tamanho parecido ao das legendas de exemplo/referência das instruções. Nada de textos longos — o público perde o interesse e cansa. Vá direto ao ponto.",
     "- VARIE bastante: mude a frase de abertura, a estrutura e as palavras a cada legenda. Nunca comece duas legendas da mesma forma nem repita bordões.",
     "- Use emojis com moderação.",
     "- Em redes de feed (Instagram/TikTok) pode incluir 3 a 6 hashtags relevantes no final; em Telegram e mensagens diretas NÃO use hashtags.",

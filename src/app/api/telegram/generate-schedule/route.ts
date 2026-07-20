@@ -117,28 +117,29 @@ export async function POST(req: NextRequest) {
     // Usamos um set na memória que será atualizado durante o loop
     const usedIds = listUsedMediaIds(profile.id);
 
-    // Escolhe SOMENTE um provedor efetivamente conectado (chave salva + ativado).
-    // Se nenhum estiver, `provider` fica null e as legendas usam o texto padrão —
-    // mas o motivo é reportado ao usuário (campo `aiError`), em vez de falhar em
-    // silêncio como antes.
-    const provider: AiProvider | null = getAiCredentials("gemini")
-      ? "gemini"
-      : getAiCredentials("openai")
-        ? "openai"
-        : getAiCredentials("grok")
-          ? "grok"
-          : null;
+    // Cadeia de provedores conectados, do MAIS PERMISSIVO ao mais restritivo.
+    // Este endpoint gera legendas para conteúdo adulto (VIP/Prévias): Gemini e
+    // OpenAI frequentemente RECUSAM analisar imagens explícitas (voltam sem
+    // texto/erro), enquanto o Grok (x.ai) costuma aceitar. Por isso tentamos
+    // Grok primeiro e só caímos para os demais se ele não estiver conectado ou
+    // falhar. A cadeia é percorrida até um provedor devolver uma legenda válida.
+    const providerChain: AiProvider[] = (["grok", "openai", "gemini"] as AiProvider[]).filter(
+      (p) => getAiCredentials(p) !== null,
+    );
 
     const FALLBACK_CAPTION = "Novo conteúdo disponível no canal! 🔥😘";
     let generatedCount = 0;
+    // Provedor que efetivamente funcionou — travado no primeiro sucesso para não
+    // reprocessar a cadeia inteira a cada slot.
+    let activeProvider: AiProvider | null = null;
     // Primeiro erro de IA encontrado (reportado ao final). `aiFailed` interrompe
-    // novas tentativas de IA no lote: uma falha aqui é sistêmica (provedor/modelo/
-    // cota), então não faz sentido repeti-la a cada slot — os demais posts saem
-    // com o texto padrão e o usuário vê o motivo.
+    // novas tentativas de IA no lote: se TODA a cadeia falhar num slot, a causa é
+    // sistêmica (chaves/modelos/cota), então os demais posts saem com o texto
+    // padrão e o usuário vê o motivo em vez de falhar em silêncio.
     let aiError: string | null = null;
     let aiFailed = false;
 
-    if (!provider) {
+    if (providerChain.length === 0) {
       aiError =
         "Nenhum provedor de IA está conectado. Ative um em Configurações → Conexão com IA. As legendas foram criadas com o texto padrão.";
     }
@@ -158,7 +159,7 @@ export async function POST(req: NextRequest) {
 
       // Gera legenda via IA
       let caption = "";
-      if (provider && !aiFailed) {
+      if (providerChain.length > 0 && !aiFailed) {
         const images: any[] = [];
         // Envia a mídia para a IA analisar de verdade. Para vídeos, extrai a
         // miniatura (primeiro frame) — mesma abordagem do endpoint de legenda
@@ -182,30 +183,46 @@ export async function POST(req: NextRequest) {
         if (profile.bioPhysical) richNotes += `\nCaracterísticas Físicas da modelo: ${profile.bioPhysical}`;
         if (profile.bioUnique) richNotes += `\nMecanismo Único / Fetiche: ${profile.bioUnique}`;
         if (profile.bioPersonality) {
-          const pType = profile.bioPersonality === "santinha" 
-            ? "Santinha (inocente por fora)" 
-            : profile.bioPersonality === "explicita" 
-            ? "Explícita (sem papas na língua, bem ousada e direta)" 
+          const pType = profile.bioPersonality === "santinha"
+            ? "Santinha (inocente por fora)"
+            : profile.bioPersonality === "explicita"
+            ? "Explícita (sem papas na língua, bem ousada e direta)"
             : "Safadinha (safada na medida)";
           richNotes += `\nPersonalidade/Estilo de escrita: ${pType}`;
         }
-        
-        try {
-          caption = await generateCaption({
-            provider,
-            networks: [{ network: "telegram", postType: postTypeTarget }],
-            profileName: profile.name,
-            profileNotes: richNotes,
-            theme: promptTemplate || "Analise a foto e crie uma legenda natural e envolvente.",
-            images,
-          });
-          if (!caption.trim()) throw new Error("A IA retornou uma legenda vazia.");
-        } catch (aiErr) {
-          console.error("Erro ao gerar legenda com IA:", aiErr);
-          if (!aiError) {
-            aiError = aiErr instanceof Error ? aiErr.message : "Falha ao gerar a legenda com a IA.";
+
+        // Provedores a tentar neste slot: se já travamos um que funcionou, usa só
+        // ele; caso contrário, percorre a cadeia inteira (permissivo → restritivo).
+        const toTry: AiProvider[] = activeProvider ? [activeProvider] : providerChain;
+        const errors: string[] = [];
+
+        for (const p of toTry) {
+          try {
+            const result = await generateCaption({
+              provider: p,
+              networks: [{ network: "telegram", postType: postTypeTarget }],
+              profileName: profile.name,
+              profileNotes: richNotes,
+              theme: promptTemplate || "Analise a foto e crie uma legenda natural e envolvente.",
+              images,
+            });
+            if (!result.trim()) throw new Error("retornou uma legenda vazia.");
+            caption = result;
+            activeProvider = p; // Trava o provedor que funcionou para os próximos slots
+            break;
+          } catch (aiErr) {
+            const msg = aiErr instanceof Error ? aiErr.message : "falha desconhecida";
+            console.error(`Erro ao gerar legenda com IA (${p}):`, aiErr);
+            errors.push(`${p}: ${msg}`);
           }
-          aiFailed = true; // Interrompe novas tentativas neste lote (falha sistêmica)
+        }
+
+        if (!caption) {
+          // Toda a cadeia falhou neste slot → causa sistêmica: para de tentar.
+          if (!aiError) {
+            aiError = `Todos os provedores de IA conectados falharam ao legendar. Detalhes → ${errors.join(" | ")}`;
+          }
+          aiFailed = true;
           caption = FALLBACK_CAPTION;
         }
       } else {

@@ -144,7 +144,21 @@ export async function POST(req: NextRequest) {
         "Nenhum provedor de IA está conectado. Ative um em Configurações → Conexão com IA. As legendas foram criadas com o texto padrão.";
     }
 
-    for (const slot of emptySlots) {
+    // Ganchos rotativos: como cada legenda é gerada numa chamada independente, a
+    // IA tende a repetir sempre a mesma abertura. Injetar um ângulo diferente por
+    // post empurra variação real ao longo do lote (além da regra geral de variar).
+    const VARIATION_ANGLES = [
+      "Abra com uma provocação ousada.",
+      "Abra com uma pergunta direta para quem está lendo.",
+      "Comece contando o que você está fazendo ou sentindo agora.",
+      "Comece com um convite safado e direto.",
+      "Comece reagindo à própria roupa/corpo que aparece na foto.",
+      "Comece com um tom mais carinhoso e íntimo.",
+      "Comece com uma provocação do tipo 'será que você aguenta?'.",
+      "Comece descrevendo o clima ou o cenário da foto.",
+    ];
+
+    for (const [slotIndex, slot] of emptySlots.entries()) {
       // Pega próxima mídia disponível com as tags
       const candidates = library
         .filter((m) => !usedIds.has(m.id))
@@ -196,6 +210,13 @@ export async function POST(req: NextRequest) {
         const toTry: AiProvider[] = activeProvider ? [activeProvider] : providerChain;
         const errors: string[] = [];
 
+        // Gancho de variação para este post (rotaciona pela lista).
+        const angle = VARIATION_ANGLES[slotIndex % VARIATION_ANGLES.length];
+        const themeWithAngle = [
+          promptTemplate || "Analise a foto e crie uma legenda natural e envolvente.",
+          `Variação desta legenda específica (só um empurrão de diversidade, mantenha o tom das instruções): ${angle}`,
+        ].join("\n\n");
+
         for (const p of toTry) {
           try {
             const result = await generateCaption({
@@ -203,7 +224,7 @@ export async function POST(req: NextRequest) {
               networks: [{ network: "telegram", postType: postTypeTarget }],
               profileName: profile.name,
               profileNotes: richNotes,
-              theme: promptTemplate || "Analise a foto e crie uma legenda natural e envolvente.",
+              theme: themeWithAngle,
               images,
             });
             if (!result.trim()) throw new Error("retornou uma legenda vazia.");

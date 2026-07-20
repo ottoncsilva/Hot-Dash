@@ -199,7 +199,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
             >
               <option value="">Todos os tipos</option>
               <option value="VIP">VIP</option>
-              <option value="Aquecimento">Aquecimento</option>
+              <option value="Prévias">Prévias</option>
             </select>
             <select
               className="input py-2 text-sm"

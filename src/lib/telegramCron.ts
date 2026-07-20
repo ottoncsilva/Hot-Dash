@@ -67,10 +67,12 @@ export async function runTelegramAutopost(): Promise<number> {
       .all(profile.id, now) as any[];
 
     for (const post of pendingPosts) {
-      // Define o alvo
+      // Define o alvo. "Aquecimento" é aceito como sinônimo legado de "Prévias"
+      // (posts manuais antigos usavam esse rótulo) para não travarem na fila.
       let chatId = "";
+      const isWarmup = post.post_type === "Prévias" || post.post_type === "Aquecimento";
       if (post.post_type === "VIP") chatId = bot.idVip;
-      else if (post.post_type === "Prévias") chatId = bot.idAquecimento;
+      else if (isWarmup) chatId = bot.idAquecimento;
       else continue; // Ignora post genérico manual ("Mensagem"/"Outro") sem alvo específico
 
       if (!chatId) {
@@ -87,7 +89,7 @@ export async function runTelegramAutopost(): Promise<number> {
 
       // Prepara call-to-action (o link/botões SÓ vão para as Prévias, nunca no VIP)
       const options: Record<string, any> = {};
-      if (post.post_type === "Prévias" && profile.bioVipLink) {
+      if (isWarmup && profile.bioVipLink) {
         options.reply_markup = {
           inline_keyboard: [
             [{ text: "👉 VEM PRO MEU VIP AGORA", url: profile.bioVipLink }],

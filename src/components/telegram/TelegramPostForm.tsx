@@ -42,9 +42,12 @@ export default function TelegramPostForm({
     initial ? fmtTime(initial.scheduledAt) : "12:00",
   );
   
-  // Para telegram, teremos uma única network na lista
+  // Para telegram, teremos uma única network na lista.
+  // Normaliza o valor legado "Aquecimento" para "Prévias" (padrão unificado),
+  // senão o <select> não encontraria a opção ao editar posts antigos.
+  const initialPostType = initial?.networks.find(n => n.network === "telegram")?.postType;
   const [postType, setPostType] = useState(
-    initial?.networks.find(n => n.network === "telegram")?.postType || "VIP"
+    initialPostType === "Aquecimento" ? "Prévias" : (initialPostType || "VIP")
   );
 
   const [caption, setCaption] = useState(initial?.caption || "");
@@ -225,7 +228,7 @@ export default function TelegramPostForm({
                 onChange={(e) => setPostType(e.target.value)}
               >
                 <option value="VIP">VIP</option>
-                <option value="Aquecimento">Aquecimento / Prévias</option>
+                <option value="Prévias">Prévias / Aquecimento</option>
               </select>
             </div>
             <div>

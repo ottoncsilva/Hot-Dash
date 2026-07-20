@@ -34,20 +34,21 @@ function buildPrompt(req: CaptionRequest): string {
     `Você é social media da influenciadora "${req.profileName}".`,
     req.profileNotes ? `Sobre a personagem: ${req.profileNotes}` : "",
     `Escreva UMA legenda em português do Brasil para: ${alvos}.`,
-    // As instruções do usuário são a DIRETRIZ PRINCIPAL: elas contêm o tom de
-    // voz e, principalmente, os MODELOS/EXEMPLOS de legenda que devem ser
-    // seguidos. Precisam vir antes (e acima) de qualquer regra genérica — caso
-    // contrário a IA tende a ignorar os modelos fornecidos.
+    // As instruções do usuário definem o TOM e o ESTILO. Os modelos/exemplos que
+    // elas contêm servem de REFERÊNCIA — não devem ser copiados ao pé da letra,
+    // senão toda legenda sai igual (mesma abertura, mesma estrutura). Deixamos
+    // isso explícito para o modelo se inspirar no estilo, mas variar o texto.
     hasInstructions
-      ? `INSTRUÇÕES DO USUÁRIO (siga à risca, incluindo o estilo e quaisquer modelos/exemplos de legenda fornecidos):\n${instructions}`
+      ? `INSTRUÇÕES DO USUÁRIO (definem o TOM e o ESTILO desejados). Se houver legendas de exemplo, use-as APENAS como referência de estilo/vocabulário — NÃO as copie, crie uma legenda nova e diferente:\n${instructions}`
       : "",
     hasImages
-      ? "Analise a(s) imagem(ns) anexada(s) e escreva a legenda combinando o que está nelas de verdade com as instruções acima."
+      ? "Baseie a legenda no que aparece NESTA imagem específica (cenário, roupa, pose, expressão, detalhes) — cada foto é diferente, então cada legenda deve ser diferente."
       : hasInstructions
         ? ""
         : "Crie uma legenda natural e envolvente para o post.",
     "Regras gerais (as INSTRUÇÕES DO USUÁRIO acima têm prioridade sobre estas):",
     "- Tom envolvente e autêntico, na voz da personagem (primeira pessoa).",
+    "- VARIE bastante: mude a frase de abertura, a estrutura e as palavras a cada legenda. Nunca comece duas legendas da mesma forma nem repita bordões.",
     "- Use emojis com moderação.",
     "- Em redes de feed (Instagram/TikTok) pode incluir 3 a 6 hashtags relevantes no final; em Telegram e mensagens diretas NÃO use hashtags.",
     "- Se for Stories ou mensagem, seja curta e direta; se for Feed/Reels, pode desenvolver um pouco mais.",

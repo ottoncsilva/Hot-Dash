@@ -78,7 +78,7 @@ export async function callAiRaw(
 ): Promise<string> {
   const creds = getAiCredentials(provider);
   if (!creds) {
-    const label = provider === "openai" ? "OpenAI" : "Google Gemini";
+    const label = provider === "openai" ? "OpenAI" : provider === "grok" ? "Grok (x.ai)" : "Google Gemini";
     throw new Error(
       `${label} não está conectado: ative e cole a chave de API em Configurações → Conexão com IA.`,
     );
@@ -86,7 +86,9 @@ export async function callAiRaw(
   const maxTokens = opts?.maxTokens ?? 500;
   const images = opts?.images || [];
 
-  if (provider === "openai") {
+  // OpenAI e Grok (x.ai) compartilham o mesmo formato de API (chat/completions),
+  // mudando apenas a URL base — por isso são tratados no mesmo ramo.
+  if (provider === "openai" || provider === "grok") {
     const content =
       images.length > 0
         ? [
@@ -117,7 +119,11 @@ export async function callAiRaw(
     }
 
     async function attempt(body: Record<string, unknown>) {
-      const url = creds!.baseUrl || "https://api.openai.com/v1/chat/completions";
+      const defaultUrl =
+        provider === "grok"
+          ? "https://api.x.ai/v1/chat/completions"
+          : "https://api.openai.com/v1/chat/completions";
+      const url = creds!.baseUrl || defaultUrl;
       const res = await fetch(url, {
         method: "POST",
         headers: {
@@ -145,14 +151,15 @@ export async function callAiRaw(
         ));
       }
     }
+    const providerLabel = provider === "grok" ? "Grok" : "OpenAI";
     if (!res.ok) {
       const errObj = data.error;
       const msg = (typeof errObj === 'string' ? errObj : (errObj as Record<string, unknown>)?.message as string) || "";
-      throw new Error(`OpenAI (${res.status}): ${msg || "falha ao gerar conteúdo"}`);
+      throw new Error(`${providerLabel} (${res.status}): ${msg || "falha ao gerar conteúdo"}`);
     }
     const text = (data.choices as { message?: { content?: string } }[])?.[0]?.message
       ?.content;
-    if (!text) throw new Error("OpenAI não retornou texto.");
+    if (!text) throw new Error(`${providerLabel} não retornou texto.`);
     return text;
   }
 

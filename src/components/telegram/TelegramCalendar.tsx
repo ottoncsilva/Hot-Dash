@@ -305,9 +305,14 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                       {post.media && post.media.length > 0 ? (
                         <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded bg-ink-800 border border-white/5">
                           <img
-                            src={`/api/media/${post.media[0].id}/thumbnail`}
+                            src={
+                              post.media[0].kind === "video"
+                                ? `/api/media/${post.media[0].id}/thumbnail`
+                                : `/api/media/${post.media[0].id}/file`
+                            }
                             className="h-full w-full object-cover"
                             alt="Preview"
+                            loading="lazy"
                           />
                           {post.media.length > 1 && (
                             <span className="absolute bottom-0 right-0 bg-black/80 text-[8px] px-1 rounded-tl text-white font-bold">

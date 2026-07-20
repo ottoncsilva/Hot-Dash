@@ -4,7 +4,7 @@ import { getProfile } from "@/lib/profiles";
 import { getBotConfigByProfile } from "@/lib/telegramDb";
 import { listMedia, listUsedMediaIds, getMediaRow, ensureVideoThumbnail, videoThumbRelPath } from "@/lib/media";
 import { generateCaption } from "@/lib/ai";
-import { getAiCredentials } from "@/lib/settings";
+import { getAiCredentials, type AiProvider } from "@/lib/settings";
 import { createPost } from "@/lib/posts";
 import { readBuffer } from "@/lib/storage";
 
@@ -117,9 +117,32 @@ export async function POST(req: NextRequest) {
     // Usamos um set na memória que será atualizado durante o loop
     const usedIds = listUsedMediaIds(profile.id);
 
-    const provider = getAiCredentials("gemini") !== null ? "gemini" : (getAiCredentials("openai") !== null ? "openai" : "grok");
+    // Cadeia de provedores conectados, do MAIS PERMISSIVO ao mais restritivo.
+    // Este endpoint gera legendas para conteúdo adulto (VIP/Prévias): Gemini e
+    // OpenAI frequentemente RECUSAM analisar imagens explícitas (voltam sem
+    // texto/erro), enquanto o Grok (x.ai) costuma aceitar. Por isso tentamos
+    // Grok primeiro e só caímos para os demais se ele não estiver conectado ou
+    // falhar. A cadeia é percorrida até um provedor devolver uma legenda válida.
+    const providerChain: AiProvider[] = (["grok", "openai", "gemini"] as AiProvider[]).filter(
+      (p) => getAiCredentials(p) !== null,
+    );
 
+    const FALLBACK_CAPTION = "Novo conteúdo disponível no canal! 🔥😘";
     let generatedCount = 0;
+    // Provedor que efetivamente funcionou — travado no primeiro sucesso para não
+    // reprocessar a cadeia inteira a cada slot.
+    let activeProvider: AiProvider | null = null;
+    // Primeiro erro de IA encontrado (reportado ao final). `aiFailed` interrompe
+    // novas tentativas de IA no lote: se TODA a cadeia falhar num slot, a causa é
+    // sistêmica (chaves/modelos/cota), então os demais posts saem com o texto
+    // padrão e o usuário vê o motivo em vez de falhar em silêncio.
+    let aiError: string | null = null;
+    let aiFailed = false;
+
+    if (providerChain.length === 0) {
+      aiError =
+        "Nenhum provedor de IA está conectado. Ative um em Configurações → Conexão com IA. As legendas foram criadas com o texto padrão.";
+    }
 
     for (const slot of emptySlots) {
       // Pega próxima mídia disponível com as tags
@@ -136,7 +159,7 @@ export async function POST(req: NextRequest) {
 
       // Gera legenda via IA
       let caption = "";
-      if (provider) {
+      if (providerChain.length > 0 && !aiFailed) {
         const images: any[] = [];
         // Envia a mídia para a IA analisar de verdade. Para vídeos, extrai a
         // miniatura (primeiro frame) — mesma abordagem do endpoint de legenda
@@ -160,29 +183,50 @@ export async function POST(req: NextRequest) {
         if (profile.bioPhysical) richNotes += `\nCaracterísticas Físicas da modelo: ${profile.bioPhysical}`;
         if (profile.bioUnique) richNotes += `\nMecanismo Único / Fetiche: ${profile.bioUnique}`;
         if (profile.bioPersonality) {
-          const pType = profile.bioPersonality === "santinha" 
-            ? "Santinha (inocente por fora)" 
-            : profile.bioPersonality === "explicita" 
-            ? "Explícita (sem papas na língua, bem ousada e direta)" 
+          const pType = profile.bioPersonality === "santinha"
+            ? "Santinha (inocente por fora)"
+            : profile.bioPersonality === "explicita"
+            ? "Explícita (sem papas na língua, bem ousada e direta)"
             : "Safadinha (safada na medida)";
           richNotes += `\nPersonalidade/Estilo de escrita: ${pType}`;
         }
-        
-        try {
-          caption = await generateCaption({
-            provider,
-            networks: [{ network: "telegram", postType: postTypeTarget }],
-            profileName: profile.name,
-            profileNotes: richNotes,
-            theme: promptTemplate || "Analise a foto e crie uma legenda natural e envolvente.",
-            images,
-          });
-        } catch (aiErr) {
-          console.error("Erro ao gerar legenda com IA:", aiErr);
-          caption = "Novo conteúdo disponível no canal! 🔥😘";
+
+        // Provedores a tentar neste slot: se já travamos um que funcionou, usa só
+        // ele; caso contrário, percorre a cadeia inteira (permissivo → restritivo).
+        const toTry: AiProvider[] = activeProvider ? [activeProvider] : providerChain;
+        const errors: string[] = [];
+
+        for (const p of toTry) {
+          try {
+            const result = await generateCaption({
+              provider: p,
+              networks: [{ network: "telegram", postType: postTypeTarget }],
+              profileName: profile.name,
+              profileNotes: richNotes,
+              theme: promptTemplate || "Analise a foto e crie uma legenda natural e envolvente.",
+              images,
+            });
+            if (!result.trim()) throw new Error("retornou uma legenda vazia.");
+            caption = result;
+            activeProvider = p; // Trava o provedor que funcionou para os próximos slots
+            break;
+          } catch (aiErr) {
+            const msg = aiErr instanceof Error ? aiErr.message : "falha desconhecida";
+            console.error(`Erro ao gerar legenda com IA (${p}):`, aiErr);
+            errors.push(`${p}: ${msg}`);
+          }
+        }
+
+        if (!caption) {
+          // Toda a cadeia falhou neste slot → causa sistêmica: para de tentar.
+          if (!aiError) {
+            aiError = `Todos os provedores de IA conectados falharam ao legendar. Detalhes → ${errors.join(" | ")}`;
+          }
+          aiFailed = true;
+          caption = FALLBACK_CAPTION;
         }
       } else {
-        caption = "Novo conteúdo disponível no canal! 🔥😘";
+        caption = FALLBACK_CAPTION;
       }
 
       // Regra do Link: Injeta o bioVipLink APENAS no alvo Prévias (warmup)
@@ -204,7 +248,7 @@ export async function POST(req: NextRequest) {
       generatedCount++;
     }
 
-    return NextResponse.json({ ok: true, generated: generatedCount });
+    return NextResponse.json({ ok: true, generated: generatedCount, aiError });
   } catch (err) {
     console.error("Generate Schedule Error:", err);
     return NextResponse.json({ error: "Erro interno." }, { status: 500 });

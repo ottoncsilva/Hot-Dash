@@ -31,6 +31,7 @@ import {
   IconSearch,
 } from "@/components/icons";
 import CommandPalette from "@/components/CommandPalette";
+import PullToRefresh from "@/components/PullToRefresh";
 
 const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   dashboard: IconDashboard,
@@ -449,7 +450,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Conteúdo */}
       <main className="flex-1 px-4 pb-24 pt-6 md:h-dvh md:overflow-y-auto md:px-10 md:py-10">
-        <div className="animate-fade-in">{children}</div>
+        <PullToRefresh>
+          <div className="animate-fade-in">{children}</div>
+        </PullToRefresh>
       </main>
 
       <CommandPalette />

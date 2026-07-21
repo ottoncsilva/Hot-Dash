@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
 import { showToast } from "@/lib/toast";
 import { useConfirm } from "@/hooks/useConfirm";
+import Switch from "@/components/Switch";
 import type { Profile } from "@/lib/types";
 import { IconTelegram, IconClose, IconRefresh } from "@/components/icons";
 
@@ -21,6 +22,7 @@ type Bot = {
   successMessage: string;
   downsellFunnel?: string;
   upsellFunnel?: string;
+  operationActive: boolean;
 };
 type Plan = { id: string; name: string; priceCents: number; durationDays: number };
 type CustomButton = { id: string; text: string; url: string; sortOrder: number };
@@ -132,7 +134,7 @@ export default function BotVendasPage() {
 
       {!loading && bot && (
         <div className="space-y-5">
-          <WebhookCard profileId={profileId} bot={bot} />
+          <WebhookCard profileId={profileId} bot={bot} onSaved={load} />
           <MessagesCard profileId={profileId} bot={bot} tags={tags} onSaved={load} />
           <PlansCard profileId={profileId} plans={plans} onSaved={load} />
           <FunnelCard profileId={profileId} bot={bot} tags={tags} onSaved={load} />
@@ -147,9 +149,12 @@ export default function BotVendasPage() {
 // ---------------------------------------------------------------------------
 // Conexão + Webhook
 // ---------------------------------------------------------------------------
-function WebhookCard({ profileId, bot }: { profileId: string; bot: Bot }) {
+function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot; onSaved: () => void }) {
   const [busy, setBusy] = useState(false);
+  const [toggling, setToggling] = useState(false);
   const [status, setStatus] = useState<{ matches?: boolean; url?: string; error?: string } | null>(null);
+
+  const active = bot.operationActive;
 
   const checkStatus = useCallback(async () => {
     try {
@@ -166,8 +171,30 @@ function WebhookCard({ profileId, bot }: { profileId: string; bot: Bot }) {
   }, [profileId]);
 
   useEffect(() => {
-    checkStatus();
-  }, [checkStatus]);
+    if (active) checkStatus();
+    else setStatus(null);
+  }, [checkStatus, active]);
+
+  async function setOperation(next: boolean) {
+    setToggling(true);
+    try {
+      const r = await apiSend<{ ok: boolean; message?: string }>("/api/telegram", "POST", {
+        action: "set-operation",
+        profileId,
+        active: next,
+      });
+      if (r.ok) {
+        showToast(next ? "Operação LIGADA — o Hot-Dash assumiu o bot." : "Operação DESLIGADA — bot liberado.", "success");
+        onSaved();
+      } else {
+        showToast(r.message || "Falha ao alterar a operação.", "error");
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha.", "error");
+    } finally {
+      setToggling(false);
+    }
+  }
 
   async function register() {
     setBusy(true);
@@ -176,7 +203,7 @@ function WebhookCard({ profileId, bot }: { profileId: string; bot: Bot }) {
         action: "register-webhook",
         profileId,
       });
-      if (r.webhook.ok) showToast("Webhook registrado no Telegram.", "success");
+      if (r.webhook.ok) showToast("Webhook reenviado ao Telegram.", "success");
       else showToast(r.webhook.message || "Falha ao registrar webhook.", "error");
       await checkStatus();
     } catch (e) {
@@ -188,31 +215,53 @@ function WebhookCard({ profileId, bot }: { profileId: string; bot: Bot }) {
 
   return (
     <div className="card p-4">
-      <div className="flex items-center justify-between">
-        <h2 className="font-display text-lg font-semibold">Conexão do bot</h2>
-        <span
-          className={`chip ${status?.matches ? "text-emerald-400" : "text-amber-400"}`}
-          title={status?.error || status?.url || ""}
-        >
-          {status == null ? "…" : status.matches ? "webhook ativo" : "webhook pendente"}
-        </span>
+      <h2 className="font-display text-lg font-semibold">Operação do bot</h2>
+
+      {/* Liga/desliga da operação (cutover ApexVips → Hot-Dash) */}
+      <div
+        className={`mt-3 flex items-center justify-between gap-3 rounded-xl border p-3.5 ${
+          active ? "border-emerald-500/30 bg-emerald-500/[0.06]" : "border-white/10 bg-ink-900"
+        }`}
+      >
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-white">
+            {active ? "Ligada — o Hot-Dash controla o bot" : "Desligada — o ApexVips controla o bot"}
+          </p>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            {active
+              ? "O bot recebe leads, gera PIX e aprova entradas pelo Hot-Dash."
+              : "Ligue para fazer o cutover: o Hot-Dash assume o webhook do bot na hora."}
+          </p>
+        </div>
+        <Switch checked={active} onChange={setOperation} disabled={toggling} ariaLabel="Operação do bot" />
       </div>
+
       <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
         <Info label="Bot" value={bot.botUsername ? `@${bot.botUsername}` : "—"} />
         <Info label="Grupo VIP" value={bot.idVip || "—"} />
         <Info label="Grupo Prévias" value={bot.idAquecimento || "—"} />
       </div>
       <p className="mt-2 text-xs text-zinc-500">
-        Token e IDs dos grupos VIP/Prévias vêm de <b>Automação de postagens</b>. Após criar/ajustar
-        o bot, clique abaixo para registrar o webhook (necessário para o bot receber os leads e
-        aprovar entradas).
+        Token e IDs dos grupos VIP/Prévias vêm de <b>Automação de postagens</b>. A postagem
+        automática funciona independentemente deste liga/desliga.
       </p>
-      {status?.error && (
+
+      {active && (
+        <div className="mt-3 flex items-center gap-2">
+          <span
+            className={`chip ${status?.matches ? "text-emerald-400" : "text-amber-400"}`}
+            title={status?.error || status?.url || ""}
+          >
+            {status == null ? "verificando…" : status.matches ? "webhook ativo" : "webhook pendente"}
+          </span>
+          <button onClick={register} disabled={busy} className="btn-ghost px-2.5 py-1.5 text-xs">
+            <IconRefresh size={14} /> {busy ? "Reenviando..." : "Reenviar webhook"}
+          </button>
+        </div>
+      )}
+      {active && status?.error && (
         <p className="mt-2 text-xs text-amber-400">Último erro do Telegram: {status.error}</p>
       )}
-      <button onClick={register} disabled={busy} className="btn-primary mt-3">
-        <IconRefresh size={15} /> {busy ? "Registrando..." : "Registrar / atualizar webhook"}
-      </button>
     </div>
   );
 }

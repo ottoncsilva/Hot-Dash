@@ -23,14 +23,16 @@ compartilhados com a *Automação de postagens*.
    grupos VIP e Prévias e salve. (Isso já registra o webhook.)
 5. Em **Configurações → Pagamentos**: preencha `client_id`/`client_secret` da
    SyncPay. O `webhook_url` (postback) é enviado automaticamente a cada cobrança.
-6. Em **Telegram → Bot de vendas**:
-   - **Conexão do bot**: confira o status do webhook (deve ficar *ativo*); se
-     preciso, clique em **Registrar / atualizar webhook**.
+6. Em **Telegram → Bot de vendas** (deixe a **Operação** DESLIGADA por enquanto):
    - **Mensagens**: boas-vindas (`{nome}`), sucesso (`{link_vip}`), suporte e
      canal de registro/vendas.
    - **Ofertas/Planos**: nome, preço, duração (dias).
    - **Funis**: etapas de downsell (não pagou) e upsell (pós-venda).
    - **Botões personalizados** (opcional).
+   - Quando tudo estiver pronto, **ligue a Operação do bot** (o interruptor no
+     topo). Só aí o Hot-Dash assume o webhook e faz o **cutover** do ApexVips na
+     hora. Desligar libera o bot de volta. Esse liga/desliga é o controle do
+     cutover — salvar o autopost sozinho **não** rouba o webhook do ApexVips.
 7. Em **Editar Perfil** da modelo, preencha o **Link do Bot/Assinatura VIP**
    (usado como CTA nos posts de prévias).
 8. Aponte o link das prévias (no slt.bio/Instagram) para o convite do grupo de

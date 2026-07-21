@@ -19,6 +19,12 @@ export async function POST(
       return NextResponse.json({ error: "Bot não configurado." }, { status: 404 });
     }
 
+    // Operação desligada → o bot de vendas não age (o ApexVips segue no
+    // controle). Retorna 200 para o Telegram não reenviar em loop.
+    if (!bot.operationActive) {
+      return NextResponse.json({ ok: true, inactive: true });
+    }
+
     // Segurança: o Telegram devolve o secret_token que registramos no header
     // abaixo. Se o webhook foi registrado com secret (padrão nas versões novas),
     // exigimos que bata. Webhooks antigos (sem secret) continuam aceitos.

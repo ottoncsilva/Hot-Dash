@@ -333,6 +333,11 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "telegram_bots", "welcome_media_tags", "TEXT");
   ensureColumn(d, "telegram_bots", "downsell_funnel", "TEXT");
   ensureColumn(d, "telegram_bots", "upsell_funnel", "TEXT");
+  // Liga/desliga da operação do BOT DE VENDAS (recebe /start, gera PIX, aprova
+  // no VIP/Prévias). 0 = desligado (o ApexVips segue no controle) — padrão até
+  // o operador fazer o cutover. Não afeta a postagem automática, que usa o token
+  // direto para enviar e não depende do webhook.
+  ensureColumn(d, "telegram_bots", "operation_active", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(d, "telegram_autopost_settings", "vip_prompt", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "warmup_prompt", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "warmup_link", "TEXT");

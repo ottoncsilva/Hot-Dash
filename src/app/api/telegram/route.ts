@@ -17,6 +17,7 @@ import {
 } from "@/lib/telegramDb";
 import {
   setTelegramWebhook,
+  deleteTelegramWebhook,
   getTelegramMe,
   getTelegramWebhookInfo,
   telegramWebhookSecret,
@@ -162,6 +163,7 @@ export async function POST(req: NextRequest) {
         successMessage: existing?.successMessage || "Aprovado",
         downsellFunnel: existing?.downsellFunnel,
         upsellFunnel: existing?.upsellFunnel,
+        operationActive: existing?.operationActive ?? false,
       });
 
       // 2. Salva a config de Autopost
@@ -201,12 +203,17 @@ export async function POST(req: NextRequest) {
         warmupFixedTimes || ""
       );
 
-      // 3. Registra o webhook do bot no Telegram (aponta para o Hot-Dash) e
-      // guarda o @username. Best-effort: não derruba o save se o Telegram falhar.
-      const webhook = await registerBotWebhook(req, botId, botToken.trim());
-      if (webhook.username && webhook.username !== existing?.botUsername) {
-        const cur = getBotConfigByProfile(profileId);
-        if (cur) saveBotConfig({ ...cur, botUsername: webhook.username });
+      // 3. Se a operação do bot de vendas JÁ está ligada, re-registra o webhook
+      // (mantém funcionando se o token/URL mudou). Se estiver desligada, NÃO
+      // registra — o cutover para o Hot-Dash é feito pelo botão de liga/desliga,
+      // então salvar o autopost não "rouba" o webhook do ApexVips.
+      let webhook: { ok: boolean; message?: string; username?: string } | undefined;
+      if (existing?.operationActive) {
+        webhook = await registerBotWebhook(req, botId, botToken.trim());
+        if (webhook.username && webhook.username !== existing?.botUsername) {
+          const cur = getBotConfigByProfile(profileId);
+          if (cur) saveBotConfig({ ...cur, botUsername: webhook.username });
+        }
       }
 
       return NextResponse.json({ ok: true, webhook });
@@ -286,6 +293,27 @@ export async function POST(req: NextRequest) {
       });
       for (const old of existing) if (!keepIds.has(old.id)) deleteCustomButton(old.id);
       return NextResponse.json({ ok: true, customButtons: listCustomButtons(bot.id) });
+    }
+
+    // ---- Liga/desliga da operação do bot de vendas (cutover) ----
+    if (action === "set-operation") {
+      const bot = requireBot(body.profileId);
+      const active = Boolean(body.active);
+      if (active) {
+        // Ligar → registra o webhook (assume o controle do bot, substituindo o
+        // ApexVips na hora, já que um bot só tem um webhook).
+        const webhook = await registerBotWebhook(req, bot.id, bot.botToken);
+        if (!webhook.ok) {
+          return NextResponse.json({ ok: false, message: webhook.message || "Falha ao registrar webhook." });
+        }
+        saveBotConfig({ ...bot, botUsername: webhook.username || bot.botUsername, operationActive: true });
+        return NextResponse.json({ ok: true, active: true });
+      } else {
+        // Desligar → remove o webhook (libera o bot; o Hot-Dash para de agir).
+        await deleteTelegramWebhook(bot.botToken).catch(() => {});
+        saveBotConfig({ ...bot, operationActive: false });
+        return NextResponse.json({ ok: true, active: false });
+      }
     }
 
     // ---- (Re)registrar o webhook manualmente (botão da UI) ----

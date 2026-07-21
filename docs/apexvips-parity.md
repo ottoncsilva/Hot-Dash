@@ -68,13 +68,84 @@ Legenda: ✅ já existe no Hot-Dash · 🟡 parcial · ⛔ ainda não existe.
 - Mensagens com Tempo, **Destinatários** (ex.: "Todos os cadastrados"),
   mídia/áudio, planos e botões por mensagem (igual downsell). 🟡
 
-## Outras abas (a detalhar com as próximas telas)
-- **Código de Venda** ⛔ · **Aprovação Automática** (config) 🟡 (temos VIP+prévias)
-- **Captação de Leads** ⛔ · **Webhook** (config própria) 🟡
-- **Mailing** (disparo em massa) ⛔ · **Trackeamento** (rastreio/atribuição) ⛔
-- **Redirecionadores** (links de redirecionamento) ⛔
-- **Ranking** / **Premiações** (gamificação de afiliados/leads) ⛔
+## Aprovação Automática (aba dedicada)
+- Toggle **Aprovação Automática Ativa** + **múltiplos canais** ("Adicionar Novo
+  Canal"). Por canal: ID do canal/grupo, **Mensagem** enviada ao aprovar,
+  **Tempo** (Imediato), **Ação** (ex.: "Aprovar e Enviar Mensagem"), **Modo de
+  Botão** (globais do bot), **mídia/áudio** anexados e **botões próprios**.
+- No Hot-Dash: aprovamos entrada nas prévias (sem mensagem) e no VIP (por
+  assinatura). 🟡 Falta: mensagem ao aprovar + múltiplos canais configuráveis.
+
+## Webhook de SAÍDA (aba dedicada)
+- Cadastro de webhooks de saída (URL). "3 falhas consecutivas → removido".
+- Eventos: **user_joined**, **payment_created**, **payment_approved**. ⛔
+- Payload rico: `customer` (chat_id, username, phone, full_name, tax_id),
+  `origin` (ip, país, estado, cidade, user_agent), `transaction` (sale_code,
+  plan_name/value/duration, payment_pointer, payment_platform, payment_method),
+  `tracking` (click_id, slug, **UTMs** source/medium/campaign/term/content,
+  utm_id). → integração externa (n8n) + atribuição de anúncios.
+
+## Dashboard do bot (ApexVips)
+- Cartões **Hoje / Mês**: nº de vendas + R$. ⛔ (temos Financeiro geral)
+- **Histórico de Vendas** (gráfico 7D/30D). ⛔
+- **Usuários**: Hoje/Mês/Ativos/Totais/Bloqueados/Assinaturas. 🟡
+- **Log de Atividade** em tempo real (iniciou conversa / gerou PIX de R$X). ⛔
+- **Conversão de Usuário** (% que compraram), **Conversão de Pagamento**
+  (% PIX gerados que foram pagos), **Tempo Médio** (start→compra), **Ticket
+  Médio**, **Códigos de Venda** (top 5 por faturamento). ⛔
+
+## SyncPay — chaves de API
+- Cria chave com **Client ID (pública)** + **Client Secret (privada)**, com
+  **permissões por escopo**: Consulta, Venda, Saque, Rastreio. Suporta várias
+  chaves nomeadas. Integração "fácil para IAs" (contexto em /llms.txt).
+- No Hot-Dash já usamos client_id/secret (auth-token → cash-in). ✅
+  → Só garantir a chave com permissão **Venda + Consulta** nas Configurações.
+- ⚠️ **Segurança:** nunca versionar as credenciais; rotacionar chaves expostas.
+
+## Outras abas (a detalhar)
+- **Código de Venda** (identificador da venda/atribuição) 🟡 (temos providerRef)
+- **Captação de Leads** ⛔ · **Mailing** (disparo em massa) ⛔
+- **Trackeamento** (rastreio/atribuição/UTM) ⛔ · **Redirecionadores** (smart
+  links; hoje o slt.bio cobre) ⛔
+- **Ranking** / **Premiações** (gamificação) ⛔
 - **Variáveis** / **Share Key** / **Config Key** (import/export de config) ⛔
+
+---
+
+# Resumo: necessário para operar × melhorias
+
+## A. Já pronto (não precisa fazer)
+Bot `/start` com oferta, planos, botões e suporte; PIX na SyncPay; confirmação →
+convite VIP → aprovação; auto-aprovação nas prévias; funis downsell/upsell;
+expiração do VIP; mensagens de boas-vindas/sucesso; canal de registro; painel de
+assinantes; **liga/desliga da operação** (cutover). ✅
+
+## B. Necessário para operar 100% sem ApexVips
+1. **QR Code do PIX** no bot (imagem + copia-e-cola) — impacto direto em
+   conversão (muita gente paga escaneando).
+2. **Mensagem ao aprovar** entrada (hoje aprovamos em silêncio) — e, de
+   preferência, aprovação configurável por canal.
+3. **Dashboard de vendas do bot** (versão simples): vendas hoje/mês, assinantes
+   ativos, PIX gerados, log de atividade — para não operar às cegas.
+4. **Chave SyncPay com escopo Venda + Consulta** configurada (já suportado; é
+   config, não código).
+5. Validar em produção o **CPF placeholder** no PIX (decisão: aceita).
+
+## C. Melhorias (aumentam faturamento/gestão; não bloqueiam)
+- **Planos Pacotes** (compra única) + **Order Bump**.
+- **Variação de preço** (PIX com valor único).
+- **Múltiplas mídias + modo de envio + áudio** de boas-vindas.
+- **Config avançada por etapa de funil**: gatilho, destinatários, planos/botões/
+  mídia por etapa, modo de botões.
+- **Trackeamento/UTM + Webhooks de saída** (atribuição de anúncios, n8n).
+- **Métricas avançadas** (conversão de usuário/pagamento, tempo médio, ticket
+  médio, top códigos de venda).
+- **Captação de Leads**, **Mailing** (disparo em massa), **Botão CTA**,
+  **Delay entre mensagens**, **"Iniciar em qualquer texto"**.
+- **Redirecionadores** (smart links), **Ranking/Premiações**,
+  **Anti-clonagem**, **Variáveis/Share Key/Config Key**.
+
+> Documento vivo — atualizar conforme o usuário envia mais telas do ApexVips.
 
 ## Prioridade sugerida (a validar com o usuário)
 1. Alta (impacto direto em conversão): Planos Pacotes/Order Bump, Variação de

@@ -338,6 +338,15 @@ function migrate(d: Database.Database) {
   // o operador fazer o cutover. Não afeta a postagem automática, que usa o token
   // direto para enviar e não depende do webhook.
   ensureColumn(d, "telegram_bots", "operation_active", "INTEGER NOT NULL DEFAULT 0");
+  // Mensagem enviada ao aprovar um lead no grupo de PRÉVIAS (opcional).
+  ensureColumn(d, "telegram_bots", "previews_welcome_message", "TEXT");
+  // Planos: tipo (assinatura recorrente vs pacote/compra única) e o entregável
+  // (texto/link enviado ao pagar — o "MEU WHATSAPP" dos pacotes/bônus).
+  ensureColumn(d, "telegram_plans", "kind", "TEXT NOT NULL DEFAULT 'subscription'");
+  ensureColumn(d, "telegram_plans", "deliverable", "TEXT");
+  // Qual plano/pacote originou a assinatura pendente (resolve duração/entregável
+  // na confirmação do pagamento, corrigindo o antigo default de 30 dias).
+  ensureColumn(d, "telegram_subscriptions", "plan_id", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "vip_prompt", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "warmup_prompt", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "warmup_link", "TEXT");

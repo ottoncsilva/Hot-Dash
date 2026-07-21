@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBotConfig, listPlans, listCustomButtons, saveSubscription, getPlan, findActiveSubscription, upsertTelegramLead } from "@/lib/telegramDb";
-import { sendTelegramMessage, sendTelegramMedia, approveTelegramJoinRequest, declineTelegramJoinRequest, telegramWebhookSecret } from "@/lib/telegramApi";
+import { sendTelegramMessage, sendTelegramMedia, sendTelegramPhotoBuffer, approveTelegramJoinRequest, declineTelegramJoinRequest, telegramWebhookSecret } from "@/lib/telegramApi";
+import QRCode from "qrcode";
 import { listMedia, getMediaRow } from "@/lib/media";
 import { activeProvider } from "@/lib/payments";
 import { recordTransaction } from "@/lib/transactions";
@@ -183,11 +184,13 @@ export async function POST(
           status: "pending",
         });
 
-        // Registra inscrição pendente
+        // Registra inscrição pendente (guarda planId p/ resolver duração e
+        // entregável na confirmação do pagamento).
         saveSubscription({
           id: randomUUID(),
           botId: bot.id,
           transactionId: tx.id,
+          planId: plan.id,
           telegramUserId: from.id,
           telegramUsername: from.username || undefined,
           status: "pending",
@@ -197,13 +200,26 @@ export async function POST(
           createdAt: Date.now(),
         });
 
-        // Envia resposta com o PIX
-        const pixMsg = `🔑 <b>PIX gerado com sucesso!</b>\n\n` +
-          `Copie o código abaixo para pagar em seu aplicativo bancário:\n\n` +
-          `<code>${charge.pixCode}</code>\n\n` +
-          `<i>A confirmação é imediata. Após o pagamento, você receberá o link para entrar no grupo VIP.</i>`;
-
-        await sendTelegramMessage(bot.botToken, String(message.chat.id), pixMsg);
+        // Envia o PIX: QR Code (imagem) + código copia-e-cola na legenda. Se a
+        // geração do QR falhar por algum motivo, cai para só o texto.
+        const pixCode = charge.pixCode || "";
+        const pixCaption = `🔑 <b>PIX gerado!</b>\n\n` +
+          `📸 Escaneie o QR acima <b>ou</b> copie o código abaixo no seu app do banco:\n\n` +
+          `<code>${pixCode}</code>\n\n` +
+          `<i>A confirmação é imediata. Após pagar, você recebe o acesso automaticamente.</i>`;
+        let sentPix = false;
+        if (pixCode) {
+          try {
+            const qrBuffer = await QRCode.toBuffer(pixCode, { width: 512, margin: 1 });
+            await sendTelegramPhotoBuffer(bot.botToken, String(message.chat.id), qrBuffer, pixCaption);
+            sentPix = true;
+          } catch {
+            // cai para o texto abaixo
+          }
+        }
+        if (!sentPix) {
+          await sendTelegramMessage(bot.botToken, String(message.chat.id), pixCaption);
+        }
       }
     }
 
@@ -227,6 +243,11 @@ export async function POST(
       } else if (chatId === bot.idAquecimento) {
         // Prévias (aquecimento): grupo gratuito — aceita TODO novo lead.
         await approveTelegramJoinRequest(bot.botToken, chatId, from.id);
+        // Mensagem de boas-vindas às prévias (opcional), no privado do lead.
+        if (bot.previewsWelcomeMessage?.trim()) {
+          const msg = bot.previewsWelcomeMessage.replace(/{nome}/gi, from.first_name || "linda(o)");
+          await sendTelegramMessage(bot.botToken, String(from.id), msg).catch(() => {});
+        }
       }
     }
 

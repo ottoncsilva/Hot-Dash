@@ -121,15 +121,18 @@ expiração do VIP; mensagens de boas-vindas/sucesso; canal de registro; painel 
 assinantes; **liga/desliga da operação** (cutover). ✅
 
 ## B. Necessário para operar 100% sem ApexVips
-1. **QR Code do PIX** no bot (imagem + copia-e-cola) — impacto direto em
-   conversão (muita gente paga escaneando).
-2. **Mensagem ao aprovar** entrada (hoje aprovamos em silêncio) — e, de
-   preferência, aprovação configurável por canal.
-3. **Dashboard de vendas do bot** (versão simples): vendas hoje/mês, assinantes
-   ativos, PIX gerados, log de atividade — para não operar às cegas.
-4. **Chave SyncPay com escopo Venda + Consulta** configurada (já suportado; é
-   config, não código).
-5. Validar em produção o **CPF placeholder** no PIX (decisão: aceita).
+1. ✅ **QR Code do PIX** no bot (imagem + copia-e-cola) — feito (lib `qrcode`).
+2. ✅ **Mensagem ao aprovar** entrada nas prévias (opcional, no privado). Falta a
+   versão multi-canal do ApexVips (melhoria).
+3. ✅ **Dashboard de vendas do bot** (versão simples): vendas hoje/mês, ticket
+   médio, assinantes VIP, PIX pendentes (reusa `overview`). Log de atividade em
+   tempo real = melhoria.
+4. ✅ **Planos Pacotes** (compra única + entregável) — feito, aparecem como
+   ofertas no bot ao lado das assinaturas; ao pagar, entrega o conteúdo sem VIP.
+   (Bônus: corrigido o bug que fixava toda assinatura em 30 dias — agora usa a
+   duração real do plano via `plan_id`.)
+5. **Chave SyncPay com escopo Venda + Consulta** configurada (config, não código).
+6. Validar em produção o **CPF placeholder** no PIX (decisão: aceita).
 
 ## C. Melhorias (aumentam faturamento/gestão; não bloqueiam)
 - **Planos Pacotes** (compra única) + **Order Bump**.

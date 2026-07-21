@@ -14,6 +14,8 @@ export type TelegramBotConfig = {
   successMessage: string;
   downsellFunnel?: string;
   upsellFunnel?: string;
+  /** Mensagem enviada ao aprovar um lead no grupo de prévias (opcional). */
+  previewsWelcomeMessage?: string;
   /** Liga/desliga da operação do bot de vendas (cutover ApexVips → Hot-Dash). */
   operationActive: boolean;
 };
@@ -24,12 +26,17 @@ export type TelegramPlan = {
   name: string;
   priceCents: number;
   durationDays: number;
+  /** "subscription" = dá acesso VIP por N dias; "package" = compra única. */
+  kind: "subscription" | "package";
+  /** Conteúdo/link entregue ao pagar (bônus da assinatura ou item do pacote). */
+  deliverable?: string;
 };
 
 export type TelegramSubscription = {
   id: string;
   botId: string;
   transactionId?: string;
+  planId?: string;
   telegramUserId: number;
   telegramUsername?: string;
   inviteLink?: string;
@@ -59,6 +66,7 @@ export function getBotConfigByProfile(profileId: string): TelegramBotConfig | nu
     successMessage: row.success_message,
     downsellFunnel: row.downsell_funnel || undefined,
     upsellFunnel: row.upsell_funnel || undefined,
+    previewsWelcomeMessage: row.previews_welcome_message || undefined,
     operationActive: !!row.operation_active,
   };
 }
@@ -80,6 +88,7 @@ export function getBotConfig(id: string): TelegramBotConfig | null {
     successMessage: row.success_message,
     downsellFunnel: row.downsell_funnel || undefined,
     upsellFunnel: row.upsell_funnel || undefined,
+    previewsWelcomeMessage: row.previews_welcome_message || undefined,
     operationActive: !!row.operation_active,
   };
 }
@@ -89,8 +98,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, operation_active, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -103,6 +112,7 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        success_message = excluded.success_message,
        downsell_funnel = excluded.downsell_funnel,
        upsell_funnel = excluded.upsell_funnel,
+       previews_welcome_message = excluded.previews_welcome_message,
        operation_active = excluded.operation_active`
   ).run(
     id,
@@ -118,6 +128,7 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.successMessage,
     config.downsellFunnel || null,
     config.upsellFunnel || null,
+    config.previewsWelcomeMessage || null,
     config.operationActive ? 1 : 0,
     now
   );
@@ -128,39 +139,49 @@ export function deleteBotConfig(profileId: string): void {
   getDb().prepare("DELETE FROM telegram_bots WHERE profile_id = ?").run(profileId);
 }
 
-export function listPlans(botId: string): TelegramPlan[] {
-  const rows = getDb().prepare("SELECT * FROM telegram_plans WHERE bot_id = ?").all(botId) as any[];
-  return rows.map((r) => ({
+function toPlan(r: any): TelegramPlan {
+  return {
     id: r.id,
     botId: r.bot_id,
     name: r.name,
     priceCents: r.price_cents,
     durationDays: r.duration_days,
-  }));
+    kind: r.kind === "package" ? "package" : "subscription",
+    deliverable: r.deliverable || undefined,
+  };
+}
+
+export function listPlans(botId: string): TelegramPlan[] {
+  const rows = getDb().prepare("SELECT * FROM telegram_plans WHERE bot_id = ?").all(botId) as any[];
+  return rows.map(toPlan);
 }
 
 export function getPlan(id: string): TelegramPlan | null {
   const row = getDb().prepare("SELECT * FROM telegram_plans WHERE id = ?").get(id) as any;
-  if (!row) return null;
-  return {
-    id: row.id,
-    botId: row.bot_id,
-    name: row.name,
-    priceCents: row.price_cents,
-    durationDays: row.duration_days,
-  };
+  return row ? toPlan(row) : null;
 }
 
 export function savePlan(plan: TelegramPlan): void {
   const now = Date.now();
   getDb().prepare(
-    `INSERT INTO telegram_plans (id, bot_id, name, price_cents, duration_days, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_plans (id, bot_id, name, price_cents, duration_days, kind, deliverable, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        price_cents = excluded.price_cents,
-       duration_days = excluded.duration_days`
-  ).run(plan.id, plan.botId, plan.name, plan.priceCents, plan.durationDays, now);
+       duration_days = excluded.duration_days,
+       kind = excluded.kind,
+       deliverable = excluded.deliverable`
+  ).run(
+    plan.id,
+    plan.botId,
+    plan.name,
+    plan.priceCents,
+    plan.durationDays,
+    plan.kind || "subscription",
+    plan.deliverable || null,
+    now,
+  );
 }
 
 export function deletePlan(id: string): void {
@@ -175,6 +196,7 @@ export function listSubscriptions(botId: string): TelegramSubscription[] {
     id: r.id,
     botId: r.bot_id,
     transactionId: r.transaction_id || undefined,
+    planId: r.plan_id || undefined,
     telegramUserId: r.telegram_user_id,
     telegramUsername: r.telegram_username || undefined,
     inviteLink: r.invite_link || undefined,
@@ -193,6 +215,7 @@ export function getSubscription(id: string): TelegramSubscription | null {
     id: row.id,
     botId: row.bot_id,
     transactionId: row.transaction_id || undefined,
+    planId: row.plan_id || undefined,
     telegramUserId: row.telegram_user_id,
     telegramUsername: row.telegram_username || undefined,
     inviteLink: row.invite_link || undefined,
@@ -215,6 +238,7 @@ export function findActiveSubscription(botId: string, telegramUserId: number): T
     id: row.id,
     botId: row.bot_id,
     transactionId: row.transaction_id || undefined,
+    planId: row.plan_id || undefined,
     telegramUserId: row.telegram_user_id,
     telegramUsername: row.telegram_username || undefined,
     inviteLink: row.invite_link || undefined,
@@ -235,6 +259,7 @@ export function findSubscriptionByTransaction(transactionId: string): TelegramSu
     id: row.id,
     botId: row.bot_id,
     transactionId: row.transaction_id || undefined,
+    planId: row.plan_id || undefined,
     telegramUserId: row.telegram_user_id,
     telegramUsername: row.telegram_username || undefined,
     inviteLink: row.invite_link || undefined,
@@ -248,19 +273,21 @@ export function findSubscriptionByTransaction(transactionId: string): TelegramSu
 
 export function saveSubscription(sub: TelegramSubscription): void {
   getDb().prepare(
-    `INSERT INTO telegram_subscriptions (id, bot_id, transaction_id, telegram_user_id, telegram_username, invite_link, status, expires_at, last_upsell_at, upsell_step_index, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_subscriptions (id, bot_id, transaction_id, plan_id, telegram_user_id, telegram_username, invite_link, status, expires_at, last_upsell_at, upsell_step_index, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        status = excluded.status,
        expires_at = excluded.expires_at,
        invite_link = excluded.invite_link,
        telegram_username = excluded.telegram_username,
        last_upsell_at = excluded.last_upsell_at,
-       upsell_step_index = excluded.upsell_step_index`
+       upsell_step_index = excluded.upsell_step_index,
+       plan_id = excluded.plan_id`
   ).run(
     sub.id,
     sub.botId,
     sub.transactionId || null,
+    sub.planId || null,
     sub.telegramUserId,
     sub.telegramUsername || null,
     sub.inviteLink || null,

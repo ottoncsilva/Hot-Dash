@@ -26,6 +26,7 @@ import {
   banTelegramMember,
   unbanTelegramMember,
 } from "@/lib/telegramApi";
+import { overview } from "@/lib/transactions";
 
 import { randomUUID } from "node:crypto";
 
@@ -97,6 +98,8 @@ export async function GET(req: NextRequest) {
     const plans = bot ? listPlans(bot.id) : [];
     const customButtons = bot ? listCustomButtons(bot.id) : [];
     const subscriptions = bot ? listSubscriptions(bot.id) : [];
+    // Métricas de venda do modelo (reaproveita o painel financeiro).
+    const metrics = overview(profileId);
 
     return NextResponse.json({
       bot,
@@ -105,6 +108,7 @@ export async function GET(req: NextRequest) {
       plans,
       customButtons,
       subscriptions,
+      metrics,
     });
   } catch (err) {
     return errorResponse(err);
@@ -235,6 +239,7 @@ export async function POST(req: NextRequest) {
         welcomeMessage: String(body.welcomeMessage ?? bot.welcomeMessage ?? "Bem-vindo"),
         welcomeMediaTags: body.welcomeMediaTags !== undefined ? String(body.welcomeMediaTags) : bot.welcomeMediaTags,
         successMessage: String(body.successMessage ?? bot.successMessage ?? "Aprovado"),
+        previewsWelcomeMessage: body.previewsWelcomeMessage !== undefined ? String(body.previewsWelcomeMessage) : bot.previewsWelcomeMessage,
         supportUsername: body.supportUsername !== undefined ? String(body.supportUsername) : bot.supportUsername,
         idRegistro: body.idRegistro !== undefined ? String(body.idRegistro) : bot.idRegistro,
       });
@@ -267,10 +272,12 @@ export async function POST(req: NextRequest) {
         const name = String(p.name || "").trim();
         const priceCents = Math.max(0, Math.round(Number(p.priceCents) || 0));
         const durationDays = Math.max(1, Math.round(Number(p.durationDays) || 30));
+        const kind = p.kind === "package" ? "package" : "subscription";
+        const deliverable = typeof p.deliverable === "string" ? p.deliverable : undefined;
         if (!name || priceCents <= 0) continue;
         const id = typeof p.id === "string" && p.id ? p.id : randomUUID();
         keepIds.add(id);
-        savePlan({ id, botId: bot.id, name, priceCents, durationDays });
+        savePlan({ id, botId: bot.id, name, priceCents, durationDays, kind, deliverable });
       }
       // Remove os que sumiram da lista.
       for (const old of existing) if (!keepIds.has(old.id)) deletePlan(old.id);

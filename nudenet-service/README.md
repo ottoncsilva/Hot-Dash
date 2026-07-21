@@ -1,4 +1,12 @@
-# Hot Dash · Serviço de detecção NudeNet
+# Hot Dash · Serviço de detecção NudeNet (OPCIONAL / legado)
+
+> ⚠️ **Você provavelmente não precisa deste serviço.** A censura por IA agora
+> roda **embutida no próprio app** (modelo `320n.onnx` via `onnxruntime-node`,
+> em `src/lib/nudenetLocal.ts`) — funciona de fábrica, sem subir nada. Este
+> microserviço é mantido apenas como alternativa opcional para quem quiser
+> rodar a detecção **fora** do app. Para usá-lo, informe a URL em
+> **Configurações → Conexão com IA** (ou `NUDENET_URL`); com a URL em branco,
+> o app usa o motor embutido.
 
 Microserviço HTTP que detecta partes explícitas em imagens usando
 [NudeNet](https://github.com/notAI-tech/NudeNet) e devolve caixas rotuladas

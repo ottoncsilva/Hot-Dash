@@ -6,7 +6,7 @@ import { apiUpload } from "@/lib/api";
 import { showToast } from "@/lib/toast";
 import Modal from "@/components/Modal";
 import ToolButton from "@/components/ToolButton";
-import EmojiPicker from "@/components/EmojiPicker";
+import { COMPACT_EMOJIS } from "@/lib/censorEmojis";
 import {
   IconClose,
   IconType,
@@ -703,9 +703,26 @@ export default function PhotoEditor({
         salvar = substitui a atual · salvar nova versão = mantém a original
       </p>
 
-      {/* Seletor de emoji (coleção completa, por categoria + busca) */}
-      <Modal open={emojiPickerOpen} onClose={() => setEmojiPickerOpen(false)} maxWidth="max-w-md">
-        <EmojiPicker onPick={addEmoji} />
+      {/* Seletor de emoji compacto (mesma lista curada do censurador). */}
+      <Modal open={emojiPickerOpen} onClose={() => setEmojiPickerOpen(false)} maxWidth="max-w-sm">
+        <div>
+          <p className="eyebrow">adicionar</p>
+          <h2 className="mt-1.5 flex items-center gap-2 font-display text-lg font-semibold">
+            <IconEmoji size={16} /> Emoji
+          </h2>
+          <div className="mt-3 grid grid-cols-6 gap-1.5 sm:grid-cols-8">
+            {COMPACT_EMOJIS.map((e) => (
+              <button
+                key={e}
+                type="button"
+                onClick={() => addEmoji(e)}
+                className="grid aspect-square place-items-center rounded-lg text-2xl hover:bg-white/10"
+              >
+                {e}
+              </button>
+            ))}
+          </div>
+        </div>
       </Modal>
     </div>
   );

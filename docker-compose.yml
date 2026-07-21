@@ -1,39 +1,40 @@
 # =========================================================================
-# Hot Dash — sobe o app + o serviço de detecção NudeNet já conectados.
+# Hot Dash — sobe só o app. A censura por IA (NudeNet) agora roda EMBUTIDA
+# no próprio app (modelo 320n.onnx via onnxruntime-node), então NÃO precisa
+# de serviço externo nem de configurar URL nenhuma:
 #
 #   docker compose up -d --build
 #
-# O app enxerga o NudeNet em http://nudenet:8000 (rede interna do compose),
-# então a censura por IA já funciona sem configurar mais nada. Você também
-# pode configurar a URL pela tela Configurações → Conexão com IA.
+# O serviço `nudenet` separado (abaixo, comentado) virou OPCIONAL/legado —
+# use só se quiser rodar a detecção fora do app. Para isso, descomente o
+# bloco e defina NUDENET_URL no app (ou pela tela Configurações → IA).
 # =========================================================================
 
 services:
-  nudenet:
-    build: ./nudenet-service
-    restart: unless-stopped
-    # Sem token por padrão. Para exigir token, descomente e use o MESMO valor
-    # no app (variável NUDENET_API_KEY ou o campo "Token" na tela de IA).
-    # environment:
-    #   NUDENET_API_KEY: troque-por-um-token
-    expose:
-      - "8000"
-
   app:
     build: .
     restart: unless-stopped
-    depends_on:
-      - nudenet
     env_file:
       - .env
-    environment:
-      # Endereço interno do serviço NudeNet (fallback; a UI tem prioridade).
-      NUDENET_URL: http://nudenet:8000
-      # NUDENET_API_KEY: troque-por-um-token   # só se ativou o token acima
+    # environment:
+    #   # Só se for usar o serviço NudeNet externo (opcional; veja abaixo).
+    #   NUDENET_URL: http://nudenet:8000
+    #   NUDENET_API_KEY: troque-por-um-token
     ports:
       - "3000:3000"
     volumes:
       - hotdash-data:/app/data
+
+  # --- OPCIONAL / legado: serviço NudeNet externo -------------------------
+  # Descomente se preferir rodar a detecção fora do app (o embutido já cobre
+  # o caso normal). Lembre de descomentar NUDENET_URL no app acima.
+  # nudenet:
+  #   build: ./nudenet-service
+  #   restart: unless-stopped
+  #   # environment:
+  #   #   NUDENET_API_KEY: troque-por-um-token
+  #   expose:
+  #     - "8000"
 
 volumes:
   hotdash-data:

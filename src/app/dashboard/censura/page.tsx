@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiGet, apiUpload } from "@/lib/api";
+import { showToast } from "@/lib/toast";
 import CensorCanvas, { type CensorCanvasHandle } from "@/components/censura/CensorCanvas";
 import { CENSOR_EMOJIS } from "@/lib/censorEmojis";
 import { BODY_PARTS, BODY_PART_LABELS, DEFAULT_PART_EMOJI, type BodyPart } from "@/lib/bodyParts";
@@ -13,6 +14,8 @@ import {
   IconSparkle,
   IconDownload,
   IconBlur,
+  IconLock,
+  IconCheck,
 } from "@/components/icons";
 
 const MAX_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? "200");
@@ -20,6 +23,8 @@ const MAX_DIM = 2000;
 const IMG_EXTS = [".jpg", ".jpeg", ".png", ".webp", ".bmp"];
 
 type Status = "pendente" | "processando" | "pronto" | "erro";
+
+type SaveState = "idle" | "salvando" | "salvo" | "erro";
 
 type Job = {
   id: string;
@@ -31,6 +36,7 @@ type Job = {
   detected: boolean;
   regionsCount: number;
   objects: EditorObject[];
+  save: SaveState;
 };
 
 function cappedDims(img: HTMLImageElement) {
@@ -92,6 +98,7 @@ export default function CensuraPage() {
         detected: false,
         regionsCount: 0,
         objects: [],
+        save: "idle",
       };
       next.push(job);
       // Carrega a imagem para o canvas.
@@ -165,7 +172,7 @@ export default function CensuraPage() {
         setJobs((prev) =>
           prev.map((j) =>
             j.id === job.id
-              ? { ...j, status: "pronto", detected: true, regionsCount: regions.length, objects }
+              ? { ...j, status: "pronto", detected: true, regionsCount: regions.length, objects, save: "idle" }
               : j,
           ),
         );
@@ -194,14 +201,51 @@ export default function CensuraPage() {
     URL.revokeObjectURL(url);
   }
 
-  async function saveJobToGallery(job: Job) {
+  /** Exporta o canvas de um job e envia para a galeria do perfil escolhido.
+   *  A rota /api/profiles/[id]/media já remove os metadados no upload. */
+  async function saveJobToGallery(job: Job): Promise<boolean> {
     const handle = canvasRefs.current[job.id];
-    if (!handle || !saveProfileId) return;
-    const blob = await handle.export();
-    const baseName = job.file.name.replace(/\.[^./\\]+$/, "");
-    const form = new FormData();
-    form.append("file", new File([blob], `${baseName}-censurada.png`, { type: "image/png" }));
-    await apiUpload(`/api/profiles/${saveProfileId}/media`, form);
+    if (!handle || !saveProfileId) return false;
+    setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, save: "salvando" } : j)));
+    try {
+      const blob = await handle.export();
+      const baseName = job.file.name.replace(/\.[^./\\]+$/, "");
+      const form = new FormData();
+      form.append("file", new File([blob], `${baseName}-censurada.png`, { type: "image/png" }));
+      await apiUpload(`/api/profiles/${saveProfileId}/media`, form);
+      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, save: "salvo" } : j)));
+      return true;
+    } catch (e) {
+      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, save: "erro" } : j)));
+      return false;
+    }
+  }
+
+  const [savingAll, setSavingAll] = useState(false);
+
+  /** Envia TODAS as fotos prontas para a galeria da modelo selecionada. */
+  async function sendAllToGallery() {
+    if (!saveProfileId) {
+      showToast("Escolha a modelo antes de enviar para a galeria.", "warning");
+      return;
+    }
+    const targets = jobs.filter((j) => j.img && j.status === "pronto" && j.save !== "salvo");
+    if (targets.length === 0) {
+      showToast("Nenhuma foto pronta para enviar. Clique em 'Detectar e editar' primeiro.", "warning");
+      return;
+    }
+    setSavingAll(true);
+    let ok = 0;
+    for (const job of targets) {
+      if (await saveJobToGallery(job)) ok++;
+    }
+    setSavingAll(false);
+    const modelo = profiles.find((p) => p.id === saveProfileId)?.name || "a galeria";
+    if (ok === targets.length) {
+      showToast(`${ok} foto(s) censurada(s) enviada(s) para ${modelo}.`, "success");
+    } else {
+      showToast(`Enviadas ${ok}/${targets.length}. Algumas falharam — tente de novo.`, "error");
+    }
   }
 
   const stats = {
@@ -337,19 +381,34 @@ export default function CensuraPage() {
 
           {profiles.length > 0 && (
             <div className="mt-4 border-t border-white/10 pt-3">
-              <p className="eyebrow">Salvar na galeria de</p>
+              <p className="eyebrow">Galeria da modelo</p>
+              <p className="mt-1 text-xs text-zinc-500">
+                Ao concluir, envie as fotos censuradas direto para a galeria da modelo.
+              </p>
               <select
                 value={saveProfileId}
                 onChange={(e) => setSaveProfileId(e.target.value)}
                 className="input mt-2"
               >
-                <option value="">— escolher perfil —</option>
+                <option value="">— escolher modelo —</option>
                 {profiles.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
                 ))}
               </select>
+              <button
+                onClick={sendAllToGallery}
+                disabled={savingAll || !saveProfileId || stats.prontas === 0}
+                className="btn-primary mt-2 w-full"
+              >
+                {savingAll
+                  ? "Enviando..."
+                  : `Enviar censuradas para a galeria${stats.prontas ? ` (${stats.prontas})` : ""}`}
+              </button>
+              <p className="mt-2 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                <IconLock size={12} /> Metadados removidos ao salvar
+              </p>
             </div>
           )}
         </div>
@@ -395,17 +454,30 @@ export default function CensuraPage() {
                     onChange={(next) => updateJobObjects(job.id, next)}
                     maxDim={MAX_DIM}
                   />
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button onClick={() => downloadJob(job)} className="btn-ghost px-3 py-2 text-sm">
                       <IconDownload size={15} /> Baixar
                     </button>
                     {saveProfileId && (
                       <button
                         onClick={() => saveJobToGallery(job)}
+                        disabled={job.save === "salvando"}
                         className="btn-primary px-3 py-2 text-sm"
                       >
-                        Salvar na galeria
+                        {job.save === "salvando"
+                          ? "Salvando..."
+                          : job.save === "salvo"
+                            ? "Salvar de novo"
+                            : "Salvar na galeria"}
                       </button>
+                    )}
+                    {job.save === "salvo" && (
+                      <span className="inline-flex items-center gap-1 text-xs text-emerald-400">
+                        <IconCheck size={14} /> Na galeria
+                      </span>
+                    )}
+                    {job.save === "erro" && (
+                      <span className="text-xs text-red-400">Falha ao salvar</span>
                     )}
                   </div>
                 </>

@@ -25,6 +25,7 @@ no seu servidor.
 | **Biblioteca de Mídia** | ✅ Ativo | Fotos e vídeos vinculados ao modelo, metadados removidos no upload, download no celular. |
 | **Pagamentos** | ✅ Ativo | Dashboard de vendas/receita + cobrança PIX. Provedor SyncPay (chaves nas Configurações). |
 | **Limpar Metadados** | ✅ Ativo | Remove EXIF, GPS e rastros de IA de fotos (`exiftool`) e vídeos (`ffmpeg`) avulsos. |
+| **Censura com IA** | ✅ Ativo | Detecta partes explícitas (NudeNet **embutido**, sem serviço externo) e cobre com emoji/borrão. Também no editor de fotos. Envia as censuradas para a galeria da modelo. |
 | **Configurações** | ✅ Ativo | Ordem/visibilidade do menu e chaves dos provedores de pagamento. |
 
 Visual **monocromático high-tech** (preto/branco/cinza), tipografia Space

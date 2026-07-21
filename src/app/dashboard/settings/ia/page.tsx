@@ -508,14 +508,30 @@ export default function AiSettingsPage() {
           </label>
           <p className="mt-2 text-xs text-zinc-500">
             Motor da <b>Censura de imagem com IA</b>: detecta seios, genitálias, bunda e ânus
-            (com coordenadas) para cobrir automaticamente. Rode o serviço{" "}
-            <span className="font-mono">nudenet-service</span> (Docker) e cole aqui a URL interna
-            dele — sem precisar de variável de ambiente nem redeploy.
+            (com coordenadas) para cobrir automaticamente. Agora vem{" "}
+            <b>embutido no próprio app</b> (modelo <span className="font-mono">320n.onnx</span>) —
+            já funciona de fábrica, <b>sem precisar subir nenhum serviço</b>.
           </p>
+
+          {/* Status do motor embutido — testa mesmo sem URL. */}
+          <div className="mt-3">
+            <ConnectionBadge
+              testUrl="/api/settings/ai/test"
+              buildBody={() => ({ provider: "nudenet", baseUrl: nudenetUrl || undefined, apiKey: nudenetToken || undefined })}
+              autoTest={true}
+              enabled={true}
+            />
+          </div>
+
           {nudenetEnabled && (
-            <div className="grid gap-4 md:grid-cols-2 mt-4">
+            <div className="grid gap-4 md:grid-cols-2 mt-4 border-t border-white/10 pt-4">
+              <p className="md:col-span-2 text-xs text-zinc-500">
+                <b>Avançado (opcional):</b> se preferir, aponte para um serviço{" "}
+                <span className="font-mono">nudenet-service</span> externo em vez do motor
+                embutido. Deixe a URL em branco para continuar usando o motor embutido.
+              </p>
               <div className="md:col-span-2">
-                <label className="eyebrow mb-1.5 block">URL do serviço</label>
+                <label className="eyebrow mb-1.5 block">URL do serviço (opcional)</label>
                 <input
                   className="input font-mono"
                   type="text"
@@ -524,7 +540,7 @@ export default function AiSettingsPage() {
                   onChange={(e) => setNudenetUrl(e.target.value)}
                 />
                 <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-                  Host interno do container NudeNet + porta 8000
+                  Em branco = usa o motor embutido
                 </p>
               </div>
               <div className="md:col-span-2">
@@ -535,14 +551,6 @@ export default function AiSettingsPage() {
                   placeholder={cfg?.nudenet?.hasKey ? "•••••••• (em branco = manter)" : "só se definiu NUDENET_API_KEY no serviço"}
                   value={nudenetToken}
                   onChange={(e) => setNudenetToken(e.target.value)}
-                />
-              </div>
-              <div className="md:col-span-2">
-                <ConnectionBadge
-                  testUrl="/api/settings/ai/test"
-                  buildBody={() => ({ provider: "nudenet", baseUrl: nudenetUrl || undefined, apiKey: nudenetToken || undefined })}
-                  autoTest={true}
-                  enabled={nudenetEnabled && Boolean(nudenetUrl)}
                 />
               </div>
             </div>

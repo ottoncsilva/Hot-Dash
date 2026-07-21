@@ -41,6 +41,10 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
+# Modelo do NudeNet embutido (censura por IA in-process, sem serviço externo).
+# O tracing do Next não copia arquivos de dados soltos, então copiamos à mão.
+COPY --from=builder /app/models ./models
+
 # Diretório de dados (banco SQLite + mídia). Monte um VOLUME PERSISTENTE aqui
 # no EasyPanel, senão o conteúdo é perdido a cada deploy.
 # O container roda como root para poder escrever no volume (que o EasyPanel

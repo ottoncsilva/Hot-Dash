@@ -31,6 +31,8 @@ type TelegramSettings = {
 
   warmupScheduleType: "manual" | "interval" | "fixed";
   warmupFixedTimes: string;
+  warmupSeedReaction: boolean;
+  warmupSeedEmoji: string;
 };
 
 export default function TelegramUnifiedPage() {
@@ -67,6 +69,8 @@ export default function TelegramUnifiedPage() {
     warmupPrompt: "",
     warmupScheduleType: "manual",
     warmupFixedTimes: "",
+    warmupSeedReaction: false,
+    warmupSeedEmoji: "🔥",
   });
 
   useEffect(() => {
@@ -111,6 +115,8 @@ export default function TelegramUnifiedPage() {
         warmupPrompt: d.autopost?.warmup_prompt || "",
         warmupScheduleType: warmupType as any,
         warmupFixedTimes: d.autopost?.warmup_fixed_times || "",
+        warmupSeedReaction: Boolean(d.autopost?.warmup_seed_reaction),
+        warmupSeedEmoji: d.autopost?.warmup_seed_emoji || "🔥",
       });
     }).finally(() => setLoading(false));
   }, [selectedProfileId]);
@@ -133,6 +139,28 @@ export default function TelegramUnifiedPage() {
       toast.success("Configurações salvas com sucesso!");
     } catch (err: any) {
       toast.error(err.message);
+    }
+  };
+
+  const [generatingPrevias, setGeneratingPrevias] = useState(false);
+  const [previasDays, setPreviasDays] = useState(1);
+  const generatePrevias = async () => {
+    setGeneratingPrevias(true);
+    try {
+      const res = await fetch("/api/telegram/generate-previas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileId: selectedProfileId, days: previasDays }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Erro ao gerar prévias.");
+      window.dispatchEvent(new Event("reloadTelegramCalendar"));
+      if (d.aiError) toast.error(`Parcial: ${d.aiError}`);
+      else toast.success(`${d.generated} post(s) de prévias gerados! Veja no calendário.`);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setGeneratingPrevias(false);
     }
   };
 
@@ -291,8 +319,66 @@ export default function TelegramUnifiedPage() {
             </div>
           )}
 
+          {/* Prévias (metodologia de aquecimento): gera um dia estruturado de
+              teasers, fotos, perguntas, enquetes, oferta e prova social. */}
+          <div className="mb-8 max-w-4xl rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] p-5">
+            <h3 className="font-semibold text-white/90">🌶️ Prévias com metodologia (IA)</h3>
+            <p className="mt-1 text-xs text-zinc-400">
+              Gera um dia inteiro de prévias no estilo &quot;diário íntimo&quot; — teasers, fotos,
+              perguntas de engajamento, <b>enquetes</b> e ofertas — usando o perfil da modelo. Os
+              posts entram no calendário e o autopost envia nos horários.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-zinc-300">
+                Dias:
+                <input
+                  type="number"
+                  min={1}
+                  max={14}
+                  value={previasDays}
+                  onChange={(e) => setPreviasDays(Math.max(1, Math.min(14, Number(e.target.value) || 1)))}
+                  className="w-16 rounded-lg border border-white/10 bg-zinc-900 px-2 py-1.5 text-sm text-white"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={generatePrevias}
+                disabled={generatingPrevias || !settings.idAquecimento}
+                className="btn-primary px-4 py-2 text-sm disabled:opacity-50"
+              >
+                {generatingPrevias ? "Gerando..." : "✨ Gerar dia de prévias"}
+              </button>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3">
+              <div>
+                <p className="text-sm font-semibold text-white">Semear reação 🔥 nas prévias</p>
+                <p className="text-[11px] text-zinc-500">
+                  O bot dá a 1ª reação em cada post (social proof). Requer reações habilitadas no
+                  grupo e o bot como admin.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  value={settings.warmupSeedEmoji}
+                  onChange={(e) => setSettings({ ...settings, warmupSeedEmoji: e.target.value.slice(0, 4) })}
+                  className="w-14 rounded-lg border border-white/10 bg-zinc-900 px-2 py-1.5 text-center text-lg"
+                  aria-label="Emoji da reação"
+                />
+                <Switch
+                  checked={settings.warmupSeedReaction}
+                  onChange={(v) => setSettings({ ...settings, warmupSeedReaction: v })}
+                  ariaLabel="Semear reação"
+                />
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] text-zinc-500">
+              Lembre de <b>Salvar configurações</b> para o &quot;semear reação&quot; valer.
+            </p>
+          </div>
+
           <div className="grid gap-8 lg:grid-cols-2">
-            
+
             {/* VIP Group */}
             <div className="space-y-6">
               <div className="rounded-xl border border-sky-500/20 bg-sky-950/10 p-5 space-y-6">

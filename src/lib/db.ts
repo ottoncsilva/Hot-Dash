@@ -347,6 +347,11 @@ function migrate(d: Database.Database) {
   // Qual plano/pacote originou a assinatura pendente (resolve duração/entregável
   // na confirmação do pagamento, corrigindo o antigo default de 30 dias).
   ensureColumn(d, "telegram_subscriptions", "plan_id", "TEXT");
+  // Enquete do post (JSON {question, options[]}) — post sem mídia, tipo enquete.
+  ensureColumn(d, "posts", "poll", "TEXT");
+  // Semear reação 🔥 automaticamente nos posts de Prévias (social proof).
+  ensureColumn(d, "telegram_autopost_settings", "warmup_seed_reaction", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(d, "telegram_autopost_settings", "warmup_seed_emoji", "TEXT DEFAULT '🔥'");
   ensureColumn(d, "telegram_autopost_settings", "vip_prompt", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "warmup_prompt", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "warmup_link", "TEXT");

@@ -10,6 +10,16 @@ import TelegramPostForm from "@/components/telegram/TelegramPostForm";
 import CaptionEditor, { CaptionPreview, captionPlainText } from "@/components/telegram/CaptionEditor";
 import { IconCalendar, IconList, IconPlus, IconTrash, IconEdit, IconCheck, IconEye, IconEyeOff } from "@/components/icons";
 
+/** Classifica o post pelo TIPO DE CONTEÚDO (enquete, vídeo, foto ou texto). */
+function contentKind(post: ScheduledPost): { label: string; cls: string } {
+  if (post.poll) return { label: "Enquete", cls: "bg-purple-500/10 text-purple-300 border-purple-500/20" };
+  if (post.media?.some((m) => m.kind === "video"))
+    return { label: "Vídeo", cls: "bg-blue-500/10 text-blue-300 border-blue-500/20" };
+  if (post.media && post.media.length > 0)
+    return { label: "Foto", cls: "bg-emerald-500/10 text-emerald-300 border-emerald-500/20" };
+  return { label: "Texto", cls: "bg-zinc-500/10 text-zinc-300 border-zinc-500/20" };
+}
+
 export default function TelegramCalendar({ profileId, profiles }: { profileId: string, profiles: Profile[] }) {
   const [posts, setPosts] = useState<ScheduledPost[]>([]);
   const [loading, setLoading] = useState(false);
@@ -307,6 +317,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                 </th>
                 <th className="p-3 w-16">Miniatura</th>
                 <th className="p-3 w-28">Tipo</th>
+                <th className="p-3 w-28">Conteúdo</th>
                 <th className="p-3 w-40">Agendado Para</th>
                 <th className="p-3">Legenda</th>
                 <th className="p-3 w-28 text-center">Status</th>
@@ -365,6 +376,16 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                       }`}>
                         {post.networks.find(n => n.network === "telegram")?.postType || "Telegram"}
                       </span>
+                    </td>
+                    <td className="p-3">
+                      {(() => {
+                        const k = contentKind(post);
+                        return (
+                          <span className={`inline-block rounded border px-2 py-0.5 text-[10px] font-bold uppercase ${k.cls}`}>
+                            {k.label}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="p-3 font-mono text-xs text-zinc-300">
                       {new Date(post.scheduledAt).toLocaleDateString("pt-BR", {
@@ -456,56 +477,81 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[#0f0f0f] custom-scrollbar">
-              {/* Media Preview */}
-              {editingPost.media?.[0] ? (
-                <div className="flex w-full shrink-0 items-center justify-center overflow-hidden bg-black">
-                  {editingPost.media[0].kind === "video" ? (
-                    <video src={`/api/media/${editingPost.media[0].id}/file`} className="h-auto w-full max-h-[45vh] object-contain" autoPlay muted loop playsInline />
-                  ) : (
-                    <img src={`/api/media/${editingPost.media[0].id}/file`} className="h-auto w-full max-h-[45vh] object-contain" />
-                  )}
+              {editingPost.poll ? (
+                /* ENQUETE — pré-visualização estilo Telegram (só leitura) */
+                <div className="p-4">
+                  <div className="rounded-xl border border-white/5 bg-[#1e2329] p-4">
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-purple-300">📊 Enquete</p>
+                    <p className="mb-3 text-[15px] font-semibold leading-snug text-white">{editingPost.poll.question}</p>
+                    <div className="space-y-2">
+                      {editingPost.poll.options.map((o, i) => (
+                        <div key={i} className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#0f0f0f] px-3 py-2.5 text-sm text-zinc-200">
+                          <span className="h-3.5 w-3.5 shrink-0 rounded-full border border-white/25" />
+                          <span>{o}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-[11px] text-[#8e98a3]">Enviada como enquete nativa do Telegram. Para alterar as opções, use “Editar post completo”.</p>
+                  </div>
                 </div>
               ) : (
-                <div className="flex h-32 w-full shrink-0 items-center justify-center bg-zinc-900 text-sm text-zinc-600">
-                  Mensagem apenas (Sem Mídia)
-                </div>
-              )}
+                <>
+                  {/* Media Preview */}
+                  {editingPost.media?.[0] ? (
+                    <div className="flex w-full shrink-0 items-center justify-center overflow-hidden bg-black">
+                      {editingPost.media[0].kind === "video" ? (
+                        <video src={`/api/media/${editingPost.media[0].id}/file`} className="h-auto w-full max-h-[45vh] object-contain" autoPlay muted loop playsInline />
+                      ) : (
+                        <img src={`/api/media/${editingPost.media[0].id}/file`} className="h-auto w-full max-h-[45vh] object-contain" />
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex h-24 w-full shrink-0 items-center justify-center gap-2 bg-zinc-900 text-sm text-zinc-500">
+                      <span className="text-lg">💬</span> Mensagem de texto (sem mídia)
+                    </div>
+                  )}
 
-              {/* Caption Edit Area */}
-              <div className="flex flex-1 flex-col border-t border-white/5 bg-[#1e2329] p-3">
-                <p className="mb-2 text-xs font-semibold text-[#8e98a3]">LEGENDA DO POST:</p>
-                {/(<a\s)/i.test(editCaption) && (
-                  <div className="mb-2 rounded-lg border border-white/5 bg-[#0f0f0f] px-3 py-2">
-                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[#8e98a3]">Como vai aparecer</p>
-                    <CaptionPreview text={editCaption} className="text-[13px] leading-snug text-zinc-200" />
+                  {/* Caption Edit Area */}
+                  <div className="flex flex-1 flex-col border-t border-white/5 bg-[#1e2329] p-3">
+                    <p className="mb-2 text-xs font-semibold text-[#8e98a3]">
+                      {editingPost.media?.[0] ? "LEGENDA DO POST:" : "TEXTO DA MENSAGEM:"}
+                    </p>
+                    {/(<a\s)/i.test(editCaption) && (
+                      <div className="mb-2 rounded-lg border border-white/5 bg-[#0f0f0f] px-3 py-2">
+                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[#8e98a3]">Como vai aparecer</p>
+                        <CaptionPreview text={editCaption} className="text-[13px] leading-snug text-zinc-200" />
+                      </div>
+                    )}
+                    <CaptionEditor
+                      value={editCaption}
+                      onChange={setEditCaption}
+                      placeholder="Escreva a mensagem..."
+                      rootClassName="flex-1"
+                      textAreaClassName="w-full flex-1 rounded-lg bg-[#2b313b] px-3 py-3 text-[15px] text-white focus:outline-none focus:ring-1 focus:ring-[#3390ec] resize-none font-sans leading-snug min-h-[120px]"
+                    />
                   </div>
-                )}
-                <CaptionEditor
-                  value={editCaption}
-                  onChange={setEditCaption}
-                  placeholder="Escreva a mensagem..."
-                  rootClassName="flex-1"
-                  textAreaClassName="w-full flex-1 rounded-lg bg-[#2b313b] px-3 py-3 text-[15px] text-white focus:outline-none focus:ring-1 focus:ring-[#3390ec] resize-none font-sans leading-snug min-h-[120px]"
-                />
-              </div>
+                </>
+              )}
             </div>
-            
+
             {/* Footer */}
             <div className="flex shrink-0 justify-end gap-3 border-t border-white/5 bg-[#1e2329] px-4 py-3">
-               <button 
-                  onClick={() => setEditingPost(null)} 
+               <button
+                  onClick={() => setEditingPost(null)}
                   disabled={saving}
                   className="text-[#8e98a3] hover:text-white text-sm font-semibold transition-colors px-2 py-1"
                 >
-                  Cancelar
+                  {editingPost.poll ? "Fechar" : "Cancelar"}
                 </button>
-                <button 
-                  onClick={saveCaptionEdit} 
+                {!editingPost.poll && (
+                <button
+                  onClick={saveCaptionEdit}
                   disabled={saving}
                   className="rounded-full bg-[#3390ec] px-5 py-2 text-sm font-bold text-white hover:bg-[#2f84d9] transition-colors disabled:opacity-50"
                 >
                   {saving ? "Salvando..." : "Salvar Legenda"}
                 </button>
+                )}
             </div>
           </div>
         </div>

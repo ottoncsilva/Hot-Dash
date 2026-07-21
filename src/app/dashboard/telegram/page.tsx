@@ -146,14 +146,13 @@ export default function TelegramUnifiedPage() {
   };
 
   const [generatingPrevias, setGeneratingPrevias] = useState(false);
-  const [previasDays, setPreviasDays] = useState(1);
-  const generatePrevias = async () => {
+  const generatePrevias = async (daysOverride?: number) => {
     setGeneratingPrevias(true);
     try {
       const res = await fetch("/api/telegram/generate-previas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileId: selectedProfileId, days: previasDays }),
+        body: JSON.stringify({ profileId: selectedProfileId, days: daysOverride ?? 1 }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Erro ao gerar prévias.");
@@ -479,8 +478,17 @@ export default function TelegramUnifiedPage() {
                        )}
                        <div className="flex items-center gap-1.5 bg-black/10 p-1.5 rounded-lg border border-white/5">
                          <input type="number" min={1} max={30} value={daysToGenerateWarmup} onChange={e => setDaysToGenerateWarmup(parseInt(e.target.value) || 1)} className="w-12 rounded border border-orange-500/20 bg-orange-950/20 px-2 py-1 text-xs text-orange-200 text-center focus:outline-none" title="Dias a gerar" />
-                         <button type="button" onClick={() => generateSchedule("warmup", false)} disabled={generatingWarmup} className="rounded-lg bg-orange-500/20 text-orange-300 px-3 py-1.5 text-xs font-semibold hover:bg-orange-500/30 transition-colors disabled:opacity-50">
-                           {generatingWarmup ? "⏳ Gerando..." : "✨ Gerar postagens com IA em massa"}
+                         <button
+                           type="button"
+                           onClick={() => settings.warmupScheduleType === "mk" ? generatePrevias(daysToGenerateWarmup) : generateSchedule("warmup", false)}
+                           disabled={generatingWarmup || generatingPrevias}
+                           className="rounded-lg bg-orange-500/20 text-orange-300 px-3 py-1.5 text-xs font-semibold hover:bg-orange-500/30 transition-colors disabled:opacity-50"
+                         >
+                           {(generatingWarmup || generatingPrevias)
+                             ? "⏳ Gerando..."
+                             : settings.warmupScheduleType === "mk"
+                               ? "✨ Gerar dias (Método MK)"
+                               : "✨ Gerar postagens com IA em massa"}
                          </button>
                        </div>
                     </div>
@@ -553,27 +561,10 @@ export default function TelegramUnifiedPage() {
                         variados (±3 min). A metodologia já vem programada no sistema, e o bot
                         semeia a 1ª reação 🔥 em cada post automaticamente.
                       </p>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <label className="flex items-center gap-2 text-sm text-zinc-300">
-                          Dias:
-                          <input
-                            type="number"
-                            min={1}
-                            max={14}
-                            value={previasDays}
-                            onChange={(e) => setPreviasDays(Math.max(1, Math.min(14, Number(e.target.value) || 1)))}
-                            className="w-16 rounded-lg border border-white/[0.08] bg-zinc-900 px-2 py-1.5 text-sm text-white"
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          onClick={generatePrevias}
-                          disabled={generatingPrevias || !settings.idAquecimento}
-                          className="rounded-lg bg-emerald-500/20 text-emerald-300 px-4 py-2 text-xs font-bold hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
-                        >
-                          {generatingPrevias ? "⏳ Gerando..." : "✨ Gerar dias (Método MK)"}
-                        </button>
-                      </div>
+                      <p className="text-[11px] text-emerald-300/80">
+                        Escolha os <b>dias</b> e clique em <b>“Gerar dias (Método MK)”</b> ali em cima
+                        (canto superior direito das Prévias).
+                      </p>
                     </div>
                   )}
 

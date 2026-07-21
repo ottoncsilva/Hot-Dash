@@ -249,16 +249,6 @@ export default function TelegramUnifiedPage() {
     setSettings(nextSettings);
   };
 
-  const toggleChannelEnabled = (target: "vip" | "warmup", isEnabled: boolean) => {
-    if (isEnabled) {
-      const currentType = target === "vip" ? settings.vipScheduleType : settings.warmupScheduleType;
-      const nextType = currentType === "manual" ? "interval" : currentType;
-      setScheduleType(target, nextType);
-    } else {
-      setScheduleType(target, "manual");
-    }
-  };
-
   const toggleTag = (target: "vipTags" | "warmupTags", tagName: string) => {
     const currentList = settings[target].split(",").map(t => t.trim().toLowerCase()).filter(Boolean);
     const lowerName = tagName.toLowerCase();
@@ -294,16 +284,6 @@ export default function TelegramUnifiedPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white/90">Automação do Telegram</h1>
           <p className="text-sm text-zinc-400">Configure o Bot, as legendas geradas pela inteligência artificial (Grok) e o cronograma.</p>
-        </div>
-        <div className="flex items-center gap-4">
-           <label className="flex items-center gap-3 cursor-pointer rounded-lg bg-zinc-900/40 px-4 py-2 border border-white/5">
-              <span className="text-sm font-semibold text-zinc-300">Status Geral do Autopost:</span>
-              <Switch
-                checked={settings.enabled}
-                onChange={(v) => setSettings({ ...settings, enabled: v })}
-                ariaLabel="Status geral do autopost"
-              />
-            </label>
         </div>
       </div>
 
@@ -496,19 +476,6 @@ export default function TelegramUnifiedPage() {
                     </div>
                   )}
 
-                  <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between">
-                    <div className="flex flex-col">
-                      <span className="text-xs font-bold text-white">Postagem automática ligada</span>
-                      <span className="text-[10px] text-zinc-500">
-                        {settings.vipScheduleType !== "manual" ? "Ligado — posta conforme cronograma acima" : "Desligado — só posta no botão"}
-                      </span>
-                    </div>
-                    <Switch
-                      checked={settings.vipScheduleType !== "manual"}
-                      onChange={(v) => toggleChannelEnabled("vip", v)}
-                      ariaLabel="Postagem automática VIP"
-                    />
-                  </div>
                 </div>
 
                 {/* Etiquetas VIP */}
@@ -715,19 +682,6 @@ export default function TelegramUnifiedPage() {
                     </div>
                   )}
 
-                  <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between">
-                    <div className="flex flex-col">
-                      <span className="text-xs font-bold text-white">Postagem automática ligada</span>
-                      <span className="text-[10px] text-zinc-500">
-                        {settings.warmupScheduleType !== "manual" ? "Ligado — posta conforme cronograma acima" : "Desligado — só posta no botão"}
-                      </span>
-                    </div>
-                    <Switch
-                      checked={settings.warmupScheduleType !== "manual"}
-                      onChange={(v) => toggleChannelEnabled("warmup", v)}
-                      ariaLabel="Postagem automática Prévias"
-                    />
-                  </div>
                 </div>
 
                 {/* Etiquetas Prévias */}
@@ -773,12 +727,31 @@ export default function TelegramUnifiedPage() {
 
           </div>
 
-          <div className="mt-8 border-t border-white/[0.06] pt-8">
-            <TelegramCalendar profileId={selectedProfileId} profiles={profiles} />
+          {/* Controle único do autopost + salvar — logo abaixo das configurações,
+              acima do calendário (substitui os 3 toggles antigos). */}
+          <div className="mt-8 flex flex-col gap-4 rounded-xl border border-white/[0.06] bg-zinc-950/60 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <Switch
+                checked={settings.enabled}
+                onChange={(v) => setSettings({ ...settings, enabled: v })}
+                ariaLabel="Postagem automática"
+              />
+              <span className="flex flex-col">
+                <span className="text-sm font-bold text-white">
+                  Postagem automática {settings.enabled ? "ligada" : "desligada"}
+                </span>
+                <span className="text-[11px] text-zinc-500">
+                  {settings.enabled
+                    ? "Posta sozinho conforme o cronograma de cada canal (VIP e Prévias)."
+                    : "Nada é postado automaticamente — só pelos botões de gerar/postar."}
+                </span>
+              </span>
+            </label>
+            <button type="button" onClick={saveSettings} className="rounded-lg bg-sky-600 px-8 py-3 text-sm font-semibold hover:bg-sky-500 transition-colors shadow-lg shadow-sky-900/20 whitespace-nowrap">Salvar Todas Configurações</button>
           </div>
 
-          <div className="mt-8 border-t border-white/[0.06] pt-6 flex justify-end">
-            <button type="button" onClick={saveSettings} className="rounded-lg bg-sky-600 px-8 py-3 text-sm font-semibold hover:bg-sky-500 transition-colors shadow-lg shadow-sky-900/20">Salvar Todas Configurações</button>
+          <div className="mt-8 border-t border-white/[0.06] pt-8">
+            <TelegramCalendar profileId={selectedProfileId} profiles={profiles} />
           </div>
         </div>
       )}

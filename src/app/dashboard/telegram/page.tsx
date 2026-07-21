@@ -29,10 +29,11 @@ type TelegramSettings = {
   warmupTags: string;
   warmupPrompt: string;
 
-  warmupScheduleType: "manual" | "interval" | "fixed";
+  warmupScheduleType: "manual" | "interval" | "fixed" | "mk";
   warmupFixedTimes: string;
   warmupSeedReaction: boolean;
   warmupSeedEmoji: string;
+  warmupMkPrompt: string;
 };
 
 export default function TelegramUnifiedPage() {
@@ -71,6 +72,7 @@ export default function TelegramUnifiedPage() {
     warmupFixedTimes: "",
     warmupSeedReaction: false,
     warmupSeedEmoji: "🔥",
+    warmupMkPrompt: "",
   });
 
   useEffect(() => {
@@ -117,6 +119,7 @@ export default function TelegramUnifiedPage() {
         warmupFixedTimes: d.autopost?.warmup_fixed_times || "",
         warmupSeedReaction: Boolean(d.autopost?.warmup_seed_reaction),
         warmupSeedEmoji: d.autopost?.warmup_seed_emoji || "🔥",
+        warmupMkPrompt: d.autopost?.warmup_mk_prompt || "",
       });
     }).finally(() => setLoading(false));
   }, [selectedProfileId]);
@@ -233,10 +236,11 @@ export default function TelegramUnifiedPage() {
     });
   };
 
-  const setScheduleType = (target: "vip" | "warmup", type: "manual" | "interval" | "fixed") => {
+  const setScheduleType = (target: "vip" | "warmup", type: "manual" | "interval" | "fixed" | "mk") => {
     const nextSettings = { ...settings };
     if (target === "vip") {
-      nextSettings.vipScheduleType = type;
+      // "mk" só existe para o aquecimento (prévias); no VIP cai em "interval".
+      nextSettings.vipScheduleType = type === "mk" ? "interval" : type;
     } else {
       nextSettings.warmupScheduleType = type;
     }
@@ -319,36 +323,23 @@ export default function TelegramUnifiedPage() {
             </div>
           )}
 
-          {/* Prévias (metodologia de aquecimento): gera um dia estruturado de
-              teasers, fotos, perguntas, enquetes, oferta e prova social. */}
+          {/* Método MK — configurações (prompt editável + reação). O botão de
+              gerar fica no seletor de agendamento das Prévias (opção Método MK). */}
           <div className="mb-8 max-w-4xl rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] p-5">
-            <h3 className="font-semibold text-white/90">🌶️ Prévias com metodologia (IA)</h3>
+            <h3 className="font-semibold text-white/90">🌶️ Método MK — configurações das prévias</h3>
             <p className="mt-1 text-xs text-zinc-400">
-              Gera um dia inteiro de prévias no estilo &quot;diário íntimo&quot; — teasers, fotos,
-              perguntas de engajamento, <b>enquetes</b> e ofertas — usando o perfil da modelo. Os
-              posts entram no calendário e o autopost envia nos horários.
+              O prompt que a IA segue ao gerar o dia de prévias (tipos, distribuição, horários e
+              tom). Deixe em branco para usar o padrão. Edite para ajustar quantidade de posts,
+              faixa de horários, etc. As regras de formato (JSON/tipos) são fixas.
             </p>
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-sm text-zinc-300">
-                Dias:
-                <input
-                  type="number"
-                  min={1}
-                  max={14}
-                  value={previasDays}
-                  onChange={(e) => setPreviasDays(Math.max(1, Math.min(14, Number(e.target.value) || 1)))}
-                  className="w-16 rounded-lg border border-white/10 bg-zinc-900 px-2 py-1.5 text-sm text-white"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={generatePrevias}
-                disabled={generatingPrevias || !settings.idAquecimento}
-                className="btn-primary px-4 py-2 text-sm disabled:opacity-50"
-              >
-                {generatingPrevias ? "Gerando..." : "✨ Gerar dia de prévias"}
-              </button>
-            </div>
+            <textarea
+              value={settings.warmupMkPrompt}
+              onChange={(e) => setSettings({ ...settings, warmupMkPrompt: e.target.value })}
+              placeholder={
+                "Ex.: Monte 14 posts das 09:00 à 02:00. Distribuição: 5 teaser, 4 foto, 2 pergunta, 2 enquete, 1 oferta. Tom safadinha, contexto do horário..."
+              }
+              className="mt-3 min-h-[120px] w-full resize-y rounded-lg border border-white/10 bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none"
+            />
 
             <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3">
               <div>
@@ -373,7 +364,7 @@ export default function TelegramUnifiedPage() {
               </div>
             </div>
             <p className="mt-2 text-[11px] text-zinc-500">
-              Lembre de <b>Salvar configurações</b> para o &quot;semear reação&quot; valer.
+              Lembre de <b>Salvar configurações</b> para o prompt e o &quot;semear reação&quot; valerem.
             </p>
           </div>
 
@@ -577,7 +568,7 @@ export default function TelegramUnifiedPage() {
                 <div className="space-y-4 rounded-xl border border-white/[0.06] bg-zinc-950/60 p-5">
                   <h4 className="text-xs font-bold text-zinc-300">Agendamento</h4>
 
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     <button
                       type="button"
                       onClick={() => setScheduleType("warmup", "manual")}
@@ -616,7 +607,52 @@ export default function TelegramUnifiedPage() {
                       <span className={`text-xs font-bold ${settings.warmupScheduleType === "fixed" ? 'text-emerald-400' : 'text-zinc-200'}`}>Horários</span>
                       <span className="text-[10px] text-zinc-500 mt-0.5">Horas fixas</span>
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setScheduleType("warmup", "mk")}
+                      className={`flex flex-col items-start px-3 py-2 rounded-lg border transition-all text-left ${
+                        settings.warmupScheduleType === "mk"
+                          ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400 shadow-md'
+                          : 'border-white/[0.06] bg-zinc-900/40 text-zinc-400 hover:bg-zinc-900/60'
+                      }`}
+                    >
+                      <span className={`text-xs font-bold ${settings.warmupScheduleType === "mk" ? 'text-emerald-400' : 'text-zinc-200'}`}>Método MK 🌶️</span>
+                      <span className="text-[10px] text-zinc-500 mt-0.5">Dia gerado por IA</span>
+                    </button>
                   </div>
+
+                  {/* Método MK: gera um dia estruturado (metodologia) por IA. */}
+                  {settings.warmupScheduleType === "mk" && (
+                    <div className="space-y-3 pt-2">
+                      <p className="text-[11px] text-zinc-400">
+                        Gera um dia inteiro de prévias no estilo &quot;diário íntimo&quot; — teasers,
+                        fotos, perguntas, <b>enquetes</b>, oferta e prova social — com horários
+                        variados (±3 min). Ajuste o prompt em <b>Método MK — configurações</b> abaixo.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <label className="flex items-center gap-2 text-sm text-zinc-300">
+                          Dias:
+                          <input
+                            type="number"
+                            min={1}
+                            max={14}
+                            value={previasDays}
+                            onChange={(e) => setPreviasDays(Math.max(1, Math.min(14, Number(e.target.value) || 1)))}
+                            className="w-16 rounded-lg border border-white/[0.08] bg-zinc-900 px-2 py-1.5 text-sm text-white"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={generatePrevias}
+                          disabled={generatingPrevias || !settings.idAquecimento}
+                          className="rounded-lg bg-emerald-500/20 text-emerald-300 px-4 py-2 text-xs font-bold hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+                        >
+                          {generatingPrevias ? "⏳ Gerando..." : "✨ Gerar dias (Método MK)"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {settings.warmupScheduleType === "interval" && (
                     <div className="flex items-center gap-2 text-sm text-zinc-300 pt-2">

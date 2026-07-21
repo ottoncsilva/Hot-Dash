@@ -352,6 +352,8 @@ function migrate(d: Database.Database) {
   // Semear reação 🔥 automaticamente nos posts de Prévias (social proof).
   ensureColumn(d, "telegram_autopost_settings", "warmup_seed_reaction", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(d, "telegram_autopost_settings", "warmup_seed_emoji", "TEXT DEFAULT '🔥'");
+  // Prompt editável do gerador "Método MK" (metodologia das prévias).
+  ensureColumn(d, "telegram_autopost_settings", "warmup_mk_prompt", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "vip_prompt", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "warmup_prompt", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "warmup_link", "TEXT");

@@ -32,8 +32,9 @@ export async function POST(req: NextRequest) {
 
     const db = getDb();
     const settings = db
-      .prepare("SELECT warmup_tags FROM telegram_autopost_settings WHERE profile_id = ?")
-      .get(profile.id) as { warmup_tags?: string } | undefined;
+      .prepare("SELECT warmup_tags, warmup_mk_prompt FROM telegram_autopost_settings WHERE profile_id = ?")
+      .get(profile.id) as { warmup_tags?: string; warmup_mk_prompt?: string } | undefined;
+    const mkPrompt = settings?.warmup_mk_prompt || undefined;
     const allowedTagNames = (settings?.warmup_tags || "")
       .split(",")
       .map((t) => t.trim().toLowerCase())
@@ -87,6 +88,7 @@ export async function POST(req: NextRequest) {
           },
           provider,
           base,
+          mkPrompt,
         );
         dayPosts = gen.posts.map((p) => ({ post: p, at: gen.scheduledAt(p) }));
       } catch (e) {

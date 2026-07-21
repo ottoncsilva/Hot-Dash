@@ -13,7 +13,7 @@ import {
 } from "@/lib/media";
 import { saveFile } from "@/lib/storage";
 import { getImageDimensions } from "@/lib/imageDimensions";
-import { copyMediaTags, getTagsForMedia } from "@/lib/tags";
+import { addTagsByNameToMedia, copyMediaTags, getTagsForMedia } from "@/lib/tags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -130,6 +130,19 @@ export async function POST(
     // Foto editada herda as etiquetas da original.
     if (editedFrom) {
       copyMediaTags(editedFrom, item.id);
+    }
+
+    // Etiquetas automáticas por nome (ex.: "Censurada"), enviadas pelo cliente.
+    const tagsRaw = form.get("tags");
+    const tagNames =
+      typeof tagsRaw === "string" && tagsRaw
+        ? tagsRaw.split(",").map((t) => t.trim()).filter(Boolean)
+        : [];
+    if (tagNames.length > 0) {
+      addTagsByNameToMedia(item.id, tagNames);
+    }
+
+    if (editedFrom || tagNames.length > 0) {
       item.tags = getTagsForMedia(item.id);
     }
 

@@ -212,6 +212,7 @@ export default function CensuraPage() {
       const baseName = job.file.name.replace(/\.[^./\\]+$/, "");
       const form = new FormData();
       form.append("file", new File([blob], `${baseName}-censurada.png`, { type: "image/png" }));
+      form.append("tags", "Censurada");
       await apiUpload(`/api/profiles/${saveProfileId}/media`, form);
       setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, save: "salvo" } : j)));
       return true;

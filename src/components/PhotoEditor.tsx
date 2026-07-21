@@ -413,6 +413,10 @@ export default function PhotoEditor({
       const form = new FormData();
       form.append("file", new File([blob], `${baseName}-editada.png`, { type: "image/png" }));
       form.append("editedFrom", item.id);
+      // Se cobriu algo (borrão/emoji), marca como censurada.
+      if (objects.some((o) => o.type === "blur" || o.type === "emoji")) {
+        form.append("tags", "Censurada");
+      }
       const { media: newItem } = await apiUpload<{ media: MediaItem }>(
         `/api/profiles/${profileId}/media`,
         form,
@@ -439,6 +443,10 @@ export default function PhotoEditor({
       const baseName = item.filename.replace(/\.[^./\\]+$/, "");
       const form = new FormData();
       form.append("file", new File([blob], `${baseName}.png`, { type: "image/png" }));
+      // Se cobriu algo (borrão/emoji), marca como censurada.
+      if (objects.some((o) => o.type === "blur" || o.type === "emoji")) {
+        form.append("tags", "Censurada");
+      }
       const { media: newItem } = await apiUpload<{ media: MediaItem }>(
         `/api/media/${item.id}/replace`,
         form,

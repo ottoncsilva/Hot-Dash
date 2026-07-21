@@ -1,6 +1,8 @@
 // Service Worker mínimo do Hot Dash (habilita instalação como PWA no iPhone).
 // Estratégia: network-first para navegação, com fallback ao cache do app shell.
-const CACHE = "hotdash-v1";
+// Suba este número a cada release para forçar os PWAs já instalados a
+// descartar o cache antigo (app shell) e pegar a versão nova no próximo abrir.
+const CACHE = "hotdash-v2";
 const APP_SHELL = ["/", "/dashboard", "/login", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {

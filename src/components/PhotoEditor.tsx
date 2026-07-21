@@ -7,7 +7,12 @@ import { showToast } from "@/lib/toast";
 import Modal from "@/components/Modal";
 import ToolButton from "@/components/ToolButton";
 import { COMPACT_EMOJIS } from "@/lib/censorEmojis";
-import { DEFAULT_PART_EMOJI, type BodyPart } from "@/lib/bodyParts";
+import {
+  BODY_PARTS,
+  BODY_PART_LABELS,
+  DEFAULT_PART_EMOJI,
+  type BodyPart,
+} from "@/lib/bodyParts";
 import {
   IconClose,
   IconType,
@@ -65,6 +70,8 @@ export default function PhotoEditor({
   const [error, setError] = useState<string | null>(null);
   const [censoring, setCensoring] = useState(false);
   const [censorMenuOpen, setCensorMenuOpen] = useState(false);
+  // Emoji escolhido por parte do corpo (∅ = não cobrir aquela parte).
+  const [partEmoji, setPartEmoji] = useState<Record<BodyPart, string>>({ ...DEFAULT_PART_EMOJI });
   // Contador que força re-render quando a imagem de um emoji termina de
   // carregar (o desenho é síncrono; a imagem chega depois).
   const [emojiTick, setEmojiTick] = useState(0);
@@ -496,26 +503,31 @@ export default function PhotoEditor({
           };
         });
       } else {
-        newObjs = regions.map((r): EmojiObject => {
-          const emoji = DEFAULT_PART_EMOJI[r.part] || "🔞";
-          const cx = (r.x + r.w / 2) * w;
-          const cy = (r.y + r.h / 2) * h;
-          // Emoji quadrado que cobre a maior dimensão da região (com folga).
-          const base = Math.max(r.w * w, r.h * h);
-          const size = Math.max(24, base * (1 + PAD));
-          return {
-            id: crypto.randomUUID(),
-            type: "emoji",
-            emoji,
-            size,
-            x: cx - size / 2,
-            y: cy - size / 2,
-          };
-        });
+        newObjs = regions
+          .map((r): EmojiObject | null => {
+            const emoji = partEmoji[r.part];
+            if (!emoji) return null; // ∅ → não cobrir essa parte
+            const cx = (r.x + r.w / 2) * w;
+            const cy = (r.y + r.h / 2) * h;
+            // Emoji quadrado que cobre a maior dimensão da região (com folga).
+            const base = Math.max(r.w * w, r.h * h);
+            const size = Math.max(24, base * (1 + PAD));
+            return {
+              id: crypto.randomUUID(),
+              type: "emoji",
+              emoji,
+              size,
+              x: cx - size / 2,
+              y: cy - size / 2,
+            };
+          })
+          .filter((o): o is EmojiObject => o !== null);
       }
 
-      if (newObjs.length === 0) {
+      if (regions.length === 0) {
         showToast("Nenhuma parte explícita foi encontrada pela IA.", "warning");
+      } else if (newObjs.length === 0) {
+        showToast("As partes encontradas estão marcadas como ∅ (não cobrir).", "warning");
       } else {
         setObjects((prev) => [...prev, ...newObjs]);
       }
@@ -743,6 +755,34 @@ export default function PhotoEditor({
           <p className="mt-1 text-sm text-zinc-400">
             A IA detecta as partes explícitas e cobre automaticamente. Escolha o estilo:
           </p>
+
+          {/* Emoji por parte do corpo (usado ao clicar em "Emojis"). */}
+          <p className="eyebrow mt-4">Emoji por parte do corpo</p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {BODY_PARTS.map((part) => (
+              <label
+                key={part}
+                className="flex items-center gap-2 rounded-lg border border-white/10 bg-ink-900 px-2.5 py-1.5"
+              >
+                <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">
+                  {BODY_PART_LABELS[part]}
+                </span>
+                <select
+                  value={partEmoji[part]}
+                  onChange={(e) => setPartEmoji((p) => ({ ...p, [part]: e.target.value }))}
+                  className="shrink-0 rounded bg-ink-850 px-1 py-0.5 text-lg outline-none"
+                >
+                  <option value="">∅</option>
+                  {COMPACT_EMOJIS.map((em) => (
+                    <option key={em} value={em}>
+                      {em}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+
           <div className="mt-4 grid grid-cols-2 gap-2.5">
             <button
               type="button"

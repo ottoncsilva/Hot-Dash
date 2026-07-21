@@ -303,51 +303,6 @@ export default function TelegramUnifiedPage() {
             </div>
           )}
 
-          {/* Método MK — configurações (prompt editável + reação). O botão de
-              gerar fica no seletor de agendamento das Prévias (opção Método MK). */}
-          <div className="mb-8 max-w-4xl rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] p-5">
-            <h3 className="font-semibold text-white/90">🌶️ Método MK — configurações das prévias</h3>
-            <p className="mt-1 text-xs text-zinc-400">
-              O prompt que a IA segue ao gerar o dia de prévias (tipos, distribuição, horários e
-              tom). Deixe em branco para usar o padrão. Edite para ajustar quantidade de posts,
-              faixa de horários, etc. As regras de formato (JSON/tipos) são fixas.
-            </p>
-            <textarea
-              value={settings.warmupMkPrompt}
-              onChange={(e) => setSettings({ ...settings, warmupMkPrompt: e.target.value })}
-              placeholder={
-                "Ex.: Monte 14 posts das 09:00 à 02:00. Distribuição: 5 teaser, 4 foto, 2 pergunta, 2 enquete, 1 oferta. Tom safadinha, contexto do horário..."
-              }
-              className="mt-3 min-h-[120px] w-full resize-y rounded-lg border border-white/10 bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none"
-            />
-
-            <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3">
-              <div>
-                <p className="text-sm font-semibold text-white">Semear reação 🔥 nas prévias</p>
-                <p className="text-[11px] text-zinc-500">
-                  O bot dá a 1ª reação em cada post (social proof). Requer reações habilitadas no
-                  grupo e o bot como admin.
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  value={settings.warmupSeedEmoji}
-                  onChange={(e) => setSettings({ ...settings, warmupSeedEmoji: e.target.value.slice(0, 4) })}
-                  className="w-14 rounded-lg border border-white/10 bg-zinc-900 px-2 py-1.5 text-center text-lg"
-                  aria-label="Emoji da reação"
-                />
-                <Switch
-                  checked={settings.warmupSeedReaction}
-                  onChange={(v) => setSettings({ ...settings, warmupSeedReaction: v })}
-                  ariaLabel="Semear reação"
-                />
-              </div>
-            </div>
-            <p className="mt-2 text-[11px] text-zinc-500">
-              Lembre de <b>Salvar configurações</b> para o prompt e o &quot;semear reação&quot; valerem.
-            </p>
-          </div>
-
           <div className="grid gap-8 lg:grid-cols-2">
 
             {/* VIP Group */}
@@ -595,7 +550,7 @@ export default function TelegramUnifiedPage() {
                       <p className="text-[11px] text-zinc-400">
                         Gera um dia inteiro de prévias no estilo &quot;diário íntimo&quot; — teasers,
                         fotos, perguntas, <b>enquetes</b>, oferta e prova social — com horários
-                        variados (±3 min). Ajuste o prompt em <b>Método MK — configurações</b> abaixo.
+                        variados (±3 min). A metodologia já vem programada no sistema.
                       </p>
                       <div className="flex flex-wrap items-center gap-3">
                         <label className="flex items-center gap-2 text-sm text-zinc-300">
@@ -682,6 +637,43 @@ export default function TelegramUnifiedPage() {
                     </div>
                   )}
 
+                </div>
+
+                {/* Método MK — a metodologia (tipos, distribuição, horários e tom)
+                    já vem PROGRAMADA no sistema. Aqui só a opção de semear reação. */}
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] p-5">
+                  <h4 className="font-semibold text-white/90">🌶️ Método MK — prévias</h4>
+                  <p className="mt-1 text-xs text-zinc-400">
+                    A metodologia (tipos de post, distribuição no dia, faixa de horários e tom) já
+                    vem <b>programada no sistema</b>. É só usar o botão <b>Método MK</b> no
+                    agendamento acima e escolher quantos dias gerar.
+                  </p>
+
+                  <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">Semear reação 🔥 nas prévias</p>
+                      <p className="text-[11px] text-zinc-500">
+                        O bot dá a 1ª reação em cada post (social proof). Requer reações habilitadas no
+                        grupo e o bot como admin.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={settings.warmupSeedEmoji}
+                        onChange={(e) => setSettings({ ...settings, warmupSeedEmoji: e.target.value.slice(0, 4) })}
+                        className="w-14 rounded-lg border border-white/10 bg-zinc-900 px-2 py-1.5 text-center text-lg"
+                        aria-label="Emoji da reação"
+                      />
+                      <Switch
+                        checked={settings.warmupSeedReaction}
+                        onChange={(v) => setSettings({ ...settings, warmupSeedReaction: v })}
+                        ariaLabel="Semear reação"
+                      />
+                    </div>
+                  </div>
+                  <p className="mt-2 text-[11px] text-zinc-500">
+                    Lembre de <b>Salvar configurações</b> para o &quot;semear reação&quot; valer.
+                  </p>
                 </div>
 
                 {/* Etiquetas Prévias */}

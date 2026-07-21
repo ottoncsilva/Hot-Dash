@@ -6,6 +6,7 @@ import TelegramCalendar from "@/components/telegram/TelegramCalendar";
 import { useConfirm } from "@/hooks/useConfirm";
 import Switch from "@/components/Switch";
 import type { Profile } from "@/lib/types";
+import { DEFAULT_CTA_BUTTONS, CTA_BUTTON_MAX } from "@/lib/postTypes";
 
 const toast = {
   success: (msg: string) => showToast(msg, "success"),
@@ -34,6 +35,7 @@ type TelegramSettings = {
   warmupSeedReaction: boolean;
   warmupSeedEmoji: string;
   warmupMkPrompt: string;
+  warmupCtaButtons: string;
 };
 
 export default function TelegramUnifiedPage() {
@@ -73,6 +75,7 @@ export default function TelegramUnifiedPage() {
     warmupSeedReaction: false,
     warmupSeedEmoji: "🔥",
     warmupMkPrompt: "",
+    warmupCtaButtons: DEFAULT_CTA_BUTTONS,
   });
 
   useEffect(() => {
@@ -120,6 +123,7 @@ export default function TelegramUnifiedPage() {
         warmupSeedReaction: Boolean(d.autopost?.warmup_seed_reaction),
         warmupSeedEmoji: d.autopost?.warmup_seed_emoji || "🔥",
         warmupMkPrompt: d.autopost?.warmup_mk_prompt || "",
+        warmupCtaButtons: d.autopost?.warmup_cta_buttons || DEFAULT_CTA_BUTTONS,
       });
     }).finally(() => setLoading(false));
   }, [selectedProfileId]);
@@ -666,6 +670,36 @@ export default function TelegramUnifiedPage() {
                     <p className="text-xs text-orange-200/60 mt-1">
                       O link do grupo VIP é puxado automaticamente das configurações de <strong>Edição de Perfil</strong> (campo "Link do Bot/Assinatura VIP").
                     </p>
+                  </div>
+
+                  {/* Botões da copy — frases de CTA (1 por linha). O sistema
+                      escolhe 1 por post e anexa como BOTÃO com o link do VIP. */}
+                  <div className="space-y-2 rounded-lg border border-orange-500/10 bg-orange-900/10 p-3">
+                    <label className="text-xs font-semibold text-orange-300">
+                      Botões da copy <span className="text-orange-200/50 font-normal">— 1 por linha (a IA escolhe 1 por post)</span>
+                    </label>
+                    <p className="text-[11px] text-orange-200/60">
+                      Cada linha vira um <b>botão</b> com o link do VIP. Limite de <b>{CTA_BUTTON_MAX} caracteres</b> por linha
+                      (o que passar é cortado). Deixe em branco para usar as frases-padrão.
+                    </p>
+                    <textarea
+                      rows={8}
+                      value={settings.warmupCtaButtons}
+                      onChange={(e) => setSettings({ ...settings, warmupCtaButtons: e.target.value })}
+                      placeholder={DEFAULT_CTA_BUTTONS}
+                      className="w-full rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none resize-y font-mono"
+                    />
+                    {(() => {
+                      const over = settings.warmupCtaButtons
+                        .split("\n")
+                        .map((l) => l.trim())
+                        .filter((l) => l.length > CTA_BUTTON_MAX);
+                      return over.length > 0 ? (
+                        <p className="text-[11px] text-amber-400">
+                          ⚠️ {over.length} linha(s) passam de {CTA_BUTTON_MAX} caracteres e serão cortadas.
+                        </p>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
 

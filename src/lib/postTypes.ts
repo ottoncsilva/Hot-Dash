@@ -59,6 +59,38 @@ export type PostStatus = "scheduled" | "posted";
 /** Enquete de um post (Telegram sendPoll). Sem mídia. */
 export type PostPoll = { question: string; options: string[] };
 
+/** Limite do Telegram para o texto de um botão inline. */
+export const CTA_BUTTON_MAX = 25;
+
+/** Frases-modelo dos "Botões da copy" das Prévias (1 por linha). A IA/sistema
+ *  escolhe 1 por post e anexa como botão com o link do VIP. Editável na UI. */
+export const DEFAULT_CTA_BUTTONS = [
+  "VEM PRO MEU VIP AGORA",
+  "VEM ME VER SEM CENSURA",
+  "VEM PRO MEU VIP ME SENTIR",
+  "VEM FICAR COMIGO NO VIP",
+  "VEM PRO MEU CANTINHO SECRETO",
+  "VEM DESCOBRIR MEU LADO PROIBIDO",
+  "VEM ME DEIXAR MOLHADINHA NO VIP",
+  "VEM ME DOMINAR NO VIP",
+  "VEM SER MEU DONO NO VIP",
+  "VEM ME TER DE VERDADE",
+  "VEM BRINCAR COMIGO NO VIP",
+  "VEM ME PROVAR AGORA",
+].join("\n");
+
+/** Escolhe uma frase de CTA aleatória da lista, respeitando o limite de
+ *  caracteres (trunca com reticências se passar). Retorna null se lista vazia. */
+export function pickCtaButtonText(list: string, max = CTA_BUTTON_MAX): string | null {
+  const lines = list
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return null;
+  const chosen = lines[Math.floor(Math.random() * lines.length)];
+  return chosen.length > max ? chosen.slice(0, max - 1).trimEnd() + "…" : chosen;
+}
+
 /** Post agendado no cronograma (a publicação em si é feita manualmente). */
 export type ScheduledPost = {
   id: string;

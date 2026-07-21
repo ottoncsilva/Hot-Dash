@@ -22,6 +22,7 @@ import {
 } from "@/lib/telegramApi";
 import { updatePost } from "@/lib/posts";
 import { listMedia, getMediaRow } from "@/lib/media";
+import { DEFAULT_CTA_BUTTONS, pickCtaButtonText } from "@/lib/postTypes";
 
 /**
  * Núcleo das tarefas agendadas do Telegram (autopost, funis e expiração).
@@ -87,6 +88,13 @@ export async function runTelegramAutopost(): Promise<number> {
     // se o grupo tiver reações habilitadas e o bot for admin.
     const seedEmoji = "🔥";
 
+    // "Botões da copy": frases de CTA (1 por linha). O sistema escolhe 1 por
+    // post de prévia e anexa como botão inline com o link do VIP.
+    const apRow = db
+      .prepare("SELECT warmup_cta_buttons FROM telegram_autopost_settings WHERE profile_id = ?")
+      .get(profile.id) as { warmup_cta_buttons?: string } | undefined;
+    const ctaList = (apRow?.warmup_cta_buttons ?? "").trim() || DEFAULT_CTA_BUTTONS;
+
     // Busca todos os posts agendados pendentes para Telegram (VIP ou Prévias)
     // deste perfil cujo horário já chegou.
     const pendingPosts = db
@@ -122,11 +130,20 @@ export async function runTelegramAutopost(): Promise<number> {
         if (row) mediaPath = row.path;
       }
 
-      // Monta a legenda final. O CTA de acesso ao VIP (3 hiperlinks
-      // "ACESSAR O VIP 🎁") vai SÓ nas Prévias, nunca no VIP. Como o envio usa
-      // parse_mode HTML, as tags <a> viram links clicáveis no lugar do link cru.
-      const finalCaption =
-        isWarmup && profile.bioVipLink
+      // CTA das Prévias: nas Prévias com link do VIP, anexamos UM botão inline
+      // ("Botões da copy" — 1 frase sorteada, ≤25 chars) apontando pro VIP. Com
+      // botão, a legenda vai limpa (sem os 3 hiperlinks). Sem botão/lista,
+      // mantém o comportamento antigo (3 hiperlinks "ACESSAR O VIP 🎁").
+      const ctaButtonText = isWarmup && profile.bioVipLink ? pickCtaButtonText(ctaList) : null;
+      const ctaMarkup =
+        ctaButtonText && profile.bioVipLink
+          ? { inline_keyboard: [[{ text: ctaButtonText, url: profile.bioVipLink }]] }
+          : undefined;
+      const sendOpts = ctaMarkup ? { reply_markup: ctaMarkup } : {};
+
+      const finalCaption = ctaMarkup
+        ? escapeHtmlAllowingLinks(post.caption || "")
+        : isWarmup && profile.bioVipLink
           ? buildWarmupCaption(post.caption || "", profile.bioVipLink)
           : escapeHtmlAllowingLinks(post.caption || "");
 
@@ -141,18 +158,26 @@ export async function runTelegramAutopost(): Promise<number> {
         ? (poll!.options as unknown[]).filter((o): o is string => typeof o === "string")
         : [];
 
+      // Post sem enquete, sem mídia e sem texto não tem o que enviar: marca como
+      // postado para não travar a fila tentando repetidamente uma mensagem vazia.
+      const hasPoll = Boolean(poll?.question) && pollOptions.length >= 2;
+      if (!hasPoll && !mediaPath && !finalCaption.trim()) {
+        updatePost(post.id, { status: "posted" });
+        continue;
+      }
+
       // Dispara no Telegram: enquete → sendPoll; com mídia → foto/vídeo;
       // sem mídia → mensagem de texto. Depois, nas Prévias, semeia a reação.
       try {
         let sent: { message_id?: number } | undefined;
         if (poll?.question && pollOptions.length >= 2) {
-          sent = await sendTelegramPoll(bot.botToken, chatId, poll.question, pollOptions);
+          sent = await sendTelegramPoll(bot.botToken, chatId, poll.question, pollOptions, sendOpts);
         } else if (mediaPath) {
-          sent = (await sendTelegramMedia(bot.botToken, chatId, mediaPath, finalCaption)) as
+          sent = (await sendTelegramMedia(bot.botToken, chatId, mediaPath, finalCaption, sendOpts)) as
             | { message_id?: number }
             | undefined;
         } else {
-          sent = (await sendTelegramMessage(bot.botToken, chatId, finalCaption)) as
+          sent = (await sendTelegramMessage(bot.botToken, chatId, finalCaption, sendOpts)) as
             | { message_id?: number }
             | undefined;
         }

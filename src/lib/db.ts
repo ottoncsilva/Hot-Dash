@@ -354,6 +354,8 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "telegram_autopost_settings", "warmup_seed_emoji", "TEXT DEFAULT '🔥'");
   // Prompt editável do gerador "Método MK" (metodologia das prévias).
   ensureColumn(d, "telegram_autopost_settings", "warmup_mk_prompt", "TEXT");
+  // "Botões da copy": frases de CTA (1 por linha) anexadas como botão nas Prévias.
+  ensureColumn(d, "telegram_autopost_settings", "warmup_cta_buttons", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "vip_prompt", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "warmup_prompt", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "warmup_link", "TEXT");

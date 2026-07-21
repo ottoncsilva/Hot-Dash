@@ -189,9 +189,9 @@ export async function POST(req: NextRequest) {
           profile_id, enabled,
           vip_post_interval, vip_tags, vip_prompt, vip_schedule_type, vip_fixed_times,
           warmup_post_interval, warmup_tags, warmup_prompt, warmup_link, warmup_schedule_type, warmup_fixed_times,
-          warmup_seed_reaction, warmup_seed_emoji
+          warmup_seed_reaction, warmup_seed_emoji, warmup_mk_prompt
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(profile_id) DO UPDATE SET
            enabled = excluded.enabled,
            vip_post_interval = excluded.vip_post_interval,
@@ -206,7 +206,8 @@ export async function POST(req: NextRequest) {
            warmup_schedule_type = excluded.warmup_schedule_type,
            warmup_fixed_times = excluded.warmup_fixed_times,
            warmup_seed_reaction = excluded.warmup_seed_reaction,
-           warmup_seed_emoji = excluded.warmup_seed_emoji`
+           warmup_seed_emoji = excluded.warmup_seed_emoji,
+           warmup_mk_prompt = excluded.warmup_mk_prompt`
       ).run(
         profileId,
         enabled ? 1 : 0,
@@ -222,7 +223,8 @@ export async function POST(req: NextRequest) {
         warmupScheduleType || "interval",
         warmupFixedTimes || "",
         body.warmupSeedReaction ? 1 : 0,
-        (typeof body.warmupSeedEmoji === "string" && body.warmupSeedEmoji.trim()) || "🔥"
+        (typeof body.warmupSeedEmoji === "string" && body.warmupSeedEmoji.trim()) || "🔥",
+        typeof body.warmupMkPrompt === "string" ? body.warmupMkPrompt : ""
       );
 
       return NextResponse.json({ ok: true });

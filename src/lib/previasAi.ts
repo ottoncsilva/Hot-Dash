@@ -26,13 +26,31 @@ export type PreviaPost = {
   poll?: { question: string; options: string[] };
 };
 
-function buildPrompt(profile: {
+export type PreviasProfile = {
   name: string;
   physical?: string;
   fetish?: string;
   personality?: string;
   notes?: string;
-}): string {
+};
+
+/** Metodologia PADRÃO do "Método MK" (editável pelo operador nas configurações).
+ *  Descreve tipos, distribuição, horários e tom — SEM as regras de formato
+ *  (JSON), que o servidor sempre injeta e não podem ser alteradas. */
+export const DEFAULT_MK_METHOD = [
+  "Monte a AGENDA de UM DIA de mensagens seguindo a metodologia de aquecimento:",
+  "conteúdo de 'diário íntimo' que provoca e leva o lead a assinar o VIP.",
+  "- 12 a 16 posts espalhados das 08:00 à 01:00 (madrugada), horários realistas e crescendo o tesão à noite.",
+  "- Distribuição sugerida no dia: ~5 teaser, ~4 foto, ~2 pergunta, ~2 enquete, 1 oferta, 1 prova.",
+  "- 1ª pessoa, tom sensual e autêntico, contexto do horário (manhã: acordar/rotina; tarde: trabalho/estúdio; noite: banho/cama/tesão).",
+  "- Em type 'pergunta', termine com algo como 'Reage com 🔥 e me conta'.",
+  "- Em type 'enquete', preencha poll.question e poll.options (2 ou 3 opções curtas e safadas); o campo text pode repetir a pergunta.",
+  "- Em type 'foto', escreva a legenda como se descrevesse uma foto ousada da modelo (o servidor anexa a imagem).",
+  "- Emojis com moderação (🔥😈💦😏), português do Brasil, cada text com no máximo ~350 caracteres.",
+  "- Varie as aberturas; nunca repita a mesma frase de abertura.",
+].join("\n");
+
+function buildPrompt(profile: PreviasProfile, method?: string): string {
   const persona = [
     `Modelo: ${profile.name}.`,
     profile.physical ? `Físico: ${profile.physical}.` : "",
@@ -51,39 +69,37 @@ function buildPrompt(profile: {
     `Você é a própria ${profile.name} escrevendo no seu grupo de PRÉVIAS gratuito do Telegram.`,
     persona,
     "",
-    "Monte a AGENDA de UM DIA de mensagens seguindo a metodologia de aquecimento:",
-    "conteúdo de 'diário íntimo' que provoca e leva o lead a assinar o VIP.",
+    (method && method.trim()) || DEFAULT_MK_METHOD,
     "",
-    "Regras OBRIGATÓRIAS:",
+    "Regras DE FORMATO (obrigatórias, não podem ser alteradas):",
     '- Responda SOMENTE um JSON: {"posts":[{"time":"HH:MM","type":"...","text":"...","poll":{"question":"...","options":["..","..",".."]}}]}',
-    "- 12 a 16 posts espalhados das 08:00 à 01:00 (madrugada), horários realistas e crescendo o tesão à noite.",
     "- Tipos permitidos em type: teaser, foto, pergunta, enquete, oferta, prova.",
-    "- Distribuição sugerida no dia: ~5 teaser, ~4 foto, ~2 pergunta, ~2 enquete, 1 oferta, 1 prova.",
-    "- 1ª pessoa, tom sensual e autêntico, contexto do horário (manhã: acordar/rotina; tarde: trabalho/estúdio; noite: banho/cama/tesão).",
-    "- NÃO escreva links nem 'entra no VIP' no final: os botões/links são adicionados automaticamente. Foque na copy que provoca.",
-    "- Em type 'pergunta', termine com algo como 'Reage com 🔥 e me conta'.",
-    "- Em type 'enquete', preencha poll.question e poll.options (2 ou 3 opções curtas e safadas); o campo text pode repetir a pergunta.",
-    "- Em type 'foto', escreva a legenda como se descrevesse uma foto ousada da modelo (o servidor anexa a imagem).",
-    "- Emojis com moderação (🔥😈💦😏), português do Brasil, cada text com no máximo ~350 caracteres.",
-    "- Varie as aberturas; nunca repita a mesma frase de abertura.",
+    "- NÃO escreva links nem 'entra no VIP' no final: os botões/links são adicionados automaticamente.",
   ]
     .filter((l) => l !== "")
     .join("\n");
 }
 
-function timeToMs(dateBase: Date, time: string): number {
+/** Converte HH:MM em timestamp. `jitter` aplica ±3 min aleatórios para o
+ *  horário não sair "redondo" (00:07 em vez de 00:00). */
+function timeToMs(dateBase: Date, time: string, jitter = false): number {
   const m = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
   const d = new Date(dateBase);
   if (!m) {
     d.setHours(12, 0, 0, 0);
-    return d.getTime();
+  } else {
+    const h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+    const min = Math.min(59, Math.max(0, parseInt(m[2], 10)));
+    // Horários de madrugada (00:00–05:00) pertencem ao "dia seguinte".
+    d.setHours(h, min, 0, 0);
+    if (h <= 5) d.setDate(d.getDate() + 1);
   }
-  let h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
-  const min = Math.min(59, Math.max(0, parseInt(m[2], 10)));
-  // Horários de madrugada (00:00–05:00) pertencem ao "dia seguinte".
-  d.setHours(h, min, 0, 0);
-  if (h <= 5) d.setDate(d.getDate() + 1);
-  return d.getTime();
+  let ms = d.getTime();
+  if (jitter) {
+    const delta = Math.floor(Math.random() * 7) - 3; // -3..+3 minutos
+    ms += delta * 60 * 1000;
+  }
+  return ms;
 }
 
 function parse(raw: string, dateBase: Date): PreviaPost[] {
@@ -117,11 +133,13 @@ function parse(raw: string, dateBase: Date): PreviaPost[] {
 }
 
 export async function generatePreviasDay(
-  profile: { name: string; physical?: string; fetish?: string; personality?: string; notes?: string },
+  profile: PreviasProfile,
   provider: AiProvider,
   dateBase: Date,
+  method?: string,
 ): Promise<{ posts: PreviaPost[]; scheduledAt: (p: PreviaPost) => number }> {
-  const raw = await callAiRaw(buildPrompt(profile), provider, { json: true, maxTokens: 4000 });
+  const raw = await callAiRaw(buildPrompt(profile, method), provider, { json: true, maxTokens: 4000 });
   const posts = parse(raw, dateBase);
-  return { posts, scheduledAt: (p) => timeToMs(dateBase, p.time) };
+  // scheduledAt aplica jitter de ±3 min para não ficar com horário exato.
+  return { posts, scheduledAt: (p) => timeToMs(dateBase, p.time, true) };
 }

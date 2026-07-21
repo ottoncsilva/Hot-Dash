@@ -66,10 +66,6 @@ export default function AiSettingsPage() {
   const [grokModel, setGrokModel] = useState("grok-4.20-0309-reasoning");
   const [grokBaseUrl, setGrokBaseUrl] = useState("https://api.x.ai/v1/chat/completions");
 
-  const [sightengineEnabled, setSightengineEnabled] = useState(false);
-  const [sightengineUser, setSightengineUser] = useState("");
-  const [sightengineKey, setSightengineKey] = useState("");
-
   const [magnificEnabled, setMagnificEnabled] = useState(false);
   const [magnificKey, setMagnificKey] = useState("");
 
@@ -94,7 +90,6 @@ export default function AiSettingsPage() {
         setGrokEnabled(d.settings.grok.enabled);
         setGrokModel(d.settings.grok.model);
         setGrokBaseUrl(d.settings.grok.baseUrl || "https://api.x.ai/v1");
-        setSightengineEnabled(d.settings.sightengine.enabled);
         setMagnificEnabled(d.settings.magnific?.enabled || false);
         setNudenetEnabled(d.settings.nudenet?.enabled || false);
         setNudenetUrl(d.settings.nudenet?.baseUrl || "");
@@ -147,7 +142,6 @@ export default function AiSettingsPage() {
           openai: { enabled: openaiEnabled, model: openaiModel, baseUrl: openaiBaseUrl, ...(openaiKey ? { apiKey: openaiKey } : {}) },
           gemini: { enabled: geminiEnabled, model: geminiModel, ...(geminiKey ? { apiKey: geminiKey } : {}) },
           grok: { enabled: grokEnabled, model: grokModel, baseUrl: grokBaseUrl, ...(grokKey ? { apiKey: grokKey } : {}) },
-          sightengine: { enabled: sightengineEnabled, ...(sightengineKey ? { apiKey: sightengineKey } : {}), ...(sightengineUser ? { apiUser: sightengineUser } : {}) },
           magnific: { enabled: magnificEnabled, ...(magnificKey ? { apiKey: magnificKey } : {}) },
           nudenet: { enabled: nudenetEnabled, baseUrl: nudenetUrl, ...(nudenetToken ? { apiKey: nudenetToken } : {}) },
         },
@@ -156,8 +150,6 @@ export default function AiSettingsPage() {
       setOpenaiKey("");
       setGeminiKey("");
       setGrokKey("");
-      setSightengineKey("");
-      setSightengineUser("");
       setMagnificKey("");
       setNudenetToken("");
       setSaved(true);
@@ -403,54 +395,6 @@ export default function AiSettingsPage() {
                   buildBody={() => ({ provider: "grok", apiKey: grokKey || undefined, baseUrl: grokBaseUrl || undefined })}
                   autoTest={true}
                   enabled={grokEnabled}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Sightengine (Censura de Imagem) */}
-        <div className="card p-4">
-          <label className="flex items-center justify-between">
-            <span className="font-medium text-white">Sightengine (IA de Censura de Imagens)</span>
-            <input
-              type="checkbox"
-              className="h-4 w-4 accent-white"
-              checked={sightengineEnabled}
-              onChange={(e) => setSightengineEnabled(e.target.checked)}
-            />
-          </label>
-          <p className="mt-2 text-xs text-zinc-500">
-            Usado exclusivamente para varrer fotos buscando conteúdo adulto (seios e genitálias) para a nossa ferramenta de Censura Interativa do Editor. Essa API é a única sem "filtros morais" que retorna coordenadas (Bounding Boxes).
-          </p>
-          {sightengineEnabled && (
-            <div className="grid gap-4 md:grid-cols-2 mt-4">
-              <div>
-                <label className="eyebrow mb-1.5 block">API User</label>
-                <input
-                  className="input font-mono"
-                  type="text"
-                  placeholder={cfg?.sightengine.apiUser ? "•••••••• (em branco = manter)" : "903842..."}
-                  value={sightengineUser}
-                  onChange={(e) => setSightengineUser(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="eyebrow mb-1.5 block">API Secret</label>
-                <input
-                  className="input font-mono"
-                  type="password"
-                  placeholder={cfg?.sightengine.hasKey ? "•••••••• (em branco = manter)" : "sk_..."}
-                  value={sightengineKey}
-                  onChange={(e) => setSightengineKey(e.target.value)}
-                />
-              </div>
-              <div className="md:col-span-2">
-                <ConnectionBadge
-                  testUrl="/api/settings/ai/test"
-                  buildBody={() => ({ provider: "sightengine", apiKey: sightengineKey || undefined, apiUser: sightengineUser || undefined })}
-                  autoTest={true}
-                  enabled={sightengineEnabled}
                 />
               </div>
             </div>

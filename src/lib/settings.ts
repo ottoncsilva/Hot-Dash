@@ -191,18 +191,17 @@ export function updateFinanceSettings(
 // gerador de cronograma. Cada provedor é independente (ativado + chave +
 // modelo próprios); qual usar é escolhido na hora de cada atividade, não
 // há mais um "provedor ativo" fixo aqui. ----
-export type AiProvider = "openai" | "gemini" | "sightengine" | "grok" | "magnific" | "kling" | "nudenet";
+export type AiProvider = "openai" | "gemini" | "grok" | "magnific" | "kling" | "nudenet";
 
-export type AiProviderPublic = { enabled: boolean; hasKey: boolean; model: string; baseUrl?: string; apiUser?: string };
-export type AiSettingsPublic = { openai: AiProviderPublic; gemini: AiProviderPublic; sightengine: AiProviderPublic; grok: AiProviderPublic; magnific: AiProviderPublic; kling: AiProviderPublic; nudenet: AiProviderPublic; };
+export type AiProviderPublic = { enabled: boolean; hasKey: boolean; model: string; baseUrl?: string };
+export type AiSettingsPublic = { openai: AiProviderPublic; gemini: AiProviderPublic; grok: AiProviderPublic; magnific: AiProviderPublic; kling: AiProviderPublic; nudenet: AiProviderPublic; };
 
-type AiProviderStored = { enabled: boolean; apiKeyEnc?: string; model?: string; baseUrl?: string; apiUserEnc?: string };
-type AiSettingsStored = { openai?: AiProviderStored; gemini?: AiProviderStored; sightengine?: AiProviderStored; grok?: AiProviderStored; magnific?: AiProviderStored; kling?: AiProviderStored; nudenet?: AiProviderStored; };
+type AiProviderStored = { enabled: boolean; apiKeyEnc?: string; model?: string; baseUrl?: string };
+type AiSettingsStored = { openai?: AiProviderStored; gemini?: AiProviderStored; grok?: AiProviderStored; magnific?: AiProviderStored; kling?: AiProviderStored; nudenet?: AiProviderStored };
 
 export const DEFAULT_AI_MODELS: Record<AiProvider, string> = {
   openai: "gpt-4o-mini",
   gemini: "gemini-2.0-flash",
-  sightengine: "nudity-2.0",
   grok: "grok-4.20-0309-reasoning",
   magnific: "seedream-v5-pro-edit",
   kling: "kling-v2-6-pro-motion-control",
@@ -220,12 +219,10 @@ export function getAiSettingsPublic(): AiSettingsPublic {
     hasKey: Boolean(s[provider]?.apiKeyEnc),
     model: s[provider]?.model || DEFAULT_AI_MODELS[provider],
     baseUrl: s[provider]?.baseUrl,
-    ...(provider === "sightengine" && { apiUser: s[provider]?.apiUserEnc ? "(salvo)" : "" })
   });
   return {
     openai: build("openai"),
     gemini: build("gemini"),
-    sightengine: build("sightengine"),
     grok: build("grok"),
     magnific: build("magnific"),
     kling: build("kling"),
@@ -256,7 +253,7 @@ export function getNudenetConfig(): { url: string; token?: string } | null {
 }
 
 /** Credenciais do provedor pedido, descriptografadas (server-side apenas). */
-export function getAiCredentials(provider: AiProvider): { apiKey: string; model: string; baseUrl?: string; apiUser?: string } | null {
+export function getAiCredentials(provider: AiProvider): { apiKey: string; model: string; baseUrl?: string } | null {
   const s = rawAi();
   if (provider === "kling" || provider === "magnific") {
     const m = s.magnific;
@@ -279,7 +276,6 @@ export function getAiCredentials(provider: AiProvider): { apiKey: string; model:
       apiKey: decryptSecret(p.apiKeyEnc),
       model: p.model || DEFAULT_AI_MODELS[provider],
       baseUrl: p.baseUrl || undefined,
-      apiUser: p.apiUserEnc ? decryptSecret(p.apiUserEnc) : undefined,
     };
   } catch {
     return null;
@@ -304,14 +300,13 @@ export function getAiKeyForTest(provider: AiProvider): string | null {
 export function updateAiSettings(patch: {
   openai?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   gemini?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
-  sightengine?: { enabled?: boolean; apiKey?: string; model?: string; apiUser?: string };
   grok?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   magnific?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   kling?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   nudenet?: { enabled?: boolean; apiKey?: string; baseUrl?: string; model?: string };
 }): AiSettingsPublic {
   const s = rawAi();
-  for (const provider of ["openai", "gemini", "sightengine", "grok", "magnific", "kling", "nudenet"] as const) {
+  for (const provider of ["openai", "gemini", "grok", "magnific", "kling", "nudenet"] as const) {
     const p = patch[provider];
     if (!p) continue;
     const cur: AiProviderStored = s[provider] || { enabled: false };
@@ -320,9 +315,6 @@ export function updateAiSettings(patch: {
     if ('baseUrl' in p && p.baseUrl !== undefined) cur.baseUrl = p.baseUrl ? p.baseUrl.trim() : undefined;
     if (p.apiKey !== undefined) {
       cur.apiKeyEnc = p.apiKey ? encryptSecret(p.apiKey) : undefined;
-    }
-    if ('apiUser' in p && p.apiUser !== undefined) {
-      cur.apiUserEnc = p.apiUser ? encryptSecret(p.apiUser) : undefined;
     }
     s[provider] = cur;
   }

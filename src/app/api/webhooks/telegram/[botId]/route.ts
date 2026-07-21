@@ -5,6 +5,7 @@ import QRCode from "qrcode";
 import { listMedia, getMediaRow } from "@/lib/media";
 import { activeProvider } from "@/lib/payments";
 import { recordTransaction } from "@/lib/transactions";
+import { ensureSyncpayWebhookToken } from "@/lib/settings";
 import { randomUUID } from "node:crypto";
 
 export const runtime = "nodejs";
@@ -160,7 +161,9 @@ export async function POST(
         if (discountPercent > 0 && discountPercent <= 100) {
           amountCents = Math.floor(amountCents * (1 - discountPercent / 100));
         }
-        const postbackUrl = `${req.nextUrl.origin}/api/webhooks/syncpay?token=${process.env.SESSION_SECRET}`;
+        // Usa o token gerenciado (o mesmo mostrado na UI e aceito pelo webhook),
+        // não o SESSION_SECRET — assim a confirmação autentica mesmo sem a env.
+        const postbackUrl = `${req.nextUrl.origin}/api/webhooks/syncpay?token=${encodeURIComponent(ensureSyncpayWebhookToken())}`;
 
         // Cria cobrança PIX no SyncPay
         const charge = await provider.createPixCharge({

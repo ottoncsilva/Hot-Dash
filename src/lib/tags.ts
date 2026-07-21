@@ -107,10 +107,28 @@ export function setMediaTag(
 export function getOrCreateTag(name: string, color: string = TAG_COLORS[0]): Tag {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Informe o nome da etiqueta.");
+
+  // 1) Match exato (case-insensitive ASCII).
   const row = getDb()
     .prepare("SELECT * FROM tags WHERE name = ? COLLATE NOCASE")
     .get(trimmed) as TagRow | undefined;
   if (row) return toClient(row);
+
+  // 2) Match tolerante a acento/maiúsculas/espaços — evita criar duplicata de
+  //    uma etiqueta que já existe (ex.: "Vídeo censurado" vs "Video Censurado").
+  const norm = (s: string) =>
+    s
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  const target = norm(trimmed);
+  const all = getDb().prepare("SELECT * FROM tags").all() as TagRow[];
+  const fuzzy = all.find((t) => norm(t.name) === target);
+  if (fuzzy) return toClient(fuzzy);
+
+  // 3) Não existe → cria.
   return createTag(trimmed, color);
 }
 

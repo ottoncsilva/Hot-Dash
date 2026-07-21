@@ -3,25 +3,48 @@ import { callAiRaw } from "./ai";
 import type { AiProvider } from "./settings";
 
 /**
- * Gerador da SEQUÊNCIA DIÁRIA do grupo de PRÉVIAS (metodologia de aquecimento):
- * um dia é uma mistura de tipos de post ao longo do dia, no tom "diário íntimo"
- * da modelo, empurrando para o VIP. Tipos:
- *  - teaser: micro-história do momento do dia (acordou, academia, banho, cama…).
- *  - foto: post com mídia + legenda provocante (a mídia é escolhida no servidor).
- *  - pergunta: pergunta de engajamento ("o que você faria…") + "reage e me conta".
- *  - enquete: enquete nativa (2–3 opções).
- *  - oferta: oferta relâmpago (urgência).
- *  - prova: prova social ("um assinante me mandou…").
+ * Gerador da SEQUÊNCIA DIÁRIA do grupo de PRÉVIAS (Método MK).
  *
- * A IA devolve SÓ o corpo da copy; os links de CTA para o VIP são anexados no
- * envio (telegramCron), como já acontece com as prévias.
+ * IMPORTANTE: a AGENDA é FIXA e definida pelo SERVIDOR — cada horário tem um
+ * TIPO de post pré-definido (foto, reação ou enquete). A IA NÃO decide os tipos
+ * nem os horários; ela só escreve a COPY de cada post. Assim o dia sempre sai
+ * com a mistura certa (não "tudo foto").
+ *
+ * Tipos:
+ *  - foto: legenda ousada + mídia (a imagem é escolhida no servidor).
+ *  - reacao: post curto que provoca e PEDE reação ("reage com 🔥 e me conta…").
+ *  - enquete: enquete nativa do Telegram (pergunta + 2–3 opções).
+ *
+ * Os links de CTA para o VIP são anexados no envio (telegramCron).
  */
 
-export type PreviaType = "teaser" | "foto" | "pergunta" | "enquete" | "oferta" | "prova";
+export type MkKind = "foto" | "reacao" | "enquete";
+
+export type MkSlot = { time: string; kind: MkKind; note?: string };
+
+/** AGENDA FIXA do Método MK — 16 posts/dia (08h → 01h da madrugada). */
+export const MK_SCHEDULE: MkSlot[] = [
+  { time: "08:00", kind: "foto", note: "acordando hypada" },
+  { time: "09:00", kind: "reacao" },
+  { time: "10:00", kind: "enquete" },
+  { time: "11:00", kind: "foto" },
+  { time: "12:00", kind: "reacao" },
+  { time: "13:00", kind: "enquete" },
+  { time: "14:00", kind: "reacao" },
+  { time: "17:00", kind: "foto", note: "saindo do trampo" },
+  { time: "18:00", kind: "reacao" },
+  { time: "19:00", kind: "enquete", note: "com clima de teaser" },
+  { time: "20:00", kind: "reacao" },
+  { time: "21:00", kind: "foto", note: "pico do desejo" },
+  { time: "22:00", kind: "reacao" },
+  { time: "23:00", kind: "enquete", note: "leve" },
+  { time: "00:00", kind: "foto", note: "pra quem tá acordado de madrugada" },
+  { time: "01:00", kind: "reacao", note: "fechando o dia" },
+];
 
 export type PreviaPost = {
-  time: string; // HH:MM
-  type: PreviaType;
+  time: string;
+  kind: MkKind;
   text: string;
   poll?: { question: string; options: string[] };
 };
@@ -34,24 +57,8 @@ export type PreviasProfile = {
   notes?: string;
 };
 
-/** Metodologia PADRÃO do "Método MK" (editável pelo operador nas configurações).
- *  Descreve tipos, distribuição, horários e tom — SEM as regras de formato
- *  (JSON), que o servidor sempre injeta e não podem ser alteradas. */
-export const DEFAULT_MK_METHOD = [
-  "Monte a AGENDA de UM DIA de mensagens seguindo a metodologia de aquecimento:",
-  "conteúdo de 'diário íntimo' que provoca e leva o lead a assinar o VIP.",
-  "- 12 a 16 posts espalhados das 08:00 à 01:00 (madrugada), horários realistas e crescendo o tesão à noite.",
-  "- Distribuição sugerida no dia: ~5 teaser, ~4 foto, ~2 pergunta, ~2 enquete, 1 oferta, 1 prova.",
-  "- 1ª pessoa, tom sensual e autêntico, contexto do horário (manhã: acordar/rotina; tarde: trabalho/estúdio; noite: banho/cama/tesão).",
-  "- Em type 'pergunta', termine com algo como 'Reage com 🔥 e me conta'.",
-  "- Em type 'enquete', preencha poll.question e poll.options (2 ou 3 opções curtas e safadas); o campo text pode repetir a pergunta.",
-  "- Em type 'foto', escreva a legenda como se descrevesse uma foto ousada da modelo (o servidor anexa a imagem).",
-  "- Emojis com moderação (🔥😈💦😏), português do Brasil, cada text com no máximo ~350 caracteres.",
-  "- Varie as aberturas; nunca repita a mesma frase de abertura.",
-].join("\n");
-
-function buildPrompt(profile: PreviasProfile, method?: string): string {
-  const persona = [
+function personaLine(profile: PreviasProfile): string {
+  return [
     `Modelo: ${profile.name}.`,
     profile.physical ? `Físico: ${profile.physical}.` : "",
     profile.fetish ? `Diferencial/fetiche: ${profile.fetish}.` : "",
@@ -64,20 +71,51 @@ function buildPrompt(profile: PreviasProfile, method?: string): string {
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+function periodHint(time: string): string {
+  const h = parseInt(time.slice(0, 2), 10);
+  if (h >= 5 && h < 12) return "manhã (acordar, rotina, cama)";
+  if (h >= 12 && h < 18) return "tarde (trabalho, estúdio, treino)";
+  if (h >= 18 && h < 24) return "noite (banho, tesão subindo)";
+  return "madrugada (sozinha na cama, mais explícita)";
+}
+
+function kindHint(kind: MkKind): string {
+  switch (kind) {
+    case "foto":
+      return "foto — legenda ousada como se descrevesse uma foto sua (o sistema anexa a imagem)";
+    case "reacao":
+      return "reacao — post CURTO que provoca e PEDE reação (ex.: 'reage com 🔥 e me conta…', '🔥 se você faria isso comigo')";
+    case "enquete":
+      return "enquete — preencha poll.question e 2 a 3 poll.options curtas e safadas; text pode repetir a pergunta";
+  }
+}
+
+function buildPrompt(profile: PreviasProfile): string {
+  const agenda = MK_SCHEDULE.map(
+    (s, i) =>
+      `${i}) ${s.time} — ${kindHint(s.kind)}${s.note ? ` [contexto: ${s.note}]` : ""} — período: ${periodHint(s.time)}`,
+  ).join("\n");
 
   return [
     `Você é a própria ${profile.name} escrevendo no seu grupo de PRÉVIAS gratuito do Telegram.`,
-    persona,
+    personaLine(profile),
     "",
-    (method && method.trim()) || DEFAULT_MK_METHOD,
+    "Escreva a COPY de cada post da AGENDA FIXA de hoje. Tom de 'diário íntimo', 1ª pessoa,",
+    "português do Brasil, sensual e autêntico, provocando e levando pro VIP. NÃO escreva links",
+    "nem 'entra no VIP' (os botões/links são adicionados automaticamente). Emojis com moderação",
+    "(🔥😈💦😏). Cada text com no máximo ~350 caracteres. Varie as aberturas; nunca repita a mesma.",
     "",
-    "Regras DE FORMATO (obrigatórias, não podem ser alteradas):",
-    '- Responda SOMENTE um JSON: {"posts":[{"time":"HH:MM","type":"...","text":"...","poll":{"question":"...","options":["..","..",".."]}}]}',
-    "- Tipos permitidos em type: teaser, foto, pergunta, enquete, oferta, prova.",
-    "- NÃO escreva links nem 'entra no VIP' no final: os botões/links são adicionados automaticamente.",
-  ]
-    .filter((l) => l !== "")
-    .join("\n");
+    "AGENDA (responda na MESMA ordem e índices):",
+    agenda,
+    "",
+    "Regras DE FORMATO (obrigatórias):",
+    '- Responda SOMENTE um JSON: {"slots":[{"i":0,"text":"...","poll":{"question":"...","options":["..",".."]}}]}',
+    `- Um item para CADA índice acima (0 a ${MK_SCHEDULE.length - 1}).`,
+    "- O campo poll SÓ nos itens de enquete; nos demais, omita poll.",
+    "- Não invente novos tipos nem horários: eles já estão fixados.",
+  ].join("\n");
 }
 
 /** Converte HH:MM em timestamp. `jitter` aplica ±3 min aleatórios para o
@@ -102,44 +140,71 @@ function timeToMs(dateBase: Date, time: string, jitter = false): number {
   return ms;
 }
 
-function parse(raw: string, dateBase: Date): PreviaPost[] {
-  let parsed: unknown;
+/** Copy de fallback caso a IA falhe/omita algum item — garante que o slot
+ *  sempre vira um post do TIPO certo. */
+function fallbackText(kind: MkKind, note?: string): string {
+  if (kind === "foto") return note ? `Olha eu aqui ${note}… 🔥 gostou?` : "Preparei essa só pra você… 🔥";
+  if (kind === "enquete") return "Me ajuda a decidir 😈";
+  return "Reage com 🔥 se você tá pensando em mim agora 😈";
+}
+
+function fallbackPoll(): { question: string; options: string[] } {
+  return { question: "O que você quer ver hoje? 😈", options: ["Foto 🔥", "Vídeo 💦", "Surpresa 😏"] };
+}
+
+function parse(raw: string): PreviaPost[] {
+  let items: Record<string, unknown>[] = [];
   try {
-    parsed = JSON.parse(raw);
+    const parsed = JSON.parse(raw) as { slots?: unknown };
+    if (Array.isArray(parsed?.slots)) items = parsed.slots as Record<string, unknown>[];
   } catch {
-    return [];
+    items = [];
   }
-  const posts = (parsed as { posts?: unknown })?.posts;
-  if (!Array.isArray(posts)) return [];
-  const allowed: PreviaType[] = ["teaser", "foto", "pergunta", "enquete", "oferta", "prova"];
-  const out: PreviaPost[] = [];
-  for (const p of posts as Record<string, unknown>[]) {
-    const type = allowed.includes(p.type as PreviaType) ? (p.type as PreviaType) : "teaser";
-    const text = typeof p.text === "string" ? p.text.trim().slice(0, 800) : "";
-    const time = typeof p.time === "string" ? p.time : "12:00";
-    if (type !== "enquete" && !text) continue;
+
+  // Indexa a resposta da IA por índice `i` (com fallback pela posição).
+  const byIndex = new Map<number, Record<string, unknown>>();
+  items.forEach((it, pos) => {
+    const i = typeof it.i === "number" ? it.i : pos;
+    byIndex.set(i, it);
+  });
+
+  return MK_SCHEDULE.map((slot, i) => {
+    const it = byIndex.get(i);
+    const aiText = typeof it?.text === "string" ? (it.text as string).trim().slice(0, 800) : "";
+    const text = aiText || fallbackText(slot.kind, slot.note);
+
     let poll: PreviaPost["poll"];
-    if (type === "enquete") {
-      const q = (p.poll as Record<string, unknown>)?.question;
-      const opts = (p.poll as Record<string, unknown>)?.options;
-      const options = Array.isArray(opts) ? opts.filter((o): o is string => typeof o === "string") : [];
-      if (typeof q === "string" && options.length >= 2) poll = { question: q, options };
-      else continue; // enquete sem dados válidos: descarta
+    if (slot.kind === "enquete") {
+      const p = it?.poll as Record<string, unknown> | undefined;
+      const q = typeof p?.question === "string" ? (p.question as string) : "";
+      const opts = Array.isArray(p?.options)
+        ? (p!.options as unknown[]).filter((o): o is string => typeof o === "string" && o.trim().length > 0)
+        : [];
+      poll = q && opts.length >= 2 ? { question: q, options: opts.slice(0, 4) } : fallbackPoll();
     }
-    out.push({ time, type, text, poll });
-  }
-  // Ordena por horário real (considerando madrugada = dia seguinte).
-  return out.sort((a, b) => timeToMs(dateBase, a.time) - timeToMs(dateBase, b.time));
+
+    return { time: slot.time, kind: slot.kind, text, poll };
+  });
 }
 
 export async function generatePreviasDay(
   profile: PreviasProfile,
   provider: AiProvider,
   dateBase: Date,
-  method?: string,
 ): Promise<{ posts: PreviaPost[]; scheduledAt: (p: PreviaPost) => number }> {
-  const raw = await callAiRaw(buildPrompt(profile, method), provider, { json: true, maxTokens: 4000 });
-  const posts = parse(raw, dateBase);
+  let posts: PreviaPost[];
+  try {
+    const rawAi = await callAiRaw(buildPrompt(profile), provider, { json: true, maxTokens: 4000 });
+    posts = parse(rawAi);
+  } catch {
+    // Sem IA: ainda assim entrega o dia inteiro com copy de fallback.
+    posts = MK_SCHEDULE.map((slot) => ({
+      time: slot.time,
+      kind: slot.kind,
+      text: fallbackText(slot.kind, slot.note),
+      poll: slot.kind === "enquete" ? fallbackPoll() : undefined,
+    }));
+  }
   // scheduledAt aplica jitter de ±3 min para não ficar com horário exato.
   return { posts, scheduledAt: (p) => timeToMs(dateBase, p.time, true) };
 }

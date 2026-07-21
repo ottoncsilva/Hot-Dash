@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBotConfig, listPlans, listCustomButtons, saveSubscription, getPlan, findActiveSubscription, upsertTelegramLead } from "@/lib/telegramDb";
-import { sendTelegramMessage, sendTelegramMedia, approveTelegramJoinRequest, declineTelegramJoinRequest } from "@/lib/telegramApi";
+import { sendTelegramMessage, sendTelegramMedia, approveTelegramJoinRequest, declineTelegramJoinRequest, telegramWebhookSecret } from "@/lib/telegramApi";
 import { listMedia, getMediaRow } from "@/lib/media";
 import { activeProvider } from "@/lib/payments";
 import { recordTransaction } from "@/lib/transactions";
@@ -17,6 +17,14 @@ export async function POST(
     const bot = getBotConfig(params.botId);
     if (!bot) {
       return NextResponse.json({ error: "Bot não configurado." }, { status: 404 });
+    }
+
+    // Segurança: o Telegram devolve o secret_token que registramos no header
+    // abaixo. Se o webhook foi registrado com secret (padrão nas versões novas),
+    // exigimos que bata. Webhooks antigos (sem secret) continuam aceitos.
+    const providedSecret = req.headers.get("x-telegram-bot-api-secret-token");
+    if (providedSecret && providedSecret !== telegramWebhookSecret(bot.id)) {
+      return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
     }
 
     const update = await req.json().catch(() => ({}));
@@ -193,21 +201,26 @@ export async function POST(
       }
     }
 
-    // ---- Solicitação de entrada no grupo VIP (Aprovação Automática) ----
+    // ---- Solicitação de entrada nos grupos (Aprovação Automática) ----
     if (update.chat_join_request) {
       const { chat, from } = update.chat_join_request;
+      const chatId = String(chat.id);
 
-      if (String(chat.id) === bot.idVip) {
+      if (chatId === bot.idVip) {
+        // VIP: só entra quem tem assinatura ativa (pagou).
         const activeSub = findActiveSubscription(bot.id, from.id);
         if (activeSub) {
           if (from.username && activeSub.telegramUsername !== from.username) {
             activeSub.telegramUsername = from.username;
             saveSubscription(activeSub);
           }
-          await approveTelegramJoinRequest(bot.botToken, String(chat.id), from.id);
+          await approveTelegramJoinRequest(bot.botToken, chatId, from.id);
         } else {
-          await declineTelegramJoinRequest(bot.botToken, String(chat.id), from.id);
+          await declineTelegramJoinRequest(bot.botToken, chatId, from.id);
         }
+      } else if (chatId === bot.idAquecimento) {
+        // Prévias (aquecimento): grupo gratuito — aceita TODO novo lead.
+        await approveTelegramJoinRequest(bot.botToken, chatId, from.id);
       }
     }
 

@@ -437,7 +437,7 @@ export default function VideoEditor({
       form.append("editedFrom", item.id);
       // Se cobriu algo (borrão/emoji), marca como vídeo censurado.
       if (objects.some((o) => o.type === "blur" || o.type === "emoji")) {
-        form.append("tags", "Vídeo censurado");
+        form.append("tags", "Video Censurado");
       }
       const { media: newItem } = await apiUpload<{ media: MediaItem }>(
         `/api/profiles/${profileId}/media`,
@@ -463,7 +463,7 @@ export default function VideoEditor({
       form.append("file", new File([blob], `${baseName}.mp4`, { type: "video/mp4" }));
       // Se cobriu algo (borrão/emoji), marca como vídeo censurado.
       if (objects.some((o) => o.type === "blur" || o.type === "emoji")) {
-        form.append("tags", "Vídeo censurado");
+        form.append("tags", "Video Censurado");
       }
       const { media: newItem } = await apiUpload<{ media: MediaItem }>(
         `/api/media/${item.id}/replace`,

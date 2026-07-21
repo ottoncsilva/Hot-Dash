@@ -32,9 +32,8 @@ export async function POST(req: NextRequest) {
 
     const db = getDb();
     const settings = db
-      .prepare("SELECT warmup_tags, warmup_mk_prompt FROM telegram_autopost_settings WHERE profile_id = ?")
-      .get(profile.id) as { warmup_tags?: string; warmup_mk_prompt?: string } | undefined;
-    const mkPrompt = settings?.warmup_mk_prompt || undefined;
+      .prepare("SELECT warmup_tags FROM telegram_autopost_settings WHERE profile_id = ?")
+      .get(profile.id) as { warmup_tags?: string } | undefined;
     const allowedTagNames = (settings?.warmup_tags || "")
       .split(",")
       .map((t) => t.trim().toLowerCase())
@@ -88,7 +87,6 @@ export async function POST(req: NextRequest) {
           },
           provider,
           base,
-          mkPrompt,
         );
         dayPosts = gen.posts.map((p) => ({ post: p, at: gen.scheduledAt(p) }));
       } catch (e) {
@@ -103,14 +101,14 @@ export async function POST(req: NextRequest) {
         for (const t of taken) if (Math.abs(t - at) < 5 * 60 * 1000) clash = true;
         if (clash) continue;
 
-        if (post.type === "enquete" && post.poll) {
+        if (post.kind === "enquete" && post.poll) {
           createPost({
             profileId: profile.id,
             networks: [{ network: "telegram", postType: "Prévias" }],
             scheduledAt: at,
             poll: post.poll,
           });
-        } else if (post.type === "foto" && photoPool.length > 0) {
+        } else if (post.kind === "foto" && photoPool.length > 0) {
           const media = photoPool[Math.floor(Math.random() * photoPool.length)];
           photoPool = photoPool.filter((m) => m.id !== media.id); // não repete no lote
           createPost({
@@ -121,7 +119,7 @@ export async function POST(req: NextRequest) {
             mediaIds: [media.id],
           });
         } else {
-          // teaser / pergunta / oferta / prova (ou foto sem estoque) → texto puro
+          // reacao (ou foto sem estoque de mídia) → texto puro
           createPost({
             profileId: profile.id,
             networks: [{ network: "telegram", postType: "Prévias" }],

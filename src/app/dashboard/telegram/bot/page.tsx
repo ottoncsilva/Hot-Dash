@@ -139,9 +139,9 @@ export default function BotVendasPage() {
 
       {!loading && !bot && (
         <div className="card p-6 text-center text-sm text-zinc-400">
-          Este modelo ainda não tem o bot configurado. Vá em{" "}
-          <b>Telegram → Automação de postagens</b>, informe o <b>Token do Bot</b> e os{" "}
-          <b>IDs dos grupos VIP e Prévias</b> e salve. Depois volte aqui para configurar as vendas.
+          Este modelo ainda não tem o bot configurado. Vá em <b>Modelos → editar a modelo →
+          Bot do Telegram</b>, informe o <b>Token do Bot</b> e os <b>IDs dos grupos VIP e
+          Prévias</b> e salve. Depois volte aqui para configurar as vendas.
         </div>
       )}
 
@@ -290,8 +290,8 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
         <Info label="Grupo Prévias" value={bot.idAquecimento || "—"} />
       </div>
       <p className="mt-2 text-xs text-zinc-500">
-        Token e IDs dos grupos VIP/Prévias vêm de <b>Automação de postagens</b>. A postagem
-        automática funciona independentemente deste liga/desliga.
+        Token e IDs dos grupos VIP/Prévias vêm do <b>cadastro da modelo</b> (Modelos → editar). A
+        postagem automática funciona independentemente deste liga/desliga.
       </p>
 
       {active && (

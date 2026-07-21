@@ -123,12 +123,49 @@ export async function POST(req: NextRequest) {
 
     const db = getDb();
 
+    // ---- Credenciais do bot (Token + IDs de grupo) — agora no CADASTRO do
+    // modelo. Preserva os demais campos (mensagens, funis, vendas). Se a
+    // operação já estiver ligada, re-registra o webhook (token/grupos mudaram).
+    if (action === "save-bot-credentials") {
+      const { profileId, botToken, idVip, idAquecimento } = body;
+      if (!profileId || !botToken || !idVip || !idAquecimento) {
+        throw new ApiError(400, "Preencha o Token do Bot e os IDs dos grupos VIP e Prévias.");
+      }
+      const existing = getBotConfigByProfile(profileId);
+      const botId = existing?.id || randomUUID();
+
+      saveBotConfig({
+        id: botId,
+        profileId,
+        botToken: String(botToken).trim(),
+        botUsername: existing?.botUsername,
+        idVip: String(idVip).trim(),
+        idAquecimento: String(idAquecimento).trim(),
+        idRegistro: existing?.idRegistro,
+        supportUsername: existing?.supportUsername,
+        welcomeMessage: existing?.welcomeMessage || "Bem-vindo",
+        welcomeMediaTags: existing?.welcomeMediaTags,
+        successMessage: existing?.successMessage || "Aprovado",
+        downsellFunnel: existing?.downsellFunnel,
+        upsellFunnel: existing?.upsellFunnel,
+        previewsWelcomeMessage: existing?.previewsWelcomeMessage,
+        operationActive: existing?.operationActive ?? false,
+      });
+
+      let webhook: { ok: boolean; message?: string; username?: string } | undefined;
+      if (existing?.operationActive) {
+        webhook = await registerBotWebhook(req, botId, String(botToken).trim());
+        if (webhook.username && webhook.username !== existing?.botUsername) {
+          const cur = getBotConfigByProfile(profileId);
+          if (cur) saveBotConfig({ ...cur, botUsername: webhook.username });
+        }
+      }
+      return NextResponse.json({ ok: true, webhook });
+    }
+
     if (action === "save-telegram-config") {
       const {
         profileId,
-        botToken,
-        idVip,
-        idAquecimento,
         enabled,
         vipPostInterval,
         vipTags,
@@ -143,34 +180,10 @@ export async function POST(req: NextRequest) {
         warmupFixedTimes,
       } = body;
 
-      if (!profileId || !botToken || !idVip || !idAquecimento) {
-        throw new ApiError(400, "Preencha o Token do Bot e os IDs dos grupos VIP e Prévias.");
-      }
+      if (!profileId) throw new ApiError(400, "Informe o profileId.");
 
-      // 1. Salva a config do bot (Token e IDs) PRESERVANDO os campos de vendas
-      // (mensagens, funis, suporte, registro) — as duas páginas dividem a mesma
-      // linha telegram_bots, então mesclamos com o que já existe.
-      const existing = getBotConfigByProfile(profileId);
-      const botId = existing?.id || randomUUID();
-
-      saveBotConfig({
-        id: botId,
-        profileId,
-        botToken: botToken.trim(),
-        botUsername: existing?.botUsername,
-        idVip: idVip.trim(),
-        idAquecimento: idAquecimento.trim(),
-        idRegistro: existing?.idRegistro,
-        supportUsername: existing?.supportUsername,
-        welcomeMessage: existing?.welcomeMessage || "Bem-vindo",
-        welcomeMediaTags: existing?.welcomeMediaTags,
-        successMessage: existing?.successMessage || "Aprovado",
-        downsellFunnel: existing?.downsellFunnel,
-        upsellFunnel: existing?.upsellFunnel,
-        operationActive: existing?.operationActive ?? false,
-      });
-
-      // 2. Salva a config de Autopost
+      // Salva só a config de Autopost. As credenciais do bot (token/IDs) agora
+      // ficam no cadastro do modelo (ação save-bot-credentials).
       db.prepare(
         `INSERT INTO telegram_autopost_settings (
           profile_id, enabled, 
@@ -207,27 +220,14 @@ export async function POST(req: NextRequest) {
         warmupFixedTimes || ""
       );
 
-      // 3. Se a operação do bot de vendas JÁ está ligada, re-registra o webhook
-      // (mantém funcionando se o token/URL mudou). Se estiver desligada, NÃO
-      // registra — o cutover para o Hot-Dash é feito pelo botão de liga/desliga,
-      // então salvar o autopost não "rouba" o webhook do ApexVips.
-      let webhook: { ok: boolean; message?: string; username?: string } | undefined;
-      if (existing?.operationActive) {
-        webhook = await registerBotWebhook(req, botId, botToken.trim());
-        if (webhook.username && webhook.username !== existing?.botUsername) {
-          const cur = getBotConfigByProfile(profileId);
-          if (cur) saveBotConfig({ ...cur, botUsername: webhook.username });
-        }
-      }
-
-      return NextResponse.json({ ok: true, webhook });
+      return NextResponse.json({ ok: true });
     }
 
     // Helper: carrega o bot do perfil ou erro 400.
     function requireBot(profileId: string) {
       if (!profileId) throw new ApiError(400, "Informe o profileId.");
       const bot = getBotConfigByProfile(profileId);
-      if (!bot) throw new ApiError(400, "Configure primeiro o bot em Automação de postagens (token e grupos).");
+      if (!bot) throw new ApiError(400, "Configure primeiro o bot no cadastro do modelo (token e IDs dos grupos).");
       return bot;
     }
 

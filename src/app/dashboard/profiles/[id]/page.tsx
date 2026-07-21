@@ -40,6 +40,11 @@ export default function ProfileDetailPage() {
   const [bioUnique, setBioUnique] = useState("");
   const [bioPersonality, setBioPersonality] = useState<"santinha" | "safadinha" | "explicita">("safadinha");
   const [bioVipLink, setBioVipLink] = useState("");
+  // Credenciais do bot do Telegram (vivem em telegram_bots, por perfil).
+  const [botToken, setBotToken] = useState("");
+  const [botIdVip, setBotIdVip] = useState("");
+  const [botIdPrevias, setBotIdPrevias] = useState("");
+  const [botOrig, setBotOrig] = useState({ token: "", vip: "", prev: "" });
   const [savingInfo, setSavingInfo] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarKey, setAvatarKey] = useState(0);
@@ -59,6 +64,18 @@ export default function ProfileDetailPage() {
       setBioUnique(data.profile.bioUnique || "");
       setBioPersonality(data.profile.bioPersonality || "safadinha");
       setBioVipLink(data.profile.bioVipLink || "");
+      // Credenciais do bot (não bloqueia a tela se falhar).
+      try {
+        const tg = await apiGet<{ bot: { botToken?: string; idVip?: string; idAquecimento?: string } | null }>(
+          `/api/telegram?profileId=${id}`,
+        );
+        setBotToken(tg.bot?.botToken || "");
+        setBotIdVip(tg.bot?.idVip || "");
+        setBotIdPrevias(tg.bot?.idAquecimento || "");
+        setBotOrig({ token: tg.bot?.botToken || "", vip: tg.bot?.idVip || "", prev: tg.bot?.idAquecimento || "" });
+      } catch {
+        /* sem bot ainda */
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao carregar.");
     } finally {
@@ -88,6 +105,18 @@ export default function ProfileDetailPage() {
         },
       );
       setProfile(p);
+
+      // Credenciais do bot: só salva quando os 3 campos estão preenchidos.
+      if (botToken.trim() && botIdVip.trim() && botIdPrevias.trim()) {
+        await apiSend("/api/telegram", "POST", {
+          action: "save-bot-credentials",
+          profileId: id,
+          botToken: botToken.trim(),
+          idVip: botIdVip.trim(),
+          idAquecimento: botIdPrevias.trim(),
+        });
+        setBotOrig({ token: botToken.trim(), vip: botIdVip.trim(), prev: botIdPrevias.trim() });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao salvar.");
     } finally {
@@ -154,7 +183,10 @@ export default function ProfileDetailPage() {
     bioPhysical !== (profile.bioPhysical || "") ||
     bioUnique !== (profile.bioUnique || "") ||
     bioPersonality !== (profile.bioPersonality || "safadinha") ||
-    bioVipLink !== (profile.bioVipLink || "");
+    bioVipLink !== (profile.bioVipLink || "") ||
+    botToken !== botOrig.token ||
+    botIdVip !== botOrig.vip ||
+    botIdPrevias !== botOrig.prev;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -288,6 +320,47 @@ export default function ProfileDetailPage() {
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
               />
+            </div>
+
+            {/* Credenciais do bot do Telegram — ficam no cadastro da modelo
+                porque servem em vários lugares (postagens e bot de vendas). */}
+            <div className="rounded-xl border border-white/[0.06] bg-ink-900/40 p-4">
+              <p className="eyebrow">Bot do Telegram</p>
+              <p className="mt-1 text-xs text-zinc-500">
+                Token do @BotFather + IDs dos grupos. Usado tanto na automação de postagens quanto
+                no bot de vendas desta modelo.
+              </p>
+              <div className="mt-3 space-y-3">
+                <div>
+                  <label className="eyebrow mb-1.5 block">Bot Token</label>
+                  <input
+                    className="input font-mono"
+                    placeholder="Ex: 123456:ABC-DEF..."
+                    value={botToken}
+                    onChange={(e) => setBotToken(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="eyebrow mb-1.5 block">ID Grupo VIP</label>
+                    <input
+                      className="input font-mono"
+                      placeholder="-100..."
+                      value={botIdVip}
+                      onChange={(e) => setBotIdVip(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="eyebrow mb-1.5 block">ID Grupo Prévias</label>
+                    <input
+                      className="input font-mono"
+                      placeholder="-100..."
+                      value={botIdPrevias}
+                      onChange={(e) => setBotIdPrevias(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center gap-3 pt-2">

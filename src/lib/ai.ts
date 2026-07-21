@@ -210,9 +210,9 @@ export async function callAiRaw(
  * só confirma que a chave é válida (chamada leve de listagem de modelos).
  */
 export async function testAiProviderKey(
-  provider: AiProvider | "grok" | "sightengine",
+  provider: AiProvider | "grok",
   apiKey: string,
-  opts?: { baseUrl?: string; apiUser?: string }
+  opts?: { baseUrl?: string }
 ): Promise<{ ok: boolean; message?: string }> {
   try {
     if (provider === "openai" || provider === "grok") {
@@ -225,13 +225,6 @@ export async function testAiProviderKey(
       const errObj = data.error;
       const msg = (typeof errObj === 'string' ? errObj : (errObj as Record<string, unknown>)?.message as string) || `erro ${res.status}`;
       return { ok: false, message: msg };
-    }
-    if (provider === "sightengine") {
-      if (!opts?.apiUser) return { ok: false, message: "Falta API User." };
-      const res = await fetch(`https://api.sightengine.com/1.0/check.json?models=nudity-2.0&api_user=${encodeURIComponent(opts.apiUser)}&api_secret=${encodeURIComponent(apiKey)}`);
-      const data = await res.json().catch(() => ({}));
-      if (data.status === "success") return { ok: true };
-      return { ok: false, message: data.error?.message || "Erro na validação" };
     }
     if (provider === "magnific") {
       const res = await fetch("https://api.magnific.com/v1/analytics/team-api-keys", {

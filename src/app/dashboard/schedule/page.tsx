@@ -22,6 +22,8 @@ import {
   IconCopy,
   IconDownload,
   IconCheck,
+  IconEye,
+  IconEyeOff,
 } from "@/components/icons";
 import { NETWORK_LABELS, mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type SocialAccount, type SocialNetwork, type Tag } from "@/lib/types";
 import { showToast } from "@/lib/toast";
@@ -161,6 +163,7 @@ export default function SchedulePage() {
   const [profileId, setProfileId] = useState("");
   const [networkFilter, setNetworkFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [hidePosted, setHidePosted] = useState(false);
   const [month, setMonth] = useState(() => {
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() };
@@ -225,13 +228,14 @@ export default function SchedulePage() {
     if (!posts) return [];
     // Telegram é gerido no menu Telegram — não aparece no Cronograma.
     let list = posts.filter((p) => !isTelegramPost(p));
+    if (hidePosted) list = list.filter((p) => p.status !== "posted");
     if (networkFilter) {
       list = profileId
         ? list.filter((p) => p.networks.some((n) => n.accountId === networkFilter))
         : list.filter((p) => p.networks.some((n) => n.network === networkFilter));
     }
     return list;
-  }, [posts, networkFilter, profileId]);
+  }, [posts, networkFilter, profileId, hidePosted]);
 
   async function togglePosted(post: ScheduledPost) {
     const next = post.status === "posted" ? "scheduled" : "posted";
@@ -394,6 +398,19 @@ export default function SchedulePage() {
               <option value="scheduled">Agendados</option>
               <option value="posted">Postados</option>
             </select>
+            <button
+              type="button"
+              onClick={() => setHidePosted((v) => !v)}
+              title={hidePosted ? "Mostrar também os já postados" : "Ocultar os já postados"}
+              className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                hidePosted
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                  : "border-white/10 text-zinc-300 hover:bg-white/5"
+              }`}
+            >
+              {hidePosted ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+              <span className="hidden sm:inline">{hidePosted ? "Postados ocultos" : "Ocultar postados"}</span>
+            </button>
           </div>
         </div>
       </div>

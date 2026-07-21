@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { showToast } from "@/lib/toast";
 import TelegramCalendar from "@/components/telegram/TelegramCalendar";
 import { useConfirm } from "@/hooks/useConfirm";
+import Switch from "@/components/Switch";
 import type { Profile } from "@/lib/types";
 
 const toast = {
@@ -265,13 +266,11 @@ export default function TelegramUnifiedPage() {
         <div className="flex items-center gap-4">
            <label className="flex items-center gap-3 cursor-pointer rounded-lg bg-zinc-900/40 px-4 py-2 border border-white/5">
               <span className="text-sm font-semibold text-zinc-300">Status Geral do Autopost:</span>
-              <input
-                type="checkbox"
-                className="peer sr-only"
+              <Switch
                 checked={settings.enabled}
-                onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })}
+                onChange={(v) => setSettings({ ...settings, enabled: v })}
+                ariaLabel="Status geral do autopost"
               />
-              <div className="peer h-6 w-11 rounded-full bg-zinc-700 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-sky-500 peer-checked:after:translate-x-full peer-focus:outline-none"></div>
             </label>
         </div>
       </div>
@@ -436,15 +435,11 @@ export default function TelegramUnifiedPage() {
                         {settings.vipScheduleType !== "manual" ? "Ligado — posta conforme cronograma acima" : "Desligado — só posta no botão"}
                       </span>
                     </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        className="peer sr-only"
-                        checked={settings.vipScheduleType !== "manual"}
-                        onChange={(e) => toggleChannelEnabled("vip", e.target.checked)}
-                      />
-                      <div className="peer h-6 w-11 rounded-full bg-zinc-800 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-zinc-600 after:transition-all after:content-[''] peer-checked:bg-emerald-500 peer-checked:after:translate-x-full peer-checked:after:bg-white peer-focus:outline-none"></div>
-                    </label>
+                    <Switch
+                      checked={settings.vipScheduleType !== "manual"}
+                      onChange={(v) => toggleChannelEnabled("vip", v)}
+                      ariaLabel="Postagem automática VIP"
+                    />
                   </div>
                 </div>
 
@@ -614,15 +609,11 @@ export default function TelegramUnifiedPage() {
                         {settings.warmupScheduleType !== "manual" ? "Ligado — posta conforme cronograma acima" : "Desligado — só posta no botão"}
                       </span>
                     </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        className="peer sr-only"
-                        checked={settings.warmupScheduleType !== "manual"}
-                        onChange={(e) => toggleChannelEnabled("warmup", e.target.checked)}
-                      />
-                      <div className="peer h-6 w-11 rounded-full bg-zinc-800 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-zinc-600 after:transition-all after:content-[''] peer-checked:bg-emerald-500 peer-checked:after:translate-x-full peer-checked:after:bg-white peer-focus:outline-none"></div>
-                    </label>
+                    <Switch
+                      checked={settings.warmupScheduleType !== "manual"}
+                      onChange={(v) => toggleChannelEnabled("warmup", v)}
+                      ariaLabel="Postagem automática Prévias"
+                    />
                   </div>
                 </div>
 

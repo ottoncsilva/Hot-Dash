@@ -14,6 +14,8 @@ export type TelegramBotConfig = {
   successMessage: string;
   downsellFunnel?: string;
   upsellFunnel?: string;
+  /** Liga/desliga da operação do bot de vendas (cutover ApexVips → Hot-Dash). */
+  operationActive: boolean;
 };
 
 export type TelegramPlan = {
@@ -57,6 +59,7 @@ export function getBotConfigByProfile(profileId: string): TelegramBotConfig | nu
     successMessage: row.success_message,
     downsellFunnel: row.downsell_funnel || undefined,
     upsellFunnel: row.upsell_funnel || undefined,
+    operationActive: !!row.operation_active,
   };
 }
 
@@ -77,6 +80,7 @@ export function getBotConfig(id: string): TelegramBotConfig | null {
     successMessage: row.success_message,
     downsellFunnel: row.downsell_funnel || undefined,
     upsellFunnel: row.upsell_funnel || undefined,
+    operationActive: !!row.operation_active,
   };
 }
 
@@ -85,8 +89,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, operation_active, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -98,7 +102,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        welcome_media_tags = excluded.welcome_media_tags,
        success_message = excluded.success_message,
        downsell_funnel = excluded.downsell_funnel,
-       upsell_funnel = excluded.upsell_funnel`
+       upsell_funnel = excluded.upsell_funnel,
+       operation_active = excluded.operation_active`
   ).run(
     id,
     config.profileId,
@@ -113,6 +118,7 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.successMessage,
     config.downsellFunnel || null,
     config.upsellFunnel || null,
+    config.operationActive ? 1 : 0,
     now
   );
   return getBotConfig(id)!;

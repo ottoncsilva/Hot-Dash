@@ -1,4 +1,16 @@
+import { createHmac } from "node:crypto";
 import { readBuffer } from "./storage";
+
+/**
+ * Secret determinístico por bot para o header X-Telegram-Bot-Api-Secret-Token.
+ * Derivado do SESSION_SECRET + botId (HMAC), então não precisa de coluna nova
+ * no banco e é o mesmo na hora de registrar o webhook e de validar cada update.
+ * Sanitiza para o conjunto aceito pelo Telegram (A-Z a-z 0-9 _ -).
+ */
+export function telegramWebhookSecret(botId: string): string {
+  const key = process.env.SESSION_SECRET || "hotdash";
+  return createHmac("sha256", key).update(`tg-webhook:${botId}`).digest("hex");
+}
 
 async function telegramFetch(botToken: string, method: string, body: unknown) {
   const res = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
@@ -56,8 +68,53 @@ async function telegramFormFetch(
   return data.result;
 }
 
-export async function setTelegramWebhook(botToken: string, url: string): Promise<boolean> {
-  return telegramFetch(botToken, "setWebhook", { url });
+/**
+ * Registra o webhook do bot apontando para o Hot-Dash. Passa `allowed_updates`
+ * EXPLÍCITO — o Telegram NÃO entrega `chat_join_request` por padrão, e é ele
+ * que dispara a aprovação automática nos grupos VIP/Prévias. O `secret_token`
+ * (opcional) é devolvido pelo Telegram no header X-Telegram-Bot-Api-Secret-Token
+ * de cada update, e o handler do webhook o valida.
+ */
+export async function setTelegramWebhook(
+  botToken: string,
+  url: string,
+  secretToken?: string,
+): Promise<boolean> {
+  return telegramFetch(botToken, "setWebhook", {
+    url,
+    allowed_updates: ["message", "callback_query", "chat_join_request"],
+    secret_token: secretToken || undefined,
+    drop_pending_updates: false,
+  });
+}
+
+export type TelegramWebhookInfo = {
+  url?: string;
+  pending_update_count?: number;
+  last_error_date?: number;
+  last_error_message?: string;
+  allowed_updates?: string[];
+};
+
+/** Consulta o estado atual do webhook do bot (para a UI mostrar status). */
+export async function getTelegramWebhookInfo(botToken: string): Promise<TelegramWebhookInfo> {
+  return telegramFetch(botToken, "getWebhookInfo", {}) as Promise<TelegramWebhookInfo>;
+}
+
+/** Remove o webhook do bot (usado se o operador quiser desligar o bot). */
+export async function deleteTelegramWebhook(botToken: string): Promise<boolean> {
+  return telegramFetch(botToken, "deleteWebhook", { drop_pending_updates: false });
+}
+
+/** Busca dados do próprio bot (getMe) — usado para validar o token e pegar o @username. */
+export async function getTelegramMe(
+  botToken: string,
+): Promise<{ id: number; username?: string; first_name?: string }> {
+  return telegramFetch(botToken, "getMe", {}) as Promise<{
+    id: number;
+    username?: string;
+    first_name?: string;
+  }>;
 }
 
 export async function sendTelegramMessage(

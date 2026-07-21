@@ -14,6 +14,8 @@ import {
 import {
   sendTelegramMedia,
   sendTelegramMessage,
+  sendTelegramPoll,
+  setTelegramMessageReaction,
   banTelegramMember,
   unbanTelegramMember,
   createTelegramInviteLink,
@@ -80,12 +82,19 @@ export async function runTelegramAutopost(): Promise<number> {
     const bot = getBotConfigByProfile(profile.id);
     if (!bot || !bot.botToken) continue;
 
+    // Config de autopost do perfil (para o "semear reação" das Prévias).
+    const apSettings = db
+      .prepare("SELECT warmup_seed_reaction, warmup_seed_emoji FROM telegram_autopost_settings WHERE profile_id = ?")
+      .get(profile.id) as { warmup_seed_reaction?: number; warmup_seed_emoji?: string } | undefined;
+    const seedReaction = Boolean(apSettings?.warmup_seed_reaction);
+    const seedEmoji = apSettings?.warmup_seed_emoji || "🔥";
+
     // Busca todos os posts agendados pendentes para Telegram (VIP ou Prévias)
     // deste perfil cujo horário já chegou.
     const pendingPosts = db
       .prepare(
         `
-        SELECT p.id, p.caption, pn.post_type, pm.media_id
+        SELECT p.id, p.caption, p.poll, pn.post_type, pm.media_id
         FROM posts p
         JOIN post_networks pn ON pn.post_id = p.id
         LEFT JOIN post_media pm ON pm.post_id = p.id AND pm.sort_order = 0
@@ -123,11 +132,38 @@ export async function runTelegramAutopost(): Promise<number> {
           ? buildWarmupCaption(post.caption || "", profile.bioVipLink)
           : escapeHtmlAllowingLinks(post.caption || "");
 
-      // Dispara no Telegram
+      // Enquete do post (se houver).
+      let poll: { question?: string; options?: unknown } | null = null;
       try {
-        await sendTelegramMedia(bot.botToken, chatId, mediaPath, finalCaption);
+        if (post.poll) poll = JSON.parse(post.poll);
+      } catch {
+        poll = null;
+      }
+      const pollOptions = Array.isArray(poll?.options)
+        ? (poll!.options as unknown[]).filter((o): o is string => typeof o === "string")
+        : [];
+
+      // Dispara no Telegram: enquete → sendPoll; com mídia → foto/vídeo;
+      // sem mídia → mensagem de texto. Depois, nas Prévias, semeia a reação.
+      try {
+        let sent: { message_id?: number } | undefined;
+        if (poll?.question && pollOptions.length >= 2) {
+          sent = await sendTelegramPoll(bot.botToken, chatId, poll.question, pollOptions);
+        } else if (mediaPath) {
+          sent = (await sendTelegramMedia(bot.botToken, chatId, mediaPath, finalCaption)) as
+            | { message_id?: number }
+            | undefined;
+        } else {
+          sent = (await sendTelegramMessage(bot.botToken, chatId, finalCaption)) as
+            | { message_id?: number }
+            | undefined;
+        }
         updatePost(post.id, { status: "posted" });
         totalPosted++;
+
+        if (isWarmup && seedReaction && sent?.message_id) {
+          await setTelegramMessageReaction(bot.botToken, chatId, sent.message_id, seedEmoji).catch(() => {});
+        }
       } catch (e) {
         console.error(`Erro ao postar post ${post.id} no Telegram:`, e);
         // O post permanece 'scheduled' e será tentado novamente no próximo ciclo

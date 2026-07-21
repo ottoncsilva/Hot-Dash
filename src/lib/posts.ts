@@ -1,7 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
-import type { PostNetwork, PostStatus, ScheduledPost } from "./postTypes";
+import type { PostNetwork, PostPoll, PostStatus, ScheduledPost } from "./postTypes";
 import type { SocialNetwork } from "./types";
 
 type PostRow = {
@@ -9,11 +9,25 @@ type PostRow = {
   profile_id: string;
   scheduled_at: number;
   caption: string | null;
+  poll: string | null;
   status: string;
   created_at: number;
   updated_at: number;
   profile_name?: string;
 };
+
+function parsePoll(json: string | null): PostPoll | undefined {
+  if (!json) return undefined;
+  try {
+    const v = JSON.parse(json);
+    if (v && typeof v.question === "string" && Array.isArray(v.options)) {
+      return { question: v.question, options: v.options.filter((o: unknown) => typeof o === "string") };
+    }
+  } catch {
+    /* ignora */
+  }
+  return undefined;
+}
 
 function loadNetworks(postId: string): PostNetwork[] {
   const rows = getDb()
@@ -60,6 +74,7 @@ function toClient(r: PostRow): ScheduledPost {
     networks: loadNetworks(r.id),
     scheduledAt: r.scheduled_at,
     caption: r.caption || undefined,
+    poll: parsePoll(r.poll),
     status: r.status === "posted" ? "posted" : "scheduled",
     media: loadMedia(r.id),
     createdAt: r.created_at,
@@ -92,16 +107,21 @@ export function createPost(input: {
   scheduledAt: number;
   caption?: string;
   mediaIds?: string[];
+  poll?: PostPoll;
 }): ScheduledPost {
   if (input.networks.length === 0) throw new Error("Selecione ao menos uma rede social.");
   const id = randomUUID();
   const now = Date.now();
+  const pollJson =
+    input.poll && input.poll.question.trim() && input.poll.options.filter((o) => o.trim()).length >= 2
+      ? JSON.stringify({ question: input.poll.question.trim(), options: input.poll.options.map((o) => o.trim()).filter(Boolean) })
+      : null;
   const db = getDb();
   const run = db.transaction(() => {
     db.prepare(
-      `INSERT INTO posts (id, profile_id, scheduled_at, caption, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'scheduled', ?, ?)`,
-    ).run(id, input.profileId, input.scheduledAt, input.caption || null, now, now);
+      `INSERT INTO posts (id, profile_id, scheduled_at, caption, poll, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'scheduled', ?, ?)`,
+    ).run(id, input.profileId, input.scheduledAt, input.caption || null, pollJson, now, now);
     writeRelations(id, input.networks, input.mediaIds || []);
   });
   run();

@@ -56,6 +56,9 @@ export type PostNetwork = {
 
 export type PostStatus = "scheduled" | "posted";
 
+/** Enquete de um post (Telegram sendPoll). Sem mídia. */
+export type PostPoll = { question: string; options: string[] };
+
 /** Post agendado no cronograma (a publicação em si é feita manualmente). */
 export type ScheduledPost = {
   id: string;
@@ -64,6 +67,7 @@ export type ScheduledPost = {
   networks: PostNetwork[];
   scheduledAt: number;
   caption?: string;
+  poll?: PostPoll;
   status: PostStatus;
   media: {
     id: string;

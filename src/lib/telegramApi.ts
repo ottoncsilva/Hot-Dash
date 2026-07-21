@@ -178,6 +178,52 @@ export async function sendTelegramPhotoBuffer(
   return data.result;
 }
 
+/**
+ * Envia uma ENQUETE (poll) nativa do Telegram. Retorna o objeto da mensagem
+ * (inclui message_id) para, se quiser, semear uma reação depois.
+ */
+export async function sendTelegramPoll(
+  botToken: string,
+  chatId: string,
+  question: string,
+  options: string[],
+  opts: { isAnonymous?: boolean; allowsMultiple?: boolean } = {},
+): Promise<{ message_id: number } | undefined> {
+  const clean = options.map((o) => o.trim()).filter(Boolean).slice(0, 10);
+  return telegramFetch(botToken, "sendPoll", {
+    chat_id: chatId,
+    question: question.slice(0, 300),
+    options: clean,
+    is_anonymous: opts.isAnonymous !== false,
+    allows_multiple_answers: Boolean(opts.allowsMultiple),
+  }) as Promise<{ message_id: number } | undefined>;
+}
+
+/**
+ * Semeia UMA reação do próprio bot numa mensagem (setMessageReaction, Bot API
+ * 7.0+). Não força reações de membros — as do grupo são orgânicas —, mas dá o
+ * "primeiro fogo" (social proof). Exige que o grupo tenha reações habilitadas e
+ * o bot seja admin. Nunca lança (best-effort).
+ */
+export async function setTelegramMessageReaction(
+  botToken: string,
+  chatId: string,
+  messageId: number,
+  emoji = "🔥",
+): Promise<boolean> {
+  try {
+    await telegramFetch(botToken, "setMessageReaction", {
+      chat_id: chatId,
+      message_id: messageId,
+      reaction: [{ type: "emoji", emoji }],
+      is_big: false,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Cria um link de convite único que exige aprovação de entrada. */
 export async function createTelegramInviteLink(
   botToken: string,

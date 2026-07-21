@@ -19,6 +19,27 @@ import type { ChargeInput, ChargeResult, PaymentProvider } from "./types";
  */
 const BASE = process.env.SYNCPAY_BASE_URL || "https://api.syncpayments.com.br";
 
+/** Dígito verificador de CPF sobre os dígitos já existentes. */
+function cpfCheckDigit(digits: number[]): number {
+  const len = digits.length + 1;
+  const sum = digits.reduce((acc, d, i) => acc + d * (len - i), 0);
+  const r = (sum * 10) % 11;
+  return r === 10 ? 0 : r;
+}
+
+/**
+ * Gera um CPF sintaticamente VÁLIDO (dígitos verificadores corretos, base
+ * aleatória). A compra é 1 clique — o lead NÃO informa CPF —, mas a API da
+ * SyncPay exige o campo. Um CPF válido evita recusa por validação de formato
+ * (o placeholder 00000000000 falha no dígito verificador em alguns gateways).
+ */
+function randomValidCpf(): string {
+  const base = Array.from({ length: 9 }, () => Math.floor(Math.random() * 10));
+  const d1 = cpfCheckDigit(base);
+  const d2 = cpfCheckDigit([...base, d1]);
+  return [...base, d1, d2].join("");
+}
+
 /** Autentica e devolve o token de acesso — usado tanto pelo provider quanto pelo teste de conexão. */
 export async function fetchSyncPayToken(creds: {
   clientId: string;
@@ -93,9 +114,11 @@ export function createSyncPay(creds: {
 
     async createPixCharge(input: ChargeInput): Promise<ChargeResult> {
       const reais = input.amountCents / 100;
+      // Se um CPF real vier (checkout externo), usa-o; senão gera um válido —
+      // o bot NÃO pede CPF ao lead, mas a API exige o campo.
       let cpf = (input.customer?.document || "").replace(/\D/g, "");
       if (cpf.length !== 11) {
-        cpf = "00000000000";
+        cpf = randomValidCpf();
       }
       let phone = (input.customer?.phone || "").replace(/\D/g, "");
       if (phone.length < 10 || phone.length > 11) {

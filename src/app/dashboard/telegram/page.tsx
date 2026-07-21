@@ -280,25 +280,16 @@ export default function TelegramUnifiedPage() {
       ) : (
         <div className="mt-6">
           
-          {/* Sessão Bot */}
-          <div className="mb-8 max-w-4xl rounded-xl border border-white/[0.06] bg-zinc-900/20 p-5 space-y-4">
-            <h3 className="font-semibold text-white/90">Credenciais do Bot</h3>
-            <p className="text-xs text-zinc-400 mb-4">Insira o Token fornecido pelo @BotFather. Este bot será o responsável por enviar as mensagens nos grupos.</p>
-            <div className="grid md:grid-cols-3 gap-4">
-               <div className="space-y-2">
-                 <label className="text-xs font-semibold text-zinc-300">Bot Token</label>
-                 <input type="text" placeholder="Ex: 123456:ABC-DEF1234ghIkl..." value={settings.botToken} onChange={(e) => setSettings({ ...settings, botToken: e.target.value })} className="w-full rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none" />
-               </div>
-               <div className="space-y-2">
-                 <label className="text-xs font-semibold text-zinc-300">ID Grupo VIP</label>
-                 <input type="text" placeholder="-100..." value={settings.idVip} onChange={(e) => setSettings({ ...settings, idVip: e.target.value })} className="w-full rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none" />
-               </div>
-               <div className="space-y-2">
-                 <label className="text-xs font-semibold text-zinc-300">ID Prévias</label>
-                 <input type="text" placeholder="-100..." value={settings.idAquecimento} onChange={(e) => setSettings({ ...settings, idAquecimento: e.target.value })} className="w-full rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none" />
-               </div>
+          {/* As credenciais do bot (Token + IDs dos grupos) agora ficam no
+              cadastro da modelo, pois servem em mais lugares. */}
+          {(!settings.botToken || !settings.idVip || !settings.idAquecimento) && (
+            <div className="mb-8 max-w-4xl rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-4">
+              <p className="text-sm text-amber-200">
+                ⚠️ Configure o <b>Token do bot</b> e os <b>IDs dos grupos (VIP e Prévias)</b> em{" "}
+                <b>Modelos → editar a modelo → Bot do Telegram</b>. Sem isso, a automação não posta.
+              </p>
             </div>
-          </div>
+          )}
 
           <div className="grid gap-8 lg:grid-cols-2">
             

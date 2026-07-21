@@ -22,9 +22,19 @@ type Bot = {
   successMessage: string;
   downsellFunnel?: string;
   upsellFunnel?: string;
+  previewsWelcomeMessage?: string;
   operationActive: boolean;
 };
-type Plan = { id: string; name: string; priceCents: number; durationDays: number };
+type Plan = {
+  id: string;
+  name: string;
+  priceCents: number;
+  durationDays: number;
+  kind: "subscription" | "package";
+  deliverable?: string;
+};
+type PeriodStats = { paidCents: number; paidCount: number; pendingCents: number; pendingCount: number; avgTicketCents: number };
+type Metrics = { today: PeriodStats; month: PeriodStats; total: PeriodStats };
 type CustomButton = { id: string; text: string; url: string; sortOrder: number };
 type Sub = {
   id: string;
@@ -54,6 +64,7 @@ export default function BotVendasPage() {
   const [buttons, setButtons] = useState<CustomButton[]>([]);
   const [subs, setSubs] = useState<Sub[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
 
   useEffect(() => {
     apiGet<{ profiles: Profile[] }>("/api/profiles")
@@ -74,12 +85,14 @@ export default function BotVendasPage() {
         customButtons: CustomButton[];
         subscriptions: Sub[];
         availableTags: Tag[];
+        metrics: Metrics;
       }>(`/api/telegram?profileId=${profileId}`);
       setBot(d.bot);
       setPlans(d.plans || []);
       setButtons(d.customButtons || []);
       setSubs(d.subscriptions || []);
       setTags(d.availableTags || []);
+      setMetrics(d.metrics || null);
     } finally {
       setLoading(false);
     }
@@ -126,14 +139,15 @@ export default function BotVendasPage() {
 
       {!loading && !bot && (
         <div className="card p-6 text-center text-sm text-zinc-400">
-          Este modelo ainda não tem o bot configurado. Vá em{" "}
-          <b>Telegram → Automação de postagens</b>, informe o <b>Token do Bot</b> e os{" "}
-          <b>IDs dos grupos VIP e Prévias</b> e salve. Depois volte aqui para configurar as vendas.
+          Este modelo ainda não tem o bot configurado. Vá em <b>Modelos → editar a modelo →
+          Bot do Telegram</b>, informe o <b>Token do Bot</b> e os <b>IDs dos grupos VIP e
+          Prévias</b> e salve. Depois volte aqui para configurar as vendas.
         </div>
       )}
 
       {!loading && bot && (
         <div className="space-y-5">
+          <MetricsCard metrics={metrics} activeSubs={subs.filter((s) => s.status === "active" && s.expiresAt > 0).length} pendingSubs={subs.filter((s) => s.status === "pending").length} />
           <WebhookCard profileId={profileId} bot={bot} onSaved={load} />
           <MessagesCard profileId={profileId} bot={bot} tags={tags} onSaved={load} />
           <PlansCard profileId={profileId} plans={plans} onSaved={load} />
@@ -142,6 +156,40 @@ export default function BotVendasPage() {
           <SubscribersCard subs={subs} onAction={load} confirm={confirm} />
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Métricas de venda (reaproveita o overview financeiro)
+// ---------------------------------------------------------------------------
+const money = (cents: number) =>
+  (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+function MetricsCard({
+  metrics,
+  activeSubs,
+  pendingSubs,
+}: {
+  metrics: Metrics | null;
+  activeSubs: number;
+  pendingSubs: number;
+}) {
+  const cards = [
+    { label: "Vendas hoje", value: metrics ? money(metrics.today.paidCents) : "—", sub: metrics ? `${metrics.today.paidCount} venda(s)` : "" },
+    { label: "Vendas no mês", value: metrics ? money(metrics.month.paidCents) : "—", sub: metrics ? `${metrics.month.paidCount} venda(s)` : "" },
+    { label: "Ticket médio", value: metrics ? money(metrics.month.avgTicketCents) : "—", sub: "no mês" },
+    { label: "Assinantes VIP", value: String(activeSubs), sub: `${pendingSubs} PIX pendente(s)` },
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {cards.map((c) => (
+        <div key={c.label} className="card p-4">
+          <p className="eyebrow">{c.label}</p>
+          <p className="mt-1 font-display text-2xl font-semibold text-white">{c.value}</p>
+          {c.sub && <p className="mt-0.5 text-[11px] text-zinc-500">{c.sub}</p>}
+        </div>
+      ))}
     </div>
   );
 }
@@ -242,8 +290,8 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
         <Info label="Grupo Prévias" value={bot.idAquecimento || "—"} />
       </div>
       <p className="mt-2 text-xs text-zinc-500">
-        Token e IDs dos grupos VIP/Prévias vêm de <b>Automação de postagens</b>. A postagem
-        automática funciona independentemente deste liga/desliga.
+        Token e IDs dos grupos VIP/Prévias vêm do <b>cadastro da modelo</b> (Modelos → editar). A
+        postagem automática funciona independentemente deste liga/desliga.
       </p>
 
       {active && (
@@ -292,6 +340,7 @@ function MessagesCard({
   const [welcome, setWelcome] = useState(bot.welcomeMessage || "");
   const [welcomeTags, setWelcomeTags] = useState(bot.welcomeMediaTags || "");
   const [success, setSuccess] = useState(bot.successMessage || "");
+  const [previews, setPreviews] = useState(bot.previewsWelcomeMessage || "");
   const [support, setSupport] = useState(bot.supportUsername || "");
   const [registro, setRegistro] = useState(bot.idRegistro || "");
   const [busy, setBusy] = useState(false);
@@ -305,6 +354,7 @@ function MessagesCard({
         welcomeMessage: welcome,
         welcomeMediaTags: welcomeTags,
         successMessage: success,
+        previewsWelcomeMessage: previews,
         supportUsername: support,
         idRegistro: registro,
       });
@@ -336,6 +386,16 @@ function MessagesCard({
       )}
       <label className="eyebrow mt-3 block">Mensagem de sucesso (após pagar) · use {"{link_vip}"}</label>
       <textarea className="input mt-1.5 min-h-[80px]" value={success} onChange={(e) => setSuccess(e.target.value)} />
+      <label className="eyebrow mt-3 block">Boas-vindas nas prévias (ao entrar no grupo grátis) · use {"{nome}"}</label>
+      <textarea
+        className="input mt-1.5 min-h-[70px]"
+        placeholder="Opcional. Enviada no privado do lead quando ele entra nas prévias."
+        value={previews}
+        onChange={(e) => setPreviews(e.target.value)}
+      />
+      <p className="mt-1 text-[11px] text-zinc-500">
+        Só chega se o lead já tiver iniciado conversa com o bot.
+      </p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <div>
           <label className="eyebrow block">Suporte (@usuário ou link)</label>
@@ -357,9 +417,23 @@ function MessagesCard({
 // Planos / Ofertas
 // ---------------------------------------------------------------------------
 function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Plan[]; onSaved: () => void }) {
-  type Row = { id?: string; name: string; price: string; durationDays: string };
+  type Row = {
+    id?: string;
+    name: string;
+    price: string;
+    durationDays: string;
+    kind: "subscription" | "package";
+    deliverable: string;
+  };
   const [rows, setRows] = useState<Row[]>(
-    plans.map((p) => ({ id: p.id, name: p.name, price: (p.priceCents / 100).toFixed(2), durationDays: String(p.durationDays) })),
+    plans.map((p) => ({
+      id: p.id,
+      name: p.name,
+      price: (p.priceCents / 100).toFixed(2),
+      durationDays: String(p.durationDays),
+      kind: p.kind || "subscription",
+      deliverable: p.deliverable || "",
+    })),
   );
   const [busy, setBusy] = useState(false);
 
@@ -376,6 +450,8 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
           name: r.name.trim(),
           priceCents: Math.round(parseFloat(r.price.replace(",", ".")) * 100) || 0,
           durationDays: parseInt(r.durationDays) || 30,
+          kind: r.kind,
+          deliverable: r.deliverable.trim() || undefined,
         }))
         .filter((r) => r.name && r.priceCents > 0);
       await apiSend("/api/telegram", "POST", { action: "save-plans", profileId, plans: payload });
@@ -391,49 +467,76 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
   return (
     <div className="card p-4">
       <h2 className="font-display text-lg font-semibold">Ofertas / Planos</h2>
-      <p className="mt-1 text-xs text-zinc-500">Os botões que o bot mostra no /start e nos funis.</p>
+      <p className="mt-1 text-xs text-zinc-500">
+        Os botões que o bot mostra no /start e nos funis. <b>Assinatura</b> dá acesso VIP por N dias;{" "}
+        <b>Pacote</b> é compra única (entrega um conteúdo/link).
+      </p>
       <div className="mt-3 space-y-2">
         {rows.map((r, i) => (
-          <div key={i} className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-ink-900 p-2">
+          <div key={i} className="rounded-lg border border-white/10 bg-ink-900 p-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={r.kind}
+                onChange={(e) => update(i, { kind: e.target.value as Row["kind"] })}
+                className="input w-32 shrink-0"
+              >
+                <option value="subscription">Assinatura</option>
+                <option value="package">Pacote</option>
+              </select>
+              <input
+                className="input min-w-[120px] flex-1"
+                placeholder="Nome da oferta"
+                value={r.name}
+                onChange={(e) => update(i, { name: e.target.value })}
+              />
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-zinc-500">R$</span>
+                <input
+                  className="input w-24"
+                  placeholder="0,00"
+                  value={r.price}
+                  onChange={(e) => update(i, { price: e.target.value })}
+                />
+              </div>
+              {r.kind === "subscription" && (
+                <div className="flex items-center gap-1">
+                  <input
+                    className="input w-16"
+                    value={r.durationDays}
+                    onChange={(e) => update(i, { durationDays: e.target.value })}
+                  />
+                  <span className="text-xs text-zinc-500">dias</span>
+                </div>
+              )}
+              <button
+                onClick={() => setRows((rr) => rr.filter((_, idx) => idx !== i))}
+                className="grid h-8 w-8 place-items-center rounded text-zinc-500 hover:bg-white/10 hover:text-red-400"
+                aria-label="Remover"
+              >
+                <IconClose size={15} />
+              </button>
+            </div>
             <input
-              className="input min-w-[120px] flex-1"
-              placeholder="Nome do plano"
-              value={r.name}
-              onChange={(e) => update(i, { name: e.target.value })}
+              className="input mt-2 w-full"
+              placeholder={
+                r.kind === "package"
+                  ? "Entregável: link/texto enviado ao pagar (obrigatório no pacote)"
+                  : "Bônus ao pagar (opcional): ex. link do WhatsApp"
+              }
+              value={r.deliverable}
+              onChange={(e) => update(i, { deliverable: e.target.value })}
             />
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-zinc-500">R$</span>
-              <input
-                className="input w-24"
-                placeholder="0,00"
-                value={r.price}
-                onChange={(e) => update(i, { price: e.target.value })}
-              />
-            </div>
-            <div className="flex items-center gap-1">
-              <input
-                className="input w-16"
-                value={r.durationDays}
-                onChange={(e) => update(i, { durationDays: e.target.value })}
-              />
-              <span className="text-xs text-zinc-500">dias</span>
-            </div>
-            <button
-              onClick={() => setRows((rr) => rr.filter((_, idx) => idx !== i))}
-              className="grid h-8 w-8 place-items-center rounded text-zinc-500 hover:bg-white/10 hover:text-red-400"
-              aria-label="Remover"
-            >
-              <IconClose size={15} />
-            </button>
           </div>
         ))}
       </div>
       <div className="mt-3 flex gap-2">
         <button
-          onClick={() => setRows((r) => [...r, { name: "", price: "", durationDays: "30" }])}
+          onClick={() =>
+            setRows((r) => [...r, { name: "", price: "", durationDays: "30", kind: "subscription", deliverable: "" }])
+          }
           className="btn-ghost"
         >
-          + Adicionar plano
+          + Adicionar oferta
         </button>
         <button onClick={save} disabled={busy} className="btn-primary">
           {busy ? "Salvando..." : "Salvar ofertas"}

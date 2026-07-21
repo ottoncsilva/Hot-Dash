@@ -147,6 +147,37 @@ export async function sendTelegramMedia(
   }
 }
 
+/** Envia uma foto a partir de um Buffer em memória (ex.: QR Code do PIX). */
+export async function sendTelegramPhotoBuffer(
+  botToken: string,
+  chatId: string,
+  buffer: Buffer,
+  caption?: string,
+  options: Record<string, unknown> = {},
+): Promise<unknown> {
+  const formData = new FormData();
+  formData.append("chat_id", chatId);
+  if (caption) {
+    formData.append("caption", caption);
+    formData.append("parse_mode", "HTML");
+  }
+  if (options.reply_markup) {
+    formData.append("reply_markup", JSON.stringify(options.reply_markup));
+  }
+  const blob = new Blob([new Uint8Array(buffer)], { type: "image/png" });
+  formData.append("photo", blob, "pix.png");
+
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+    method: "POST",
+    body: formData,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`Telegram API: ${data.description || `Erro HTTP ${res.status}`}`);
+  }
+  return data.result;
+}
+
 /** Cria um link de convite único que exige aprovação de entrada. */
 export async function createTelegramInviteLink(
   botToken: string,

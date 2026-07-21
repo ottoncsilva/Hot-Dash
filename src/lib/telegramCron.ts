@@ -334,9 +334,10 @@ export async function runTelegramEviction(): Promise<number> {
   const now = Date.now();
   const db = getDb();
 
-  // Busca inscrições ativas que já expiraram
+  // Busca inscrições VIP ativas que já expiraram. expires_at > 0 exclui as
+  // compras de PACOTE (compra única, sem VIP), que ficam com expires_at = 0.
   const expiredRows = db
-    .prepare("SELECT * FROM telegram_subscriptions WHERE status = 'active' AND expires_at < ?")
+    .prepare("SELECT * FROM telegram_subscriptions WHERE status = 'active' AND expires_at > 0 AND expires_at < ?")
     .all(now) as any[];
 
   let evictedCount = 0;

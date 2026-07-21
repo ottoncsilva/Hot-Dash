@@ -50,49 +50,70 @@ export async function POST(req: NextRequest) {
 
     if (updated && updated.becamePaid) {
       // Verifica se existe uma inscrição do Telegram pendente para esta transação
-      const { findSubscriptionByTransaction, saveSubscription, getBotConfig } = await import("@/lib/telegramDb");
+      const { findSubscriptionByTransaction, saveSubscription, getBotConfig, getPlan } = await import("@/lib/telegramDb");
       const sub = findSubscriptionByTransaction(updated.transaction.id);
-      
+
       if (sub && sub.status === "pending") {
         const bot = getBotConfig(sub.botId);
         if (bot) {
           const { createTelegramInviteLink, sendTelegramMessage } = await import("@/lib/telegramApi");
-          
+          const plan = sub.planId ? getPlan(sub.planId) : null;
+          const isPackage = plan?.kind === "package";
+
           try {
-            // Gera link de convite VIP único com aprovação ativada
-            const invite = await createTelegramInviteLink(
-              bot.botToken,
-              bot.idVip,
-              `VIP_${sub.telegramUserId}`
-            );
-            
-            // O campo expiresAt guardava temporariamente a duração em dias
-            const durationDays = sub.expiresAt > 0 ? sub.expiresAt : 30;
-            sub.status = "active";
-            sub.expiresAt = Date.now() + durationDays * 24 * 60 * 60 * 1000;
-            sub.inviteLink = invite.invite_link;
-            sub.lastUpsellAt = Date.now();
-            sub.upsellStepIndex = 0;
-            saveSubscription(sub);
+            if (isPackage) {
+              // PACOTE (compra única): entrega o conteúdo, sem acesso VIP.
+              // expiresAt = 0 marca "entregue" e faz a expiração ignorá-lo.
+              sub.status = "active";
+              sub.expiresAt = 0;
+              sub.lastUpsellAt = Date.now();
+              sub.upsellStepIndex = 0;
+              saveSubscription(sub);
 
-            // Envia mensagem de sucesso personalizada com o link para o cliente
-            const clientMsg = bot.successMessage.replace(/{link_vip}/gi, invite.invite_link);
-            await sendTelegramMessage(bot.botToken, String(sub.telegramUserId), clientMsg);
+              const deliverable = plan?.deliverable?.trim();
+              const msg = deliverable
+                ? `✅ <b>Pagamento aprovado!</b>\n\n${deliverable}`
+                : bot.successMessage.replace(/{link_vip}/gi, "");
+              await sendTelegramMessage(bot.botToken, String(sub.telegramUserId), msg);
+            } else {
+              // ASSINATURA: gera o convite VIP com a duração REAL do plano.
+              const invite = await createTelegramInviteLink(
+                bot.botToken,
+                bot.idVip,
+                `VIP_${sub.telegramUserId}`,
+              );
+              const durationDays = plan?.durationDays || (sub.expiresAt > 0 ? sub.expiresAt : 30);
+              sub.status = "active";
+              sub.expiresAt = Date.now() + durationDays * 24 * 60 * 60 * 1000;
+              sub.inviteLink = invite.invite_link;
+              sub.lastUpsellAt = Date.now();
+              sub.upsellStepIndex = 0;
+              saveSubscription(sub);
 
-            // Notifica o canal de auditoria/registro se configurado
+              const clientMsg = bot.successMessage.replace(/{link_vip}/gi, invite.invite_link);
+              await sendTelegramMessage(bot.botToken, String(sub.telegramUserId), clientMsg);
+
+              // Entregável adicional (bônus da assinatura, ex.: WhatsApp).
+              const deliverable = plan?.deliverable?.trim();
+              if (deliverable) {
+                await sendTelegramMessage(bot.botToken, String(sub.telegramUserId), deliverable);
+              }
+            }
+
+            // Notifica o canal de registro (vale para assinatura e pacote).
             if (bot.idRegistro) {
               const valStr = (updated.transaction.amountCents / 100).toLocaleString("pt-BR", {
                 style: "currency",
                 currency: "BRL",
               });
               const adminMsg = `🔔 <b>Nova Venda!</b>\n` +
-                `Plano: <b>${updated.transaction.description || "VIP"}</b>\n` +
+                `${isPackage ? "Pacote" : "Plano"}: <b>${plan?.name || updated.transaction.description || "VIP"}</b>\n` +
                 `Valor: <b>${valStr}</b>\n` +
                 `Cliente: <b>@${sub.telegramUsername || sub.telegramUserId}</b>`;
               await sendTelegramMessage(bot.botToken, bot.idRegistro, adminMsg);
             }
           } catch (tErr) {
-            console.error("Erro ao ativar assinatura no Telegram:", tErr);
+            console.error("Erro ao processar pagamento no Telegram:", tErr);
           }
         }
       }

@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     >;
 
     const providerRef = String(
-      data.id || data.idTransaction || data.transaction_id || "",
+      data.id || data.identifier || data.idTransaction || data.transaction_id || "",
     );
     const status = String(data.status || data.status_transaction || "");
     if (!providerRef || !status) {

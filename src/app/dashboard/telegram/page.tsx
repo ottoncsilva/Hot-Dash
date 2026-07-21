@@ -6,6 +6,7 @@ import TelegramCalendar from "@/components/telegram/TelegramCalendar";
 import { useConfirm } from "@/hooks/useConfirm";
 import Switch from "@/components/Switch";
 import type { Profile } from "@/lib/types";
+import { DEFAULT_CTA_BUTTONS, CTA_BUTTON_MAX } from "@/lib/postTypes";
 
 const toast = {
   success: (msg: string) => showToast(msg, "success"),
@@ -34,6 +35,7 @@ type TelegramSettings = {
   warmupSeedReaction: boolean;
   warmupSeedEmoji: string;
   warmupMkPrompt: string;
+  warmupCtaButtons: string;
 };
 
 export default function TelegramUnifiedPage() {
@@ -73,6 +75,7 @@ export default function TelegramUnifiedPage() {
     warmupSeedReaction: false,
     warmupSeedEmoji: "🔥",
     warmupMkPrompt: "",
+    warmupCtaButtons: DEFAULT_CTA_BUTTONS,
   });
 
   useEffect(() => {
@@ -120,6 +123,7 @@ export default function TelegramUnifiedPage() {
         warmupSeedReaction: Boolean(d.autopost?.warmup_seed_reaction),
         warmupSeedEmoji: d.autopost?.warmup_seed_emoji || "🔥",
         warmupMkPrompt: d.autopost?.warmup_mk_prompt || "",
+        warmupCtaButtons: d.autopost?.warmup_cta_buttons || DEFAULT_CTA_BUTTONS,
       });
     }).finally(() => setLoading(false));
   }, [selectedProfileId]);
@@ -146,14 +150,13 @@ export default function TelegramUnifiedPage() {
   };
 
   const [generatingPrevias, setGeneratingPrevias] = useState(false);
-  const [previasDays, setPreviasDays] = useState(1);
-  const generatePrevias = async () => {
+  const generatePrevias = async (daysOverride?: number) => {
     setGeneratingPrevias(true);
     try {
       const res = await fetch("/api/telegram/generate-previas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileId: selectedProfileId, days: previasDays }),
+        body: JSON.stringify({ profileId: selectedProfileId, days: daysOverride ?? 1 }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Erro ao gerar prévias.");
@@ -479,8 +482,17 @@ export default function TelegramUnifiedPage() {
                        )}
                        <div className="flex items-center gap-1.5 bg-black/10 p-1.5 rounded-lg border border-white/5">
                          <input type="number" min={1} max={30} value={daysToGenerateWarmup} onChange={e => setDaysToGenerateWarmup(parseInt(e.target.value) || 1)} className="w-12 rounded border border-orange-500/20 bg-orange-950/20 px-2 py-1 text-xs text-orange-200 text-center focus:outline-none" title="Dias a gerar" />
-                         <button type="button" onClick={() => generateSchedule("warmup", false)} disabled={generatingWarmup} className="rounded-lg bg-orange-500/20 text-orange-300 px-3 py-1.5 text-xs font-semibold hover:bg-orange-500/30 transition-colors disabled:opacity-50">
-                           {generatingWarmup ? "⏳ Gerando..." : "✨ Gerar postagens com IA em massa"}
+                         <button
+                           type="button"
+                           onClick={() => settings.warmupScheduleType === "mk" ? generatePrevias(daysToGenerateWarmup) : generateSchedule("warmup", false)}
+                           disabled={generatingWarmup || generatingPrevias}
+                           className="rounded-lg bg-orange-500/20 text-orange-300 px-3 py-1.5 text-xs font-semibold hover:bg-orange-500/30 transition-colors disabled:opacity-50"
+                         >
+                           {(generatingWarmup || generatingPrevias)
+                             ? "⏳ Gerando..."
+                             : settings.warmupScheduleType === "mk"
+                               ? "✨ Gerar dias (Método MK)"
+                               : "✨ Gerar postagens com IA em massa"}
                          </button>
                        </div>
                     </div>
@@ -553,27 +565,10 @@ export default function TelegramUnifiedPage() {
                         variados (±3 min). A metodologia já vem programada no sistema, e o bot
                         semeia a 1ª reação 🔥 em cada post automaticamente.
                       </p>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <label className="flex items-center gap-2 text-sm text-zinc-300">
-                          Dias:
-                          <input
-                            type="number"
-                            min={1}
-                            max={14}
-                            value={previasDays}
-                            onChange={(e) => setPreviasDays(Math.max(1, Math.min(14, Number(e.target.value) || 1)))}
-                            className="w-16 rounded-lg border border-white/[0.08] bg-zinc-900 px-2 py-1.5 text-sm text-white"
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          onClick={generatePrevias}
-                          disabled={generatingPrevias || !settings.idAquecimento}
-                          className="rounded-lg bg-emerald-500/20 text-emerald-300 px-4 py-2 text-xs font-bold hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
-                        >
-                          {generatingPrevias ? "⏳ Gerando..." : "✨ Gerar dias (Método MK)"}
-                        </button>
-                      </div>
+                      <p className="text-[11px] text-emerald-300/80">
+                        Escolha os <b>dias</b> e clique em <b>“Gerar dias (Método MK)”</b> ali em cima
+                        (canto superior direito das Prévias).
+                      </p>
                     </div>
                   )}
 
@@ -675,6 +670,36 @@ export default function TelegramUnifiedPage() {
                     <p className="text-xs text-orange-200/60 mt-1">
                       O link do grupo VIP é puxado automaticamente das configurações de <strong>Edição de Perfil</strong> (campo "Link do Bot/Assinatura VIP").
                     </p>
+                  </div>
+
+                  {/* Botões da copy — frases de CTA (1 por linha). O sistema
+                      escolhe 1 por post e anexa como BOTÃO com o link do VIP. */}
+                  <div className="space-y-2 rounded-lg border border-orange-500/10 bg-orange-900/10 p-3">
+                    <label className="text-xs font-semibold text-orange-300">
+                      Botões da copy <span className="text-orange-200/50 font-normal">— 1 por linha (a IA escolhe 1 por post)</span>
+                    </label>
+                    <p className="text-[11px] text-orange-200/60">
+                      Cada linha vira um <b>botão</b> com o link do VIP. Limite de <b>{CTA_BUTTON_MAX} caracteres</b> por linha
+                      (o que passar é cortado). Deixe em branco para usar as frases-padrão.
+                    </p>
+                    <textarea
+                      rows={8}
+                      value={settings.warmupCtaButtons}
+                      onChange={(e) => setSettings({ ...settings, warmupCtaButtons: e.target.value })}
+                      placeholder={DEFAULT_CTA_BUTTONS}
+                      className="w-full rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none resize-y font-mono"
+                    />
+                    {(() => {
+                      const over = settings.warmupCtaButtons
+                        .split("\n")
+                        .map((l) => l.trim())
+                        .filter((l) => l.length > CTA_BUTTON_MAX);
+                      return over.length > 0 ? (
+                        <p className="text-[11px] text-amber-400">
+                          ⚠️ {over.length} linha(s) passam de {CTA_BUTTON_MAX} caracteres e serão cortadas.
+                        </p>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
 

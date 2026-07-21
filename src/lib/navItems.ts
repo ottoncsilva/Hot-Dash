@@ -30,11 +30,12 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   settings: { key: "settings", label: "Configurações", href: "/dashboard/settings" },
 };
 
+// "censura" não é mais um item de topo: virou submenu de "Mídia"
+// (Galeria + Censura com IA), derivado no layout como no WhatsApp/Telegram.
 export const DEFAULT_MENU_ORDER: NavKey[] = [
   "dashboard",
   "profiles",
   "media",
-  "censura",
   "schedule",
   "payments",
   "telegram",
@@ -45,10 +46,14 @@ export const DEFAULT_MENU_ORDER: NavKey[] = [
 export type MenuEntry = { key: NavKey; hidden: boolean };
 
 /** Normaliza uma config de menu salva, garantindo que todos os itens existam. */
+// Chaves que NÃO aparecem como item de topo (são submenus derivados no layout).
+const SUBSECTION_KEYS = new Set<NavKey>(["censura", "whatsapp_settings", "whatsapp_chat"]);
+
 export function normalizeMenu(saved?: MenuEntry[]): MenuEntry[] {
   const result: MenuEntry[] = [];
   const seen = new Set<NavKey>();
   for (const entry of saved || []) {
+    if (SUBSECTION_KEYS.has(entry.key)) continue; // ignora chaves de submenu salvas
     if (NAV_ITEMS[entry.key] && !seen.has(entry.key)) {
       result.push({ key: entry.key, hidden: Boolean(entry.hidden) });
       seen.add(entry.key);

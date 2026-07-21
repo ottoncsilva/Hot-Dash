@@ -187,15 +187,20 @@ export async function sendTelegramPoll(
   chatId: string,
   question: string,
   options: string[],
-  opts: { isAnonymous?: boolean; allowsMultiple?: boolean } = {},
+  opts: { isAnonymous?: boolean; allowsMultiple?: boolean; reply_markup?: unknown } = {},
 ): Promise<{ message_id: number } | undefined> {
-  const clean = options.map((o) => o.trim()).filter(Boolean).slice(0, 10);
+  // Telegram: pergunta 1–300 chars; 2–10 opções; cada opção 1–100 chars.
+  const clean = options.map((o) => o.trim().slice(0, 100)).filter(Boolean).slice(0, 10);
+  const q = question.trim().slice(0, 300);
+  if (!q) throw new Error("Enquete sem pergunta.");
+  if (clean.length < 2) throw new Error("Enquete precisa de ao menos 2 opções.");
   return telegramFetch(botToken, "sendPoll", {
     chat_id: chatId,
-    question: question.slice(0, 300),
+    question: q,
     options: clean,
     is_anonymous: opts.isAnonymous !== false,
     allows_multiple_answers: Boolean(opts.allowsMultiple),
+    ...(opts.reply_markup ? { reply_markup: opts.reply_markup } : {}),
   }) as Promise<{ message_id: number } | undefined>;
 }
 

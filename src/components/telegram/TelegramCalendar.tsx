@@ -8,7 +8,7 @@ import { showToast } from "@/lib/toast";
 import CalendarGrid from "@/components/schedule/CalendarGrid";
 import TelegramPostForm from "@/components/telegram/TelegramPostForm";
 import CaptionEditor, { CaptionPreview, captionPlainText } from "@/components/telegram/CaptionEditor";
-import { IconCalendar, IconList, IconPlus, IconTrash, IconEdit, IconCheck } from "@/components/icons";
+import { IconCalendar, IconList, IconPlus, IconTrash, IconEdit, IconCheck, IconEye, IconEyeOff } from "@/components/icons";
 
 export default function TelegramCalendar({ profileId, profiles }: { profileId: string, profiles: Profile[] }) {
   const [posts, setPosts] = useState<ScheduledPost[]>([]);
@@ -21,6 +21,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
   const [view, setView] = useState<"calendar" | "list">("calendar");
   const [typeFilter, setTypeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [hidePosted, setHidePosted] = useState(false);
 
   // Seleção múltipla para exclusão em lote
   const [selectedPostIds, setSelectedPostIds] = useState<string[]>([]);
@@ -155,6 +156,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
 
   const filtered = useMemo(() => {
     return posts.filter(p => {
+      if (hidePosted && p.status === "posted") return false;
       if (statusFilter && p.status !== statusFilter) return false;
       if (typeFilter) {
         const net = p.networks.find(n => n.network === "telegram");
@@ -162,7 +164,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
       }
       return true;
     });
-  }, [posts, statusFilter, typeFilter]);
+  }, [posts, statusFilter, typeFilter, hidePosted]);
 
   const allSelected = filtered.length > 0 && selectedPostIds.length === filtered.length;
 
@@ -225,6 +227,19 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
               <option value="scheduled">Agendados</option>
               <option value="posted">Postados</option>
             </select>
+            <button
+              type="button"
+              onClick={() => setHidePosted((v) => !v)}
+              title={hidePosted ? "Mostrar também os já postados" : "Ocultar os já postados"}
+              className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                hidePosted
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                  : "border-white/10 text-zinc-300 hover:bg-white/5"
+              }`}
+            >
+              {hidePosted ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+              <span className="hidden sm:inline">{hidePosted ? "Postados ocultos" : "Ocultar postados"}</span>
+            </button>
             <button
               onClick={() => { setFormInitial(null); setFormOpen(true); }}
               className="btn-primary flex items-center gap-2 px-4 py-2 text-sm ml-2"

@@ -5,6 +5,7 @@ import { cleanMetadata, mediaKind } from "@/lib/metadata";
 import { ensureVideoThumbnail, getMediaRow, newMediaPath, overwriteMediaFile } from "@/lib/media";
 import { saveFile } from "@/lib/storage";
 import { getImageDimensions } from "@/lib/imageDimensions";
+import { addTagsByNameToMedia, getTagsForMedia } from "@/lib/tags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,6 +67,18 @@ export async function POST(
     if (!item) {
       return NextResponse.json({ error: "Mídia não encontrada." }, { status: 404 });
     }
+
+    // Etiquetas automáticas por nome (ex.: "Censurada"), enviadas pelo cliente.
+    const tagsRaw = form.get("tags");
+    const tagNames =
+      typeof tagsRaw === "string" && tagsRaw
+        ? tagsRaw.split(",").map((t) => t.trim()).filter(Boolean)
+        : [];
+    if (tagNames.length > 0) {
+      addTagsByNameToMedia(params.id, tagNames);
+      item.tags = getTagsForMedia(params.id);
+    }
+
     return NextResponse.json({ media: item });
   } catch (err) {
     return errorResponse(err);

@@ -1,7 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
-import type { Tag } from "./types";
+import { TAG_COLORS, type Tag } from "./types";
 
 type TagRow = { id: string; name: string; color: string; created_at: number };
 
@@ -98,6 +98,34 @@ export function setMediaTag(
     for (const mediaId of ids) stmt.run(mediaId, tagId);
   });
   run(mediaIds);
+}
+
+/**
+ * Devolve a etiqueta com esse nome (case-insensitive) ou cria uma nova.
+ * Usado para etiquetas automáticas (ex.: "Censurada") sem duplicar.
+ */
+export function getOrCreateTag(name: string, color: string = TAG_COLORS[0]): Tag {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Informe o nome da etiqueta.");
+  const row = getDb()
+    .prepare("SELECT * FROM tags WHERE name = ? COLLATE NOCASE")
+    .get(trimmed) as TagRow | undefined;
+  if (row) return toClient(row);
+  return createTag(trimmed, color);
+}
+
+/** Anexa etiquetas por NOME a uma mídia (cria as que não existem). */
+export function addTagsByNameToMedia(
+  mediaId: string,
+  names: string[],
+  color: string = TAG_COLORS[0],
+): void {
+  for (const name of names) {
+    const trimmed = name.trim();
+    if (!trimmed) continue;
+    const tag = getOrCreateTag(trimmed, color);
+    setMediaTag([mediaId], tag.id, "add");
+  }
 }
 
 /** Copia todas as etiquetas de uma mídia para outra (usado ao editar/duplicar). */

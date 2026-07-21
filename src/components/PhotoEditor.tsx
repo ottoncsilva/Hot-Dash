@@ -7,6 +7,7 @@ import { showToast } from "@/lib/toast";
 import Modal from "@/components/Modal";
 import ToolButton from "@/components/ToolButton";
 import { COMPACT_EMOJIS } from "@/lib/censorEmojis";
+import { DEFAULT_PART_EMOJI, type BodyPart } from "@/lib/bodyParts";
 import {
   IconClose,
   IconType,
@@ -63,6 +64,7 @@ export default function PhotoEditor({
   const [saving, setSaving] = useState<"new" | "overwrite" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [censoring, setCensoring] = useState(false);
+  const [censorMenuOpen, setCensorMenuOpen] = useState(false);
   // Contador que força re-render quando a imagem de um emoji termina de
   // carregar (o desenho é síncrono; a imagem chega depois).
   const [emojiTick, setEmojiTick] = useState(0);
@@ -444,7 +446,13 @@ export default function PhotoEditor({
     }
   }
 
-  async function autoCensor() {
+  /**
+   * Censura por IA: detecta as regiões explícitas e cobre com BORRÃO ou EMOJI,
+   * conforme o modo escolhido. O emoji usado depende da parte do corpo
+   * (DEFAULT_PART_EMOJI); partes sem emoji definido caem no 🔞.
+   */
+  async function autoCensor(mode: "blur" | "emoji") {
+    setCensorMenuOpen(false);
     setCensoring(true);
     setError(null);
     try {
@@ -462,29 +470,49 @@ export default function PhotoEditor({
       const h = canvas.height;
 
       // A rota devolve regiões em coordenadas RELATIVAS (0..1). Aplicamos uma
-      // folga de 12% ao redor para o borrão cobrir com margem.
+      // folga de 12% ao redor para cobrir com margem.
       const PAD = 0.12;
       const regions = (data.regions || []) as {
-        part: string;
+        part: BodyPart;
         x: number;
         y: number;
         w: number;
         h: number;
       }[];
 
-      const newObjs: BlurObject[] = regions.map((r) => {
-        const finalW = r.w * (1 + PAD) * w;
-        const finalH = r.h * (1 + PAD) * h;
-        return {
-          id: crypto.randomUUID(),
-          type: "blur",
-          style: "pixelate",
-          x: r.x * w - (finalW - r.w * w) / 2,
-          y: r.y * h - (finalH - r.h * h) / 2,
-          w: finalW,
-          h: finalH,
-        };
-      });
+      let newObjs: EditorObject[];
+      if (mode === "blur") {
+        newObjs = regions.map((r): BlurObject => {
+          const finalW = r.w * (1 + PAD) * w;
+          const finalH = r.h * (1 + PAD) * h;
+          return {
+            id: crypto.randomUUID(),
+            type: "blur",
+            style: "pixelate",
+            x: r.x * w - (finalW - r.w * w) / 2,
+            y: r.y * h - (finalH - r.h * h) / 2,
+            w: finalW,
+            h: finalH,
+          };
+        });
+      } else {
+        newObjs = regions.map((r): EmojiObject => {
+          const emoji = DEFAULT_PART_EMOJI[r.part] || "🔞";
+          const cx = (r.x + r.w / 2) * w;
+          const cy = (r.y + r.h / 2) * h;
+          // Emoji quadrado que cobre a maior dimensão da região (com folga).
+          const base = Math.max(r.w * w, r.h * h);
+          const size = Math.max(24, base * (1 + PAD));
+          return {
+            id: crypto.randomUUID(),
+            type: "emoji",
+            emoji,
+            size,
+            x: cx - size / 2,
+            y: cy - size / 2,
+          };
+        });
+      }
 
       if (newObjs.length === 0) {
         showToast("Nenhuma parte explícita foi encontrada pela IA.", "warning");
@@ -500,7 +528,7 @@ export default function PhotoEditor({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !emojiPickerOpen) onClose();
+      if (e.key === "Escape" && !emojiPickerOpen && !censorMenuOpen) onClose();
     };
     window.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
@@ -508,7 +536,7 @@ export default function PhotoEditor({
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = "";
     };
-  }, [onClose, emojiPickerOpen]);
+  }, [onClose, emojiPickerOpen, censorMenuOpen]);
 
   if (!mounted) return null;
 
@@ -570,10 +598,12 @@ export default function PhotoEditor({
             setSelectedId(null);
           }}
         />
-        <ToolButton 
-          icon={<IconSparkle size={18} />} 
-          label={censoring ? "Analisando..." : "Censura IA"} 
-          onClick={autoCensor} 
+        <ToolButton
+          icon={<IconSparkle size={18} />}
+          label={censoring ? "Analisando..." : "Censura IA"}
+          active={censorMenuOpen}
+          onClick={() => setCensorMenuOpen(true)}
+          disabled={censoring}
         />
         <ToolButton icon={<IconQuestion size={18} />} label="Pergunta" onClick={addQuestionBox} />
         <ToolButton
@@ -702,6 +732,43 @@ export default function PhotoEditor({
       <p className="pb-3 text-center font-mono text-[10px] uppercase tracking-wider text-zinc-600 safe-bottom">
         salvar = substitui a atual · salvar nova versão = mantém a original
       </p>
+
+      {/* Censura por IA: escolha entre borrar ou cobrir com emoji. */}
+      <Modal open={censorMenuOpen} onClose={() => setCensorMenuOpen(false)} maxWidth="max-w-sm">
+        <div>
+          <p className="eyebrow">censura com IA</p>
+          <h2 className="mt-1.5 flex items-center gap-2 font-display text-lg font-semibold">
+            <IconSparkle size={16} /> Como cobrir?
+          </h2>
+          <p className="mt-1 text-sm text-zinc-400">
+            A IA detecta as partes explícitas e cobre automaticamente. Escolha o estilo:
+          </p>
+          <div className="mt-4 grid grid-cols-2 gap-2.5">
+            <button
+              type="button"
+              onClick={() => autoCensor("blur")}
+              className="flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-ink-900 px-4 py-5 text-center hover:border-white/25 hover:bg-white/5"
+            >
+              <IconBlur size={24} />
+              <span className="text-sm font-medium text-zinc-100">Borrar</span>
+              <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                pixelado
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => autoCensor("emoji")}
+              className="flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-ink-900 px-4 py-5 text-center hover:border-white/25 hover:bg-white/5"
+            >
+              <span className="text-2xl leading-none">🔞</span>
+              <span className="text-sm font-medium text-zinc-100">Emojis</span>
+              <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                por parte
+              </span>
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Seletor de emoji compacto (mesma lista curada do censurador). */}
       <Modal open={emojiPickerOpen} onClose={() => setEmojiPickerOpen(false)} maxWidth="max-w-sm">

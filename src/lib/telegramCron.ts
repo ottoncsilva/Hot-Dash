@@ -82,12 +82,10 @@ export async function runTelegramAutopost(): Promise<number> {
     const bot = getBotConfigByProfile(profile.id);
     if (!bot || !bot.botToken) continue;
 
-    // Config de autopost do perfil (para o "semear reação" das Prévias).
-    const apSettings = db
-      .prepare("SELECT warmup_seed_reaction, warmup_seed_emoji FROM telegram_autopost_settings WHERE profile_id = ?")
-      .get(profile.id) as { warmup_seed_reaction?: number; warmup_seed_emoji?: string } | undefined;
-    const seedReaction = Boolean(apSettings?.warmup_seed_reaction);
-    const seedEmoji = apSettings?.warmup_seed_emoji || "🔥";
+    // "Semear reação" nas Prévias é EMBUTIDO (parte do método): o bot dá a 1ª
+    // reação 🔥 em cada post de prévia (social proof). Best-effort — só funciona
+    // se o grupo tiver reações habilitadas e o bot for admin.
+    const seedEmoji = "🔥";
 
     // Busca todos os posts agendados pendentes para Telegram (VIP ou Prévias)
     // deste perfil cujo horário já chegou.
@@ -161,7 +159,7 @@ export async function runTelegramAutopost(): Promise<number> {
         updatePost(post.id, { status: "posted" });
         totalPosted++;
 
-        if (isWarmup && seedReaction && sent?.message_id) {
+        if (isWarmup && sent?.message_id) {
           await setTelegramMessageReaction(bot.botToken, chatId, sent.message_id, seedEmoji).catch(() => {});
         }
       } catch (e) {

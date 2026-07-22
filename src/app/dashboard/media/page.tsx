@@ -33,6 +33,9 @@ export default function MediaPage() {
   const [media, setMedia] = useState<MediaItem[] | null>(null);
   const [tags, setTags] = useState<Tag[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Id da mídia editada que o viewer deve continuar mostrando depois que a
+  // lista for atualizada (evita "pular" para outra foto ao salvar).
+  const pendingFocusId = useRef<string | null>(null);
   const [uploads, setUploads] = useState<{ name: string; status: string; progress?: number }[]>([]);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [selectMode, setSelectMode] = useState(false);
@@ -389,6 +392,19 @@ export default function MediaPage() {
     }
     return list;
   }, [filteredMedia, sortBy]);
+
+  // Depois de editar (sobrescrever ou salvar nova versão), a lista é
+  // reordenada por createdAt e a mídia editada pode mudar de posição — segue
+  // o índice do viewer até ela em vez de deixar o número da posição fixo
+  // (o que fazia o viewer mostrar outra foto).
+  useEffect(() => {
+    if (pendingFocusId.current === null) return;
+    const idx = sortedMedia.findIndex((m) => m.id === pendingFocusId.current);
+    if (idx >= 0) {
+      setViewerIndex(idx);
+      pendingFocusId.current = null;
+    }
+  }, [sortedMedia]);
 
   const groups = useMemo(() => {
     if (!grouping) return null;
@@ -842,15 +858,18 @@ export default function MediaPage() {
           tags={tags}
           onToggleTag={toggleTagOnItem}
           profileId={profileId}
-          onEdited={(newItem) =>
+          onEdited={(newItem) => {
+            // Marca para o viewer seguir essa mídia quando a lista reordenar
+            // (sem isso, "Salvar nova versão" trocava para a foto vizinha).
+            pendingFocusId.current = newItem.id;
             setMedia((m) => {
               const list = m || [];
               // Sobrescrever (mesmo id) substitui no lugar; nova versão entra no topo.
               return list.some((x) => x.id === newItem.id)
                 ? list.map((x) => (x.id === newItem.id ? newItem : x))
                 : [newItem, ...list];
-            })
-          }
+            });
+          }}
         />
       )}
 

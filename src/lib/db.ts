@@ -349,6 +349,9 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "telegram_subscriptions", "plan_id", "TEXT");
   // Enquete do post (JSON {question, options[]}) — post sem mídia, tipo enquete.
   ensureColumn(d, "posts", "poll", "TEXT");
+  // CTA por post: 1 = anexa o botão do VIP no envio; 0 = não; NULL = legado
+  // (mantém o comportamento antigo). Usado pelo Método MK (só posts de conversão).
+  ensureColumn(d, "posts", "cta", "INTEGER");
   // Semear reação 🔥 automaticamente nos posts de Prévias (social proof).
   ensureColumn(d, "telegram_autopost_settings", "warmup_seed_reaction", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(d, "telegram_autopost_settings", "warmup_seed_emoji", "TEXT DEFAULT '🔥'");

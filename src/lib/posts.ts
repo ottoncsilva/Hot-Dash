@@ -108,6 +108,8 @@ export function createPost(input: {
   caption?: string;
   mediaIds?: string[];
   poll?: PostPoll;
+  /** 1 = anexa o botão do VIP no envio; 0 = não; undefined = legado (padrão). */
+  cta?: boolean;
 }): ScheduledPost {
   if (input.networks.length === 0) throw new Error("Selecione ao menos uma rede social.");
   const id = randomUUID();
@@ -116,12 +118,13 @@ export function createPost(input: {
     input.poll && input.poll.question.trim() && input.poll.options.filter((o) => o.trim()).length >= 2
       ? JSON.stringify({ question: input.poll.question.trim(), options: input.poll.options.map((o) => o.trim()).filter(Boolean) })
       : null;
+  const ctaVal = input.cta === undefined ? null : input.cta ? 1 : 0;
   const db = getDb();
   const run = db.transaction(() => {
     db.prepare(
-      `INSERT INTO posts (id, profile_id, scheduled_at, caption, poll, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'scheduled', ?, ?)`,
-    ).run(id, input.profileId, input.scheduledAt, input.caption || null, pollJson, now, now);
+      `INSERT INTO posts (id, profile_id, scheduled_at, caption, poll, cta, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'scheduled', ?, ?)`,
+    ).run(id, input.profileId, input.scheduledAt, input.caption || null, pollJson, ctaVal, now, now);
     writeRelations(id, input.networks, input.mediaIds || []);
   });
   run();

@@ -389,7 +389,8 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                         month: "2-digit",
                         year: "numeric",
                         hour: "2-digit",
-                        minute: "2-digit"
+                        minute: "2-digit",
+                        timeZone: "America/Sao_Paulo",
                       })}
                     </td>
                     <td className="p-3 text-zinc-400 truncate max-w-[200px] sm:max-w-xs md:max-w-md lg:max-w-lg">
@@ -458,7 +459,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                 <div className="flex flex-col">
                   <span className="text-white font-semibold text-base leading-tight">Pré-visualização</span>
                   <span className="text-[#8e98a3] text-xs">
-                    {new Date(editingPost.scheduledAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                    {new Date(editingPost.scheduledAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" })}
                   </span>
                 </div>
               </div>

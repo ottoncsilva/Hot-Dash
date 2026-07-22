@@ -100,7 +100,7 @@ export async function runTelegramAutopost(): Promise<number> {
     const pendingPosts = db
       .prepare(
         `
-        SELECT p.id, p.caption, p.poll, pn.post_type, pm.media_id
+        SELECT p.id, p.caption, p.poll, p.cta, pn.post_type, pm.media_id
         FROM posts p
         JOIN post_networks pn ON pn.post_id = p.id
         LEFT JOIN post_media pm ON pm.post_id = p.id AND pm.sort_order = 0
@@ -130,11 +130,13 @@ export async function runTelegramAutopost(): Promise<number> {
         if (row) mediaPath = row.path;
       }
 
-      // CTA das Prévias: nas Prévias com link do VIP, anexamos UM botão inline
-      // ("Botões da copy" — 1 frase sorteada, ≤25 chars) apontando pro VIP. Com
-      // botão, a legenda vai limpa (sem os 3 hiperlinks). Sem botão/lista,
-      // mantém o comportamento antigo (3 hiperlinks "ACESSAR O VIP 🎁").
-      const ctaButtonText = isWarmup && profile.bioVipLink ? pickCtaButtonText(ctaList) : null;
+      // CTA das Prévias: só anexa o botão do VIP quando o post PEDE CTA. No
+      // Método MK só os tipos de conversão têm cta=1; humanização/reação/enquete
+      // têm cta=0 (sem link). cta=NULL = post legado/manual → mantém o
+      // comportamento antigo (sempre com CTA). Com botão, a legenda vai limpa;
+      // com CTA mas sem lista de frases, cai nos hiperlinks "ACESSAR O VIP 🎁".
+      const wantsCta = isWarmup && Boolean(profile.bioVipLink) && post.cta !== 0;
+      const ctaButtonText = wantsCta ? pickCtaButtonText(ctaList) : null;
       const ctaMarkup =
         ctaButtonText && profile.bioVipLink
           ? { inline_keyboard: [[{ text: ctaButtonText, url: profile.bioVipLink }]] }
@@ -143,7 +145,7 @@ export async function runTelegramAutopost(): Promise<number> {
 
       const finalCaption = ctaMarkup
         ? escapeHtmlAllowingLinks(post.caption || "")
-        : isWarmup && profile.bioVipLink
+        : wantsCta && profile.bioVipLink
           ? buildWarmupCaption(post.caption || "", profile.bioVipLink)
           : escapeHtmlAllowingLinks(post.caption || "");
 

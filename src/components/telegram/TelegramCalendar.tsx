@@ -30,7 +30,6 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
 
   const [view, setView] = useState<"calendar" | "list">("calendar");
   const [typeFilter, setTypeFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
   const [hidePosted, setHidePosted] = useState(false);
 
   // Seleção múltipla para exclusão em lote
@@ -167,14 +166,13 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
   const filtered = useMemo(() => {
     return posts.filter(p => {
       if (hidePosted && p.status === "posted") return false;
-      if (statusFilter && p.status !== statusFilter) return false;
       if (typeFilter) {
         const net = p.networks.find(n => n.network === "telegram");
         if (net && net.postType !== typeFilter) return false;
       }
       return true;
     });
-  }, [posts, statusFilter, typeFilter, hidePosted]);
+  }, [posts, typeFilter, hidePosted]);
 
   const allSelected = filtered.length > 0 && selectedPostIds.length === filtered.length;
 
@@ -227,15 +225,6 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
               <option value="">Todos os tipos</option>
               <option value="VIP">VIP</option>
               <option value="Prévias">Prévias</option>
-            </select>
-            <select
-              className="input py-2 text-sm"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="">Todos os status</option>
-              <option value="scheduled">Agendados</option>
-              <option value="posted">Postados</option>
             </select>
             <button
               type="button"
@@ -472,6 +461,17 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                  </button>
               </div>
             </div>
+
+            {/* Indicador de link do VIP: reflete a regra do envio — só posts de
+                conversão (cta) levam o botão do VIP. Enquete nunca leva. */}
+            {(() => {
+              const hasLink = !editingPost.poll && editingPost.cta !== false;
+              return (
+                <div className={`shrink-0 px-4 py-2 text-xs font-semibold ${hasLink ? "bg-emerald-500/10 text-emerald-300" : "bg-white/[0.03] text-zinc-400"}`}>
+                  {hasLink ? "🔗 Vai com o botão/link do VIP" : "— Sem link (humanização/engajamento)"}
+                </div>
+              );
+            })()}
 
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[#0f0f0f] custom-scrollbar">
               {editingPost.poll ? (

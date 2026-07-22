@@ -3,6 +3,7 @@ import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { activeProvider } from "@/lib/payments";
 import { recordTransaction } from "@/lib/transactions";
 import { ensureSyncpayWebhookToken } from "@/lib/settings";
+import { publicOrigin } from "@/lib/publicOrigin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,9 +32,11 @@ export async function POST(req: NextRequest) {
     }
     const amountCents = Math.round(amount * 100);
     // Inclui o token — sem ele a SyncPay recebe 401 e a venda nunca é
-    // confirmada (era o motivo do dashboard não receber os pagamentos).
+    // confirmada. E usa a origem PÚBLICA (não req.nextUrl.origin, que atrás de
+    // proxy/EasyPanel pode resolver para um host interno inalcançável pela
+    // SyncPay — outro motivo do dashboard não receber os pagamentos).
     const token = ensureSyncpayWebhookToken();
-    const postbackUrl = `${req.nextUrl.origin}/api/webhooks/${provider.key}?token=${encodeURIComponent(token)}`;
+    const postbackUrl = `${publicOrigin(req)}/api/webhooks/${provider.key}?token=${encodeURIComponent(token)}`;
 
     const result = await provider.createPixCharge({
       amountCents,

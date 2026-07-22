@@ -145,6 +145,19 @@ export function findByProviderRef(
   return r ? toClient(r) : null;
 }
 
+/** Última venda paga registrada (qualquer perfil/provedor) — usado como
+ *  diagnóstico em Configurações → Pagamentos para confirmar que o webhook da
+ *  SyncPay está realmente chegando. */
+export function lastPaidTransaction(): { at: number; amountCents: number; customer?: string } | null {
+  const r = getDb()
+    .prepare(
+      "SELECT created_at, amount_cents, customer FROM transactions WHERE status = 'paid' ORDER BY created_at DESC LIMIT 1",
+    )
+    .get() as { created_at: number; amount_cents: number; customer: string | null } | undefined;
+  if (!r) return null;
+  return { at: r.created_at, amountCents: r.amount_cents, customer: r.customer || undefined };
+}
+
 /**
  * Atualiza o status de uma transação pelo provider_ref (usado no webhook).
  * Retorna a transação atualizada, ou null se não encontrada. Também

@@ -6,6 +6,7 @@ import { listMedia, getMediaRow } from "@/lib/media";
 import { activeProvider } from "@/lib/payments";
 import { recordTransaction } from "@/lib/transactions";
 import { ensureSyncpayWebhookToken } from "@/lib/settings";
+import { publicOrigin } from "@/lib/publicOrigin";
 import { randomUUID } from "node:crypto";
 
 export const runtime = "nodejs";
@@ -163,7 +164,12 @@ export async function POST(
         }
         // Usa o token gerenciado (o mesmo mostrado na UI e aceito pelo webhook),
         // não o SESSION_SECRET — assim a confirmação autentica mesmo sem a env.
-        const postbackUrl = `${req.nextUrl.origin}/api/webhooks/syncpay?token=${encodeURIComponent(ensureSyncpayWebhookToken())}`;
+        // E usa a origem PÚBLICA: atrás de proxy/EasyPanel, req.nextUrl.origin
+        // pode virar um host interno que a SyncPay não alcança — a cobrança é
+        // criada, o cliente paga, mas a confirmação nunca chega e a venda some
+        // do painel. Configure NEXT_PUBLIC_APP_URL (ou WEBHOOK_APP_URL) com o
+        // domínio público para garantir isso em produção.
+        const postbackUrl = `${publicOrigin(req)}/api/webhooks/syncpay?token=${encodeURIComponent(ensureSyncpayWebhookToken())}`;
 
         // Cria cobrança PIX no SyncPay
         const charge = await provider.createPixCharge({

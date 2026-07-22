@@ -50,14 +50,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Mídias das prévias ainda não usadas (para os posts do tipo "foto").
+    // Mídias das prévias ainda não usadas — separadas em fotos e vídeos.
+    // Prioriza mídia nunca usada e nunca repete a mesma no lote.
     const usedIds = listUsedMediaIds(profile.id);
-    let photoPool = listMedia(profile.id).filter(
+    const allowed = listMedia(profile.id).filter(
       (m) =>
         !usedIds.has(m.id) &&
         (allowedTagNames.length === 0 ||
           m.tags.some((t) => allowedTagNames.includes(t.name.toLowerCase()))),
     );
+    let photoPool = allowed.filter((m) => m.kind === "image");
+    let videoPool = allowed.filter((m) => m.kind === "video");
 
     // Posts já agendados de Prévias (idempotência por janela de 5 min).
     const existing = db
@@ -101,30 +104,37 @@ export async function POST(req: NextRequest) {
         for (const t of taken) if (Math.abs(t - at) < 5 * 60 * 1000) clash = true;
         if (clash) continue;
 
+        const net = [{ network: "telegram" as const, postType: "Prévias" }];
+
         if (post.kind === "enquete" && post.poll) {
+          createPost({ profileId: profile.id, networks: net, scheduledAt: at, poll: post.poll, cta: false });
+        } else if (post.kind === "video" && (videoPool.length > 0 || photoPool.length > 0)) {
+          // VIDEO_PREMIUM: usa vídeo se houver; senão degrada para foto.
+          let media;
+          if (videoPool.length > 0) {
+            media = videoPool[Math.floor(Math.random() * videoPool.length)];
+            videoPool = videoPool.filter((m) => m.id !== media!.id);
+          } else {
+            media = photoPool[Math.floor(Math.random() * photoPool.length)];
+            photoPool = photoPool.filter((m) => m.id !== media!.id);
+          }
           createPost({
-            profileId: profile.id,
-            networks: [{ network: "telegram", postType: "Prévias" }],
-            scheduledAt: at,
-            poll: post.poll,
+            profileId: profile.id, networks: net, scheduledAt: at,
+            caption: post.text, mediaIds: [media.id], cta: post.cta,
           });
         } else if (post.kind === "foto" && photoPool.length > 0) {
           const media = photoPool[Math.floor(Math.random() * photoPool.length)];
           photoPool = photoPool.filter((m) => m.id !== media.id); // não repete no lote
           createPost({
-            profileId: profile.id,
-            networks: [{ network: "telegram", postType: "Prévias" }],
-            scheduledAt: at,
-            caption: post.text,
-            mediaIds: [media.id],
+            profileId: profile.id, networks: net, scheduledAt: at,
+            caption: post.text, mediaIds: [media.id], cta: post.cta,
           });
         } else {
-          // reacao (ou foto sem estoque de mídia) → texto puro
+          // reacao / texto / foto|vídeo sem estoque → texto puro (mantém o cta
+          // do tipo: ex. VIP_INVITATION/COUNTDOWN/LAST_CALL são texto com CTA).
           createPost({
-            profileId: profile.id,
-            networks: [{ network: "telegram", postType: "Prévias" }],
-            scheduledAt: at,
-            caption: post.text,
+            profileId: profile.id, networks: net, scheduledAt: at,
+            caption: post.text, cta: post.cta,
           });
         }
         taken.add(at);

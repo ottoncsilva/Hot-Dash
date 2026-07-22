@@ -552,7 +552,7 @@ export default function TelegramUnifiedPage() {
                       }`}
                     >
                       <span className={`text-xs font-bold ${settings.warmupScheduleType === "mk" ? 'text-emerald-400' : 'text-zinc-200'}`}>Método MK 🌶️</span>
-                      <span className="text-[10px] text-zinc-500 mt-0.5">Dia gerado por IA</span>
+                      <span className="text-[10px] text-zinc-500 mt-0.5">Dia planejado (30–35)</span>
                     </button>
                   </div>
 
@@ -560,10 +560,11 @@ export default function TelegramUnifiedPage() {
                   {settings.warmupScheduleType === "mk" && (
                     <div className="space-y-3 pt-2">
                       <p className="text-[11px] text-zinc-400">
-                        Gera um dia inteiro de prévias no estilo &quot;diário íntimo&quot; — teasers,
-                        fotos, perguntas, <b>enquetes</b>, oferta e prova social — com horários
-                        variados (±3 min). A metodologia já vem programada no sistema, e o bot
-                        semeia a 1ª reação 🔥 em cada post automaticamente.
+                        Planeja o dia inteiro como um social media profissional: <b>30 a 35 posts/dia</b>,
+                        misturando humanização, engajamento (reação/enquete) e conversão (foto/vídeo
+                        premium com CTA), nos horários de maior venda (meio-dia e noite/madrugada),
+                        no fuso de <b>São Paulo</b>. Cada dia sai diferente; a IA só escreve a copy, e o
+                        bot semeia a 1ª reação 🔥. Só os posts de conversão levam o link do VIP.
                       </p>
                       <p className="text-[11px] text-emerald-300/80">
                         Escolha os <b>dias</b> e clique em <b>“Gerar dias (Método MK)”</b> ali em cima

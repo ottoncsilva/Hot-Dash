@@ -6,6 +6,8 @@ import { IconLock } from "@/components/icons";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import { BackToSettings, ConnectionBadge } from "../_shared";
 
+type LastPaid = { at: number; amountCents: number; customer?: string } | null;
+
 export default function PaymentSettingsPage() {
   const [cfg, setCfg] = useState<PaymentSettingsPublic | null>(null);
   const [syncEnabled, setSyncEnabled] = useState(false);
@@ -15,16 +17,22 @@ export default function PaymentSettingsPage() {
   const [saved, setSaved] = useState(false);
   const [origin, setOrigin] = useState("");
   const [copied, setCopied] = useState(false);
+  const [lastPaid, setLastPaid] = useState<LastPaid>(null);
 
-  useEffect(() => {
-    if (typeof window !== "undefined") setOrigin(window.location.origin);
-    apiGet<{ settings: PaymentSettingsPublic }>("/api/payments/settings")
+  function loadDiagnostics() {
+    apiGet<{ settings: PaymentSettingsPublic; lastPaid: LastPaid }>("/api/payments/settings")
       .then((d) => {
         setCfg(d.settings);
         setSyncEnabled(d.settings.syncpay.enabled);
         setSyncClientId(d.settings.syncpay.clientId);
+        setLastPaid(d.lastPaid);
       })
       .catch(() => {});
+  }
+
+  useEffect(() => {
+    if (typeof window !== "undefined") setOrigin(window.location.origin);
+    loadDiagnostics();
   }, []);
 
   const webhookUrl = cfg?.syncpay.webhookToken
@@ -119,8 +127,12 @@ export default function PaymentSettingsPage() {
           <p className="mt-1.5 text-xs text-zinc-500">
             Cole esta URL na SyncPay em <b>Developer → API → Webhooks</b> (campo
             “Url alvo do disparo”), evento <b>Recebimento — Cash in</b>, com
-            “Disparar para todos os produtos” ativo. É isso que confirma as
-            vendas e alimenta o Financeiro e o Dashboard.
+            “Disparar para todos os produtos” ativo. Esse cadastro é{" "}
+            <b>por conta, não por cobrança</b>: uma vez colado, a SyncPay avisa o
+            Hot-Dash de <b>toda</b> venda paga — não importa quem gerou o PIX
+            (bot do Telegram, checkout externo, o que for). É isso que alimenta
+            o Dashboard, e continua funcionando mesmo antes (ou independente)
+            de o bot de vendas estar rodando pelo Hot-Dash.
           </p>
           <div className="mt-2.5 flex items-center gap-2">
             <input
@@ -142,6 +154,30 @@ export default function PaymentSettingsPage() {
           <p className="mt-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
             o token autentica o webhook — mantenha esta URL privada
           </p>
+
+          {/* Diagnóstico: prova se o webhook está de fato chegando */}
+          <div className="mt-3 flex items-center justify-between rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                Última venda recebida via webhook
+              </p>
+              {lastPaid ? (
+                <p className="mt-0.5 text-xs text-emerald-300">
+                  {(lastPaid.amountCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                  {lastPaid.customer ? ` · ${lastPaid.customer}` : ""} ·{" "}
+                  {new Date(lastPaid.at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                </p>
+              ) : (
+                <p className="mt-0.5 text-xs text-amber-300">
+                  Nenhuma venda registrada ainda. Se você já tem vendas pagas na SyncPay, confira
+                  se colou a URL acima no painel da SyncPay.
+                </p>
+              )}
+            </div>
+            <button type="button" onClick={loadDiagnostics} className="btn-ghost shrink-0 px-3 py-1.5 text-xs">
+              Verificar agora
+            </button>
+          </div>
         </div>
       </div>
 
@@ -156,83 +192,6 @@ export default function PaymentSettingsPage() {
         )}
       </div>
 
-      <FinanceSettingsCard />
-    </div>
-  );
-}
-
-// ---- Financeiro manual (gastos com anúncios + imposto) ----
-function FinanceSettingsCard() {
-  const [adSpend, setAdSpend] = useState("");
-  const [taxRate, setTaxRate] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    apiGet<{ finance: { adSpendCents: number; taxRatePercent: number } }>(
-      "/api/payments/finance-settings",
-    )
-      .then((d) => {
-        setAdSpend((d.finance.adSpendCents / 100).toFixed(2).replace(".", ","));
-        setTaxRate(String(d.finance.taxRatePercent));
-      })
-      .catch(() => {});
-  }, []);
-
-  async function save() {
-    setSaving(true);
-    setSaved(false);
-    try {
-      await apiSend("/api/payments/finance-settings", "PATCH", {
-        adSpendCents: Math.round(Number(adSpend.replace(",", ".")) * 100) || 0,
-        taxRatePercent: Number(taxRate) || 0,
-      });
-      setSaved(true);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="mt-3 card p-4">
-      <p className="font-medium text-white">Financeiro (manual)</p>
-      <p className="mt-1 text-xs text-zinc-500">
-        Sem integração com plataformas de anúncio: informe aqui os gastos do
-        período em análise e a alíquota de imposto para o painel calcular
-        ROAS, ROI, Lucro, Margem e Imposto no Dashboard Financeiro.
-      </p>
-      <div className="mt-3 grid grid-cols-2 gap-3">
-        <div>
-          <label className="eyebrow mb-1.5 block">Gastos com anúncios (R$)</label>
-          <input
-            className="input"
-            inputMode="decimal"
-            placeholder="0,00"
-            value={adSpend}
-            onChange={(e) => setAdSpend(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="eyebrow mb-1.5 block">Alíquota de imposto (%)</label>
-          <input
-            className="input"
-            inputMode="decimal"
-            placeholder="0"
-            value={taxRate}
-            onChange={(e) => setTaxRate(e.target.value)}
-          />
-        </div>
-      </div>
-      <div className="mt-3 flex items-center gap-3">
-        <button onClick={save} disabled={saving} className="btn-ghost">
-          {saving ? "Salvando..." : "Salvar financeiro"}
-        </button>
-        {saved && (
-          <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
-            salvo ✓
-          </span>
-        )}
-      </div>
     </div>
   );
 }

@@ -49,14 +49,18 @@ export default function DashboardHome() {
   const [profileId, setProfileId] = useState<string>("");
   const seenPaidRef = useRef<number | null>(null);
   const [newSale, setNewSale] = useState<{ amountCents: number; customer?: string } | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     apiGet<{ profiles: Profile[] }>("/api/profiles")
       .then((d) => setProfiles(d.profiles))
       .catch(() => setProfiles([]));
     apiGet<{ settings: PaymentSettingsPublic }>("/api/payments/settings")
-      .then((d) => setProviders(d.settings))
-      .catch((e) => setError(e instanceof Error ? e.message : "Falha ao carregar."));
+      .then((d) => {
+        setProviders(d.settings);
+        setError(null);
+      })
+      .catch(() => setError("Sem conexão com o servidor. Verifique a internet e tente de novo."));
     // Status de IA para o checklist de primeiros passos.
     apiGet<{ settings: { openai: { enabled: boolean; hasKey: boolean }; gemini: { enabled: boolean; hasKey: boolean } } }>(
       "/api/settings/ai",
@@ -70,7 +74,7 @@ export default function DashboardHome() {
         ),
       )
       .catch(() => setAiConnected(false));
-  }, []);
+  }, [reloadKey]);
 
   // Detecta venda nova (via webhook da SyncPay) para o toast "🎉 Nova venda
   // confirmada" — independe do painel abaixo e do bot estar rodando ou não.
@@ -127,8 +131,14 @@ export default function DashboardHome() {
       )}
 
       {error && (
-        <div className="mt-5 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-4 py-3 text-sm text-red-300">
-          {error}
+        <div className="mt-5 flex flex-col gap-2 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-4 py-3 text-sm text-red-300 sm:flex-row sm:items-center sm:justify-between">
+          <span>{error}</span>
+          <button
+            onClick={() => { setError(null); setReloadKey((k) => k + 1); }}
+            className="btn-ghost shrink-0 px-3 py-1.5 text-xs"
+          >
+            Tentar de novo
+          </button>
         </div>
       )}
 
@@ -155,7 +165,7 @@ export default function DashboardHome() {
       </div>
 
       {/* Painel do Bot de Vendas — vendas, funil de conversão e faturamento por modelo */}
-      <BotSalesPanel profileId={profileId} profiles={profiles} />
+      <BotSalesPanel profileId={profileId} profiles={profiles} reloadKey={reloadKey} />
 
       {/* Operação */}
       <p className="eyebrow mt-10">operação</p>
@@ -315,14 +325,24 @@ function ModuleLink({
 // e faturamento por modelo. Espelha o painel do bot de vendas (ex-ApexVips),
 // usando os dados reais de transactions/telegram_leads/telegram_subscriptions.
 // ---------------------------------------------------------------------------
-function BotSalesPanel({ profileId, profiles }: { profileId: string; profiles: Profile[] | null }) {
+function BotSalesPanel({
+  profileId,
+  profiles,
+  reloadKey,
+}: {
+  profileId: string;
+  profiles: Profile[] | null;
+  reloadKey: number;
+}) {
   const [period, setPeriod] = useState<BotPeriodKey>("last7");
   const [data, setData] = useState<BotOverviewData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [innerReload, setInnerReload] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setData(null);
+    setError(null);
     const qs = new URLSearchParams({ period });
     if (profileId) qs.set("profileId", profileId);
     apiGet<BotOverviewData>(`/api/dashboard/bot-overview?${qs.toString()}`)
@@ -332,13 +352,13 @@ function BotSalesPanel({ profileId, profiles }: { profileId: string; profiles: P
           setError(null);
         }
       })
-      .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Falha ao carregar o painel.");
+      .catch(() => {
+        if (!cancelled) setError("Sem conexão com o servidor. Verifique a internet e tente de novo.");
       });
     return () => {
       cancelled = true;
     };
-  }, [period, profileId]);
+  }, [period, profileId, reloadKey, innerReload]);
 
   const profileName = (id: string) => profiles?.find((p) => p.id === id)?.name || id;
 
@@ -364,8 +384,14 @@ function BotSalesPanel({ profileId, profiles }: { profileId: string; profiles: P
       </div>
 
       {error && (
-        <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-4 py-3 text-sm text-red-300">
-          {error}
+        <div className="mt-3 flex flex-col gap-2 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-4 py-3 text-sm text-red-300 sm:flex-row sm:items-center sm:justify-between">
+          <span>{error}</span>
+          <button
+            onClick={() => setInnerReload((k) => k + 1)}
+            className="btn-ghost shrink-0 px-3 py-1.5 text-xs"
+          >
+            Tentar de novo
+          </button>
         </div>
       )}
 

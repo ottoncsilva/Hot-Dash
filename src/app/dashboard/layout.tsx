@@ -296,20 +296,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Barra superior (Mobile) — hambúrguer no canto superior esquerdo +
-          marca. Respeita o recorte da câmera do iPhone (safe-area-inset-top),
-          para o topo do app não ficar escondido embaixo do notch. */}
-      <header className="safe-top fixed inset-x-0 top-0 z-40 border-b border-white/10 bg-ink-950/90 backdrop-blur-md md:hidden">
-        <div className="flex h-14 items-center gap-2 px-3">
-          <button
-            onClick={() => setMobileMenuOpen(true)}
-            className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-200 transition-colors hover:bg-white/5"
-            aria-label="Abrir menu"
-          >
-            <IconMenu size={24} />
-          </button>
-          <Brand compact />
-        </div>
-      </header>
+          A marca (logo) fica DENTRO do menu, não numa barra fixa. */}
+      <button
+        onClick={() => setMobileMenuOpen(true)}
+        style={{ top: "calc(env(safe-area-inset-top) + 0.5rem)" }}
+        className="fixed left-3 z-40 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-ink-950/70 text-zinc-100 shadow-lg backdrop-blur-md transition-colors hover:bg-ink-900 md:hidden"
+        aria-label="Abrir menu"
+      >
+        <IconMenu size={22} />
+      </button>
 
       {/* Drawer Mobile Overlay (Menu Hambúrguer) */}
       {mobileMenuOpen && (

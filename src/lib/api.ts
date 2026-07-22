@@ -3,8 +3,27 @@
  * (HttpOnly), enviado automaticamente pelo navegador nas chamadas ao backend.
  */
 export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(path);
-  return handle<T>(res);
+  // GET é idempotente: em falha de REDE (fetch rejeita com TypeError — no
+  // Safari a mensagem é "Load failed"), tenta de novo algumas vezes com um
+  // pequeno intervalo. Isso evita que um blip de rede móvel ou um restart do
+  // servidor deixe o painel preso em "Load failed". Erros HTTP (4xx/5xx) NÃO
+  // são repetidos — são tratados normalmente em handle().
+  const MAX_ATTEMPTS = 3;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(path, { credentials: "same-origin", cache: "no-store" });
+      return await handle<T>(res);
+    } catch (err) {
+      lastErr = err;
+      // Só repete se foi falha de rede (TypeError). Erros lançados por handle()
+      // (mensagem começando com "Erro" ou vindo do backend) não são de rede.
+      const isNetwork = err instanceof TypeError;
+      if (!isNetwork || attempt === MAX_ATTEMPTS - 1) break;
+      await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Falha de rede.");
 }
 
 export async function apiSend<T>(

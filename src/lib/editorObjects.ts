@@ -64,10 +64,11 @@ export const TEXT_COLORS = [
   "#ec4899",
 ];
 
-// Alvo de toque (em px de tela) das alças de manipulação.
-export const HANDLE_SCREEN_PX = 34;
-// Raio visual das alças (em px de tela).
-export const HANDLE_RADIUS_SCREEN = 13;
+// Alvo de toque (em px de tela) das alças de manipulação (-30% do valor
+// original: menos sobreposição com o corpo do objeto, ex. um emoji pequeno).
+export const HANDLE_SCREEN_PX = 24;
+// Raio visual das alças (em px de tela; -30% do valor original).
+export const HANDLE_RADIUS_SCREEN = 9;
 // Distância (px de tela) da alça de girar acima da borda superior.
 export const ROTATE_OFFSET_SCREEN = 34;
 // Margem (em coordenadas do canvas) que a área clicável ganha além do
@@ -278,7 +279,7 @@ export function toLocalPoint(
 // Alças de manipulação (com ícone)
 // ---------------------------------------------------------------------------
 
-type HandleKind = "resize" | "rotate" | "delete";
+type HandleKind = "resize" | "rotate" | "delete" | "move";
 
 function drawHandle(
   ctx: CanvasRenderingContext2D,
@@ -293,7 +294,13 @@ function drawHandle(
   ctx.beginPath();
   ctx.arc(0, 0, r, 0, 2 * Math.PI);
   ctx.fillStyle =
-    kind === "resize" ? "#10b981" : kind === "rotate" ? "#3b82f6" : "#ef4444";
+    kind === "resize"
+      ? "#10b981"
+      : kind === "rotate"
+        ? "#3b82f6"
+        : kind === "move"
+          ? "#f59e0b"
+          : "#ef4444";
   ctx.fill();
   ctx.lineWidth = Math.max(1.5, r * 0.16);
   ctx.strokeStyle = "#ffffff";
@@ -330,7 +337,7 @@ function drawHandle(
     ctx.moveTo(-s, -s);
     ctx.lineTo(-s, -s + a);
     ctx.stroke();
-  } else {
+  } else if (kind === "rotate") {
     // Girar: arco com ponta de seta
     ctx.beginPath();
     ctx.arc(0, 0, s, Math.PI * 0.75, Math.PI * 2.15);
@@ -343,6 +350,31 @@ function drawHandle(
     ctx.lineTo(ex - a, ey - a * 0.2);
     ctx.moveTo(ex, ey);
     ctx.lineTo(ex + a * 0.2, ey - a);
+    ctx.stroke();
+  } else {
+    // Mover: cruz com pontas de seta nas 4 direções.
+    const a = r * 0.28;
+    ctx.beginPath();
+    ctx.moveTo(0, -s);
+    ctx.lineTo(0, s);
+    ctx.moveTo(0, -s);
+    ctx.lineTo(-a, -s + a);
+    ctx.moveTo(0, -s);
+    ctx.lineTo(a, -s + a);
+    ctx.moveTo(0, s);
+    ctx.lineTo(-a, s - a);
+    ctx.moveTo(0, s);
+    ctx.lineTo(a, s - a);
+    ctx.moveTo(-s, 0);
+    ctx.lineTo(s, 0);
+    ctx.moveTo(-s, 0);
+    ctx.lineTo(-s + a, -a);
+    ctx.moveTo(-s, 0);
+    ctx.lineTo(-s + a, a);
+    ctx.moveTo(s, 0);
+    ctx.lineTo(s - a, -a);
+    ctx.moveTo(s, 0);
+    ctx.lineTo(s - a, a);
     ctx.stroke();
   }
   ctx.restore();
@@ -390,6 +422,7 @@ export function drawSelectionBox(
     drawHandle(ctx, 0, ly - rotOffset, "rotate", r);
     drawHandle(ctx, lx + b.w, ly + b.h, "resize", r);
     drawHandle(ctx, lx, ly, "delete", r);
+    drawHandle(ctx, lx, ly + b.h, "move", r);
   }
 
   ctx.restore();
@@ -402,6 +435,7 @@ function handlePositions(b: { w: number; h: number }, scale: number) {
     resize: { lx: b.w / 2, ly: b.h / 2 },
     rotate: { lx: 0, ly: -b.h / 2 - rotOffset },
     delete: { lx: -b.w / 2, ly: -b.h / 2 },
+    move: { lx: -b.w / 2, ly: b.h / 2 },
   };
 }
 
@@ -451,6 +485,21 @@ export function hitDeleteHandle(
   const b = computeBounds(ctx, o);
   const tol = HANDLE_SCREEN_PX * scaleX;
   return nearLocal(b, rotationOf(o), x, y, handlePositions(b, scaleX).delete, tol);
+}
+
+/** Alça dedicada de ARRASTAR (canto inferior-esquerdo) — evita depender só
+ *  de clicar no corpo do objeto, que em objetos pequenos (ex. emoji) ficava
+ *  perto demais da alça de excluir e causava exclusão acidental ao arrastar. */
+export function hitMoveHandle(
+  ctx: CanvasRenderingContext2D,
+  o: EditorObject,
+  x: number,
+  y: number,
+  scaleX: number,
+): boolean {
+  const b = computeBounds(ctx, o);
+  const tol = HANDLE_SCREEN_PX * scaleX;
+  return nearLocal(b, rotationOf(o), x, y, handlePositions(b, scaleX).move, tol);
 }
 
 // ---------------------------------------------------------------------------

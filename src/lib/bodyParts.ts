@@ -19,6 +19,6 @@ export const DEFAULT_PART_EMOJI: Record<BodyPart, string> = {
   seios: "🍑",
   vagina: "🌸",
   penis: "🍆",
-  bunda: "🍑",
+  bunda: "", // ∅ — não cobrir por padrão
   anus: "🔥",
 };

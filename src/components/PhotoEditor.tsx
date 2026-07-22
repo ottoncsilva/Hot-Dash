@@ -487,6 +487,8 @@ export default function PhotoEditor({
       // A rota devolve regiões em coordenadas RELATIVAS (0..1). Aplicamos uma
       // folga de 12% ao redor para cobrir com margem.
       const PAD = 0.12;
+      // Tamanho do emoji ao censurar por IA (0.45 = padrão do modelo).
+      const EMOJI_SCALE = 0.45;
       const regions = (data.regions || []) as {
         part: BodyPart;
         x: number;
@@ -518,8 +520,9 @@ export default function PhotoEditor({
             const cx = (r.x + r.w / 2) * w;
             const cy = (r.y + r.h / 2) * h;
             // Emoji quadrado que cobre a maior dimensão da região (com folga).
+            // EMOJI_SCALE reduz o emoji para não ficar maior que a área coberta.
             const base = Math.max(r.w * w, r.h * h);
-            const size = Math.max(24, base * (1 + PAD));
+            const size = Math.max(24, base * (1 + PAD) * EMOJI_SCALE);
             return {
               id: crypto.randomUUID(),
               type: "emoji",

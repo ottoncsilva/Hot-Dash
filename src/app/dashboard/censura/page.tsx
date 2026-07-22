@@ -59,9 +59,9 @@ export default function CensuraPage() {
 
   // Configuração
   const [partEmoji, setPartEmoji] = useState<Record<BodyPart, string>>({ ...DEFAULT_PART_EMOJI });
-  const [minScore, setMinScore] = useState(0.3);
-  const [padding, setPadding] = useState(0.12);
-  const [emojiScale, setEmojiScale] = useState(0.9);
+  const [minScore, setMinScore] = useState(0.2);
+  const [padding, setPadding] = useState(0.2);
+  const [emojiScale, setEmojiScale] = useState(0.45);
 
   // Perfis (para salvar na galeria — opcional)
   const [profiles, setProfiles] = useState<Profile[]>([]);

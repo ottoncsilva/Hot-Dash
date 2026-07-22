@@ -104,7 +104,8 @@ export function mediaFileUrl(item: MediaItem, opts?: { download?: boolean }): st
   return `/api/media/${item.id}/file?v=${v}${dl}`;
 }
 
-/** URL da miniatura (primeiro frame) de um vídeo — só faz sentido para kind === "video". */
+/** URL da miniatura leve (imagem reduzida ~480px, ou 1º frame de vídeo). Serve
+ *  para a galeria não baixar o arquivo em resolução cheia só para o quadradinho. */
 export function mediaThumbUrl(item: MediaItem): string {
   const v = item.updatedAt || item.createdAt;
   return `/api/media/${item.id}/thumbnail?v=${v}`;

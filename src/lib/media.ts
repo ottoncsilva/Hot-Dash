@@ -76,6 +76,37 @@ export async function ensureVideoThumbnail(relPath: string): Promise<string | nu
   }
 }
 
+/** Caminho determinístico da miniatura de uma IMAGEM (JPEG pequeno, cacheado). */
+export function imageThumbRelPath(relPath: string): string {
+  return relPath.replace(/\.[^./\\]+$/, ".thumb.jpg");
+}
+
+/**
+ * Garante que existe uma miniatura pequena (máx. 480px, JPEG) da imagem no
+ * disco, gerando-a sob demanda na primeira vez com o sharp. Serve para a
+ * galeria não baixar o arquivo em resolução cheia (vários MB) só para mostrar
+ * um quadradinho — a causa das miniaturas demorarem a carregar no mobile.
+ * Nunca lança: em falha, retorna null (a galeria cai no arquivo original).
+ */
+export async function ensureImageThumbnail(relPath: string): Promise<string | null> {
+  const thumbPath = imageThumbRelPath(relPath);
+  if (thumbPath === relPath) return null; // sem extensão reconhecida
+  if (await fileExists(thumbPath)) return thumbPath;
+  try {
+    const sharp = (await import("sharp")).default;
+    const buf = await readBuffer(relPath);
+    const thumb = await sharp(buf)
+      .rotate() // respeita orientação EXIF
+      .resize(480, 480, { fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 70, mozjpeg: true })
+      .toBuffer();
+    await saveFile(thumbPath, thumb);
+    return thumbPath;
+  } catch {
+    return null;
+  }
+}
+
 export function insertMedia(input: {
   id: string;
   profileId: string;

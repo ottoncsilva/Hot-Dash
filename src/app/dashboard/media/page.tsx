@@ -967,8 +967,9 @@ function MediaGrid({
             >
               {item.kind === "image" ? (
                 <AuthImage
-                  src={mediaFileUrl(item)}
+                  src={mediaThumbUrl(item)}
                   alt={item.filename}
+                  loading="lazy"
                   className={`h-full w-full object-cover transition-opacity ${
                     isSelected ? "opacity-70" : ""
                   }`}
@@ -979,6 +980,7 @@ function MediaGrid({
                   <AuthImage
                     src={mediaThumbUrl(item)}
                     alt={item.filename}
+                    loading="lazy"
                     className={`h-full w-full object-cover transition-opacity ${
                       isSelected ? "opacity-70" : ""
                     }`}

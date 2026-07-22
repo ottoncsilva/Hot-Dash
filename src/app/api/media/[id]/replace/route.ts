@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { extname } from "node:path";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { cleanMetadata, mediaKind } from "@/lib/metadata";
-import { ensureVideoThumbnail, getMediaRow, newMediaPath, overwriteMediaFile } from "@/lib/media";
+import { ensureVideoThumbnail, ensureImageThumbnail, getMediaRow, newMediaPath, overwriteMediaFile } from "@/lib/media";
 import { saveFile } from "@/lib/storage";
 import { getImageDimensions } from "@/lib/imageDimensions";
 import { addTagsByNameToMedia, getTagsForMedia } from "@/lib/tags";
@@ -54,6 +54,8 @@ export async function POST(
     await saveFile(relPath, cleaned);
     if (kind === "video") {
       await ensureVideoThumbnail(relPath);
+    } else {
+      await ensureImageThumbnail(relPath);
     }
 
     const dimensions = kind === "image" ? getImageDimensions(cleaned, ext) : null;

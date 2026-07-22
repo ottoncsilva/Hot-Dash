@@ -5,6 +5,7 @@ import { getProfile } from "@/lib/profiles";
 import { cleanMetadata, mediaKind } from "@/lib/metadata";
 import {
   ensureVideoThumbnail,
+  ensureImageThumbnail,
   getOrCreatePublicToken,
   insertMedia,
   listMedia,
@@ -96,11 +97,13 @@ export async function POST(
     const { id, relPath } = newMediaPath(params.id, ext);
     await saveFile(relPath, cleaned);
 
-    // Miniatura (primeiro frame) para vídeos — gerada aqui para já aparecer
-    // na galeria assim que o upload termina; nunca lança (se falhar, a rota
-    // de miniatura tenta gerar de novo sob demanda).
+    // Miniatura já gerada no upload para aparecer instantânea na galeria
+    // (vídeo: 1º frame; imagem: versão reduzida ~480px). Nunca lança — se
+    // falhar, a rota de miniatura tenta de novo sob demanda.
     if (kind === "video") {
       await ensureVideoThumbnail(relPath);
+    } else {
+      await ensureImageThumbnail(relPath);
     }
 
     const editedFromRaw = form.get("editedFrom");

@@ -188,13 +188,32 @@ export type PeriodStats = {
   methodBreakdown: { method: string; count: number; cents: number }[];
 };
 
-function computePeriodStats(sinceMs: number | null, profileId?: string): PeriodStats {
+/** Como computePeriodStats, mas aceita também um limite superior (untilMs) —
+ *  necessário para períodos fechados como "Ontem" ([início, fim)). Exportada
+ *  para o painel do bot de vendas (períodos Hoje/Ontem/7 dias/30 dias/Máximo). */
+export function periodStatsInRange(
+  sinceMs: number | null,
+  untilMs: number | null,
+  profileId?: string,
+): PeriodStats {
+  return computePeriodStats(sinceMs, profileId, untilMs);
+}
+
+function computePeriodStats(
+  sinceMs: number | null,
+  profileId?: string,
+  untilMs: number | null = null,
+): PeriodStats {
   const db = getDb();
   const clauses: string[] = [];
   const params: (string | number)[] = [];
   if (sinceMs !== null) {
     clauses.push("created_at >= ?");
     params.push(sinceMs);
+  }
+  if (untilMs !== null) {
+    clauses.push("created_at < ?");
+    params.push(untilMs);
   }
   if (profileId) {
     clauses.push("profile_id = ?");
@@ -259,6 +278,34 @@ export type Overview = {
   dailySeries: { day: string; cents: number }[];
 };
 
+/** Série diária de receita paga dos últimos N dias (hoje incluso), mais
+ *  antigo → hoje. Usada no gráfico "Faturamento por período". */
+export function revenueSeriesForDays(days: number, profileId?: string): { day: string; cents: number }[] {
+  const db = getDb();
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const series: { day: string; cents: number }[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(startOfToday);
+    d.setDate(d.getDate() - i);
+    const next = new Date(d);
+    next.setDate(next.getDate() + 1);
+    const params: (string | number)[] = [d.getTime(), next.getTime()];
+    let sql =
+      "SELECT COALESCE(SUM(amount_cents),0) s FROM transactions WHERE status = 'paid' AND created_at >= ? AND created_at < ?";
+    if (profileId) {
+      sql += " AND profile_id = ?";
+      params.push(profileId);
+    }
+    const r = db.prepare(sql).get(...params) as { s: number };
+    series.push({
+      day: d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+      cents: r.s,
+    });
+  }
+  return series;
+}
+
 export function overview(profileId?: string): Overview {
   const db = getDb();
   const now = new Date();
@@ -278,33 +325,12 @@ export function overview(profileId?: string): Overview {
         .prepare("SELECT MAX(created_at) m FROM transactions WHERE status = 'paid'")
         .get() as { m: number | null });
 
-  // Série diária dos últimos 14 dias.
-  const dailySeries: { day: string; cents: number }[] = [];
-  for (let i = 13; i >= 0; i--) {
-    const d = new Date(startOfToday);
-    d.setDate(d.getDate() - i);
-    const next = new Date(d);
-    next.setDate(next.getDate() + 1);
-    const params: (string | number)[] = [d.getTime(), next.getTime()];
-    let sql =
-      "SELECT COALESCE(SUM(amount_cents),0) s FROM transactions WHERE status = 'paid' AND created_at >= ? AND created_at < ?";
-    if (profileId) {
-      sql += " AND profile_id = ?";
-      params.push(profileId);
-    }
-    const r = db.prepare(sql).get(...params) as { s: number };
-    dailySeries.push({
-      day: d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
-      cents: r.s,
-    });
-  }
-
   return {
     today: computePeriodStats(startOfToday.getTime(), profileId),
     week: computePeriodStats(startOfWeek.getTime(), profileId),
     month: computePeriodStats(startOfMonth.getTime(), profileId),
     total: computePeriodStats(null, profileId),
     lastSaleAt: lastSaleQuery.m,
-    dailySeries,
+    dailySeries: revenueSeriesForDays(14, profileId),
   };
 }

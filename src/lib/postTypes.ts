@@ -100,6 +100,8 @@ export type ScheduledPost = {
   scheduledAt: number;
   caption?: string;
   poll?: PostPoll;
+  /** true = leva o botão/link do VIP no envio; false = não; undefined = legado. */
+  cta?: boolean;
   status: PostStatus;
   media: {
     id: string;

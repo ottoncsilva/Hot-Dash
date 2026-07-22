@@ -10,6 +10,7 @@ type PostRow = {
   scheduled_at: number;
   caption: string | null;
   poll: string | null;
+  cta: number | null;
   status: string;
   created_at: number;
   updated_at: number;
@@ -75,6 +76,7 @@ function toClient(r: PostRow): ScheduledPost {
     scheduledAt: r.scheduled_at,
     caption: r.caption || undefined,
     poll: parsePoll(r.poll),
+    cta: r.cta === 1 ? true : r.cta === 0 ? false : undefined,
     status: r.status === "posted" ? "posted" : "scheduled",
     media: loadMedia(r.id),
     createdAt: r.created_at,

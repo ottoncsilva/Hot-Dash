@@ -35,7 +35,10 @@ export default function SaveMediaButton({
       canShare?: (data?: ShareData) => boolean;
       share?: (data: ShareData) => Promise<void>;
     };
-    if (!nav.share || !nav.canShare) return; // deixa o <a> normal agir (fallback)
+    // Sem Web Share: deixa o <a target="_blank"> abrir o arquivo em NOVA aba
+    // (o app não é substituído). No iOS, navegar a própria página para um
+    // vídeo abre o preview "abrir com…" e TRAVA o app até fechar/reabrir.
+    if (!nav.share || !nav.canShare) return;
 
     e.preventDefault();
     setBusy(true);
@@ -48,13 +51,14 @@ export default function SaveMediaButton({
       if (nav.canShare({ files: [file] })) {
         await nav.share({ files: [file] });
       } else {
-        // Dispositivo não aceita compartilhar este arquivo: baixa normalmente.
-        triggerDownload(url, filename);
+        // Dispositivo não aceita compartilhar este arquivo: abre em nova aba.
+        openInNewTab(url);
       }
     } catch (err) {
-      // Usuário cancelou a folha de compartilhamento, ou falhou: tenta o download comum.
+      // Usuário cancelou a folha de compartilhamento (AbortError): não faz nada.
+      // Outra falha: abre em nova aba (sem travar o app).
       if ((err as Error)?.name !== "AbortError") {
-        triggerDownload(url, filename);
+        openInNewTab(url);
       }
     } finally {
       setBusy(false);
@@ -65,6 +69,8 @@ export default function SaveMediaButton({
     <a
       href={url}
       download={filename}
+      target="_blank"
+      rel="noopener noreferrer"
       onClick={handleClick}
       className={className}
       aria-label={label}
@@ -76,11 +82,11 @@ export default function SaveMediaButton({
   );
 }
 
-function triggerDownload(url: string, filename: string) {
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+/** Abre o arquivo numa nova aba/janela — NUNCA navega a página atual, para
+ *  não trocar o app pela tela de preview do iOS (que trava até reabrir). */
+function openInNewTab(url: string) {
+  const w = window.open(url, "_blank", "noopener,noreferrer");
+  // Se o popup for bloqueado, o usuário ainda pode usar o botão de novo; não
+  // caímos para navegação na mesma aba (que era o que travava).
+  if (w) w.opener = null;
 }

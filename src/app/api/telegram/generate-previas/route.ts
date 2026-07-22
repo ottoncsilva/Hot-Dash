@@ -74,12 +74,12 @@ export async function POST(req: NextRequest) {
     let created = 0;
     let aiError: string | null = null;
 
-    // Método MK planeja SEMPRE a partir do DIA SEGUINTE (dia inteiro, das 05h à
-    // madrugada). "1 dia" = amanhã completo; "2 dias" = amanhã + depois; etc.
-    // (Gerar o dia atual sairia pela metade, pois a manhã/tarde já passaram.)
-    for (let dayOffset = 0; dayOffset < days; dayOffset++) {
+    // Gera o RESTO do dia atual (offset 0 — a manhã/tarde já passadas são
+    // puladas automaticamente) + os `days` dias seguintes completos (05h à
+    // madrugada). Ex.: "1 dia" = resto de hoje + amanhã inteiro.
+    for (let dayOffset = 0; dayOffset <= days; dayOffset++) {
       const base = new Date();
-      base.setDate(base.getDate() + dayOffset + 1);
+      base.setDate(base.getDate() + dayOffset);
 
       let dayPosts;
       try {

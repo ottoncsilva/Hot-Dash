@@ -14,6 +14,7 @@ export default function AuthImage({
   fallback,
   style,
   draggable,
+  loading,
 }: {
   src: string | null;
   alt: string;
@@ -21,6 +22,7 @@ export default function AuthImage({
   fallback?: React.ReactNode;
   style?: React.CSSProperties;
   draggable?: boolean;
+  loading?: "lazy" | "eager";
 }) {
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -47,6 +49,8 @@ export default function AuthImage({
       ref={imgRef}
       src={src}
       alt={alt}
+      loading={loading}
+      decoding="async"
       className={`${className || ""} transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
       style={style}
       draggable={draggable}

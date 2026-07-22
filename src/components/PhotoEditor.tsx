@@ -37,6 +37,7 @@ import {
   hitResizeHandle,
   hitRotateHandle,
   hitDeleteHandle,
+  hitMoveHandle,
   computeBounds,
   centerOf,
   rotationOf,
@@ -206,6 +207,13 @@ export default function PhotoEditor({
         dragRef.current = {
           id: selected.id, kind: "resize", startX: x, startY: y, orig: { ...selected },
           cx, cy, startAngle: 0, startDist: Math.hypot(x - cx, y - cy),
+        };
+        return;
+      }
+      if (hitMoveHandle(ctx, selected, x, y, scaleX)) {
+        dragRef.current = {
+          id: selected.id, kind: "move", startX: x, startY: y, orig: { ...selected },
+          cx, cy, startAngle: 0, startDist: 0,
         };
         return;
       }
@@ -719,7 +727,7 @@ export default function PhotoEditor({
             <div className="flex items-center justify-between">
               <p className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
                 {selected.type === "emoji"
-                  ? "emoji · canto p/ redimensionar, alça de cima p/ girar"
+                  ? "emoji · alça 🟠 p/ arrastar, canto 🟢 p/ redimensionar, alça de cima 🔵 p/ girar"
                   : "área borrada · arraste o canto para redimensionar"}
               </p>
               <button

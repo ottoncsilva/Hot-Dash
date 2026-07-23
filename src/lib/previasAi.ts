@@ -1,6 +1,4 @@
 import "server-only";
-import { callAiRaw } from "./ai";
-import type { AiProvider } from "./settings";
 
 /**
  * Método MK v2 — PLANEJADOR do dia inteiro do grupo de PRÉVIAS.
@@ -194,13 +192,13 @@ export function planDay(): Omit<PreviaPost, "text" | "poll">[] {
  *  ~30% (alvo 40/30/30 e o que os bots reais fazem, ~27% foto/vídeo), mantendo
  *  noite (20h–03h) e meio-dia como os períodos mais vendedores. */
 function windowConvTarget(w: Window): number {
-  if (w.start === 20 || w.start === 0) return 0.5; // 20–23:30 e 00–03 (picos)
-  if (w.start === 11) return 0.4; // 11–14 (1º pico)
-  if (w.start === 17) return 0.3; // 17–20 aquecer
-  if (w.start === 14) return 0.2; // 14–17 baixar pressão
-  if (w.start === 8) return 0.1; // 08–11 (engajamento)
-  if (w.start === 5) return 0.05; // 05–08 (humanização)
-  return 0.1; // 03–05
+  if (w.start === 20 || w.start === 0) return 0.62; // 20–23:30 e 00–03 (picos)
+  if (w.start === 11) return 0.5; // 11–14 (1º pico)
+  if (w.start === 17) return 0.4; // 17–20 aquecer
+  if (w.start === 14) return 0.28; // 14–17 baixar pressão
+  if (w.start === 8) return 0.15; // 08–11 (engajamento)
+  if (w.start === 5) return 0.08; // 05–08 (humanização)
+  return 0.18; // 03–05
 }
 
 /** Escolhe um tipo da janela: prioriza conversão quando `wantConv`; senão
@@ -300,155 +298,77 @@ export function saoPauloWallTimeToUtcMs(dateBase: Date, time: string, jitter = f
 }
 
 // --------------------------------------------------------------------------
-// ETAPA 2 — Escrever a copy (IA)
+// ETAPA 2 — Copy de cada post (feita PER-POST na rota, com ANÁLISE DA FOTO)
 // --------------------------------------------------------------------------
+// A rota (generate-previas) gera a legenda de cada post com generateCaption,
+// enviando a IMAGEM (visão) nos posts de foto/vídeo — assim a legenda descreve
+// a foto de verdade, em vez de sair genérica. Aqui ficam só os "temas" por
+// tipo (o que a IA deve escrever) e os fallbacks de reserva.
 
-function personaLine(profile: PreviasProfile): string {
-  return [
-    `Modelo: ${profile.name}.`,
-    profile.physical ? `Físico: ${profile.physical}.` : "",
-    profile.fetish ? `Diferencial/fetiche: ${profile.fetish}.` : "",
-    profile.notes ? `Notas: ${profile.notes}.` : "",
-    profile.personality === "santinha"
-      ? "Estilo: santinha (inocente por fora, safada por dentro)."
-      : profile.personality === "explicita"
-        ? "Estilo: explícita (sem papas na língua, ousada e direta)."
-        : "Estilo: safadinha (safada na medida).",
-  ]
-    .filter(Boolean)
-    .join(" ");
-}
-
-/** Instrução de copy por tipo (o "método MK" aplicado a cada post). */
-function typeHint(type: MkType): string {
+/** Tema/instrução que a rota passa a generateCaption como `theme` — define o
+ *  OBJETIVO e o TOM do post, imitando o método MK. Nunca pede link/hashtag
+ *  (o botão do VIP é anexado automaticamente no envio). */
+export function captionTheme(type: MkType): string {
+  const noLink =
+    "Escreva na 1ª pessoa, tom de diário íntimo, provocante e autêntico. Curta (1–2 linhas). " +
+    "NÃO escreva link, URL nem 'entra no VIP' — o botão é anexado automaticamente. Sem hashtags. " +
+    "Varie a abertura; nunca comece igual a outra legenda.";
+  const cta =
+    "Faça uma CHAMADA forte pro VIP (provoque a curiosidade, diga que o melhor/sem censura está lá), " +
+    "mas SEM escrever o link — o botão é anexado automaticamente.";
   switch (type) {
-    case "GOOD_MORNING": return "bom dia curto e humano, sem vender, tom carinhoso/safadinho";
-    case "HUMANIZATION": return "conta um pedaço da rotina (café, banho, academia, TV, voltando pra casa), íntimo, sem vender";
-    case "BREAKFAST": return "café da manhã, provocante e leve, sem venda";
-    case "SELFIE": return "legenda de uma selfie sua do momento (o sistema anexa a foto), sem CTA";
-    case "WORK": return "está trabalhando/estúdio, insinua o que grava, sem venda direta";
-    case "BEHIND_SCENES": return "bastidores do conteúdo, curiosidade, sem venda";
-    case "CURIOSITY": return "curiosidade que prende ('descobri que…', 'ontem aconteceu…'), gera comentário, sem venda";
-    case "QUESTION": return "pergunta simples pra gerar comentário ('o que você faria…'), sem venda";
-    case "REACTION": return "post CURTO que PEDE reação (ex.: 'reage com 🔥 se…'), sem link";
-    case "POLL": return "enquete safada: preencha poll.question e 2 a 4 poll.options curtas; text pode repetir a pergunta; sem venda";
-    case "PHOTO_PREMIUM": return "legenda ousada de uma foto premium (o sistema anexa) com CTA forte pro VIP";
-    case "VIDEO_PREMIUM": return "legenda de um vídeo premium (o sistema anexa) com CTA MUITO forte pro VIP";
-    case "PRESENT": return "sensação de recompensa ('quem reagir/entrar ganha…'), com CTA pro VIP";
-    case "COUNTDOWN": return "urgência real ('hoje eu apago', 'última chance'), com CTA pro VIP";
-    case "VIP_INVITATION": return "convite direto e safado pro VIP, com CTA";
-    case "LAST_CALL": return "última chamada de venda do dia, urgência máxima, com CTA";
-    case "GOOD_NIGHT": return "boa noite íntimo, provocante, sem vender";
+    case "GOOD_MORNING": return `Post de BOM DIA, humano e carinhoso, sem vender. ${noLink}`;
+    case "HUMANIZATION": return `Conte um pedaço da sua ROTINA (café, banho, academia, TV, voltando pra casa), íntimo, sem vender. ${noLink}`;
+    case "BREAKFAST": return `Café da manhã, leve e provocante, sem vender. ${noLink}`;
+    case "SELFIE": return `Legenda pra esta SELFIE, reagindo ao que aparece na foto (roupa, pose, clima), sem vender. ${noLink}`;
+    case "WORK": return `Você está trabalhando/no estúdio; insinue o que está gravando, sem venda direta. ${noLink}`;
+    case "BEHIND_SCENES": return `Bastidores do conteúdo, curiosidade, sem vender. ${noLink}`;
+    case "CURIOSITY": return `Curiosidade que prende ('descobri que…', 'ontem rolou…') e gera comentário, sem vender. ${noLink}`;
+    case "QUESTION": return `Pergunta simples e safada pra gerar comentário ('o que você faria…'), sem vender. ${noLink}`;
+    case "REACTION": return `Post CURTO que PEDE reação com emoji ('reage com 🔥 se…', '😈 se você…'), sem link. ${noLink}`;
+    case "PHOTO_PREMIUM": return `Legenda ousada desta FOTO premium. ${cta} ${noLink}`;
+    case "VIDEO_PREMIUM": return `Legenda quente pra um VÍDEO premium (use o frame como referência). ${cta} ${noLink}`;
+    case "PRESENT": return `Crie recompensa: 'quem entrar/reagir agora ganha…'. ${cta} ${noLink}`;
+    case "COUNTDOWN": return `Urgência real ('hoje eu apago', 'última chance de hoje'). ${cta} ${noLink}`;
+    case "VIP_INVITATION": return `Convite direto e safado pro VIP. ${cta} ${noLink}`;
+    case "LAST_CALL": return `ÚLTIMA CHAMADA de venda do dia, urgência máxima. ${cta} ${noLink}`;
+    case "GOOD_NIGHT": return `Boa noite íntimo e provocante, sem vender. ${noLink}`;
+    case "POLL": return `Enquete safada e leve, sem vender. ${noLink}`;
   }
 }
 
-function buildPrompt(profile: PreviasProfile, plan: Omit<PreviaPost, "text" | "poll">[]): string {
-  const agenda = plan
-    .map((s, i) => `${i}) ${s.time} — ${s.type}: ${typeHint(s.type)}`)
-    .join("\n");
-
-  return [
-    `Você é a própria ${profile.name} escrevendo no seu grupo de PRÉVIAS gratuito do Telegram.`,
-    personaLine(profile),
-    "",
-    "Um social media profissional montou a AGENDA do dia abaixo (horário + tipo).",
-    "Escreva SÓ a COPY de cada post. Tom de 'diário íntimo', 1ª pessoa, português do Brasil,",
-    "sensual e autêntico. Humanização de manhã/tarde; CTA forte à noite/madrugada. NÃO escreva",
-    "links nem 'entra no VIP' (os botões/links são anexados automaticamente pelo sistema).",
-    "Emojis com moderação (🔥😈💦😏). Cada text com no máximo ~350 caracteres. Varie as aberturas;",
-    "NUNCA repita a mesma frase de abertura entre os posts.",
-    "",
-    "AGENDA (responda na MESMA ordem e índices):",
-    agenda,
-    "",
-    "Regras DE FORMATO (obrigatórias):",
-    '- Responda SOMENTE um JSON: {"slots":[{"i":0,"text":"...","poll":{"question":"...","options":["..",".."]}}]}',
-    `- Um item para CADA índice acima (0 a ${plan.length - 1}).`,
-    "- O campo poll SÓ nos itens de tipo POLL; nos demais, omita poll.",
-    "- Não invente novos tipos nem horários: eles já estão fixados.",
-  ].join("\n");
-}
-
 // --------------------------------------------------------------------------
-// Fallbacks (dia sai completo mesmo sem IA)
+// Fallbacks (só usados quando a IA falha — variados pra não repetir)
 // --------------------------------------------------------------------------
 const FALLBACK: Partial<Record<MkType, string[]>> = {
-  GOOD_MORNING: ["Bom dia… acordei pensando em você 😏", "Oi, dorminhoco… já acordei toda molhadinha 🔥"],
-  HUMANIZATION: ["Saindo do banho agora… queria você aqui pra secar 💦", "Dia cheio, mas minha cabeça só pensa em safadeza 😈"],
-  BREAKFAST: ["Café da manhã… mas a fome que eu tô é outra 😏"],
-  SELFIE: ["Olha eu aqui… gostou? 🔥"],
-  WORK: ["No estúdio gravando um negócio bem safado hoje 😈"],
-  BEHIND_SCENES: ["Os bastidores de hoje tão pesados… 🙈🔥"],
-  CURIOSITY: ["Descobri uma coisa nova que eu amei fazer… quer saber? 😏"],
-  QUESTION: ["O que você faria comigo agora se pudesse? 😈 me conta"],
-  REACTION: ["Reage com 🔥 se você tá pensando em mim agora 😈"],
-  PHOTO_PREMIUM: ["Essa aqui é só pros meus safados… vem ver o resto 🔥"],
-  VIDEO_PREMIUM: ["Gravei um vídeo que não posso mostrar aqui… te espero lá 💦"],
-  PRESENT: ["Quem entrar agora ganha um presentinho meu 🎁😈"],
-  COUNTDOWN: ["Hoje eu apago tudo… é sua última chance de ver 🔥"],
-  VIP_INVITATION: ["Vem pro meu cantinho secreto onde eu não tenho vergonha 😈"],
-  LAST_CALL: ["Última chamada de hoje… depois some 🔥 corre"],
-  GOOD_NIGHT: ["Boa noite… vou dormir pensando em você 😏"],
+  GOOD_MORNING: ["Bom dia… acordei pensando em você 😏", "Oi, dorminhoco… já acordei toda molhadinha 🔥", "Bom dia! Primeira coisa que fiz foi lembrar de você 😈", "Acordei com vontade… bom dia 💦"],
+  HUMANIZATION: ["Saindo do banho agora… queria você aqui pra secar 💦", "Dia cheio, mas minha cabeça só pensa em safadeza 😈", "Deitada aqui sem fazer nada… vem me distrair 😏", "Terminei o treino toda suada… imagina o resto 🔥"],
+  BREAKFAST: ["Café da manhã… mas a fome que eu tô é outra 😏", "Tomando meu café pensando em coisa que não devia 😈"],
+  SELFIE: ["Olha eu aqui… gostou? 🔥", "Tirei essa agora, o que achou? 😏", "Me sentindo perigosa hoje 😈 curtiu?", "Essa carinha tá dizendo o quê? 💦"],
+  WORK: ["No estúdio gravando um negócio bem safado hoje 😈", "Trabalhando… mas o conteúdo de hoje veio pesado 🔥"],
+  BEHIND_SCENES: ["Os bastidores de hoje tão pesados… 🙈🔥", "Se você visse o que rola por trás das câmeras 😈"],
+  CURIOSITY: ["Descobri uma coisa nova que eu amei fazer… quer saber? 😏", "Ontem rolou algo que me deixou sem vergonha 😈", "Tô com um segredo pra te contar 🙈"],
+  QUESTION: ["O que você faria comigo agora se pudesse? 😈 me conta", "Se eu tivesse aí do seu lado, por onde começaria? 😏"],
+  REACTION: ["Reage com 🔥 se você tá pensando em mim agora 😈", "😈 se você me aguentaria hoje", "Manda um 💦 se você me quer agora", "🔥 se você tá com saudade de mim"],
+  PHOTO_PREMIUM: ["Essa aqui é só pros meus safados… o resto tá te esperando 🔥", "Aqui eu me solto de verdade… vem ver 😈", "Isso é só o começo do que eu tenho 💦"],
+  VIDEO_PREMIUM: ["Gravei um vídeo que não posso mostrar aqui… te espero lá 💦", "Esse vídeo é forte demais pra cá 😈 vem ver", "Fiz um vídeo pensando em você… tá me esperando 🔥"],
+  PRESENT: ["Quem entrar agora ganha um presentinho meu 🎁😈", "Tenho um mimo esperando quem chegar hoje 🎁🔥"],
+  COUNTDOWN: ["Hoje eu apago tudo… é sua última chance de ver 🔥", "Depois de hoje some… corre 😈"],
+  VIP_INVITATION: ["Vem pro meu cantinho secreto onde eu não tenho vergonha 😈", "Do lado de lá eu sou bem diferente… vem descobrir 🔥"],
+  LAST_CALL: ["Última chamada de hoje… depois some 🔥 corre", "Fechando o dia… tua última chance de entrar 😈"],
+  GOOD_NIGHT: ["Boa noite… vou dormir pensando em você 😏", "Já tô na cama… queria você aqui 💦 boa noite"],
 };
-function fallbackText(type: MkType): string {
+export function fallbackText(type: MkType): string {
   const arr = FALLBACK[type];
   return arr ? pick(arr) : "Reage com 🔥 😈";
 }
-function fallbackPoll(): { question: string; options: string[] } {
-  return { question: "O que você quer ver hoje? 😈", options: ["Foto 🔥", "Vídeo 💦", "Surpresa 😏"] };
-}
 
-function parse(raw: string, plan: Omit<PreviaPost, "text" | "poll">[]): PreviaPost[] {
-  let items: Record<string, unknown>[] = [];
-  try {
-    const parsed = JSON.parse(raw) as { slots?: unknown };
-    if (Array.isArray(parsed?.slots)) items = parsed.slots as Record<string, unknown>[];
-  } catch {
-    items = [];
-  }
-  const byIndex = new Map<number, Record<string, unknown>>();
-  items.forEach((it, pos) => {
-    const i = typeof it.i === "number" ? it.i : pos;
-    byIndex.set(i, it);
-  });
-
-  return plan.map((slot, i) => {
-    const it = byIndex.get(i);
-    const aiText = typeof it?.text === "string" ? (it.text as string).trim().slice(0, 800) : "";
-    const text = aiText || fallbackText(slot.type);
-
-    let poll: PreviaPost["poll"];
-    if (slot.kind === "enquete") {
-      const p = it?.poll as Record<string, unknown> | undefined;
-      const q = typeof p?.question === "string" ? (p.question as string) : "";
-      const opts = Array.isArray(p?.options)
-        ? (p!.options as unknown[]).filter((o): o is string => typeof o === "string" && o.trim().length > 0)
-        : [];
-      poll = q && opts.length >= 2 ? { question: q, options: opts.slice(0, 4) } : fallbackPoll();
-    }
-
-    return { ...slot, text, poll };
-  });
-}
-
-/** Gera o dia inteiro: planeja (servidor) + escreve a copy (IA), com fallback. */
-export async function generatePreviasDay(
-  profile: PreviasProfile,
-  provider: AiProvider,
-  dateBase: Date,
-): Promise<{ posts: PreviaPost[]; scheduledAt: (p: PreviaPost) => number }> {
-  const plan = planDay();
-
-  let posts: PreviaPost[];
-  try {
-    const rawAi = await callAiRaw(buildPrompt(profile, plan), provider, { json: true, maxTokens: 6000 });
-    posts = parse(rawAi, plan);
-  } catch {
-    posts = plan.map((slot) => ({
-      ...slot,
-      text: fallbackText(slot.type),
-      poll: slot.kind === "enquete" ? fallbackPoll() : undefined,
-    }));
-  }
-  return { posts, scheduledAt: (p) => saoPauloWallTimeToUtcMs(dateBase, p.time, true) };
+const POLL_FALLBACKS: { question: string; options: string[] }[] = [
+  { question: "O que você quer ver hoje? 😈", options: ["Foto 🔥", "Vídeo 💦", "Surpresa 😏"] },
+  { question: "Como você me prefere? 😏", options: ["Safadinha 😈", "Romântica 🥰", "Sem vergonha 🔥"] },
+  { question: "Onde você me levaria agora? 💦", options: ["Cama 🛏️", "Chuveiro 🚿", "Sofá 😈"] },
+  { question: "Qual roupa fica melhor em mim? 🔥", options: ["Lingerie 😈", "Nada 💦", "Sua camisa 😏"] },
+];
+export function fallbackPoll(): { question: string; options: string[] } {
+  return pick(POLL_FALLBACKS);
 }

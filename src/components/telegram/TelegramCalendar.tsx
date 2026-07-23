@@ -307,6 +307,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                 <th className="p-3 w-16">Miniatura</th>
                 <th className="p-3 w-28">Tipo</th>
                 <th className="p-3 w-28">Conteúdo</th>
+                <th className="p-3 w-20">Link</th>
                 <th className="p-3 w-40">Agendado Para</th>
                 <th className="p-3">Legenda</th>
                 <th className="p-3 w-28 text-center">Status</th>
@@ -369,6 +370,19 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                           <span className={`inline-block rounded border px-2 py-0.5 text-[10px] font-bold uppercase ${k.cls}`}>
                             {k.label}
                           </span>
+                        );
+                      })()}
+                    </td>
+                    <td className="p-3">
+                      {(() => {
+                        // Vai com o botão/link do VIP? (só posts de conversão; enquete nunca)
+                        const hasLink = !post.poll && post.cta !== false;
+                        return hasLink ? (
+                          <span className="inline-block rounded border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-300">
+                            🔗 Link
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold uppercase text-zinc-600">—</span>
                         );
                       })()}
                     </td>

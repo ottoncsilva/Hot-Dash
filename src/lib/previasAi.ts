@@ -185,7 +185,42 @@ export function planDay(): Omit<PreviaPost, "text" | "poll">[] {
 
   // 3) Ordena por horário real (madrugada = dia seguinte) para a fila sair certa.
   planned.sort((a, b) => wallOrder(a.time) - wallOrder(b.time));
+
+  // 4) Garante um mínimo de ENQUETES no dia (fazem parte do método — ~20% no
+  //    material real). Converte alguns posts de engajamento (reação/pergunta/
+  //    curiosidade) em POLL, espalhados, sem ficar dois seguidos.
+  ensureMinPolls(planned, randInt(4, 6));
   return planned;
+}
+
+/** Converte posts de engajamento em POLL até atingir `target` enquetes no dia,
+ *  escolhendo posições espalhadas (nunca duas enquetes seguidas). */
+function ensureMinPolls(planned: Omit<PreviaPost, "text" | "poll">[], target: number): void {
+  const pollDef = TYPE_DEFS.POLL;
+  const isPoll = (i: number) => planned[i]?.type === "POLL";
+  let current = planned.filter((p) => p.type === "POLL").length;
+  if (current >= target) return;
+
+  // Candidatos: engajamento não-enquete (reação/pergunta/curiosidade), fora de
+  // adjacência com outra enquete. Ordena por posição embaralhada p/ espalhar.
+  const candidates = planned
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => p.intent === "engaja" && p.type !== "POLL")
+    .sort(() => Math.random() - 0.5);
+
+  for (const { i } of candidates) {
+    if (current >= target) break;
+    if (isPoll(i - 1) || isPoll(i + 1)) continue; // não cola duas enquetes
+    planned[i] = {
+      ...planned[i],
+      type: "POLL",
+      kind: pollDef.kind,
+      intent: pollDef.intent,
+      cta: pollDef.cta,
+      media: pollDef.media,
+    };
+    current++;
+  }
 }
 
 /** Fração-alvo de posts de CONVERSÃO da janela. Calibrado para o GLOBAL ficar

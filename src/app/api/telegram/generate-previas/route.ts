@@ -2,30 +2,60 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getProfile } from "@/lib/profiles";
 import { getBotConfigByProfile } from "@/lib/telegramDb";
-import { listMedia, listUsedMediaIds } from "@/lib/media";
+import {
+  listMedia,
+  listUsedMediaIds,
+  getMediaRow,
+  ensureVideoThumbnail,
+  ensureImageThumbnail,
+  videoThumbRelPath,
+} from "@/lib/media";
+import { generateCaption, callAiRaw } from "@/lib/ai";
+import { readBuffer } from "@/lib/storage";
 import { getAiCredentials, type AiProvider } from "@/lib/settings";
 import { createPost } from "@/lib/posts";
-import { generatePreviasDay } from "@/lib/previasAi";
+import type { MediaItem } from "@/lib/types";
+import {
+  planDay,
+  saoPauloWallTimeToUtcMs,
+  captionTheme,
+  fallbackText,
+  fallbackPoll,
+} from "@/lib/previasAi";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
+// Ângulos de variação (rotacionados por post) — o mesmo recurso do gerador de
+// cronograma, para as legendas não começarem todas iguais.
+const VARIATION_ANGLES = [
+  "Abra com uma provocação ousada.",
+  "Abra com uma pergunta direta pra quem tá lendo.",
+  "Comece contando o que você tá fazendo ou sentindo agora.",
+  "Comece com um convite safado e direto.",
+  "Comece reagindo à própria roupa/corpo que aparece na foto.",
+  "Comece com um tom mais carinhoso e íntimo.",
+  "Comece com 'será que você aguenta…'.",
+  "Comece descrevendo o clima/cenário da foto.",
+];
+
 /**
- * Gera uma SEQUÊNCIA de prévias (metodologia de aquecimento) para os próximos
- * N dias e cria os posts agendados (texto, foto e enquete) na rede Telegram
- * como "Prévias". O envio (e os links de CTA) é feito pelo autopost.
+ * Método MK — gera a programação do dia (resto de hoje + N dias) do grupo de
+ * PRÉVIAS. O SERVIDOR planeja (horários/tipos/distribuição); a legenda de cada
+ * post é gerada por IA ANALISANDO A FOTO (visão) nos posts de foto/vídeo, para
+ * não sair genérica. Só os posts de conversão levam o link do VIP (cta).
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const profileId = body.profileId as string;
     const days = Math.max(1, Math.min(14, parseInt(body.days, 10) || 1));
-
     if (!profileId) return NextResponse.json({ error: "Informe o profileId." }, { status: 400 });
 
-    const profile = await getProfile(profileId);
-    if (!profile) return NextResponse.json({ error: "Perfil não encontrado." }, { status: 404 });
+    const profileMaybe = await getProfile(profileId);
+    if (!profileMaybe) return NextResponse.json({ error: "Perfil não encontrado." }, { status: 404 });
+    const profile = profileMaybe; // const não-nulo (narrowing persiste nos closures)
 
     const bot = getBotConfigByProfile(profile.id);
     if (!bot || !bot.botToken) return NextResponse.json({ error: "Bot não configurado." }, { status: 400 });
@@ -39,19 +69,36 @@ export async function POST(req: NextRequest) {
       .map((t) => t.trim().toLowerCase())
       .filter(Boolean);
 
-    // Provedor de IA (Grok primeiro — costuma aceitar conteúdo adulto).
-    const provider: AiProvider | undefined = (["grok", "openai", "gemini"] as AiProvider[]).find(
+    // Cadeia de provedores (grok primeiro — costuma aceitar conteúdo adulto).
+    const providerChain: AiProvider[] = (["grok", "openai", "gemini"] as AiProvider[]).filter(
       (p) => getAiCredentials(p) !== null,
     );
-    if (!provider) {
+    if (providerChain.length === 0) {
       return NextResponse.json(
         { error: "Nenhum provedor de IA conectado. Ative um em Configurações → Conexão com IA." },
         { status: 400 },
       );
     }
+    // Trava no primeiro provedor que funcionar (evita ficar tentando todos).
+    let activeProvider: AiProvider | null = null;
+    let aiFailed = false;
+    let aiError: string | null = null;
+
+    // Persona rica (mesmo detalhamento do gerador de cronograma).
+    let richNotes = profile.notes || "";
+    if (profile.bioPhysical) richNotes += `\nCaracterísticas físicas: ${profile.bioPhysical}`;
+    if (profile.bioUnique) richNotes += `\nDiferencial/fetiche: ${profile.bioUnique}`;
+    if (profile.bioPersonality) {
+      const pType =
+        profile.bioPersonality === "santinha"
+          ? "Santinha (inocente por fora, safada por dentro)"
+          : profile.bioPersonality === "explicita"
+            ? "Explícita (sem papas na língua, ousada e direta)"
+            : "Safadinha (safada na medida)";
+      richNotes += `\nPersonalidade/estilo: ${pType}`;
+    }
 
     // Mídias das prévias ainda não usadas — separadas em fotos e vídeos.
-    // Prioriza mídia nunca usada e nunca repete a mesma no lote.
     const usedIds = listUsedMediaIds(profile.id);
     const allowed = listMedia(profile.id).filter(
       (m) =>
@@ -62,7 +109,7 @@ export async function POST(req: NextRequest) {
     let photoPool = allowed.filter((m) => m.kind === "image");
     let videoPool = allowed.filter((m) => m.kind === "video");
 
-    // Posts já agendados de Prévias (idempotência por janela de 5 min).
+    // Idempotência: horários já ocupados por Prévias agendadas (janela 5 min).
     const existing = db
       .prepare(
         `SELECT p.scheduled_at FROM posts p JOIN post_networks pn ON pn.post_id = p.id
@@ -71,75 +118,140 @@ export async function POST(req: NextRequest) {
       .all(profile.id) as { scheduled_at: number }[];
     const taken = new Set(existing.map((e) => e.scheduled_at));
 
-    let created = 0;
-    let aiError: string | null = null;
+    // Base64 da miniatura (leve) da mídia, para a IA "ver" a foto sem enviar o
+    // arquivo cheio (mais rápido). Vídeo usa o 1º frame.
+    async function mediaImageBase64(media: MediaItem): Promise<{ mime: string; base64: string } | null> {
+      try {
+        const row = getMediaRow(media.id);
+        if (!row) return null;
+        const thumb =
+          media.kind === "video"
+            ? (await ensureVideoThumbnail(row.path)) || videoThumbRelPath(row.path)
+            : (await ensureImageThumbnail(row.path)) || row.path;
+        const buf = await readBuffer(thumb);
+        return { mime: "image/jpeg", base64: buf.toString("base64") };
+      } catch {
+        return null;
+      }
+    }
 
-    // Gera o RESTO do dia atual (offset 0 — a manhã/tarde já passadas são
-    // puladas automaticamente) + os `days` dias seguintes completos (05h à
-    // madrugada). Ex.: "1 dia" = resto de hoje + amanhã inteiro.
+    async function writeCaption(type: Parameters<typeof captionTheme>[0], images: { mime: string; base64: string }[], angleIdx: number): Promise<string> {
+      if (aiFailed) return fallbackText(type);
+      const theme = `${captionTheme(type)}\n${VARIATION_ANGLES[angleIdx % VARIATION_ANGLES.length]}`;
+      const toTry = activeProvider ? [activeProvider] : providerChain;
+      for (const p of toTry) {
+        try {
+          const out = await generateCaption({
+            provider: p,
+            networks: [{ network: "telegram", postType: "Prévias" }],
+            profileName: profile.name,
+            profileNotes: richNotes,
+            theme,
+            images,
+          });
+          if (out && out.trim()) {
+            activeProvider = p;
+            return out.trim().slice(0, 800);
+          }
+        } catch (e) {
+          aiError = e instanceof Error ? e.message : "Falha na IA.";
+        }
+      }
+      aiFailed = true; // todos falharam: usa fallback no resto (rápido)
+      return fallbackText(type);
+    }
+
+    async function writePoll(): Promise<{ question: string; options: string[] }> {
+      if (aiFailed) return fallbackPoll();
+      const toTry = activeProvider ? [activeProvider] : providerChain;
+      for (const p of toTry) {
+        try {
+          const raw = await callAiRaw(
+            'Crie UMA enquete curta e safada (sem vender) pro grupo de prévias no Telegram. Responda SÓ um JSON: {"question":"...","options":["..","..",".."]} com 2 a 4 opções curtas.',
+            p,
+            { json: true, maxTokens: 300 },
+          );
+          const parsed = JSON.parse(raw) as { question?: string; options?: unknown };
+          const q = typeof parsed.question === "string" ? parsed.question.trim() : "";
+          const opts = Array.isArray(parsed.options)
+            ? parsed.options.filter((o): o is string => typeof o === "string" && o.trim().length > 0)
+            : [];
+          if (q && opts.length >= 2) {
+            activeProvider = p;
+            return { question: q, options: opts.slice(0, 4) };
+          }
+        } catch (e) {
+          aiError = e instanceof Error ? e.message : "Falha na IA.";
+        }
+      }
+      return fallbackPoll();
+    }
+
+    let created = 0;
+    let angleIdx = 0;
+
+    // Gera o RESTO de hoje (offset 0 — horários passados pulados) + os `days`
+    // dias seguintes completos.
     for (let dayOffset = 0; dayOffset <= days; dayOffset++) {
       const base = new Date();
       base.setDate(base.getDate() + dayOffset);
+      const plan = planDay();
 
-      let dayPosts;
-      try {
-        const gen = await generatePreviasDay(
-          {
-            name: profile.name,
-            physical: profile.bioPhysical,
-            fetish: profile.bioUnique,
-            personality: profile.bioPersonality,
-            notes: profile.notes,
-          },
-          provider,
-          base,
-        );
-        dayPosts = gen.posts.map((p) => ({ post: p, at: gen.scheduledAt(p) }));
-      } catch (e) {
-        aiError = e instanceof Error ? e.message : "Falha na IA.";
-        break;
-      }
-
-      for (const { post, at } of dayPosts) {
+      for (const slot of plan) {
+        const at = saoPauloWallTimeToUtcMs(base, slot.time, true);
         if (at <= Date.now()) continue; // não agenda no passado
-        // idempotência: pula se já há post muito próximo
         let clash = false;
         for (const t of taken) if (Math.abs(t - at) < 5 * 60 * 1000) clash = true;
         if (clash) continue;
 
-        const net = [{ network: "telegram" as const, postType: "Prévias" }];
+        // Enquete: gera pergunta/opções, sem mídia, sem link.
+        if (slot.kind === "enquete") {
+          const poll = await writePoll();
+          createPost({
+            profileId: profile.id,
+            networks: [{ network: "telegram", postType: "Prévias" }],
+            scheduledAt: at,
+            poll,
+            cta: false,
+          });
+          taken.add(at);
+          created++;
+          continue;
+        }
 
-        if (post.kind === "enquete" && post.poll) {
-          createPost({ profileId: profile.id, networks: net, scheduledAt: at, poll: post.poll, cta: false });
-        } else if (post.kind === "video" && (videoPool.length > 0 || photoPool.length > 0)) {
-          // VIDEO_PREMIUM: usa vídeo se houver; senão degrada para foto.
-          let media;
+        // Seleciona a mídia (vídeo → foto se faltar). Fotos/vídeos não repetem.
+        let media: MediaItem | null = null;
+        if (slot.kind === "video") {
           if (videoPool.length > 0) {
             media = videoPool[Math.floor(Math.random() * videoPool.length)];
             videoPool = videoPool.filter((m) => m.id !== media!.id);
-          } else {
+          } else if (photoPool.length > 0) {
             media = photoPool[Math.floor(Math.random() * photoPool.length)];
             photoPool = photoPool.filter((m) => m.id !== media!.id);
           }
-          createPost({
-            profileId: profile.id, networks: net, scheduledAt: at,
-            caption: post.text, mediaIds: [media.id], cta: post.cta,
-          });
-        } else if (post.kind === "foto" && photoPool.length > 0) {
-          const media = photoPool[Math.floor(Math.random() * photoPool.length)];
-          photoPool = photoPool.filter((m) => m.id !== media.id); // não repete no lote
-          createPost({
-            profileId: profile.id, networks: net, scheduledAt: at,
-            caption: post.text, mediaIds: [media.id], cta: post.cta,
-          });
-        } else {
-          // reacao / texto / foto|vídeo sem estoque → texto puro (mantém o cta
-          // do tipo: ex. VIP_INVITATION/COUNTDOWN/LAST_CALL são texto com CTA).
-          createPost({
-            profileId: profile.id, networks: net, scheduledAt: at,
-            caption: post.text, cta: post.cta,
-          });
+        } else if (slot.kind === "foto") {
+          if (photoPool.length > 0) {
+            media = photoPool[Math.floor(Math.random() * photoPool.length)];
+            photoPool = photoPool.filter((m) => m.id !== media!.id);
+          }
         }
+
+        // Legenda: com a FOTO (visão) quando houver mídia; senão texto puro.
+        const images: { mime: string; base64: string }[] = [];
+        if (media) {
+          const img = await mediaImageBase64(media);
+          if (img) images.push(img);
+        }
+        const caption = await writeCaption(slot.type, images, angleIdx++);
+
+        createPost({
+          profileId: profile.id,
+          networks: [{ network: "telegram", postType: "Prévias" }],
+          scheduledAt: at,
+          caption,
+          mediaIds: media ? [media.id] : undefined,
+          cta: slot.cta,
+        });
         taken.add(at);
         created++;
       }

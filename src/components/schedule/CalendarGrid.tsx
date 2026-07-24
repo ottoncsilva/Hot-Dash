@@ -2,19 +2,17 @@ import React, { useState } from "react";
 import { IconArrowLeft, IconChevronRight } from "@/components/icons";
 import { NETWORK_DOT_COLORS, type ScheduledPost } from "@/lib/postTypes";
 
-// A semana começa na SEGUNDA-FEIRA.
+// Cabeçalho fixo do MÊS: a grade mensal começa na SEGUNDA-FEIRA.
 const WEEKDAYS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
 
 function fmtTime(ms: number): string {
   return new Date(ms).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-/** Segunda-feira (00:00) da semana que contém a data informada. */
-function startOfWeek(date: Date): Date {
+/** 00:00 da data informada (início do dia). */
+function startOfDay(date: Date): Date {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
-  // getDay(): 0=Dom..6=Sáb. Dias decorridos desde a segunda: (getDay() + 6) % 7.
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
   return d;
 }
 
@@ -50,7 +48,9 @@ export default function CalendarGrid({
   defaultView?: "month" | "week";
 }) {
   const [view, setView] = useState<"month" | "week">(defaultView);
-  const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()));
+  // A visão de SEMANA é ancorada no DIA ATUAL: a primeira coluna é sempre hoje
+  // (hoje, amanhã, +2…). "Semana anterior/próxima" desloca de 7 em 7 dias.
+  const [weekStart, setWeekStart] = useState<Date>(() => startOfDay(new Date()));
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -95,7 +95,7 @@ export default function CalendarGrid({
 
   function goToday() {
     if (view === "week") {
-      setWeekStart(startOfWeek(new Date()));
+      setWeekStart(startOfDay(new Date()));
     } else {
       const d = new Date();
       onMonthChange({ year: d.getFullYear(), month: d.getMonth() });
@@ -164,9 +164,21 @@ export default function CalendarGrid({
       </div>
 
       <div className="grid grid-cols-7 border-b border-white/[0.06]">
-        {WEEKDAYS.map((d) => (
-          <p key={d} className="py-2 text-center font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-            {d}
+        {/* No MÊS o cabeçalho é fixo (seg…dom); na SEMANA acompanha os dias reais,
+            já que a primeira coluna é sempre HOJE. */}
+        {(view === "week"
+          ? days.map((d) => d.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", ""))
+          : WEEKDAYS
+        ).map((label, i) => (
+          <p
+            key={i}
+            className={`py-2 text-center font-mono text-[10px] uppercase tracking-wider ${
+              view === "week" && days[i].getTime() === today.getTime()
+                ? "font-bold text-white"
+                : "text-zinc-600"
+            }`}
+          >
+            {label}
           </p>
         ))}
       </div>

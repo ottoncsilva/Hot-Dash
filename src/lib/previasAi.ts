@@ -74,8 +74,11 @@ export const TYPE_DEFS: Record<MkType, TypeDef> = {
 type Window = { start: number; end: number; weight: number; types: MkType[] };
 
 const WINDOWS: Window[] = [
-  // 05–08 humanizar (venda baixíssima)
-  { start: 5, end: 8, weight: 3, types: ["GOOD_MORNING", "HUMANIZATION", "SELFIE", "BREAKFAST", "WORK"] },
+  // 05–07 acordar/humanizar (praticamente sem venda)
+  { start: 5, end: 7, weight: 2, types: ["GOOD_MORNING", "HUMANIZATION", "SELFIE", "BREAKFAST", "WORK"] },
+  // 07–08 empurrãozinho da manhã: quem acorda e olha o celular já vê uma
+  // chamada com link do VIP (mistura humanização + conversão leve).
+  { start: 7, end: 8, weight: 2, types: ["PHOTO_PREMIUM", "VIP_INVITATION", "PRESENT", "SELFIE", "HUMANIZATION", "BREAKFAST"] },
   // 08–11 engajamento (com rotina/humanização no meio)
   { start: 8, end: 11, weight: 4, types: ["REACTION", "POLL", "QUESTION", "CURIOSITY", "SELFIE", "HUMANIZATION", "BREAKFAST"] },
   // 11–14 1º pico de conversão
@@ -232,7 +235,8 @@ function windowConvTarget(w: Window): number {
   if (w.start === 17) return 0.4; // 17–20 aquecer
   if (w.start === 14) return 0.28; // 14–17 baixar pressão
   if (w.start === 8) return 0.15; // 08–11 (engajamento)
-  if (w.start === 5) return 0.08; // 05–08 (humanização)
+  if (w.start === 7) return 0.45; // 07–08 empurrão da manhã (garante link ~7h)
+  if (w.start === 5) return 0.05; // 05–07 (humanização pura)
   return 0.18; // 03–05
 }
 

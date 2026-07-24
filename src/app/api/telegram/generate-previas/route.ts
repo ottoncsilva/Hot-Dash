@@ -6,11 +6,10 @@ import {
   listMedia,
   listUsedMediaIds,
   getMediaRow,
-  ensureVideoThumbnail,
-  ensureImageThumbnail,
-  videoThumbRelPath,
+  renderVisionImageBase64,
 } from "@/lib/media";
 import { generateCaption, callAiRaw } from "@/lib/ai";
+import { extractVideoThumbnail, extname } from "@/lib/metadata";
 import { readBuffer } from "@/lib/storage";
 import { getAiCredentials, type AiProvider } from "@/lib/settings";
 import { createPost } from "@/lib/posts";
@@ -118,18 +117,22 @@ export async function POST(req: NextRequest) {
       .all(profile.id) as { scheduled_at: number }[];
     const taken = new Set(existing.map((e) => e.scheduled_at));
 
-    // Base64 da miniatura (leve) da mídia, para a IA "ver" a foto sem enviar o
-    // arquivo cheio (mais rápido). Vídeo usa o 1º frame.
+    // Imagem (base64) da mídia para a IA "ver" a foto — em resolução boa o
+    // suficiente para o modelo reconhecer roupa/pose/cenário (a miniatura da
+    // galeria, de 480px, sai pequena demais e faz a legenda genérica). Foto:
+    // render de até 1024px. Vídeo: 1º frame extraído já em ~1024px.
     async function mediaImageBase64(media: MediaItem): Promise<{ mime: string; base64: string } | null> {
       try {
         const row = getMediaRow(media.id);
         if (!row) return null;
-        const thumb =
-          media.kind === "video"
-            ? (await ensureVideoThumbnail(row.path)) || videoThumbRelPath(row.path)
-            : (await ensureImageThumbnail(row.path)) || row.path;
-        const buf = await readBuffer(thumb);
-        return { mime: "image/jpeg", base64: buf.toString("base64") };
+        if (media.kind === "video") {
+          const buf = await readBuffer(row.path);
+          const frame = await extractVideoThumbnail(buf, extname(row.path), 1024);
+          return { mime: "image/jpeg", base64: frame.toString("base64") };
+        }
+        const base64 = await renderVisionImageBase64(row.path);
+        if (!base64) return null;
+        return { mime: "image/jpeg", base64 };
       } catch {
         return null;
       }

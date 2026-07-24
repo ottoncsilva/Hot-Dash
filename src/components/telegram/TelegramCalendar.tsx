@@ -30,7 +30,9 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
 
   const [view, setView] = useState<"calendar" | "list">("calendar");
   const [typeFilter, setTypeFilter] = useState("");
-  const [hidePosted, setHidePosted] = useState(false);
+  // Por padrão os já postados ficam ocultos (o calendário abre limpo, focado no
+  // que ainda vai sair). O botão então oferece "Mostrar postados".
+  const [hidePosted, setHidePosted] = useState(true);
 
   // Seleção múltipla para exclusão em lote
   const [selectedPostIds, setSelectedPostIds] = useState<string[]>([]);
@@ -236,8 +238,10 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                   : "border-white/10 text-zinc-300 hover:bg-white/5"
               }`}
             >
-              {hidePosted ? <IconEyeOff size={16} /> : <IconEye size={16} />}
-              <span className="hidden sm:inline">{hidePosted ? "Postados ocultos" : "Ocultar postados"}</span>
+              {/* Rótulo de AÇÃO: mostra o que o clique faz. Ocultos → "Mostrar
+                  postados"; visíveis → "Ocultar postados". */}
+              {hidePosted ? <IconEye size={16} /> : <IconEyeOff size={16} />}
+              <span className="hidden sm:inline">{hidePosted ? "Mostrar postados" : "Ocultar postados"}</span>
             </button>
             <button
               onClick={() => { setFormInitial(null); setFormOpen(true); }}

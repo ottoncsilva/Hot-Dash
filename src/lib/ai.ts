@@ -60,6 +60,21 @@ function buildPrompt(req: CaptionRequest): string {
     .join("\n");
 }
 
+/**
+ * Classifica um erro da IA como SISTÊMICO (chave/cota/conexão inválidas) — o
+ * tipo de falha em que não adianta continuar tentando os próximos posts de um
+ * lote. Rate-limit (429), timeout, recusa de conteúdo e resposta vazia são
+ * PONTUAIS e não devem derrubar o lote inteiro. Usado pelos geradores em lote
+ * (cronograma VIP e Prévias) para não trocar o dia inteiro pela reserva por
+ * causa de um tropeço isolado.
+ */
+export function isSystemicAiError(msg: string): boolean {
+  const m = (msg || "").toLowerCase();
+  return /\b401\b|\b403\b|unauthor|invalid.*(api|key)|api key|insufficient_quota|\bquota\b|exceeded your current quota|billing|payment|não está conectado|not connected/.test(
+    m,
+  );
+}
+
 export async function generateCaption(req: CaptionRequest): Promise<string> {
   return (
     await callAiRaw(buildPrompt(req), req.provider, { images: req.images })

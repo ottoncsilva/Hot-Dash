@@ -93,6 +93,9 @@ export default function AiSettingsPage() {
   const openaiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const geminiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const grokDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Evita o fetch duplicado no load: o carregamento inicial já dispara a busca
+  // dos modelos do Grok; o efeito com debounce só deve reagir a edições depois.
+  const grokReadyRef = useRef(false);
 
   useEffect(() => {
     apiGet<{ settings: AiSettingsPublic }>("/api/settings/ai")
@@ -153,9 +156,13 @@ export default function AiSettingsPage() {
   }, [geminiKey, geminiEnabled]);
 
   // Rebusca os modelos do Grok ao trocar a chave OU a base URL (xAI ↔ OpenRouter
-  // têm listas diferentes).
+  // têm listas diferentes). Só reage a EDIÇÕES — o load inicial já busca uma vez.
   useEffect(() => {
     if (!grokEnabled) return;
+    if (!grokReadyRef.current) {
+      grokReadyRef.current = true;
+      return;
+    }
     if (grokDebounceRef.current) clearTimeout(grokDebounceRef.current);
     grokDebounceRef.current = setTimeout(() => {
       fetchAiModels("grok", grokKey, setGrokModels, setGrokModelsLoading, setGrokModelsError, grokBaseUrl);
@@ -439,7 +446,7 @@ export default function AiSettingsPage() {
                 )}
                 {grokModelsError && (
                   <p className="mt-1 text-[11px] text-amber-500">
-                    Não foi possível carregar a lista ao vivo — mostrando modelos padrão.
+                    Lista ao vivo indisponível ({grokModelsError}) — mostrando modelos padrão.
                   </p>
                 )}
               </div>

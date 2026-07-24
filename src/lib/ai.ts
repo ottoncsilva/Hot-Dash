@@ -339,13 +339,20 @@ export async function listAiModels(
       const base = (opts?.baseUrl || "https://api.x.ai/v1")
         .replace(/\/chat\/completions\/?$/, "")
         .replace(/\/$/, "");
-      const res = await fetch(`${base}/models`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      });
+      const url = `${base}/models`;
+      // Uma retentativa em caso de rate-limit (429): a tela dispara o teste de
+      // conexão e a lista quase juntos, e o /models da xAI limita fácil.
+      let res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+      if (res.status === 429) {
+        await new Promise((r) => setTimeout(r, 1200));
+        res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+      }
       const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
       if (!res.ok) {
         const errObj = data.error;
-        const msg = (typeof errObj === "string" ? errObj : (errObj as Record<string, unknown>)?.message as string) || `erro ${res.status}`;
+        const msg =
+          (typeof errObj === "string" ? errObj : (errObj as Record<string, unknown>)?.message as string) ||
+          `erro ${res.status}`;
         return { ok: false, message: msg };
       }
       const raw = (data.data as { id: string; created?: number }[]) || [];

@@ -8,7 +8,7 @@ import {
   getMediaRow,
   renderVisionImageBase64,
 } from "@/lib/media";
-import { generateCaption, callAiRaw } from "@/lib/ai";
+import { generateCaption, callAiRaw, isSystemicAiError } from "@/lib/ai";
 import { extractVideoThumbnail, extname } from "@/lib/metadata";
 import { readBuffer } from "@/lib/storage";
 import { getAiCredentials, type AiProvider } from "@/lib/settings";
@@ -142,6 +142,7 @@ export async function POST(req: NextRequest) {
       if (aiFailed) return fallbackText(type);
       const theme = `${captionTheme(type)}\n${VARIATION_ANGLES[angleIdx % VARIATION_ANGLES.length]}`;
       const toTry = activeProvider ? [activeProvider] : providerChain;
+      const errors: string[] = [];
       for (const p of toTry) {
         try {
           const out = await generateCaption({
@@ -157,10 +158,19 @@ export async function POST(req: NextRequest) {
             return out.trim().slice(0, 800);
           }
         } catch (e) {
-          aiError = e instanceof Error ? e.message : "Falha na IA.";
+          const msg = e instanceof Error ? e.message : "Falha na IA.";
+          aiError = msg;
+          errors.push(msg);
         }
       }
-      aiFailed = true; // todos falharam: usa fallback no resto (rápido)
+      // Só desiste do dia inteiro quando a causa é SISTÊMICA (chave/cota/conexão).
+      // Falhas pontuais (rate-limit, timeout, recusa, vazio) não travam o lote —
+      // o próximo post volta a tentar a cadeia inteira.
+      if (errors.length > 0 && errors.every((e) => isSystemicAiError(e))) {
+        aiFailed = true;
+      } else {
+        activeProvider = null; // recomeça a cadeia no próximo post
+      }
       return fallbackText(type);
     }
 

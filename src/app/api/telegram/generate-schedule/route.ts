@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getProfile } from "@/lib/profiles";
 import { getBotConfigByProfile } from "@/lib/telegramDb";
-import { listMedia, listUsedMediaIds, getMediaRow, ensureVideoThumbnail, videoThumbRelPath } from "@/lib/media";
-import { generateCaption } from "@/lib/ai";
+import { listMedia, listUsedMediaIds, getMediaRow, renderVisionImageBase64 } from "@/lib/media";
+import { generateCaption, isSystemicAiError } from "@/lib/ai";
+import { extractVideoThumbnail, extname } from "@/lib/metadata";
 import { getAiCredentials, type AiProvider } from "@/lib/settings";
 import { createPost } from "@/lib/posts";
 import { readBuffer } from "@/lib/storage";
@@ -45,6 +46,8 @@ function generateSlots(type: string, interval: number, fixedTimes: string, days:
   // Remove duplicates and sort
   return Array.from(new Set(slots)).sort((a, b) => a - b);
 }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function POST(req: NextRequest) {
   try {
@@ -127,7 +130,22 @@ export async function POST(req: NextRequest) {
       (p) => getAiCredentials(p) !== null,
     );
 
-    const FALLBACK_CAPTION = "Novo conteúdo disponível no canal! 🔥😘";
+    // Reserva usada SÓ quando a IA falha num post — variada e na voz da modelo
+    // (informal, brasileira) pra não sair tudo igual como o antigo "Novo
+    // conteúdo disponível no canal!". Sorteia uma diferente por post.
+    const FALLBACK_CAPTIONS = [
+      "Postei coisa nova aqui 🙈 corre ver antes que eu me arrependa 🔥",
+      "Novidade no ar 😈 vem que hoje tá quentinho",
+      "Acabei de soltar um conteúdo novo 🔥 dá uma espiada",
+      "Cê tá perdendo tempo aí… tem coisa nova te esperando 😏",
+      "Deixei algo bem safadinho pra você agora 💦",
+      "Chega mais 😈 tem conteúdo novo fresquinho",
+      "Tô me sentindo perigosa hoje… vem ver o que postei 🔥",
+      "Novo post no ar, amor 😏 já é seu",
+      "Olha o que eu trouxe pra você hoje 🙈🔥",
+      "Conteúdo novinho saindo do forno 😈 corre",
+    ];
+    const pickFallback = () => FALLBACK_CAPTIONS[Math.floor(Math.random() * FALLBACK_CAPTIONS.length)];
     let generatedCount = 0;
     // Provedor que efetivamente funcionou — travado no primeiro sucesso para não
     // reprocessar a cadeia inteira a cada slot.
@@ -175,18 +193,18 @@ export async function POST(req: NextRequest) {
       let caption = "";
       if (providerChain.length > 0 && !aiFailed) {
         const images: any[] = [];
-        // Envia a mídia para a IA analisar de verdade. Para vídeos, extrai a
-        // miniatura (primeiro frame) — mesma abordagem do endpoint de legenda
-        // manual — para que a legenda combine com o conteúdo, e não seja escrita
-        // "às cegas".
+        // Envia a mídia para a IA analisar de verdade, mas SEMPRE reduzida
+        // (~1024px). Mandar a foto em resolução cheia (vários MB) engrossa o
+        // request e é uma causa comum de falha (timeout/413) que fazia a legenda
+        // cair na reserva. Foto: render dedicado; vídeo: 1º frame em ~1024px.
         try {
           if (media.kind === "video") {
-            const thumbPath = (await ensureVideoThumbnail(row.path)) || videoThumbRelPath(row.path);
-            const buf = await readBuffer(thumbPath);
-            images.push({ mime: "image/jpeg", base64: buf.toString("base64") });
-          } else {
             const buf = await readBuffer(row.path);
-            images.push({ mime: media.mime || "image/jpeg", base64: buf.toString("base64") });
+            const frame = await extractVideoThumbnail(buf, extname(row.path), 1024);
+            images.push({ mime: "image/jpeg", base64: frame.toString("base64") });
+          } else {
+            const b64 = await renderVisionImageBase64(row.path);
+            if (b64) images.push({ mime: "image/jpeg", base64: b64 });
           }
         } catch (err) {
           console.error("Erro ao ler mídia para IA:", err);
@@ -218,36 +236,55 @@ export async function POST(req: NextRequest) {
         ].join("\n\n");
 
         for (const p of toTry) {
-          try {
-            const result = await generateCaption({
-              provider: p,
-              networks: [{ network: "telegram", postType: postTypeTarget }],
-              profileName: profile.name,
-              profileNotes: richNotes,
-              theme: themeWithAngle,
-              images,
-            });
-            if (!result.trim()) throw new Error("retornou uma legenda vazia.");
-            caption = result;
-            activeProvider = p; // Trava o provedor que funcionou para os próximos slots
-            break;
-          } catch (aiErr) {
-            const msg = aiErr instanceof Error ? aiErr.message : "falha desconhecida";
-            console.error(`Erro ao gerar legenda com IA (${p}):`, aiErr);
-            errors.push(`${p}: ${msg}`);
+          // Uma retentativa curta em caso de rate-limit (429): esses erros são
+          // passageiros e derrubavam a legenda à toa.
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              const result = await generateCaption({
+                provider: p,
+                networks: [{ network: "telegram", postType: postTypeTarget }],
+                profileName: profile.name,
+                profileNotes: richNotes,
+                theme: themeWithAngle,
+                images,
+              });
+              if (!result.trim()) throw new Error("retornou uma legenda vazia.");
+              caption = result;
+              activeProvider = p; // Trava o provedor que funcionou para os próximos slots
+              break;
+            } catch (aiErr) {
+              const msg = aiErr instanceof Error ? aiErr.message : "falha desconhecida";
+              const rateLimited = /\b429\b|rate.?limit|too many requests/i.test(msg);
+              if (rateLimited && attempt === 0) {
+                await sleep(1500);
+                continue; // tenta o mesmo provedor mais uma vez
+              }
+              console.error(`Erro ao gerar legenda com IA (${p}):`, aiErr);
+              errors.push(`${p}: ${msg}`);
+              break;
+            }
           }
+          if (caption) break;
         }
 
         if (!caption) {
-          // Toda a cadeia falhou neste slot → causa sistêmica: para de tentar.
           if (!aiError) {
-            aiError = `Todos os provedores de IA conectados falharam ao legendar. Detalhes → ${errors.join(" | ")}`;
+            aiError = `Falha ao legendar com IA em algum(ns) post(s). Detalhes → ${errors.join(" | ")}`;
           }
-          aiFailed = true;
-          caption = FALLBACK_CAPTION;
+          // Só desiste do LOTE INTEIRO quando a causa é SISTÊMICA (chave/cota/
+          // conexão) — aí não adianta insistir. Falhas pontuais (rate-limit,
+          // timeout, recusa de conteúdo, resposta vazia) NÃO travam o lote: o
+          // próximo post volta a tentar a cadeia inteira, pra não perder o dia
+          // inteiro por um tropeço isolado.
+          if (errors.length > 0 && errors.every((e) => isSystemicAiError(e))) {
+            aiFailed = true;
+          } else {
+            activeProvider = null; // recomeça a cadeia no próximo post
+          }
+          caption = pickFallback();
         }
       } else {
-        caption = FALLBACK_CAPTION;
+        caption = pickFallback();
       }
 
       // O CTA de acesso ao VIP (3 hiperlinks "ACESSAR O VIP 🎁") é adicionado no

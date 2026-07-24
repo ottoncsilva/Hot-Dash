@@ -330,6 +330,10 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "profiles", "bio_unique", "TEXT");
   ensureColumn(d, "profiles", "bio_personality", "TEXT DEFAULT 'safadinha'");
   ensureColumn(d, "profiles", "bio_vip_link", "TEXT");
+  // Link de SAÍDA do VIP (WhatsApp particular) + texto do botão. Usado nos posts
+  // do grupo VIP marcados para levar o link, para puxar o lead pro WhatsApp (LTV).
+  ensureColumn(d, "profiles", "bio_whatsapp_link", "TEXT");
+  ensureColumn(d, "profiles", "bio_whatsapp_button", "TEXT");
   ensureColumn(d, "telegram_bots", "welcome_media_tags", "TEXT");
   ensureColumn(d, "telegram_bots", "downsell_funnel", "TEXT");
   ensureColumn(d, "telegram_bots", "upsell_funnel", "TEXT");

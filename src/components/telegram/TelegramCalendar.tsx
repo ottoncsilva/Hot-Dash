@@ -165,6 +165,40 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
     }
   }
 
+  // Liga/desliga o link do WhatsApp particular num post do VIP (usa o campo cta:
+  // para posts VIP, cta=1 significa "levar o botão do WhatsApp"). Só faz sentido
+  // no VIP; nas Prévias o cta controla o botão do VIP e não é editado por aqui.
+  async function toggleWhatsappLink(post: ScheduledPost) {
+    const next = post.cta !== true;
+    try {
+      const res = await apiSend<{ post: ScheduledPost }>(`/api/posts/${post.id}`, "PATCH", { cta: next });
+      setPosts((ps) => ps.map((p) => (p.id === res.post.id ? res.post : p)));
+      if (editingPost?.id === res.post.id) setEditingPost(res.post);
+      showToast(next ? "Link do WhatsApp ativado neste post." : "Link do WhatsApp removido.", "success");
+    } catch (e) {
+      showToast("Falha ao atualizar o link.", "error");
+    }
+  }
+
+  // Mapa perfil por id, para os selos de LINK refletirem a config real da modelo.
+  const profileById = useMemo(() => new Map(profiles.map((p) => [p.id, p])), [profiles]);
+
+  function telegramType(post: ScheduledPost): string | undefined {
+    return post.networks.find((n) => n.network === "telegram")?.postType;
+  }
+
+  /** Estado do link de SAÍDA do post — o que realmente vai no envio.
+   *  VIP → botão do WhatsApp (quando marcado e com link configurado).
+   *  Prévias → botão/link do VIP (quando cta e com link do VIP configurado). */
+  function linkInfo(post: ScheduledPost): { on: boolean; label: string } {
+    if (post.poll) return { on: false, label: "" };
+    const prof = profileById.get(post.profileId);
+    if (telegramType(post) === "VIP") {
+      return { on: post.cta === true && Boolean(prof?.bioWhatsappLink), label: "WhatsApp" };
+    }
+    return { on: post.cta !== false && Boolean(prof?.bioVipLink), label: "VIP" };
+  }
+
   const filtered = useMemo(() => {
     return posts.filter(p => {
       if (hidePosted && p.status === "posted") return false;
@@ -379,11 +413,12 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                     </td>
                     <td className="p-3">
                       {(() => {
-                        // Vai com o botão/link do VIP? (só posts de conversão; enquete nunca)
-                        const hasLink = !post.poll && post.cta !== false;
-                        return hasLink ? (
+                        // Reflete o que REALMENTE vai no envio (config da modelo +
+                        // marcação do post). VIP → WhatsApp; Prévias → VIP.
+                        const li = linkInfo(post);
+                        return li.on ? (
                           <span className="inline-block rounded border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-300">
-                            🔗 Link
+                            🔗 {li.label}
                           </span>
                         ) : (
                           <span className="text-[10px] font-bold uppercase text-zinc-600">—</span>
@@ -480,10 +515,47 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
               </div>
             </div>
 
-            {/* Indicador de link do VIP: reflete a regra do envio — só posts de
-                conversão (cta) levam o botão do VIP. Enquete nunca leva. */}
-            {(() => {
-              const hasLink = !editingPost.poll && editingPost.cta !== false;
+            {/* Indicador do link de saída. Nos posts do VIP vira um BOTÃO para
+                ligar/desligar o link do WhatsApp particular (LTV). Nas Prévias
+                é só informativo (o botão do VIP segue a regra do Método MK). */}
+            {!editingPost.poll && (() => {
+              const prof = profileById.get(editingPost.profileId);
+              if (telegramType(editingPost) === "VIP") {
+                const on = editingPost.cta === true;
+                const configured = Boolean(prof?.bioWhatsappLink);
+                const btnLabel = prof?.bioWhatsappButton || "meu whatsapp particular";
+                return (
+                  <div
+                    className={`flex shrink-0 items-center justify-between gap-2 px-4 py-2 text-xs font-semibold ${
+                      on && configured
+                        ? "bg-emerald-500/10 text-emerald-300"
+                        : on && !configured
+                          ? "bg-amber-500/10 text-amber-300"
+                          : "bg-white/[0.03] text-zinc-400"
+                    }`}
+                  >
+                    <span className="min-w-0 truncate">
+                      {on && configured
+                        ? `🔗 Vai com o botão "${btnLabel}"`
+                        : on && !configured
+                          ? "⚠️ Marcado, mas falta o link no cadastro da modelo"
+                          : "— Sem link do WhatsApp"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleWhatsappLink(editingPost)}
+                      className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold transition-colors ${
+                        on
+                          ? "border-white/15 text-zinc-300 hover:bg-white/5"
+                          : "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                      }`}
+                    >
+                      {on ? "Remover link" : "Levar meu WhatsApp"}
+                    </button>
+                  </div>
+                );
+              }
+              const hasLink = editingPost.cta !== false && Boolean(prof?.bioVipLink);
               return (
                 <div className={`shrink-0 px-4 py-2 text-xs font-semibold ${hasLink ? "bg-emerald-500/10 text-emerald-300" : "bg-white/[0.03] text-zinc-400"}`}>
                   {hasLink ? "🔗 Vai com o botão/link do VIP" : "— Sem link (humanização/engajamento)"}

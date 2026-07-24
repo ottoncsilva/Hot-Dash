@@ -29,6 +29,8 @@ type ProfileRow = {
   bio_unique: string | null;
   bio_personality: string | null;
   bio_vip_link: string | null;
+  bio_whatsapp_link: string | null;
+  bio_whatsapp_button: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -66,6 +68,8 @@ function profileToClient(p: ProfileRow): Profile {
     bioUnique: p.bio_unique || undefined,
     bioPersonality: (p.bio_personality as any) || "safadinha",
     bioVipLink: p.bio_vip_link || undefined,
+    bioWhatsappLink: p.bio_whatsapp_link || undefined,
+    bioWhatsappButton: p.bio_whatsapp_button || undefined,
     createdAt: p.created_at,
     updatedAt: p.updated_at,
   };
@@ -126,6 +130,8 @@ export async function updateProfile(
     bioUnique?: string;
     bioPersonality?: "santinha" | "safadinha" | "explicita";
     bioVipLink?: string;
+    bioWhatsappLink?: string;
+    bioWhatsappButton?: string;
   },
 ): Promise<Profile | null> {
   const existing = getDb()
@@ -166,6 +172,14 @@ export async function updateProfile(
   if (patch.bioVipLink !== undefined) {
     sets.push("bio_vip_link = ?");
     vals.push(patch.bioVipLink.trim());
+  }
+  if (patch.bioWhatsappLink !== undefined) {
+    sets.push("bio_whatsapp_link = ?");
+    vals.push(patch.bioWhatsappLink.trim());
+  }
+  if (patch.bioWhatsappButton !== undefined) {
+    sets.push("bio_whatsapp_button = ?");
+    vals.push(patch.bioWhatsappButton.trim());
   }
   sets.push("updated_at = ?");
   vals.push(Date.now());

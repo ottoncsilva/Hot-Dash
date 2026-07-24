@@ -195,6 +195,8 @@ export function updatePost(
     caption?: string;
     status?: PostStatus;
     mediaIds?: string[];
+    /** true = post leva o botão/link do seu grupo (VIP→WhatsApp, Prévias→VIP). */
+    cta?: boolean;
   },
 ): ScheduledPost | null {
   const existing = getPost(id);
@@ -202,15 +204,28 @@ export function updatePost(
   if (patch.networks && patch.networks.length === 0) {
     throw new Error("Selecione ao menos uma rede social.");
   }
+  // cta é tri-estado no banco (1/0/NULL). Preserva o valor atual quando o patch
+  // não mexe nele.
+  const ctaVal =
+    patch.cta === undefined
+      ? existing.cta === true
+        ? 1
+        : existing.cta === false
+          ? 0
+          : null
+      : patch.cta
+        ? 1
+        : 0;
   const db = getDb();
   const run = db.transaction(() => {
     db.prepare(
-      `UPDATE posts SET profile_id = ?, scheduled_at = ?, caption = ?, status = ?, updated_at = ?
+      `UPDATE posts SET profile_id = ?, scheduled_at = ?, caption = ?, cta = ?, status = ?, updated_at = ?
        WHERE id = ?`,
     ).run(
       patch.profileId ?? existing.profileId,
       patch.scheduledAt ?? existing.scheduledAt,
       patch.caption !== undefined ? patch.caption || null : existing.caption || null,
+      ctaVal,
       patch.status ?? existing.status,
       Date.now(),
       id,

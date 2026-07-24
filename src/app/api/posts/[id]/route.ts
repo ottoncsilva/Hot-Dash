@@ -40,6 +40,7 @@ export async function PATCH(
         mediaIds: Array.isArray(body.mediaIds)
           ? body.mediaIds.filter((m: unknown): m is string => typeof m === "string")
           : undefined,
+        cta: typeof body.cta === "boolean" ? body.cta : undefined,
       });
     } catch (e) {
       throw new ApiError(400, e instanceof Error ? e.message : "Falha ao salvar.");

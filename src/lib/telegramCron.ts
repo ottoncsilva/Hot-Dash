@@ -22,7 +22,7 @@ import {
 } from "@/lib/telegramApi";
 import { updatePost } from "@/lib/posts";
 import { listMedia, getMediaRow } from "@/lib/media";
-import { DEFAULT_CTA_BUTTONS, pickCtaButtonText } from "@/lib/postTypes";
+import { DEFAULT_CTA_BUTTONS, pickCtaButtonText, CTA_BUTTON_MAX } from "@/lib/postTypes";
 
 /**
  * Núcleo das tarefas agendadas do Telegram (autopost, funis e expiração).
@@ -130,24 +130,38 @@ export async function runTelegramAutopost(): Promise<number> {
         if (row) mediaPath = row.path;
       }
 
-      // CTA das Prévias: só anexa o botão do VIP quando o post PEDE CTA. No
-      // Método MK só os tipos de conversão têm cta=1; humanização/reação/enquete
-      // têm cta=0 (sem link). cta=NULL = post legado/manual → mantém o
-      // comportamento antigo (sempre com CTA). Com botão, a legenda vai limpa;
-      // com CTA mas sem lista de frases, cai nos hiperlinks "ACESSAR O VIP 🎁".
-      const wantsCta = isWarmup && Boolean(profile.bioVipLink) && post.cta !== 0;
-      const ctaButtonText = wantsCta ? pickCtaButtonText(ctaList) : null;
-      const ctaMarkup =
-        ctaButtonText && profile.bioVipLink
-          ? { inline_keyboard: [[{ text: ctaButtonText, url: profile.bioVipLink }]] }
-          : undefined;
-      const sendOpts = ctaMarkup ? { reply_markup: ctaMarkup } : {};
+      // Link de saída do post, dependente do GRUPO:
+      //  • PRÉVIAS: botão/link do VIP (convida a galera PRA dentro do VIP). Só
+      //    quando o post PEDE CTA — no Método MK só conversão tem cta=1;
+      //    humanização/reação/enquete têm cta=0. cta=NULL = post legado/manual →
+      //    mantém o comportamento antigo (sempre com CTA).
+      //  • VIP: botão do WhatsApp particular (puxa o lead pro WhatsApp p/ LTV).
+      //    Só quando o post estiver MARCADO (cta=1) e o link estiver configurado
+      //    — o padrão do VIP é SEM link (cta=NULL/0).
+      const wantsVipCta = isWarmup && Boolean(profile.bioVipLink) && post.cta !== 0;
+      const wantsWaCta =
+        post.post_type === "VIP" && post.cta === 1 && Boolean(profile.bioWhatsappLink);
 
-      const finalCaption = ctaMarkup
-        ? escapeHtmlAllowingLinks(post.caption || "")
-        : wantsCta && profile.bioVipLink
-          ? buildWarmupCaption(post.caption || "", profile.bioVipLink)
-          : escapeHtmlAllowingLinks(post.caption || "");
+      let replyMarkup: { inline_keyboard: { text: string; url: string }[][] } | undefined;
+      let finalCaption = escapeHtmlAllowingLinks(post.caption || "");
+
+      if (wantsVipCta && profile.bioVipLink) {
+        const ctaButtonText = pickCtaButtonText(ctaList);
+        if (ctaButtonText) {
+          // Com botão: a legenda vai limpa e o link fica no botão inline.
+          replyMarkup = { inline_keyboard: [[{ text: ctaButtonText, url: profile.bioVipLink }]] };
+        } else {
+          // Sem lista de frases: cai nos hiperlinks "ACESSAR O VIP 🎁" na legenda.
+          finalCaption = buildWarmupCaption(post.caption || "", profile.bioVipLink);
+        }
+      } else if (wantsWaCta && profile.bioWhatsappLink) {
+        const waText =
+          (profile.bioWhatsappButton || "meu whatsapp particular").slice(0, CTA_BUTTON_MAX) ||
+          "meu whatsapp particular";
+        replyMarkup = { inline_keyboard: [[{ text: waText, url: profile.bioWhatsappLink }]] };
+      }
+
+      const sendOpts = replyMarkup ? { reply_markup: replyMarkup } : {};
 
       // Enquete do post (se houver).
       let poll: { question?: string; options?: unknown } | null = null;

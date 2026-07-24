@@ -40,6 +40,8 @@ export default function ProfileDetailPage() {
   const [bioUnique, setBioUnique] = useState("");
   const [bioPersonality, setBioPersonality] = useState<"santinha" | "safadinha" | "explicita">("safadinha");
   const [bioVipLink, setBioVipLink] = useState("");
+  const [bioWhatsappLink, setBioWhatsappLink] = useState("");
+  const [bioWhatsappButton, setBioWhatsappButton] = useState("");
   // Credenciais do bot do Telegram (vivem em telegram_bots, por perfil).
   const [botToken, setBotToken] = useState("");
   const [botIdVip, setBotIdVip] = useState("");
@@ -64,6 +66,8 @@ export default function ProfileDetailPage() {
       setBioUnique(data.profile.bioUnique || "");
       setBioPersonality(data.profile.bioPersonality || "safadinha");
       setBioVipLink(data.profile.bioVipLink || "");
+      setBioWhatsappLink(data.profile.bioWhatsappLink || "");
+      setBioWhatsappButton(data.profile.bioWhatsappButton || "");
       // Credenciais do bot (não bloqueia a tela se falhar).
       try {
         const tg = await apiGet<{ bot: { botToken?: string; idVip?: string; idAquecimento?: string } | null }>(
@@ -102,6 +106,8 @@ export default function ProfileDetailPage() {
           bioUnique,
           bioPersonality,
           bioVipLink,
+          bioWhatsappLink,
+          bioWhatsappButton,
         },
       );
       setProfile(p);
@@ -184,6 +190,8 @@ export default function ProfileDetailPage() {
     bioUnique !== (profile.bioUnique || "") ||
     bioPersonality !== (profile.bioPersonality || "safadinha") ||
     bioVipLink !== (profile.bioVipLink || "") ||
+    bioWhatsappLink !== (profile.bioWhatsappLink || "") ||
+    bioWhatsappButton !== (profile.bioWhatsappButton || "") ||
     botToken !== botOrig.token ||
     botIdVip !== botOrig.vip ||
     botIdPrevias !== botOrig.prev;
@@ -310,6 +318,34 @@ export default function ProfileDetailPage() {
                 value={bioVipLink}
                 onChange={(e) => setBioVipLink(e.target.value)}
               />
+            </div>
+
+            {/* Link de SAÍDA do VIP (WhatsApp particular). Vai no botão dos posts
+                do grupo VIP que você marcar para levar o link (LTV no WhatsApp). */}
+            <div className="rounded-xl border border-white/[0.06] bg-ink-900/40 p-4 space-y-3">
+              <p className="eyebrow">WhatsApp particular (posts do VIP)</p>
+              <p className="text-xs text-zinc-500 -mt-1">
+                Botão que puxa o lead do grupo VIP pro seu WhatsApp. Aparece só nos posts VIP que você marcar (no preview do post).
+              </p>
+              <div>
+                <label className="eyebrow mb-1.5 block">Link do WhatsApp</label>
+                <input
+                  className="input"
+                  placeholder="Ex: https://wa.me/55..."
+                  value={bioWhatsappLink}
+                  onChange={(e) => setBioWhatsappLink(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="eyebrow mb-1.5 block">Texto do botão <span className="text-zinc-500 font-normal">(máx. 25 caracteres)</span></label>
+                <input
+                  className="input"
+                  maxLength={25}
+                  placeholder="meu whatsapp particular"
+                  value={bioWhatsappButton}
+                  onChange={(e) => setBioWhatsappButton(e.target.value)}
+                />
+              </div>
             </div>
 
             <div>

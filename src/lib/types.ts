@@ -49,6 +49,10 @@ export type Profile = {
   bioUnique?: string;
   bioPersonality?: "santinha" | "safadinha" | "explicita";
   bioVipLink?: string;
+  /** Link do WhatsApp particular — vai no botão dos posts VIP marcados (LTV). */
+  bioWhatsappLink?: string;
+  /** Texto do botão do WhatsApp nos posts VIP (padrão "meu whatsapp particular"). */
+  bioWhatsappButton?: string;
   /** Quantidade de posts (agendados + postados) do perfil. */
   postCount?: number;
   /** Soma das transações pagas vinculadas a este perfil. */

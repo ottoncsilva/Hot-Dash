@@ -107,6 +107,30 @@ export async function ensureImageThumbnail(relPath: string): Promise<string | nu
   }
 }
 
+/**
+ * Renderiza (em memória, sem cachear) uma versão MAIOR e mais nítida da imagem,
+ * exclusiva para ANÁLISE por IA (visão). A miniatura da galeria (480px, q70) é
+ * pequena demais e perde detalhes que a legenda precisa "enxergar" — roupa,
+ * pose, expressão, cenário. Aqui usamos até 1024px com qualidade melhor, o que
+ * ainda é leve o suficiente para enviar embutido (base64) e deixa o modelo
+ * reconhecer a foto de verdade em vez de chutar. Nunca lança: em falha retorna
+ * null (o caller cai na miniatura comum ou gera sem imagem).
+ */
+export async function renderVisionImageBase64(relPath: string): Promise<string | null> {
+  try {
+    const sharp = (await import("sharp")).default;
+    const buf = await readBuffer(relPath);
+    const out = await sharp(buf)
+      .rotate() // respeita orientação EXIF
+      .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 82, mozjpeg: true })
+      .toBuffer();
+    return out.toString("base64");
+  } catch {
+    return null;
+  }
+}
+
 export function insertMedia(input: {
   id: string;
   profileId: string;

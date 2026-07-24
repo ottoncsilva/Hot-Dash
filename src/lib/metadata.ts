@@ -122,10 +122,16 @@ export async function cleanMetadata(
 }
 
 /**
- * Extrai o primeiro frame de um vídeo como JPEG (capa da galeria).
- * Redimensiona para no máximo 480px de largura, preservando a proporção.
+ * Extrai o primeiro frame de um vídeo como JPEG.
+ * Redimensiona para no máximo `maxWidth` px de largura (padrão 480, a capa da
+ * galeria), preservando a proporção. A ANÁLISE por IA (visão) pede um valor
+ * maior para o modelo enxergar os detalhes do frame.
  */
-export async function extractVideoThumbnail(input: Buffer, ext: string): Promise<Buffer> {
+export async function extractVideoThumbnail(
+  input: Buffer,
+  ext: string,
+  maxWidth = 480,
+): Promise<Buffer> {
   const workDir = await mkdtemp(join(tmpdir(), "hotdash-thumb-"));
   try {
     const inputPath = join(workDir, `in${ext}`);
@@ -138,9 +144,9 @@ export async function extractVideoThumbnail(input: Buffer, ext: string): Promise
       "-frames:v",
       "1",
       "-vf",
-      "scale='min(480,iw)':-2",
+      `scale='min(${maxWidth},iw)':-2`,
       "-q:v",
-      "3",
+      maxWidth > 480 ? "2" : "3",
       outputPath,
     ]);
     return await readFile(outputPath);

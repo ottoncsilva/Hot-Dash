@@ -42,12 +42,13 @@ function buildPrompt(req: CaptionRequest): string {
       ? `INSTRUÇÕES DO USUÁRIO (definem o TOM e o ESTILO desejados). Se houver legendas de exemplo, use-as APENAS como referência de estilo/vocabulário — NÃO as copie, crie uma legenda nova e diferente:\n${instructions}`
       : "",
     hasImages
-      ? "Baseie a legenda no que aparece NESTA imagem específica (cenário, roupa, pose, expressão, detalhes) — cada foto é diferente, então cada legenda deve ser diferente."
+      ? "Olhe COM ATENÇÃO esta imagem específica antes de escrever e baseie a legenda no que você REALMENTE vê nela: o cenário/ambiente, a roupa ou lingerie (ou a falta dela), a pose, a parte do corpo em destaque, a expressão do rosto, a luz e pequenos detalhes. Comente algo concreto que aparece na foto — nada de descrição genérica que serviria pra qualquer imagem. Cada foto é diferente, então cada legenda deve ser diferente."
       : hasInstructions
         ? ""
         : "Crie uma legenda natural e envolvente para o post.",
     "Regras gerais (as INSTRUÇÕES DO USUÁRIO acima têm prioridade sobre estas):",
     "- Tom envolvente e autêntico, na voz da personagem (primeira pessoa).",
+    "- Fale como brasileira DE VERDADE conversando no zap: português do Brasil coloquial e informal, do dia a dia. Use contrações e a fala falada ('tá', 'pra', 'cê', 'tô', 'né', 'vem cá', 'que tal'). NADA de tom formal, corporativo ou de robô, e NADA de português de Portugal ('estás', 'apetece', 'giro', 'a fazer'). Sem palavras difíceis nem rebuscadas — escreva simples, como se estivesse mandando mensagem pra um cara que você quer provocar.",
     "- Mantenha a legenda CURTA, com tamanho parecido ao das legendas de exemplo/referência das instruções. Nada de textos longos — o público perde o interesse e cansa. Vá direto ao ponto.",
     "- VARIE bastante: mude a frase de abertura, a estrutura e as palavras a cada legenda. Nunca comece duas legendas da mesma forma nem repita bordões.",
     "- Use emojis com moderação.",

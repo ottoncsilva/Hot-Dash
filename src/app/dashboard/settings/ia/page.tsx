@@ -14,21 +14,33 @@ const FALLBACK_GEMINI_MODELS = [
   "gemini-2.5-flash",
   "gemini-1.5-pro",
 ];
+// Só usados se a busca ao vivo (xAI/OpenRouter) falhar.
+const FALLBACK_GROK_MODELS = [
+  "grok-4",
+  "grok-4-latest",
+  "grok-3",
+  "grok-3-mini",
+  "grok-2-vision-1212",
+  "grok-2-1212",
+  "grok-beta",
+];
 
-/** Busca a lista de modelos ao vivo na API do provedor (nunca lança). */
+/** Busca a lista de modelos ao vivo na API do provedor (nunca lança).
+ *  Grok (xAI/OpenRouter) precisa da baseUrl para achar o endpoint certo. */
 async function fetchAiModels(
-  provider: "openai" | "gemini",
+  provider: "openai" | "gemini" | "grok",
   apiKey: string,
   setModels: (m: string[] | null) => void,
   setLoading: (b: boolean) => void,
   setError: (m: string | null) => void,
+  baseUrl?: string,
 ) {
   setLoading(true);
   try {
     const res = await apiSend<{ ok: boolean; models?: string[]; message?: string }>(
       "/api/settings/ai/models",
       "POST",
-      { provider, apiKey: apiKey || undefined },
+      { provider, apiKey: apiKey || undefined, baseUrl: baseUrl || undefined },
     );
     if (res.ok && res.models && res.models.length > 0) {
       setModels(res.models);
@@ -65,6 +77,9 @@ export default function AiSettingsPage() {
   const [grokKey, setGrokKey] = useState("");
   const [grokModel, setGrokModel] = useState("grok-4.20-0309-reasoning");
   const [grokBaseUrl, setGrokBaseUrl] = useState("https://api.x.ai/v1/chat/completions");
+  const [grokModels, setGrokModels] = useState<string[] | null>(null);
+  const [grokModelsLoading, setGrokModelsLoading] = useState(false);
+  const [grokModelsError, setGrokModelsError] = useState<string | null>(null);
 
   const [magnificEnabled, setMagnificEnabled] = useState(false);
   const [magnificKey, setMagnificKey] = useState("");
@@ -77,6 +92,7 @@ export default function AiSettingsPage() {
   const [saved, setSaved] = useState(false);
   const openaiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const geminiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const grokDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     apiGet<{ settings: AiSettingsPublic }>("/api/settings/ai")
@@ -98,6 +114,16 @@ export default function AiSettingsPage() {
         }
         if (d.settings.gemini.hasKey) {
           fetchAiModels("gemini", "", setGeminiModels, setGeminiModelsLoading, setGeminiModelsError);
+        }
+        if (d.settings.grok.hasKey) {
+          fetchAiModels(
+            "grok",
+            "",
+            setGrokModels,
+            setGrokModelsLoading,
+            setGrokModelsError,
+            d.settings.grok.baseUrl || "https://api.x.ai/v1",
+          );
         }
       })
       .catch(() => {});
@@ -126,10 +152,25 @@ export default function AiSettingsPage() {
     };
   }, [geminiKey, geminiEnabled]);
 
+  // Rebusca os modelos do Grok ao trocar a chave OU a base URL (xAI ↔ OpenRouter
+  // têm listas diferentes).
+  useEffect(() => {
+    if (!grokEnabled) return;
+    if (grokDebounceRef.current) clearTimeout(grokDebounceRef.current);
+    grokDebounceRef.current = setTimeout(() => {
+      fetchAiModels("grok", grokKey, setGrokModels, setGrokModelsLoading, setGrokModelsError, grokBaseUrl);
+    }, 600);
+    return () => {
+      if (grokDebounceRef.current) clearTimeout(grokDebounceRef.current);
+    };
+  }, [grokKey, grokBaseUrl, grokEnabled]);
+
   const openaiList = openaiModels && openaiModels.length > 0 ? openaiModels : FALLBACK_OPENAI_MODELS;
   const openaiOptions = openaiModel && !openaiList.includes(openaiModel) ? [openaiModel, ...openaiList] : openaiList;
   const geminiList = geminiModels && geminiModels.length > 0 ? geminiModels : FALLBACK_GEMINI_MODELS;
   const geminiOptions = geminiModel && !geminiList.includes(geminiModel) ? [geminiModel, ...geminiList] : geminiList;
+  const grokList = grokModels && grokModels.length > 0 ? grokModels : FALLBACK_GROK_MODELS;
+  const grokOptions = grokModel && !grokList.includes(grokModel) ? [grokModel, ...grokList] : grokList;
 
   async function save() {
     setSaving(true);
@@ -351,7 +392,12 @@ export default function AiSettingsPage() {
               type="checkbox"
               className="h-4 w-4 accent-white"
               checked={grokEnabled}
-              onChange={(e) => setGrokEnabled(e.target.checked)}
+              onChange={(e) => {
+                setGrokEnabled(e.target.checked);
+                if (e.target.checked && grokModels === null && !grokModelsLoading) {
+                  fetchAiModels("grok", grokKey, setGrokModels, setGrokModelsLoading, setGrokModelsError, grokBaseUrl);
+                }
+              }}
             />
           </label>
           <p className="mt-2 text-xs text-zinc-500">
@@ -360,14 +406,42 @@ export default function AiSettingsPage() {
           {grokEnabled && (
             <div className="grid gap-4 md:grid-cols-2 mt-4">
               <div>
-                <label className="eyebrow mb-1.5 block">Nome do Modelo</label>
-                <input
-                  className="input font-mono"
-                  type="text"
-                  placeholder="Ex: grok-4.20-0309-reasoning"
-                  value={grokModel}
-                  onChange={(e) => setGrokModel(e.target.value)}
-                />
+                <label className="eyebrow mb-1.5 flex items-center justify-between">
+                  <span>Nome do Modelo</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      fetchAiModels("grok", grokKey, setGrokModels, setGrokModelsLoading, setGrokModelsError, grokBaseUrl)
+                    }
+                    disabled={grokModelsLoading}
+                    className="normal-case text-zinc-500 hover:text-white disabled:opacity-40"
+                    title="Atualizar lista de modelos"
+                  >
+                    <IconRefresh size={13} />
+                  </button>
+                </label>
+                {grokModelsLoading ? (
+                  <select className="input font-mono" disabled>
+                    <option>Carregando modelos…</option>
+                  </select>
+                ) : (
+                  <select
+                    className="input font-mono"
+                    value={grokModel}
+                    onChange={(e) => setGrokModel(e.target.value)}
+                  >
+                    {grokOptions.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {grokModelsError && (
+                  <p className="mt-1 text-[11px] text-amber-500">
+                    Não foi possível carregar a lista ao vivo — mostrando modelos padrão.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="eyebrow mb-1.5 block">API Key</label>

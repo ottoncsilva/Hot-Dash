@@ -315,6 +315,7 @@ function filterGeminiChatModels(
 export async function listAiModels(
   provider: AiProvider,
   apiKey: string,
+  opts?: { baseUrl?: string },
 ): Promise<{ ok: boolean; models?: string[]; message?: string }> {
   try {
     if (provider === "openai") {
@@ -329,6 +330,30 @@ export async function listAiModels(
       }
       const raw = (data.data as { id: string; created?: number }[]) || [];
       return { ok: true, models: filterOpenAiChatModels(raw) };
+    }
+
+    // Grok (xAI) e OpenRouter falam o mesmo dialeto da OpenAI: GET {base}/models
+    // com Bearer. A baseUrl guardada aponta para .../chat/completions — tiramos
+    // esse sufixo para chegar no endpoint de modelos.
+    if (provider === "grok") {
+      const base = (opts?.baseUrl || "https://api.x.ai/v1")
+        .replace(/\/chat\/completions\/?$/, "")
+        .replace(/\/$/, "");
+      const res = await fetch(`${base}/models`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok) {
+        const errObj = data.error;
+        const msg = (typeof errObj === "string" ? errObj : (errObj as Record<string, unknown>)?.message as string) || `erro ${res.status}`;
+        return { ok: false, message: msg };
+      }
+      const raw = (data.data as { id: string; created?: number }[]) || [];
+      const models = raw
+        .filter((m) => typeof m.id === "string")
+        .sort((a, b) => (b.created ?? 0) - (a.created ?? 0))
+        .map((m) => m.id);
+      return { ok: true, models };
     }
 
     const res = await fetch(

@@ -24,7 +24,7 @@ type TelegramSettings = {
   vipPostInterval: number;
   vipTags: string;
   vipPrompt: string;
-  vipScheduleType: "manual" | "interval" | "fixed";
+  vipScheduleType: "manual" | "interval" | "fixed" | "mk";
   vipFixedTimes: string;
   warmupPostInterval: number;
   warmupTags: string;
@@ -170,6 +170,28 @@ export default function TelegramUnifiedPage() {
     }
   };
 
+  // Método MK do VIP: planeja o dia (relacionamento + CTA de WhatsApp nos picos)
+  // e agenda os posts. O link do WhatsApp vem do cadastro da modelo.
+  const generateVipMk = async (daysOverride?: number) => {
+    setGeneratingVip(true);
+    try {
+      const res = await fetch("/api/telegram/generate-vip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileId: selectedProfileId, days: daysOverride ?? 1 }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Erro ao gerar VIP.");
+      window.dispatchEvent(new Event("reloadTelegramCalendar"));
+      if (d.aiError) toast.error(`Parcial: ${d.aiError}`);
+      else toast.success(`${d.generated} post(s) do VIP gerados! Veja no calendário.`);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setGeneratingVip(false);
+    }
+  };
+
   const generateSchedule = async (target: "vip" | "warmup", single = false) => {
     const days = target === "vip" ? daysToGenerateVip : daysToGenerateWarmup;
     
@@ -242,8 +264,7 @@ export default function TelegramUnifiedPage() {
   const setScheduleType = (target: "vip" | "warmup", type: "manual" | "interval" | "fixed" | "mk") => {
     const nextSettings = { ...settings };
     if (target === "vip") {
-      // "mk" só existe para o aquecimento (prévias); no VIP cai em "interval".
-      nextSettings.vipScheduleType = type === "mk" ? "interval" : type;
+      nextSettings.vipScheduleType = type;
     } else {
       nextSettings.warmupScheduleType = type;
     }
@@ -321,8 +342,17 @@ export default function TelegramUnifiedPage() {
                        )}
                        <div className="flex items-center gap-1.5 bg-black/10 p-1.5 rounded-lg border border-white/5">
                          <input type="number" min={1} max={30} value={daysToGenerateVip} onChange={e => setDaysToGenerateVip(parseInt(e.target.value) || 1)} className="w-12 rounded border border-sky-500/20 bg-sky-950/20 px-2 py-1 text-xs text-sky-200 text-center focus:outline-none" title="Dias a gerar" />
-                         <button type="button" onClick={() => generateSchedule("vip", false)} disabled={generatingVip} className="rounded-lg bg-sky-500/20 text-sky-300 px-3 py-1.5 text-xs font-semibold hover:bg-sky-500/30 transition-colors disabled:opacity-50">
-                           {generatingVip ? "⏳ Gerando..." : "✨ Gerar postagens com IA em massa"}
+                         <button
+                           type="button"
+                           onClick={() => settings.vipScheduleType === "mk" ? generateVipMk(daysToGenerateVip) : generateSchedule("vip", false)}
+                           disabled={generatingVip}
+                           className="rounded-lg bg-sky-500/20 text-sky-300 px-3 py-1.5 text-xs font-semibold hover:bg-sky-500/30 transition-colors disabled:opacity-50"
+                         >
+                           {generatingVip
+                             ? "⏳ Gerando..."
+                             : settings.vipScheduleType === "mk"
+                               ? "✨ Gerar dias (Método MK)"
+                               : "✨ Gerar postagens com IA em massa"}
                          </button>
                        </div>
                     </div>
@@ -332,7 +362,7 @@ export default function TelegramUnifiedPage() {
                 <div className="space-y-4 rounded-xl border border-white/[0.06] bg-zinc-950/60 p-5">
                   <h4 className="text-xs font-bold text-zinc-300">Agendamento</h4>
 
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     <button
                       type="button"
                       onClick={() => setScheduleType("vip", "manual")}
@@ -371,7 +401,44 @@ export default function TelegramUnifiedPage() {
                       <span className={`text-xs font-bold ${settings.vipScheduleType === "fixed" ? 'text-emerald-400' : 'text-zinc-200'}`}>Horários</span>
                       <span className="text-[10px] text-zinc-500 mt-0.5">Horas fixas</span>
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setScheduleType("vip", "mk")}
+                      className={`flex flex-col items-start px-3 py-2 rounded-lg border transition-all text-left ${
+                        settings.vipScheduleType === "mk"
+                          ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400 shadow-md'
+                          : 'border-white/[0.06] bg-zinc-900/40 text-zinc-400 hover:bg-zinc-900/60'
+                      }`}
+                    >
+                      <span className={`text-xs font-bold ${settings.vipScheduleType === "mk" ? 'text-emerald-400' : 'text-zinc-200'}`}>Método MK 💬</span>
+                      <span className="text-[10px] text-zinc-500 mt-0.5">Dia planejado (20–25)</span>
+                    </button>
                   </div>
+
+                  {/* Método MK do VIP: relacionamento + LTV pro WhatsApp. */}
+                  {settings.vipScheduleType === "mk" && (
+                    <div className="space-y-3 pt-2">
+                      <p className="text-[11px] text-zinc-400">
+                        Planeja o dia do VIP para quem <b>já comprou</b>: <b>20 a 25 posts/dia</b>
+                        (resto de hoje + dias seguintes), a maioria de <b>relacionamento</b>
+                        (bom dia, intimidade, bastidores, exclusivas) e engajamento
+                        (reação/enquete). A venda é bem leve: ~5-6 posts/dia levam o
+                        <b> botão do seu WhatsApp particular</b> (LTV), concentrados nos
+                        <b> horários de pico</b> (meio-dia, noite e madrugada), fuso de São Paulo.
+                        A IA <b>analisa cada foto</b> e escreve a legenda.
+                      </p>
+                      {!(profiles.find((p) => p.id === selectedProfileId)?.bioWhatsappLink) && (
+                        <p className="text-[11px] text-amber-400">
+                          ⚠️ Configure o <b>Link do WhatsApp</b> no cadastro da modelo — sem ele,
+                          os posts de LTV saem sem o botão.
+                        </p>
+                      )}
+                      <p className="text-[11px] text-emerald-300/80">
+                        Escolha os <b>dias</b> e clique em <b>“Gerar dias (Método MK)”</b> ali em cima.
+                      </p>
+                    </div>
+                  )}
 
                   {settings.vipScheduleType === "interval" && (
                     <div className="flex items-center gap-2 text-sm text-zinc-300 pt-2">

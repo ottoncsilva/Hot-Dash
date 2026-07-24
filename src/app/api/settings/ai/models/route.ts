@@ -10,7 +10,14 @@ export async function POST(req: NextRequest) {
   try {
     await requireUser(req);
     const body = await req.json().catch(() => ({}));
-    const provider = body.provider === "gemini" ? "gemini" : body.provider === "openai" ? "openai" : null;
+    const provider =
+      body.provider === "gemini"
+        ? "gemini"
+        : body.provider === "openai"
+          ? "openai"
+          : body.provider === "grok"
+            ? "grok"
+            : null;
     if (!provider) throw new ApiError(400, "Provedor inválido.");
 
     const apiKey = typeof body.apiKey === "string" && body.apiKey ? body.apiKey : getAiKeyForTest(provider);
@@ -18,7 +25,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, message: "Cole a chave de API." });
     }
 
-    const result = await listAiModels(provider, apiKey);
+    const baseUrl = typeof body.baseUrl === "string" && body.baseUrl ? body.baseUrl : undefined;
+    const result = await listAiModels(provider, apiKey, { baseUrl });
     return NextResponse.json({ ok: result.ok, models: result.models, message: result.message });
   } catch (err) {
     return errorResponse(err);

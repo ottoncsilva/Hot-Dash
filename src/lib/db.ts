@@ -333,6 +333,11 @@ function migrate(d: Database.Database) {
   // pagamento. `amount_cents` continua sendo o valor CHEIO (faturamento).
   ensureColumn(d, "transactions", "net_amount_cents", "INTEGER");
   ensureColumn(d, "transactions", "paid_at", "INTEGER");
+  // Marca que a venda já foi consultada no gateway (reprocessamento). Sem isso
+  // não dá para saber o que já foi tentado: a consulta da SyncPay NÃO devolve o
+  // valor líquido, então "ainda sem líquido" nunca serviria como critério de
+  // pendência — o lote ficaria reprocessando as mesmas vendas para sempre.
+  ensureColumn(d, "transactions", "reprocessed_at", "INTEGER");
   ensureColumn(d, "profiles", "bio_vip_link", "TEXT");
   // Link de SAÍDA do VIP (WhatsApp particular) + texto do botão. Usado nos posts
   // do grupo VIP marcados para levar o link, para puxar o lead pro WhatsApp (LTV).

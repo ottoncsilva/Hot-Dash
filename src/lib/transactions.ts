@@ -41,6 +41,7 @@ type Row = {
   amount_cents: number;
   net_amount_cents: number | null;
   paid_at: number | null;
+  reprocessed_at: number | null;
   currency: string;
   method: string | null;
   status: string;
@@ -218,15 +219,15 @@ export function updateStatusByRef(
   return { transaction: getTransaction(existing.id)!, becamePaid };
 }
 
-/** Transações que ainda não têm o valor líquido gravado (candidatas ao
- *  reprocessamento). Só as que têm provider_ref — sem ele não há o que
- *  consultar no gateway. */
-export function transactionsMissingNet(provider: string): Transaction[] {
+/** Vendas ainda NÃO consultadas no gateway. O critério é `reprocessed_at`, e
+ *  não "sem valor líquido": a consulta da SyncPay não devolve o líquido, então
+ *  usar a ausência dele deixaria o lote girando sobre as mesmas vendas. */
+export function transactionsToReprocess(provider: string): Transaction[] {
   const rows = getDb()
     .prepare(
       `SELECT * FROM transactions
        WHERE provider = ? AND provider_ref IS NOT NULL AND provider_ref <> ''
-         AND net_amount_cents IS NULL
+         AND reprocessed_at IS NULL
        ORDER BY created_at DESC`,
     )
     .all(provider) as Row[];
@@ -252,11 +253,22 @@ export function applyProviderAmounts(
   getDb()
     .prepare(
       `UPDATE transactions
-       SET amount_cents = ?, net_amount_cents = ?, status = ?, paid_at = ?, updated_at = ?
+       SET amount_cents = ?, net_amount_cents = ?, status = ?, paid_at = ?,
+           reprocessed_at = ?, updated_at = ?
        WHERE id = ?`,
     )
-    .run(gross, net, status, paidAt, Date.now(), id);
+    .run(gross, net, status, paidAt, Date.now(), Date.now(), id);
   return getTransaction(id);
+}
+
+/** Marca a venda como já consultada, sem alterar valores. Usado quando o
+ *  gateway respondeu que não conhece a transação — sem isso ela voltaria à
+ *  fila em todo lote. Erros de rede NÃO passam por aqui, para poderem ser
+ *  tentados de novo depois. */
+export function markReprocessed(id: string): void {
+  getDb()
+    .prepare("UPDATE transactions SET reprocessed_at = ? WHERE id = ?")
+    .run(Date.now(), id);
 }
 
 /** Agrupa o método de pagamento bruto do provedor num rótulo de exibição. */

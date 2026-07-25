@@ -46,7 +46,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ignored: true });
     }
 
-    const updated = updateStatusByRef("syncpay", providerRef, status);
+    // A SyncPay manda os DOIS valores: `amount` é o valor CHEIO que o cliente
+    // pagou (faturamento) e `final_amount` é o que ela repassa depois da taxa
+    // (faturamento líquido). Guardamos os dois para o painel separar bruto de
+    // líquido — antes só um número era gravado e a taxa sumia da conta.
+    const toCents = (v: unknown) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : undefined;
+    };
+    const grossCents = toCents(data.amount);
+    const netCents = toCents(data.final_amount ?? data.net_amount);
+
+    const updated = updateStatusByRef("syncpay", providerRef, status, { grossCents, netCents });
 
     if (updated && updated.becamePaid) {
       // Verifica se existe uma inscrição do Telegram pendente para esta transação
@@ -144,14 +155,16 @@ export async function POST(req: NextRequest) {
 
     if (!updated) {
       // Venda que ainda não estava registrada (ex.: checkout externo): grava.
-      const amount = Number(data.final_amount ?? data.amount ?? 0);
       const client = (data.client as Record<string, unknown>) || {};
       recordTransaction({
         provider: "syncpay",
         providerRef,
         description: "Venda (webhook)",
         customer: (client.name as string) || undefined,
-        amountCents: Math.round(amount * 100),
+        // Cheio no amount, líquido à parte (antes o líquido era gravado como se
+        // fosse o total, e o faturamento bruto ficava subestimado).
+        amountCents: grossCents ?? netCents ?? 0,
+        netAmountCents: netCents,
         method: (data.payment_method as string) || "pix",
         status: normalizeStatus(status),
       });

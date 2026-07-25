@@ -329,6 +329,10 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "profiles", "bio_physical", "TEXT");
   ensureColumn(d, "profiles", "bio_unique", "TEXT");
   ensureColumn(d, "profiles", "bio_personality", "TEXT DEFAULT 'safadinha'");
+  // Valor LÍQUIDO (o que a SyncPay repassa depois da taxa) e o instante do
+  // pagamento. `amount_cents` continua sendo o valor CHEIO (faturamento).
+  ensureColumn(d, "transactions", "net_amount_cents", "INTEGER");
+  ensureColumn(d, "transactions", "paid_at", "INTEGER");
   ensureColumn(d, "profiles", "bio_vip_link", "TEXT");
   // Link de SAÍDA do VIP (WhatsApp particular) + texto do botão. Usado nos posts
   // do grupo VIP marcados para levar o link, para puxar o lead pro WhatsApp (LTV).

@@ -17,11 +17,17 @@ export type Transaction = {
   profileId?: string;
   description?: string;
   customer?: string;
+  /** Valor CHEIO da venda (faturamento bruto). */
   amountCents: number;
+  /** Valor LÍQUIDO repassado pelo gateway, já sem a taxa (faturamento líquido).
+   *  Só existe depois que o webhook informa; nulo em cobranças antigas. */
+  netAmountCents?: number;
   currency: string;
   method?: string;
   status: string;
   createdAt: number;
+  /** Instante em que virou paga (diferente de createdAt = geração do Pix). */
+  paidAt?: number;
   updatedAt: number;
 };
 
@@ -33,6 +39,8 @@ type Row = {
   description: string | null;
   customer: string | null;
   amount_cents: number;
+  net_amount_cents: number | null;
+  paid_at: number | null;
   currency: string;
   method: string | null;
   status: string;
@@ -49,6 +57,8 @@ function toClient(r: Row): Transaction {
     description: r.description || undefined,
     customer: r.customer || undefined,
     amountCents: r.amount_cents,
+    netAmountCents: r.net_amount_cents ?? undefined,
+    paidAt: r.paid_at ?? undefined,
     currency: r.currency,
     method: r.method || undefined,
     status: r.status,
@@ -64,6 +74,8 @@ export function recordTransaction(input: {
   description?: string;
   customer?: string;
   amountCents: number;
+  /** Valor líquido (sem a taxa), quando o gateway já informou. */
+  netAmountCents?: number;
   currency?: string;
   method?: string;
   status: string;
@@ -74,8 +86,8 @@ export function recordTransaction(input: {
     .prepare(
       `INSERT INTO transactions
         (id, provider, provider_ref, profile_id, description, customer,
-         amount_cents, currency, method, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         amount_cents, net_amount_cents, paid_at, currency, method, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -85,6 +97,8 @@ export function recordTransaction(input: {
       input.description || null,
       input.customer || null,
       input.amountCents,
+      input.netAmountCents ?? null,
+      input.status === "paid" ? now : null,
       input.currency || "BRL",
       input.method || null,
       input.status,
@@ -175,14 +189,32 @@ export function updateStatusByRef(
   provider: string,
   providerRef: string,
   status: string,
+  /** Valores informados pelo gateway: o cheio e o líquido (já sem a taxa). */
+  amounts?: { grossCents?: number; netCents?: number },
 ): { transaction: Transaction; becamePaid: boolean } | null {
   const existing = findByProviderRef(provider, providerRef);
   if (!existing) return null;
   const normalized = normalizeStatus(status);
   const becamePaid = existing.status !== "paid" && normalized === "paid";
+  const now = Date.now();
+
+  // Só sobrescreve o valor cheio se o gateway mandou um válido; o líquido é
+  // sempre atualizado quando vier (é ele que traz a taxa já descontada).
+  const gross =
+    amounts?.grossCents && amounts.grossCents > 0 ? amounts.grossCents : existing.amountCents;
+  const net =
+    amounts?.netCents && amounts.netCents > 0 ? amounts.netCents : existing.netAmountCents ?? null;
+  // paid_at marca a hora do PAGAMENTO (createdAt é a geração do Pix). Não
+  // reescreve se já estava paga, para não mascarar a data original.
+  const paidAt = normalized === "paid" ? existing.paidAt ?? now : existing.paidAt ?? null;
+
   getDb()
-    .prepare("UPDATE transactions SET status = ?, updated_at = ? WHERE id = ?")
-    .run(normalized, Date.now(), existing.id);
+    .prepare(
+      `UPDATE transactions
+       SET status = ?, amount_cents = ?, net_amount_cents = ?, paid_at = ?, updated_at = ?
+       WHERE id = ?`,
+    )
+    .run(normalized, gross, net, paidAt, now, existing.id);
   return { transaction: getTransaction(existing.id)!, becamePaid };
 }
 
@@ -196,7 +228,11 @@ function methodBucket(method: string | null): "Pix" | "Cartão" | "Boleto" | "Ou
 }
 
 export type PeriodStats = {
+  /** Faturamento BRUTO (valor cheio das vendas pagas). */
   paidCents: number;
+  /** Faturamento LÍQUIDO (já sem a taxa do gateway). Quando o gateway ainda não
+   *  informou o líquido de alguma venda, cai no valor cheio dela. */
+  paidNetCents: number;
   paidCount: number;
   pendingCents: number;
   pendingCount: number;
@@ -245,9 +281,13 @@ function computePeriodStats(
   const byStatus = (status: string) =>
     db
       .prepare(
-        `SELECT COUNT(*) c, COALESCE(SUM(amount_cents),0) s FROM transactions WHERE status = ? ${where}`,
+        // `n` = líquido: usa net_amount_cents quando o gateway já informou;
+        // senão cai no valor cheio, para vendas antigas não sumirem do total.
+        `SELECT COUNT(*) c, COALESCE(SUM(amount_cents),0) s,
+                COALESCE(SUM(COALESCE(net_amount_cents, amount_cents)),0) n
+         FROM transactions WHERE status = ? ${where}`,
       )
-      .get(status, ...params) as { c: number; s: number };
+      .get(status, ...params) as { c: number; s: number; n: number };
 
   const paid = byStatus("paid");
   const pending = byStatus("pending");
@@ -273,6 +313,7 @@ function computePeriodStats(
 
   return {
     paidCents: paid.s,
+    paidNetCents: paid.n,
     paidCount: paid.c,
     pendingCents: pending.s,
     pendingCount: pending.c,

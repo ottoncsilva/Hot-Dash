@@ -338,6 +338,12 @@ function migrate(d: Database.Database) {
   // valor líquido, então "ainda sem líquido" nunca serviria como critério de
   // pendência — o lote ficaria reprocessando as mesmas vendas para sempre.
   ensureColumn(d, "transactions", "reprocessed_at", "INTEGER");
+  // A SyncPay separa o desconto em TAXA (fixa, R$ 0,80) e SPLIT (repasse a
+  // terceiros) — é assim que o "Resumo Financeiro" do painel dela mostra:
+  // entrada − taxas − split = você recebe. Guardamos os dois para a conta
+  // fechar linha a linha.
+  ensureColumn(d, "transactions", "fee_cents", "INTEGER");
+  ensureColumn(d, "transactions", "split_cents", "INTEGER");
   ensureColumn(d, "profiles", "bio_vip_link", "TEXT");
   // Link de SAÍDA do VIP (WhatsApp particular) + texto do botão. Usado nos posts
   // do grupo VIP marcados para levar o link, para puxar o lead pro WhatsApp (LTV).

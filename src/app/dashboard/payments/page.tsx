@@ -226,7 +226,8 @@ export default function PaymentsPage() {
       </div>
 
       {/* Tabela: cada informação numa coluna própria. Os dois horários
-          (geração do Pix e pagamento) ficam com data sobre hora. */}
+          (geração do Pix e pagamento) ficam com data sobre hora, e o desconto
+          aparece separado em Taxa e Split — como no painel da SyncPay. */}
       <div className="mt-3 card overflow-x-auto">
         {!data ? (
           <div className="h-32 animate-pulse" />
@@ -238,7 +239,7 @@ export default function PaymentsPage() {
             <p className="text-sm text-zinc-500">Nenhum PIX encontrado.</p>
           </div>
         ) : (
-          <table className="w-full min-w-[820px] border-collapse text-left text-sm">
+          <table className="w-full min-w-[900px] border-collapse text-left text-sm">
             <thead>
               <tr className="border-b border-white/[0.06] bg-white/[0.02] font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                 <th className="p-3">Nome</th>
@@ -247,6 +248,7 @@ export default function PaymentsPage() {
                 <th className="p-3 w-32">Pago</th>
                 <th className="p-3 w-28 text-right">Venda</th>
                 <th className="p-3 w-24 text-right">Taxa</th>
+                <th className="p-3 w-24 text-right">Split</th>
                 <th className="p-3 w-28 text-right">Líquido</th>
               </tr>
             </thead>
@@ -256,7 +258,10 @@ export default function PaymentsPage() {
                 // Taxa = venda − líquido. É o desconto real do gateway; a coluna
                 // "Sync Amount" do export fica fixa em 0,80 e não bate.
                 const liquido = t.netAmountCents;
-                const taxa = liquido === undefined ? undefined : Math.max(0, t.amountCents - liquido);
+                // Taxa e split vêm separados (é assim que a SyncPay mostra:
+                // entrada − taxas − split = você recebe).
+                const taxa = t.feeCents;
+                const split = t.splitCents;
                 return (
                   <tr key={t.id} className="hover:bg-white/[0.01]">
                     <td className="p-3">
@@ -300,6 +305,15 @@ export default function PaymentsPage() {
                     </td>
                     <td className="p-3 text-right font-mono text-xs text-zinc-500">
                       {taxa === undefined ? "—" : `-${brl(taxa)}`}
+                    </td>
+                    <td className="p-3 text-right font-mono text-xs">
+                      {split === undefined ? (
+                        <span className="text-zinc-700">—</span>
+                      ) : split > 0 ? (
+                        <span className="text-amber-400/80">-{brl(split)}</span>
+                      ) : (
+                        <span className="text-zinc-700">-{brl(0)}</span>
+                      )}
                     </td>
                     <td className={`p-3 text-right font-display font-semibold ${pago ? "text-emerald-400" : "text-zinc-600"}`}>
                       {liquido === undefined ? "—" : brl(liquido)}

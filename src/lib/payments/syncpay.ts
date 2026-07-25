@@ -123,7 +123,12 @@ export async function fetchSyncPayToken(creds: {
     }),
   });
   if (!res.ok) {
-    throw new Error(`SyncPay: autenticação falhou (${res.status}).`);
+    // Inclui o que a SyncPay respondeu: é ela quem diz se o problema é o
+    // client id, o secret ou a conta — sem isso o erro vira adivinhação.
+    const corpo = (await res.text().catch(() => "")).slice(0, 200);
+    throw new Error(
+      `SyncPay: autenticação falhou (${res.status})${corpo ? ` · ${corpo}` : ""}`,
+    );
   }
   const data = (await res.json()) as {
     access_token?: string;
@@ -271,6 +276,20 @@ export function createSyncPay(creds: {
     attempts: BalanceAttempt[];
   }> {
     const attempts: BalanceAttempt[] = [];
+
+    // O token vem primeiro e é registrado como um passo próprio: quando as
+    // credenciais são recusadas, a consulta de saldo nem chega a acontecer, e
+    // atribuir o erro à rota do saldo mandaria procurar no lugar errado.
+    try {
+      await getToken();
+    } catch (e) {
+      attempts.push({
+        path: "/api/partner/v1/auth-token",
+        error: `${e instanceof Error ? e.message : "falha ao autenticar"} — confira o Client ID e o Client Secret em app.syncpayments.com.br → Developer API`,
+      });
+      return { cents: null, attempts };
+    }
+
     try {
       const res = await authedFetch(BALANCE_PATH, { method: "GET" });
       const texto = await res.text();

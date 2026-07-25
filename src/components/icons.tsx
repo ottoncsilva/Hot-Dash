@@ -318,6 +318,12 @@ export const IconSend = (p: IconProps) => (
   </Base>
 );
 
+export const IconFunnel = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M3 4h18l-7 8v7l-4 2v-9L3 4z" />
+  </Base>
+);
+
 export const IconTelegram = (p: IconProps) => (
   <Base {...p}>
     <path d="M3.5 12.3 20 4.5l-3 15-5.3-4-2.8 2.5v-3.6L18 7.5 8 13.2z" />

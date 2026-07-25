@@ -178,7 +178,15 @@ export function listTransactions(limit = 50, profileId?: string): Transaction[] 
  */
 export function updateTransactionAmounts(
   id: string,
-  input: { amountCents?: number; feeCents?: number; splitCents?: number; customer?: string },
+  input: {
+    amountCents?: number;
+    feeCents?: number;
+    splitCents?: number;
+    customer?: string;
+    /** Modelo a que a venda pertence. "" desvincula. Venda que chega só pelo
+     *  webhook nasce sem modelo — a SyncPay não sabe de qual é. */
+    profileId?: string;
+  },
 ): Transaction | null {
   const atual = getTransaction(id);
   if (!atual) return null;
@@ -188,15 +196,16 @@ export function updateTransactionAmounts(
   const split = input.splitCents !== undefined && input.splitCents >= 0 ? input.splitCents : atual.splitCents ?? 0;
   const liquido = Math.max(0, venda - taxa - split);
   const customer = input.customer !== undefined ? input.customer.trim() || null : atual.customer ?? null;
+  const perfil = input.profileId !== undefined ? input.profileId.trim() || null : atual.profileId ?? null;
 
   getDb()
     .prepare(
       `UPDATE transactions
        SET amount_cents = ?, fee_cents = ?, split_cents = ?, net_amount_cents = ?,
-           customer = ?, updated_at = ?
+           customer = ?, profile_id = ?, updated_at = ?
        WHERE id = ?`,
     )
-    .run(venda, taxa, split, liquido, customer, Date.now(), id);
+    .run(venda, taxa, split, liquido, customer, perfil, Date.now(), id);
   return getTransaction(id);
 }
 

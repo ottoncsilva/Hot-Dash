@@ -29,6 +29,7 @@ import {
   IconX,
   IconBlur,
   IconSearch,
+  IconFunnel,
 } from "@/components/icons";
 import CommandPalette from "@/components/CommandPalette";
 import PullToRefresh from "@/components/PullToRefresh";
@@ -40,6 +41,7 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   media: IconMedia,
   censura: IconBlur,
   payments: IconPayments,
+  funil: IconFunnel,
   telegram: IconTelegram,
   whatsapp: IconWhatsapp,
   whatsapp_settings: IconSettings,

@@ -271,6 +271,125 @@ export function markReprocessed(id: string): void {
     .run(Date.now(), id);
 }
 
+/** Normaliza um identificador para comparação (o export corta em 30 chars e
+ *  às vezes omite os hifens do UUID). */
+function normRef(v: string): string {
+  return (v || "").toLowerCase().replace(/[^0-9a-z]/g, "");
+}
+
+export type ImportRow = {
+  externalId: string;
+  amountCents: number;
+  netCents: number;
+  status: string;
+  createdAtMs: number;
+  customer?: string;
+};
+
+export type ImportResult = {
+  total: number;
+  atualizadas: number;
+  novas: number;
+  semMudanca: number;
+  amostra: { quando: number; venda: number; taxa: number; liquido: number; status: string; acao: string }[];
+};
+
+/**
+ * Aplica as linhas da exportação do gateway sobre o banco.
+ *
+ * Casamento: primeiro pelo identificador (prefixo, porque o PDF trunca em 30
+ * caracteres); se não achar, por valor + horário de criação próximos (±3 min),
+ * que é o par praticamente único de uma cobrança. Não achando nada, a venda é
+ * CRIADA — assim o histórico fica completo mesmo para vendas que nunca
+ * chegaram ao painel.
+ *
+ * `dryRun` não grava nada: serve para a tela mostrar a prévia antes.
+ */
+export function importProviderRows(
+  provider: string,
+  linhas: ImportRow[],
+  opts: { dryRun?: boolean } = {},
+): ImportResult {
+  const db = getDb();
+  const existentes = db
+    .prepare("SELECT * FROM transactions WHERE provider = ?")
+    .all(provider) as Row[];
+
+  const res: ImportResult = { total: linhas.length, atualizadas: 0, novas: 0, semMudanca: 0, amostra: [] };
+
+  const aplicar = db.transaction(() => {
+    for (const l of linhas) {
+      const alvo = normRef(l.externalId);
+      let achou: Row | undefined = existentes.find((e) => {
+        const r = normRef(e.provider_ref || "");
+        return r.length > 0 && alvo.length > 0 && (r.startsWith(alvo) || alvo.startsWith(r));
+      });
+      if (!achou) {
+        achou = existentes.find(
+          (e) => e.amount_cents === l.amountCents && Math.abs(e.created_at - l.createdAtMs) <= 3 * 60_000,
+        );
+      }
+
+      const status = normalizeStatus(l.status);
+      const pago = status === "paid";
+      let acao: string;
+
+      if (achou) {
+        const mudou =
+          achou.amount_cents !== l.amountCents ||
+          achou.net_amount_cents !== l.netCents ||
+          achou.status !== status;
+        if (mudou) {
+          res.atualizadas++;
+          acao = "atualizada";
+          if (!opts.dryRun) {
+            db.prepare(
+              `UPDATE transactions
+               SET amount_cents = ?, net_amount_cents = ?, status = ?, created_at = ?,
+                   paid_at = COALESCE(paid_at, ?), customer = COALESCE(customer, ?),
+                   reprocessed_at = ?, updated_at = ?
+               WHERE id = ?`,
+            ).run(
+              l.amountCents, l.netCents, status, l.createdAtMs,
+              pago ? l.createdAtMs : null, l.customer || null,
+              Date.now(), Date.now(), achou.id,
+            );
+          }
+        } else {
+          res.semMudanca++;
+          acao = "sem mudança";
+        }
+      } else {
+        res.novas++;
+        acao = "nova";
+        if (!opts.dryRun) {
+          db.prepare(
+            `INSERT INTO transactions
+              (id, provider, provider_ref, profile_id, description, customer,
+               amount_cents, net_amount_cents, paid_at, currency, method, status,
+               reprocessed_at, created_at, updated_at)
+             VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, 'BRL', 'pix', ?, ?, ?, ?)`,
+          ).run(
+            randomUUID(), provider, l.externalId, "Venda SyncPay", l.customer || null,
+            l.amountCents, l.netCents, pago ? l.createdAtMs : null, status,
+            Date.now(), l.createdAtMs, Date.now(),
+          );
+        }
+      }
+
+      if (res.amostra.length < 8) {
+        res.amostra.push({
+          quando: l.createdAtMs, venda: l.amountCents,
+          taxa: Math.max(0, l.amountCents - l.netCents), liquido: l.netCents,
+          status, acao,
+        });
+      }
+    }
+  });
+  aplicar();
+  return res;
+}
+
 /** Agrupa o método de pagamento bruto do provedor num rótulo de exibição. */
 function methodBucket(method: string | null): "Pix" | "Cartão" | "Boleto" | "Outros" {
   const m = (method || "").toLowerCase();

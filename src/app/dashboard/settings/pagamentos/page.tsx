@@ -6,6 +6,10 @@ import { IconLock } from "@/components/icons";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import { BackToSettings, ConnectionBadge } from "../_shared";
 
+function brl(cents: number) {
+  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
 type LastPaid = { at: number; amountCents: number; customer?: string } | null;
 
 export default function PaymentSettingsPage() {
@@ -24,6 +28,11 @@ export default function PaymentSettingsPage() {
   const [reproMsg, setReproMsg] = useState<string | null>(null);
   // Diagnóstico: o que o gateway respondeu de fato (para quando não funciona).
   const [diag, setDiag] = useState<string | null>(null);
+  // Importação do export da SyncPay (única fonte do valor líquido do histórico).
+  const [impPrev, setImpPrev] = useState<any>(null);
+  const [impBusy, setImpBusy] = useState(false);
+  const [impFile, setImpFile] = useState<File | null>(null);
+  const [impMsg, setImpMsg] = useState<string | null>(null);
 
   function loadDiagnostics() {
     apiGet<{ settings: PaymentSettingsPublic; lastPaid: LastPaid }>("/api/payments/settings")
@@ -105,6 +114,34 @@ export default function PaymentSettingsPage() {
       );
     } catch (e) {
       setDiag(e instanceof Error ? e.message : "Falha no diagnóstico.");
+    }
+  }
+
+  async function enviarExport(file: File, dryRun: boolean) {
+    setImpBusy(true);
+    setImpMsg(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      if (dryRun) fd.append("dryRun", "1");
+      const res = await fetch("/api/payments/import", { method: "POST", body: fd });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Falha ao ler o arquivo.");
+      if (dryRun) {
+        setImpPrev(d);
+      } else {
+        setImpPrev(null);
+        setImpFile(null);
+        setImpMsg(
+          `Importado: ${d.atualizadas} atualizada(s), ${d.novas} nova(s), ${d.semMudanca} sem mudança.`,
+        );
+        loadDiagnostics();
+        loadReprocess();
+      }
+    } catch (e) {
+      setImpMsg(e instanceof Error ? e.message : "Falha na importação.");
+    } finally {
+      setImpBusy(false);
     }
   }
 
@@ -246,6 +283,63 @@ export default function PaymentSettingsPage() {
             <button type="button" onClick={loadDiagnostics} className="btn-ghost shrink-0 px-3 py-1.5 text-xs">
               Verificar agora
             </button>
+          </div>
+
+          {/* Importar o export da SyncPay: única fonte do valor líquido do
+              histórico (a API não lista vendas nem devolve o final_amount). */}
+          <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+              Importar histórico da SyncPay
+            </p>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              No painel da SyncPay, gere <b>Exportação: Transaction</b> do período desejado e
+              envie o arquivo (PDF ou CSV) aqui. É de onde vêm o <b>valor da taxa</b> e o
+              <b> líquido</b> das vendas antigas. Os horários do arquivo estão em UTC e são
+              convertidos para o seu fuso.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input
+                type="file"
+                accept=".pdf,.csv,text/csv,application/pdf"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] || null;
+                  setImpFile(f);
+                  setImpPrev(null);
+                  setImpMsg(null);
+                  if (f) enviarExport(f, true);
+                }}
+                className="text-xs text-zinc-400 file:mr-2 file:rounded-lg file:border file:border-white/10 file:bg-white/5 file:px-3 file:py-1.5 file:text-xs file:text-zinc-200"
+              />
+              {impBusy && <span className="text-[11px] text-zinc-500">lendo...</span>}
+            </div>
+
+            {impPrev && (
+              <div className="mt-2 rounded-lg border border-white/10 bg-black/40 p-2 text-xs">
+                <p className="text-zinc-300">
+                  <b>{impPrev.lidas}</b> transações lidas · <b>{impPrev.pagas}</b> pagas
+                </p>
+                <p className="mt-1 font-mono text-[11px] text-zinc-400">
+                  vendas {brl(impPrev.totais.vendaPagas)} · taxa {brl(impPrev.totais.taxaPagas)} ·
+                  líquido <span className="text-emerald-400">{brl(impPrev.totais.liquidoPagas)}</span>
+                </p>
+                <p className="mt-1 text-[11px] text-zinc-500">
+                  Vai gravar: {impPrev.atualizadas} atualizada(s), {impPrev.novas} nova(s),
+                  {" "}{impPrev.semMudanca} sem mudança.
+                </p>
+                <p className="mt-1 text-[11px] text-amber-400/80">
+                  Confira o líquido acima com o saldo/extrato do painel da SyncPay antes de aplicar.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => impFile && enviarExport(impFile, false)}
+                  disabled={impBusy}
+                  className="btn-primary mt-2 px-3 py-1.5 text-xs"
+                >
+                  {impBusy ? "Importando..." : "Aplicar importação"}
+                </button>
+              </div>
+            )}
+            {impMsg && <p className="mt-2 text-xs text-zinc-300">{impMsg}</p>}
           </div>
 
           {/* Reprocessar vendas antigas: recupera no gateway o valor LÍQUIDO das

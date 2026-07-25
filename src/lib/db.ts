@@ -402,41 +402,75 @@ function migrate(d: Database.Database) {
 }
 
 /**
- * Fecha a conta das vendas ANTIGAS da SyncPay, que ficaram sem taxa, sem
- * líquido e sem hora de pagamento — eram gravadas quando o app só guardava um
- * número por venda.
+ * Reconstrói a conta das vendas ANTIGAS da SyncPay.
  *
- * Dá para reconstruir tudo sem consultar nada porque a taxa da SyncPay é
- * determinística (R$ 0,80 até R$ 100; R$ 0,80 + 1,99% acima disso). Quando o
- * líquido JÁ é conhecido (webhook recente), o desconto real manda: a taxa é o
- * mínimo entre a tabela e o desconto, e o que sobrar é split. Quando não é,
- * aplica-se a tabela e o split fica zero — hoje ele não é cobrado (vinha da
- * ApexVips, que não está mais em uso).
+ * O que estava errado no banco: o webhook gravava em `amount_cents` o número
+ * que a SyncPay manda na confirmação, e esse número é o LÍQUIDO. Conferindo com
+ * a exportação do painel (a fonte oficial), cada venda de R$ 19,90 estava
+ * gravada como R$ 19,10 — que é exatamente a coluna "Final Amount" do relatório.
+ * O mesmo em todas as outras: 18,90→18,10, 17,91→17,11, 39,90→39,10, 89,90→89,10.
  *
- * Idempotente: só toca em linhas com `fee_cents` nulo, então rodar a cada boot
- * não custa nada. A importação da exportação da SyncPay sobrepõe estes valores
- * quando o operador quiser os números exatos do painel.
+ * Como a taxa da SyncPay é FIXA (R$ 0,80 até R$ 100), a venda cheia se recupera
+ * somando a taxa de volta: `venda = líquido + 0,80`. É o que esta migração faz,
+ * uma única vez, marcando no `settings` para não rodar de novo (a partir daqui o
+ * webhook já grava certo — ver `updateStatusByRef`, que nunca deixa o valor
+ * confirmado rebaixar a venda que a cobrança registrou).
+ *
+ * Ressalva registrada: um punhado de cobranças antigas (até 22/07) tinha também
+ * um split de R$ 0,75 da ApexVips, que não dá para deduzir sem o relatório.
+ * Nessas, a venda cheia fica R$ 0,75 abaixo da real. Importar a exportação da
+ * SyncPay em Configurações → Pagamentos corrige tudo pelos números do painel.
  */
 function backfillSyncPayAmounts(d: Database.Database) {
-  const pendentes = d
+  const MARCA = "migracao_valores_syncpay_v2";
+  const feito = d.prepare("SELECT value FROM settings WHERE key = ?").get(MARCA) as
+    | { value: string }
+    | undefined;
+
+  if (!feito) {
+    // Só as vendas do gateway: cobranças de outras origens não seguem esta regra.
+    const linhas = d
+      .prepare("SELECT id, amount_cents FROM transactions WHERE provider = 'syncpay'")
+      .all() as { id: string; amount_cents: number }[];
+    const upd = d.prepare(
+      `UPDATE transactions
+       SET amount_cents = ?, net_amount_cents = ?, fee_cents = ?, split_cents = 0
+       WHERE id = ?`,
+    );
+    const aplicar = d.transaction(() => {
+      for (const t of linhas) {
+        // O que está gravado é o líquido; a venda cheia é ele mais a taxa.
+        const liquido = t.amount_cents;
+        const taxa = syncPayFeeCents(liquido);
+        upd.run(liquido + taxa, liquido, taxa, t.id);
+      }
+      d.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+        MARCA,
+        String(Date.now()),
+      );
+    });
+    aplicar();
+  }
+
+  // Vendas que entrarem depois desta migração ainda podem chegar sem a taxa
+  // separada (webhook sem `final_amount`); aqui elas ganham a taxa da tabela.
+  const semTaxa = d
     .prepare(
       `SELECT id, amount_cents, net_amount_cents FROM transactions
        WHERE status = 'paid' AND fee_cents IS NULL`,
     )
     .all() as { id: string; amount_cents: number; net_amount_cents: number | null }[];
-
-  if (pendentes.length > 0) {
+  if (semTaxa.length > 0) {
     const upd = d.prepare(
       "UPDATE transactions SET fee_cents = ?, split_cents = ?, net_amount_cents = ? WHERE id = ?",
     );
     const aplicar = d.transaction(() => {
-      for (const t of pendentes) {
+      for (const t of semTaxa) {
         const tabela = syncPayFeeCents(t.amount_cents);
         const temLiquido = t.net_amount_cents !== null && t.net_amount_cents < t.amount_cents;
         const desconto = temLiquido ? t.amount_cents - (t.net_amount_cents as number) : tabela;
         const taxa = Math.min(tabela, desconto);
-        const split = Math.max(0, desconto - taxa);
-        upd.run(taxa, split, t.amount_cents - desconto, t.id);
+        upd.run(taxa, Math.max(0, desconto - taxa), t.amount_cents - desconto, t.id);
       }
     });
     aplicar();

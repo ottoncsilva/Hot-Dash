@@ -12,8 +12,11 @@ import { partsInTimeZone, zonedWallTimeToUtcMs } from "./timezone";
  * - 30 a 35 posts/dia, número e sequência aleatórios (nenhum dia igual).
  * - 8 janelas de horário (fuso America/São_Paulo), cada uma com objetivo e
  *   tipos priorizados; horários sorteados, sem repetir, com gap mínimo.
- * - Distribuição-alvo ~40% humanização / 30% engajamento / 30% conversão (±10).
+ * - Distribuição-alvo ~36% humanização / 30% engajamento / 34% conversão (±10).
  * - Só os tipos de CONVERSÃO levam o botão VIP (cta=true).
+ * - PICÂNCIA ESCALONADA pela hora (ver `heatForHour`): de manhã insinuante, de
+ *   madrugada sem vergonha. Prévia morna não converte, mas prévia explícita o
+ *   dia inteiro satura o grupo e mata a curiosidade — a curva é o que vende.
  */
 
 // "Kind físico" = o que o motor de envio realmente posta.

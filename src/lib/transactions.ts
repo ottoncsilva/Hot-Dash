@@ -222,12 +222,21 @@ export function updateStatusByRef(
   const becamePaid = existing.status !== "paid" && normalized === "paid";
   const now = Date.now();
 
-  // Só sobrescreve o valor cheio se o gateway mandou um válido; o líquido é
-  // sempre atualizado quando vier (é ele que traz a taxa já descontada).
-  const gross =
-    amounts?.grossCents && amounts.grossCents > 0 ? amounts.grossCents : existing.amountCents;
+  // A confirmação da SyncPay traz um valor que é o LÍQUIDO, não a venda cheia:
+  // uma cobrança de R$ 19,90 volta como 19,10 (é a coluna "Final Amount" da
+  // exportação do painel). Era assim que o histórico inteiro ficava R$ 0,80
+  // menor do que a venda real. Regra: o valor confirmado NUNCA rebaixa o valor
+  // que a cobrança registrou — se vier menor, ele é o líquido.
+  const informado = amounts?.grossCents && amounts.grossCents > 0 ? amounts.grossCents : null;
+  const cobrado = existing.amountCents;
+  const ehLiquido = informado !== null && cobrado > 0 && informado < cobrado;
+  const gross = informado === null || ehLiquido ? cobrado : informado;
   let net =
-    amounts?.netCents && amounts.netCents > 0 ? amounts.netCents : existing.netAmountCents ?? null;
+    amounts?.netCents && amounts.netCents > 0
+      ? amounts.netCents
+      : ehLiquido
+        ? (informado as number)
+        : existing.netAmountCents ?? null;
   // paid_at marca a hora do PAGAMENTO (createdAt é a geração do Pix). Não
   // reescreve se já estava paga, para não mascarar a data original.
   const paidAt = normalized === "paid" ? existing.paidAt ?? now : existing.paidAt ?? null;

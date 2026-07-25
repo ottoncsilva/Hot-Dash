@@ -155,16 +155,21 @@ export async function POST(req: NextRequest) {
 
     if (!updated) {
       // Venda que ainda não estava registrada (ex.: checkout externo): grava.
+      // Sem uma cobrança nossa para comparar, vale a mesma leitura do resto do
+      // sistema: a SyncPay confirma o LÍQUIDO. Só tratamos `amount` como venda
+      // cheia quando ela manda os dois valores e um é maior que o outro.
       const client = (data.client as Record<string, unknown>) || {};
+      const { syncPayFeeCents } = await import("@/lib/payments/syncpayExport");
+      const doisValores = grossCents !== undefined && netCents !== undefined && grossCents > netCents;
+      const liquido = doisValores ? (netCents as number) : (netCents ?? grossCents ?? 0);
+      const cheio = doisValores ? (grossCents as number) : liquido + syncPayFeeCents(liquido);
       recordTransaction({
         provider: "syncpay",
         providerRef,
         description: "Venda SyncPay",
         customer: (client.name as string) || undefined,
-        // Cheio no amount, líquido à parte (antes o líquido era gravado como se
-        // fosse o total, e o faturamento bruto ficava subestimado).
-        amountCents: grossCents ?? netCents ?? 0,
-        netAmountCents: netCents,
+        amountCents: cheio,
+        netAmountCents: liquido || undefined,
         method: (data.payment_method as string) || "pix",
         status: normalizeStatus(status),
       });

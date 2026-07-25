@@ -167,6 +167,40 @@ export function listTransactions(limit = 50, profileId?: string): Transaction[] 
 }
 
 /**
+ * Corrige os valores de uma cobrança à mão.
+ *
+ * O gateway nem sempre manda tudo (e nem sempre manda certo): uma venda de
+ * R$ 19,90 já entrou como R$ 20,70 por leitura errada do payload. Em vez de
+ * mexer no banco por fora, o operador ajusta na própria tela.
+ *
+ * O líquido não é editável de propósito — ele é sempre venda − taxa − split,
+ * e deixar os quatro soltos abriria espaço para uma linha que não fecha.
+ */
+export function updateTransactionAmounts(
+  id: string,
+  input: { amountCents?: number; feeCents?: number; splitCents?: number; customer?: string },
+): Transaction | null {
+  const atual = getTransaction(id);
+  if (!atual) return null;
+
+  const venda = input.amountCents !== undefined && input.amountCents >= 0 ? input.amountCents : atual.amountCents;
+  const taxa = input.feeCents !== undefined && input.feeCents >= 0 ? input.feeCents : atual.feeCents ?? 0;
+  const split = input.splitCents !== undefined && input.splitCents >= 0 ? input.splitCents : atual.splitCents ?? 0;
+  const liquido = Math.max(0, venda - taxa - split);
+  const customer = input.customer !== undefined ? input.customer.trim() || null : atual.customer ?? null;
+
+  getDb()
+    .prepare(
+      `UPDATE transactions
+       SET amount_cents = ?, fee_cents = ?, split_cents = ?, net_amount_cents = ?,
+           customer = ?, updated_at = ?
+       WHERE id = ?`,
+    )
+    .run(venda, taxa, split, liquido, customer, Date.now(), id);
+  return getTransaction(id);
+}
+
+/**
  * Apaga uma cobrança do histórico. Existe porque o webhook da SyncPay é por
  * CONTA e traz movimentos que não são venda (saque, por exemplo) — quando um
  * deles escapa da filtragem, o operador precisa poder tirar do Financeiro sem

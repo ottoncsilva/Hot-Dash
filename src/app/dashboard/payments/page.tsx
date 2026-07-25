@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { apiGet, apiSend } from "@/lib/api";
 import Modal from "@/components/Modal";
-import { IconPlus, IconSettings, IconPayments, IconCopy, IconTrash } from "@/components/icons";
+import { IconPlus, IconSettings, IconPayments, IconCopy, IconTrash, IconEdit } from "@/components/icons";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import type { Transaction, PeriodStats } from "@/lib/transactions";
 import type { Profile } from "@/lib/types";
@@ -84,6 +84,7 @@ export default function PaymentsPage() {
   }, []);
 
   const [excluindo, setExcluindo] = useState<string | null>(null);
+  const [editando, setEditando] = useState<Transaction | null>(null);
 
   async function excluir(t: Transaction) {
     const nome = t.customer || t.description || "esta cobrança";
@@ -254,7 +255,7 @@ export default function PaymentsPage() {
                 <th className="p-3 w-24 text-right">Taxa</th>
                 <th className="p-3 w-24 text-right">Split</th>
                 <th className="p-3 w-28 text-right">Líquido</th>
-                <th className="p-3 w-10"></th>
+                <th className="p-3 w-16"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.04]">
@@ -325,16 +326,26 @@ export default function PaymentsPage() {
                     </td>
                     {/* Remover: o webhook da SyncPay é por conta e traz
                         movimento que não é venda (saque, por exemplo). */}
-                    <td className="p-3 text-right">
-                      <button
-                        type="button"
-                        title="Remover do histórico"
-                        onClick={() => excluir(t)}
-                        disabled={excluindo === t.id}
-                        className="text-zinc-700 transition-colors hover:text-red-400 disabled:opacity-40"
-                      >
-                        <IconTrash size={14} />
-                      </button>
+                    <td className="p-3">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          title="Corrigir valores"
+                          onClick={() => setEditando(t)}
+                          className="text-zinc-700 transition-colors hover:text-white"
+                        >
+                          <IconEdit size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          title="Remover do histórico"
+                          onClick={() => excluir(t)}
+                          disabled={excluindo === t.id}
+                          className="text-zinc-700 transition-colors hover:text-red-400 disabled:opacity-40"
+                        >
+                          <IconTrash size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -343,6 +354,19 @@ export default function PaymentsPage() {
           </table>
         )}
       </div>
+
+      <Modal open={Boolean(editando)} onClose={() => setEditando(null)}>
+        {editando && (
+          <EditarCobranca
+            tx={editando}
+            onClose={() => setEditando(null)}
+            onDone={() => {
+              setEditando(null);
+              load();
+            }}
+          />
+        )}
+      </Modal>
 
       <Modal open={charging} onClose={() => setCharging(false)}>
         <ChargeForm
@@ -354,6 +378,102 @@ export default function PaymentsPage() {
           }}
         />
       </Modal>
+    </div>
+  );
+}
+
+/**
+ * Correção manual de uma cobrança. O líquido não é campo: ele é sempre
+ * venda − taxa − split, e aparece calculado para conferência antes de salvar.
+ */
+function EditarCobranca({
+  tx,
+  onClose,
+  onDone,
+}: {
+  tx: Transaction;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const emReais = (c: number | undefined) => ((c ?? 0) / 100).toFixed(2).replace(".", ",");
+  const [venda, setVenda] = useState(emReais(tx.amountCents));
+  const [taxa, setTaxa] = useState(emReais(tx.feeCents));
+  const [split, setSplit] = useState(emReais(tx.splitCents));
+  const [nome, setNome] = useState(tx.customer || "");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const paraCentavos = (v: string) => Math.round(Number(v.replace(/\./g, "").replace(",", ".")) * 100);
+  const cVenda = paraCentavos(venda);
+  const cTaxa = paraCentavos(taxa);
+  const cSplit = paraCentavos(split);
+  const valido = [cVenda, cTaxa, cSplit].every((n) => Number.isFinite(n) && n >= 0);
+  const liquido = valido ? Math.max(0, cVenda - cTaxa - cSplit) : 0;
+
+  async function salvar() {
+    setSalvando(true);
+    setErro(null);
+    try {
+      await apiSend(`/api/payments/transactions/${tx.id}`, "PATCH", {
+        amountCents: cVenda,
+        feeCents: cTaxa,
+        splitCents: cSplit,
+        customer: nome,
+      });
+      onDone();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Falha ao salvar.");
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div>
+      <p className="eyebrow">corrigir</p>
+      <h2 className="mt-1.5 font-display text-lg font-semibold">Valores da cobrança</h2>
+      <p className="mt-2 text-xs text-zinc-500">
+        Use os números do painel da SyncPay. Isso altera só o histórico aqui — não mexe em nada
+        no gateway.
+      </p>
+      {erro && (
+        <p className="mt-3 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-sm text-red-300">
+          {erro}
+        </p>
+      )}
+      <div className="mt-4 grid gap-3">
+        <div>
+          <label className="eyebrow mb-1.5 block">Nome</label>
+          <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Cliente" />
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="eyebrow mb-1.5 block">Venda (R$)</label>
+            <input className="input" inputMode="decimal" value={venda} onChange={(e) => setVenda(e.target.value)} />
+          </div>
+          <div>
+            <label className="eyebrow mb-1.5 block">Taxa (R$)</label>
+            <input className="input" inputMode="decimal" value={taxa} onChange={(e) => setTaxa(e.target.value)} />
+          </div>
+          <div>
+            <label className="eyebrow mb-1.5 block">Split (R$)</label>
+            <input className="input" inputMode="decimal" value={split} onChange={(e) => setSplit(e.target.value)} />
+          </div>
+        </div>
+        <div className="flex items-center justify-between rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+          <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">líquido</span>
+          <span className="font-display text-sm font-semibold text-emerald-400">
+            {valido ? brl(liquido) : "—"}
+          </span>
+        </div>
+      </div>
+      <div className="mt-5 flex gap-3">
+        <button type="button" onClick={onClose} className="btn-ghost flex-1" disabled={salvando}>
+          Cancelar
+        </button>
+        <button type="button" onClick={salvar} className="btn-primary flex-1" disabled={salvando || !valido}>
+          {salvando ? "Salvando..." : "Salvar"}
+        </button>
+      </div>
     </div>
   );
 }

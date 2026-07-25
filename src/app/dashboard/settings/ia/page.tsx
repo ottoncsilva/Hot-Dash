@@ -207,7 +207,7 @@ export default function AiSettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="page-narrow">
       <BackToSettings />
       <p className="eyebrow mt-4">inteligência artificial</p>
       <h1 className="mt-1.5 font-display text-2xl font-semibold tracking-tight">Conexão com IA</h1>

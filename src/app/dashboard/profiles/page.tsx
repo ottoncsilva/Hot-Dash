@@ -124,7 +124,7 @@ export default function ProfilesPage() {
   }, [profiles, search, statusFilter, networkFilter]);
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="page">
       <PageHeader
         eyebrow="gestão"
         title="Modelos"

@@ -56,6 +56,25 @@ export async function POST(req: NextRequest) {
       status: result.status,
     });
 
+    // Alerta de PIX GERADO (aguardando pagamento). Não pode derrubar a cobrança
+    // se o push falhar — daí o try/catch próprio.
+    try {
+      const { sendPushEvent } = await import("@/lib/push");
+      const valStr = (amountCents / 100).toLocaleString("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+      });
+      const detalhe = [body.description, body.customer?.name].filter(Boolean).join(" · ");
+      await sendPushEvent(
+        "pix",
+        `⏳ Pix gerado — ${valStr}`,
+        detalhe || "Aguardando pagamento.",
+        "/dashboard/payments",
+      );
+    } catch (pErr) {
+      console.error("Erro ao enviar push de Pix gerado:", pErr);
+    }
+
     return NextResponse.json({
       transaction: tx,
       pixCode: result.pixCode,

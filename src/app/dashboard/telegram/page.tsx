@@ -293,7 +293,7 @@ export default function TelegramUnifiedPage() {
   };
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto bg-ink-950 p-6 text-white pb-20">
+    <div className="page pb-20 text-white">
       <div className="mb-6 rounded-xl border border-sky-500/30 bg-sky-500/5 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
         <div>
           <h2 className="text-sm font-bold text-sky-400 uppercase tracking-wider">Modelo em Edição</h2>

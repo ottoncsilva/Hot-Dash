@@ -101,7 +101,7 @@ export default function DashboardHome() {
   const anyProvider = providers?.syncpay.enabled;
 
   return (
-    <div className="w-full">
+    <div className="page">
       <p className="eyebrow">visão geral</p>
       <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Dashboard</h1>
       <p className="mt-2 max-w-xl text-sm text-zinc-500">

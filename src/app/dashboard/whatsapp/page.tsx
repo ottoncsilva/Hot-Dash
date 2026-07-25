@@ -139,7 +139,7 @@ export default function WhatsAppVipPage() {
   };
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto bg-ink-950 p-6 text-white">
+    <div className="page text-white">
       {/* Botão para o Live Chat Global */}
       <div className="mb-6 flex justify-end">
         <Link href="/dashboard/whatsapp/chat" className="flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-white shadow-lg hover:bg-emerald-400 transition-colors">

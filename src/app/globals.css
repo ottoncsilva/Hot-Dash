@@ -59,6 +59,18 @@ body {
     @apply bg-ink-850 text-zinc-100;
   }
 
+  /* Contêiner padrão do conteúdo das telas.
+     Antes cada tela escolhia a sua largura máxima (768 / 896 / 1024 / 1152px) e
+     três não tinham nenhuma — a largura "pulava" ao navegar. Agora é uma só e
+     TODAS ocupam a largura inteira da janela; quem limita o espaço é apenas o
+     padding do <main> no layout.
+     `.page-narrow` existe só como apelido, para as telas que já o usam
+     continuarem funcionando — hoje se comporta igual a `.page`. */
+  .page,
+  .page-narrow {
+    @apply w-full;
+  }
+
   /* Rótulo micro em mono (estilo técnico) */
   .eyebrow {
     @apply font-mono text-[11px] uppercase tracking-widest2 text-zinc-500;

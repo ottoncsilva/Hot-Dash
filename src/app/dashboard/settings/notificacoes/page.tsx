@@ -1,11 +1,75 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import PushToggle from "@/components/PushToggle";
+import Switch from "@/components/Switch";
+import { apiGet, apiSend } from "@/lib/api";
+import { showToast } from "@/lib/toast";
+import {
+  PUSH_EVENTS,
+  DEFAULT_NOTIFICATION_PREFS,
+  type NotificationPrefs,
+  type PushEventType,
+} from "@/lib/notificationTypes";
 import { BackToSettings } from "../_shared";
+
+/** Liga/desliga cada TIPO de alerta. Salva na hora (sem botão de salvar). */
+function AlertTypes() {
+  const [prefs, setPrefs] = useState<NotificationPrefs>(DEFAULT_NOTIFICATION_PREFS);
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState<PushEventType | null>(null);
+
+  useEffect(() => {
+    apiGet<{ prefs: NotificationPrefs }>("/api/settings/notifications")
+      .then((d) => setPrefs(d.prefs))
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+  }, []);
+
+  async function toggle(id: PushEventType, value: boolean) {
+    const prev = prefs;
+    setPrefs({ ...prefs, [id]: value }); // otimista: o interruptor responde na hora
+    setSaving(id);
+    try {
+      const d = await apiSend<{ prefs: NotificationPrefs }>(
+        "/api/settings/notifications",
+        "PATCH",
+        { [id]: value },
+      );
+      setPrefs(d.prefs);
+    } catch {
+      setPrefs(prev); // desfaz se o servidor recusou
+      showToast("Não foi possível salvar. Tente de novo.", "error");
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  return (
+    <div className="divide-y divide-white/[0.06]">
+      {PUSH_EVENTS.map((e) => (
+        <div key={e.id} className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-zinc-100">{e.label}</p>
+            <p className="mt-0.5 text-xs text-zinc-500">{e.description}</p>
+          </div>
+          <div className="shrink-0 pt-0.5">
+            <Switch
+              checked={prefs[e.id]}
+              onChange={(v) => toggle(e.id, v)}
+              disabled={!loaded || saving === e.id}
+              ariaLabel={e.label}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function NotificationsSettingsPage() {
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="page-narrow">
       <BackToSettings />
       <p className="eyebrow mt-4">notificações</p>
       <h1 className="mt-1.5 font-display text-2xl font-semibold tracking-tight">
@@ -56,19 +120,14 @@ export default function NotificationsSettingsPage() {
       </div>
 
       <div className="mt-4 card p-4">
-        <p className="eyebrow mb-2">O que dispara alerta hoje</p>
-        <ul className="space-y-1.5 text-xs text-zinc-400">
-          <li>
-            <b className="text-emerald-300">Venda aprovada</b> — assim que o SyncPay confirma o
-            pagamento, com o valor e o produto. Vale também para checkout externo.
-          </li>
-          <li>
-            <b className="text-zinc-200">Lembrete de post</b> — 15 minutos antes de um post
-            agendado do cronograma.
-          </li>
-        </ul>
+        <p className="eyebrow mb-1">Tipos de alerta</p>
+        <p className="mb-3 text-xs text-zinc-500">
+          Escolha o que quer receber. Vale para <b>todos</b> os aparelhos ativados e é salvo
+          na hora.
+        </p>
+        <AlertTypes />
         <p className="mt-3 text-[11px] text-zinc-500">
-          O alerta exige que o webhook do SyncPay esteja apontado para o seu domínio em
+          Vendas e Pix dependem do webhook do SyncPay apontado para o seu domínio em
           Configurações → Pagamentos.
         </p>
       </div>

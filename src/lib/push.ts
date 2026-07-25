@@ -1,6 +1,7 @@
 import webpush from "web-push";
 import { getDb } from "./db";
 import { randomUUID } from "crypto";
+import type { PushEventType } from "./notificationTypes";
 
 type VapidKeys = {
   publicKey: string;
@@ -47,6 +48,24 @@ export function saveSubscription(subscription: any) {
 export function removeSubscription(endpoint: string) {
   const db = getDb();
   db.prepare("DELETE FROM push_subscriptions WHERE json_extract(subscription_json, '$.endpoint') = ?").run(endpoint);
+}
+
+/**
+ * Envia um alerta de um TIPO específico, respeitando o que o operador escolheu
+ * em Configurações → Notificações. Todo disparo automático deve passar por aqui
+ * (o `sendPushToAll` cru fica para o botão de teste, que é manual e explícito).
+ * Devolve false quando o tipo está desligado.
+ */
+export async function sendPushEvent(
+  type: PushEventType,
+  title: string,
+  body: string,
+  url: string,
+): Promise<boolean> {
+  const { getNotificationPrefs } = await import("./settings");
+  if (!getNotificationPrefs()[type]) return false;
+  await sendPushToAll(title, body, url);
+  return true;
 }
 
 /** Quantos aparelhos estão inscritos para receber os alertas. */

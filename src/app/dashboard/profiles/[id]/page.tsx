@@ -167,14 +167,14 @@ export default function ProfileDetailPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-3xl">
+      <div className="page-narrow">
         <div className="card h-44 animate-pulse" />
       </div>
     );
   }
   if (!profile) {
     return (
-      <div className="mx-auto max-w-3xl">
+      <div className="page-narrow">
         <p className="text-zinc-300">{error || "Perfil não encontrado."}</p>
         <Link href="/dashboard/profiles" className="btn-ghost mt-4">
           <IconArrowLeft size={16} /> Voltar
@@ -197,7 +197,7 @@ export default function ProfileDetailPage() {
     botIdPrevias !== botOrig.prev;
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="page-narrow">
       <Link
         href="/dashboard/profiles"
         className="inline-flex items-center gap-1.5 text-sm text-zinc-500 transition-colors hover:text-zinc-200"

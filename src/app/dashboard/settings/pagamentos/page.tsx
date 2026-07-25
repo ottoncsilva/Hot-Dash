@@ -22,6 +22,12 @@ export default function PaymentSettingsPage() {
   const [origin, setOrigin] = useState("");
   const [copied, setCopied] = useState(false);
   const [lastPaid, setLastPaid] = useState<LastPaid>(null);
+  // Diário dos webhooks: o corpo cru do que a SyncPay manda, para distinguir
+  // venda de saque (a documentação só descreve o de venda).
+  const [eventos, setEventos] = useState<
+    { id: string; receivedAt: number; providerRef?: string; decision: string; body: string }[] | null
+  >(null);
+  const [aberto, setAberto] = useState<string | null>(null);
   // Teste do saldo (o card do Dashboard só diz "indisponível" quando falha).
   const [saldoMsg, setSaldoMsg] = useState<string | null>(null);
   const [saldoBusy, setSaldoBusy] = useState(false);
@@ -50,6 +56,15 @@ export default function PaymentSettingsPage() {
   const webhookUrl = cfg?.syncpay.webhookToken
     ? `${origin}/api/webhooks/syncpay?token=${cfg.syncpay.webhookToken}`
     : "";
+
+  async function carregarEventos() {
+    try {
+      const d = await apiGet<{ events: typeof eventos }>("/api/payments/webhook-events");
+      setEventos(d.events || []);
+    } catch {
+      setEventos([]);
+    }
+  }
 
   async function testarSaldo() {
     setSaldoBusy(true);
@@ -267,6 +282,65 @@ export default function PaymentSettingsPage() {
               <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-white/10 bg-black/40 p-2 font-mono text-[10px] leading-relaxed text-zinc-400">
                 {saldoMsg}
               </pre>
+            )}
+          </div>
+
+          {/* Diário dos webhooks: mostra o que a SyncPay manda de fato. É por
+              aqui que dá para ver qual campo distingue venda de saque. */}
+          <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  Webhooks recebidos
+                </p>
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  Os últimos eventos que a SyncPay mandou, com o conteúdo cru e o que o sistema
+                  fez com cada um. Serve para conferir por que algo entrou (ou não) no Financeiro.
+                </p>
+              </div>
+              <button type="button" onClick={carregarEventos} className="btn-ghost shrink-0 px-3 py-1.5 text-xs">
+                {eventos === null ? "Ver eventos" : "Atualizar"}
+              </button>
+            </div>
+            {eventos !== null && (
+              eventos.length === 0 ? (
+                <p className="mt-2 text-xs text-zinc-600">
+                  Nenhum evento recebido ainda (só aparecem os que chegarem daqui pra frente).
+                </p>
+              ) : (
+                <div className="mt-2 divide-y divide-white/[0.06] rounded-lg border border-white/10">
+                  {eventos.map((ev) => (
+                    <div key={ev.id} className="px-2 py-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setAberto(aberto === ev.id ? null : ev.id)}
+                        className="flex w-full items-center justify-between gap-2 text-left"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="font-mono text-[10px] text-zinc-500">
+                            {new Date(ev.receivedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "medium" })}
+                          </span>
+                          <span
+                            className={`ml-2 text-[11px] ${
+                              ev.decision.startsWith("ignorado") ? "text-amber-400/80" : "text-emerald-400/80"
+                            }`}
+                          >
+                            {ev.decision}
+                          </span>
+                        </span>
+                        <span className="shrink-0 font-mono text-[10px] text-zinc-600">
+                          {aberto === ev.id ? "fechar" : "ver json"}
+                        </span>
+                      </button>
+                      {aberto === ev.id && (
+                        <pre className="mt-1.5 max-h-64 overflow-auto whitespace-pre-wrap rounded border border-white/10 bg-black/40 p-2 font-mono text-[10px] leading-relaxed text-zinc-400">
+                          {ev.body}
+                        </pre>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )
             )}
           </div>
 

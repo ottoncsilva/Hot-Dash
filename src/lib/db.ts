@@ -407,6 +407,11 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "whatsapp_agent_settings", "enable_billing", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(d, "whatsapp_agent_settings", "pix_key", "TEXT");
   ensureColumn(d, "posts", "reminded", "INTEGER NOT NULL DEFAULT 0");
+  // Código de divulgação do deep-link do /start (t.me/bot?start=CODIGO). Fica
+  // no lead quando ele chega e é copiado para a venda na hora de gerar o PIX —
+  // é o que liga faturamento a origem de tráfego.
+  ensureColumn(d, "telegram_leads", "source_code", "TEXT");
+  ensureColumn(d, "transactions", "source_code", "TEXT");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);

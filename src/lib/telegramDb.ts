@@ -344,16 +344,24 @@ export type TelegramLead = {
   lastInteractionAt: number;
   downsellStepIndex: number;
   createdAt: number;
+  /** Código do deep-link que trouxe o lead (t.me/bot?start=CODIGO). */
+  sourceCode?: string;
 };
 
 export function upsertTelegramLead(lead: TelegramLead): void {
+  // O código de origem só é gravado na PRIMEIRA vez: se o mesmo lead voltar a
+  // dar /start por outro link, a atribuição continua sendo do que o trouxe.
   getDb().prepare(
-    `INSERT INTO telegram_leads (id, profile_id, chat_id, last_interaction_at, downsell_step_index, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_leads (id, profile_id, chat_id, last_interaction_at, downsell_step_index, created_at, source_code)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        last_interaction_at = excluded.last_interaction_at,
-       downsell_step_index = excluded.downsell_step_index`
-  ).run(lead.id, lead.profileId, lead.chatId, lead.lastInteractionAt, lead.downsellStepIndex, lead.createdAt);
+       downsell_step_index = excluded.downsell_step_index,
+       source_code = COALESCE(telegram_leads.source_code, excluded.source_code)`
+  ).run(
+    lead.id, lead.profileId, lead.chatId, lead.lastInteractionAt,
+    lead.downsellStepIndex, lead.createdAt, lead.sourceCode || null,
+  );
 }
 
 export function getTelegramLead(id: string): TelegramLead | null {
@@ -366,6 +374,7 @@ export function getTelegramLead(id: string): TelegramLead | null {
     lastInteractionAt: row.last_interaction_at,
     downsellStepIndex: row.downsell_step_index,
     createdAt: row.created_at,
+    sourceCode: row.source_code || undefined,
   };
 }
 

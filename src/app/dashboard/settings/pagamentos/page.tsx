@@ -28,6 +28,10 @@ export default function PaymentSettingsPage() {
     { id: string; receivedAt: number; providerRef?: string; decision: string; body: string }[] | null
   >(null);
   const [aberto, setAberto] = useState<string | null>(null);
+  // Webhooks cadastrados NA SYNCPAY: o evento assinado decide o que chega aqui.
+  const [cadastrados, setCadastrados] = useState<
+    { lista?: { id: number; title: string; url: string; event: string; allProducts: boolean }[]; erro?: string } | null
+  >(null);
   // Teste do saldo (o card do Dashboard só diz "indisponível" quando falha).
   const [saldoMsg, setSaldoMsg] = useState<string | null>(null);
   const [saldoBusy, setSaldoBusy] = useState(false);
@@ -63,6 +67,19 @@ export default function PaymentSettingsPage() {
       setEventos(d.events || []);
     } catch {
       setEventos([]);
+    }
+  }
+
+  async function carregarCadastrados() {
+    setCadastrados(null);
+    try {
+      const d = await apiGet<{
+        error?: string;
+        webhooks?: { id: number; title: string; url: string; event: string; allProducts: boolean }[];
+      }>("/api/payments/webhooks-registrados");
+      setCadastrados(d.error ? { erro: d.error } : { lista: d.webhooks || [] });
+    } catch (e) {
+      setCadastrados({ erro: e instanceof Error ? e.message : "Falha ao consultar." });
     }
   }
 
@@ -282,6 +299,55 @@ export default function PaymentSettingsPage() {
               <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-white/10 bg-black/40 p-2 font-mono text-[10px] leading-relaxed text-zinc-400">
                 {saldoMsg}
               </pre>
+            )}
+          </div>
+
+          {/* Quais eventos estão assinados na SyncPay. Assinar "all" traz os
+              SAQUES junto das vendas — foi assim que um saque virou venda. */}
+          <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  Eventos assinados na SyncPay
+                </p>
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  O evento de cada cadastro decide o que chega aqui. O ideal é{" "}
+                  <b>cashin</b> — <b>all</b> traz também os saques, que não são venda.
+                </p>
+              </div>
+              <button type="button" onClick={carregarCadastrados} className="btn-ghost shrink-0 px-3 py-1.5 text-xs">
+                Consultar
+              </button>
+            </div>
+            {cadastrados?.erro && <p className="mt-2 text-xs text-amber-400/80">{cadastrados.erro}</p>}
+            {cadastrados?.lista && (
+              cadastrados.lista.length === 0 ? (
+                <p className="mt-2 text-xs text-zinc-600">Nenhum webhook cadastrado na conta.</p>
+              ) : (
+                <div className="mt-2 space-y-1">
+                  {cadastrados.lista.map((w) => (
+                    <div key={w.id} className="flex flex-wrap items-center gap-2 rounded border border-white/10 bg-black/30 px-2 py-1.5">
+                      <span
+                        className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase ${
+                          w.event === "cashin"
+                            ? "bg-emerald-500/10 text-emerald-400"
+                            : "bg-amber-500/10 text-amber-400"
+                        }`}
+                      >
+                        {w.event}
+                      </span>
+                      <span className="text-xs text-zinc-300">{w.title}</span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-zinc-600">{w.url}</span>
+                    </div>
+                  ))}
+                  {cadastrados.lista.some((w) => w.event !== "cashin") && (
+                    <p className="text-[11px] text-amber-400/80">
+                      Há cadastro com evento diferente de <b>cashin</b>: é por ele que chegam saques e
+                      outros movimentos. Ajuste no painel da SyncPay para receber só as vendas.
+                    </p>
+                  )}
+                </div>
+              )
             )}
           </div>
 

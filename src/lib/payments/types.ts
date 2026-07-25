@@ -57,6 +57,11 @@ export interface PaymentProvider {
   createPixCharge(input: ChargeInput): Promise<ChargeResult>;
   /** Saldo disponível na conta do provedor (quando suportado). */
   getBalance?(): Promise<BalanceResult | null>;
+  /** Webhooks cadastrados na conta do provedor. O evento assinado decide o que
+   *  chega até nós — assinar "tudo" traz saque junto com venda. */
+  listWebhooks?(): Promise<
+    { id: number; title: string; url: string; event: string; allProducts: boolean }[]
+  >;
   /** O que o provedor respondeu na consulta de saldo — para a tela de
    *  Configurações mostrar o motivo quando o saldo não vem. */
   diagnoseBalance?(): Promise<{

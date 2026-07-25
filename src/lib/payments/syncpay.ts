@@ -260,6 +260,33 @@ export function createSyncPay(creds: {
       const { cents, attempts } = await consultaSaldo();
       return { cents, attempts };
     },
+
+    /**
+     * Webhooks cadastrados na conta (GET /api/partner/v1/webhooks).
+     *
+     * Importa porque o `event` de cada cadastro decide o que chega aqui: quem
+     * assina `all` recebe também os SAQUES, e foi assim que um saque entrou no
+     * Financeiro como venda. Assinando `cashin` o problema some na origem.
+     */
+    async listWebhooks() {
+      const res = await authedFetch("/api/partner/v1/webhooks", { method: "GET" });
+      const texto = await res.text();
+      if (!res.ok) {
+        throw new Error(`SyncPay respondeu ${res.status}${texto ? ` · ${texto.slice(0, 200)}` : ""}`);
+      }
+      const json = JSON.parse(texto) as { data?: unknown };
+      const lista = Array.isArray(json.data) ? json.data : [];
+      return lista.map((w) => {
+        const o = (w || {}) as Record<string, unknown>;
+        return {
+          id: Number(o.id) || 0,
+          title: String(o.title || ""),
+          url: String(o.url || ""),
+          event: String(o.event || ""),
+          allProducts: Boolean(o.trigger_all_products),
+        };
+      });
+    },
   };
 
   /**

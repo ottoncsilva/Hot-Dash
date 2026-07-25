@@ -87,12 +87,8 @@ export type PaymentSettingsPublic = {
     enabled: boolean;
     hasSecret: boolean;
     clientId: string;
-    /** Token da URL longa (/api/webhooks/syncpay?token=…). */
-    webhookToken: string;
-    /** Token da URL curta (/w/…), a que se cola no painel hoje. */
+    /** Token da URL do webhook (/w/…), a que se cola no painel do gateway. */
     webhookShort: string;
-    /** URL longa desativada — deixa de aceitar chamadas. */
-    legacyWebhookOff: boolean;
   };
 };
 
@@ -101,9 +97,7 @@ type PaymentSettingsStored = {
     enabled: boolean;
     clientId?: string;
     clientSecretEnc?: string;
-    webhookToken?: string;
     webhookShort?: string;
-    legacyWebhookOff?: boolean;
   };
 };
 
@@ -118,23 +112,12 @@ function rawPayments(): PaymentSettingsStored {
  * Gerado uma única vez e guardado; estável entre deploys. Não usa o
  * SESSION_SECRET para não acoplar a autenticação do webhook à sessão.
  */
-export function ensureSyncpayWebhookToken(): string {
-  const s = rawPayments();
-  if (!s.syncpay) s.syncpay = { enabled: false };
-  if (!s.syncpay.webhookToken) {
-    s.syncpay.webhookToken = randomBytes(24).toString("hex");
-    setJson("payments", s);
-  }
-  return s.syncpay.webhookToken;
-}
-
 /**
- * Token da URL CURTA do webhook (/w/<token>).
+ * Token do webhook, usado na URL `/w/<token>`.
  *
- * A URL longa tinha 95 caracteres entre caminho e query, o que é ruim de colar
- * e de conferir no painel do gateway. 16 caracteres em base62 dão ~95 bits de
- * entropia — mais do que suficiente para um endpoint que só aceita POST e não
- * devolve nada além de `{ok:true}`.
+ * 16 caracteres em base62 dão ~95 bits de entropia — mais do que suficiente
+ * para um endpoint que só aceita POST e não devolve nada além de `{ok:true}`.
+ * A URL antiga, de 95 caracteres com o token na query, foi aposentada.
  */
 export function ensureSyncpayWebhookShortToken(): string {
   const s = rawPayments();
@@ -148,19 +131,6 @@ export function ensureSyncpayWebhookShortToken(): string {
   return s.syncpay.webhookShort;
 }
 
-/** A URL longa ainda aceita chamadas? Depois de trocar no painel do gateway,
- *  desligar aposenta o token antigo (útil se ele tiver vazado num print). */
-export function isLegacyWebhookEnabled(): boolean {
-  return !rawPayments().syncpay?.legacyWebhookOff;
-}
-
-export function setLegacyWebhookEnabled(ligado: boolean): void {
-  const s = rawPayments();
-  if (!s.syncpay) s.syncpay = { enabled: false };
-  s.syncpay.legacyWebhookOff = !ligado;
-  setJson("payments", s);
-}
-
 /** Versão segura para enviar ao cliente (os tokens vão junto porque o
  *  usuário precisa deles para montar a URL a colar na SyncPay). */
 export function getPaymentSettingsPublic(): PaymentSettingsPublic {
@@ -170,9 +140,7 @@ export function getPaymentSettingsPublic(): PaymentSettingsPublic {
       enabled: Boolean(s.syncpay?.enabled),
       hasSecret: Boolean(s.syncpay?.clientId && s.syncpay?.clientSecretEnc),
       clientId: s.syncpay?.clientId || "",
-      webhookToken: ensureSyncpayWebhookToken(),
       webhookShort: ensureSyncpayWebhookShortToken(),
-      legacyWebhookOff: Boolean(s.syncpay?.legacyWebhookOff),
     },
   };
 }

@@ -117,6 +117,28 @@ export async function POST(req: NextRequest) {
           }
         }
       }
+
+      // Alerta de VENDA no celular (push do PWA). Fica FORA do fluxo do
+      // Telegram de propósito: vale também para checkout externo, que não tem
+      // inscrição vinculada. Vem depois da entrega ao cliente para nunca
+      // atrasá-la, e num try/catch próprio — falha de push não pode derrubar
+      // o webhook (o gateway reenviaria em loop).
+      try {
+        const { sendPushToAll } = await import("@/lib/push");
+        const t = updated.transaction;
+        const valStr = (t.amountCents / 100).toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "BRL",
+        });
+        const detalhe = [t.description, t.customer].filter(Boolean).join(" · ");
+        await sendPushToAll(
+          `💰 Venda aprovada — ${valStr}`,
+          detalhe || "Pagamento confirmado no SyncPay.",
+          "/dashboard",
+        );
+      } catch (pErr) {
+        console.error("Erro ao enviar push de venda:", pErr);
+      }
     }
 
     if (!updated) {

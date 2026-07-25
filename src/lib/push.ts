@@ -49,6 +49,14 @@ export function removeSubscription(endpoint: string) {
   db.prepare("DELETE FROM push_subscriptions WHERE json_extract(subscription_json, '$.endpoint') = ?").run(endpoint);
 }
 
+/** Quantos aparelhos estão inscritos para receber os alertas. */
+export function countSubscriptions(): number {
+  const r = getDb()
+    .prepare("SELECT COUNT(*) c FROM push_subscriptions")
+    .get() as { c: number };
+  return r.c;
+}
+
 export async function sendPushToAll(title: string, body: string, url: string) {
   initWebPush();
   const db = getDb();

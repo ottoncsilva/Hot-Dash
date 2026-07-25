@@ -50,6 +50,7 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
 // Submenu de Configurações — abre dentro da própria sidebar (desktop).
 const SETTINGS_SUBSECTIONS: { label: string; anchor: string }[] = [
   { label: "Geral (fuso horário)", anchor: "geral" },
+  { label: "Notificações", anchor: "notificacoes" },
   { label: "Menu", anchor: "menu" },
   { label: "Etiquetas", anchor: "etiquetas" },
   { label: "Status de modelos", anchor: "status" },

@@ -32,13 +32,15 @@ export const maxDuration = 300;
 // cronograma, para as legendas não começarem todas iguais.
 const VARIATION_ANGLES = [
   "Abra com uma provocação ousada.",
-  "Abra com uma pergunta direta pra quem tá lendo.",
-  "Comece contando o que você tá fazendo ou sentindo agora.",
-  "Comece com um convite safado e direto.",
-  "Comece reagindo à própria roupa/corpo que aparece na foto.",
-  "Comece com um tom mais carinhoso e íntimo.",
+  "Abra com uma pergunta safada e direta pra quem tá lendo.",
+  "Comece contando o que você tá sentindo no corpo agora.",
+  "Comece com um convite safado e sem rodeio.",
+  "Comece reagindo à própria roupa/corpo que aparece na foto — o que aparece e o que quase aparece.",
+  "Comece com um tom mais carinhoso e íntimo, e termine safada.",
   "Comece com 'será que você aguenta…'.",
-  "Comece descrevendo o clima/cenário da foto.",
+  "Comece descrevendo o clima/cenário da foto e o que você faria ali.",
+  "Comece contando o que você fez sozinha antes de tirar essa foto.",
+  "Comece dizendo o que você quer que ele faça em você.",
 ];
 
 /**
@@ -140,9 +142,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    async function writeCaption(type: Parameters<typeof captionTheme>[0], images: { mime: string; base64: string }[], angleIdx: number): Promise<string> {
+    // `hour` é a hora do slot: é ela que define o nível de picância da copy
+    // (o método escalona ao longo do dia — ver heatForHour em previasAi).
+    async function writeCaption(type: Parameters<typeof captionTheme>[0], hour: number, images: { mime: string; base64: string }[], angleIdx: number): Promise<string> {
       if (aiFailed) return fallbackText(type);
-      const theme = `${captionTheme(type)}\n${VARIATION_ANGLES[angleIdx % VARIATION_ANGLES.length]}`;
+      const theme = `${captionTheme(type, hour)}\n${VARIATION_ANGLES[angleIdx % VARIATION_ANGLES.length]}`;
       const toTry = activeProvider ? [activeProvider] : providerChain;
       const errors: string[] = [];
       for (const p of toTry) {
@@ -182,7 +186,10 @@ export async function POST(req: NextRequest) {
       for (const p of toTry) {
         try {
           const raw = await callAiRaw(
-            'Crie UMA enquete curta e safada (sem vender) pro grupo de prévias no Telegram. Responda SÓ um JSON: {"question":"...","options":["..","..",".."]} com 2 a 4 opções curtas.',
+            'Você é uma influenciadora adulta brasileira. Crie UMA enquete curta e bem safada (sem vender nada) ' +
+              'pro seu grupo de prévias no Telegram — o público é adulto e espera putaria. A pergunta faz ele ' +
+              'imaginar a cena ("por onde você começaria", "como você me prefere", "o que eu faço no vídeo de hoje"). ' +
+              'Responda SÓ um JSON: {"question":"...","options":["..","..",".."]} com 2 a 4 opções curtas.',
             p,
             { json: true, maxTokens: 300 },
           );
@@ -261,7 +268,8 @@ export async function POST(req: NextRequest) {
           const img = await mediaImageBase64(media);
           if (img) images.push(img);
         }
-        const caption = await writeCaption(slot.type, images, angleIdx++);
+        const hora = parseInt(slot.time.slice(0, 2), 10);
+        const caption = await writeCaption(slot.type, hora, images, angleIdx++);
 
         createPost({
           profileId: profile.id,

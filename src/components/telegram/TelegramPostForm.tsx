@@ -190,7 +190,7 @@ export default function TelegramPostForm({
 
   return (
     <Modal open onClose={onClose} maxWidth="max-w-2xl">
-      <div className="max-h-[80vh] overflow-y-auto pr-1">
+      <div className="max-h-[80dvh] overflow-y-auto pr-1">
         <p className="eyebrow">{initial?.id ? "editar" : "novo"}</p>
         <h2 className="mt-1.5 font-display text-lg font-semibold text-[#3390ec]">
           {initial?.id ? "Editar post no Telegram" : "Postar no Telegram"}

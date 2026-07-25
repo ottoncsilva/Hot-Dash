@@ -112,7 +112,7 @@ export default function ScheduleTemplateModal({ onClose }: { onClose: () => void
 
   return (
     <Modal open onClose={onClose} maxWidth="max-w-2xl">
-      <div className="max-h-[80vh] overflow-y-auto pr-1">
+      <div className="max-h-[80dvh] overflow-y-auto pr-1">
         <p className="eyebrow">programa</p>
         <h2 className="mt-1.5 font-display text-lg font-semibold">Programa de postagens</h2>
         <p className="mt-2 text-sm text-zinc-500">

@@ -14,10 +14,11 @@ export default function PullToRefresh({ children }: { children: React.ReactNode 
   const [pull, setPull] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const startY = useRef<number | null>(null);
+  const startX = useRef<number | null>(null);
   const active = useRef(false);
 
   useEffect(() => {
-    const isMobile = () => window.matchMedia("(max-width: 767px)").matches;
+    const isMobile = () => window.matchMedia("(max-width: 1023px)").matches;
 
     const atTop = () =>
       (window.scrollY || document.documentElement.scrollTop || 0) <= 0;
@@ -28,12 +29,22 @@ export default function PullToRefresh({ children }: { children: React.ReactNode 
         return;
       }
       startY.current = e.touches[0].clientY;
+      startX.current = e.touches[0].clientX;
       active.current = false;
     };
 
     const onTouchMove = (e: TouchEvent) => {
       if (startY.current === null || refreshing) return;
       const delta = e.touches[0].clientY - startY.current;
+      // Gesto horizontal (abrir/fechar o menu lateral) não é "puxar pra
+      // atualizar": sai fora para os dois não disputarem o mesmo toque.
+      const dx = Math.abs(e.touches[0].clientX - (startX.current ?? 0));
+      if (dx > Math.abs(delta)) {
+        if (active.current) setPull(0);
+        active.current = false;
+        startY.current = null;
+        return;
+      }
       if (delta <= 0) {
         // rolando para cima: cancela
         if (active.current) setPull(0);

@@ -245,7 +245,7 @@ export default function MediaStage({
         src={mediaFileUrl(item)}
         alt={item.filename}
         draggable={false}
-        className="max-h-[60vh] max-w-full object-contain"
+        className="max-h-[60dvh] max-w-full object-contain"
         style={{
           transform: `translate(${pos.x + dragX}px, ${pos.y}px) scale(${scale})`,
           transition: animate ? "transform 220ms ease-out" : "none",

@@ -239,7 +239,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
   if (!profileId) return null;
 
   return (
-    <div className="rounded-xl border border-white/[0.06] bg-zinc-900/30 p-6 shadow-xl">
+    <div className="rounded-xl border border-white/[0.06] bg-zinc-900/30 p-3 shadow-xl sm:p-6">
       <div className="mb-6 flex flex-col gap-4">
         {/* Barra superior estilo Schedule */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -262,9 +262,9 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
             </button>
           </div>
           
-          <div className="flex flex-1 justify-end gap-2">
+          <div className="flex flex-1 flex-wrap justify-end gap-2">
             <select
-              className="input py-2 text-sm"
+              className="input min-w-[9rem] flex-1 py-2 text-sm sm:max-w-xs sm:flex-none"
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
             >
@@ -340,8 +340,10 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
         />
       ) : (
         /* Modo Lista Verdadeira */
-        <div className="mt-4 overflow-hidden rounded-lg border border-white/5 bg-black/10">
-          <table className="w-full text-left border-collapse text-sm">
+        /* A tabela tem 9 colunas: no celular ela precisa rolar na horizontal
+           (antes o overflow-hidden simplesmente cortava as colunas). */
+        <div className="mt-4 overflow-x-auto rounded-lg border border-white/5 bg-black/10">
+          <table className="w-full min-w-[860px] text-left border-collapse text-sm">
             <thead>
               <tr className="border-b border-white/5 bg-white/[0.02] text-zinc-400 uppercase text-[10px] tracking-wider font-bold">
                 <th className="p-3 w-10 text-center">
@@ -499,7 +501,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
       {editingPost && mounted && createPortal(
         (
         <div className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-black/90 p-4 backdrop-blur-md">
-          <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-xl border border-white/5 bg-[#1e2329] shadow-2xl">
+          <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-xl border border-white/5 bg-[#1e2329] shadow-2xl">
             {/* Header / Nav do Telegram */}
             <div className="flex shrink-0 items-center justify-between gap-3 bg-[#242b33] px-4 py-3 shadow-md">
               <div className="flex items-center gap-2">
@@ -597,9 +599,9 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                   {editingPost.media?.[0] ? (
                     <div className="flex w-full shrink-0 items-center justify-center overflow-hidden bg-black">
                       {editingPost.media[0].kind === "video" ? (
-                        <video src={`/api/media/${editingPost.media[0].id}/file`} className="h-auto w-full max-h-[45vh] object-contain" autoPlay muted loop playsInline />
+                        <video src={`/api/media/${editingPost.media[0].id}/file`} className="h-auto w-full max-h-[45dvh] object-contain" autoPlay muted loop playsInline />
                       ) : (
-                        <img src={`/api/media/${editingPost.media[0].id}/file`} className="h-auto w-full max-h-[45vh] object-contain" />
+                        <img src={`/api/media/${editingPost.media[0].id}/file`} className="h-auto w-full max-h-[45dvh] object-contain" />
                       )}
                     </div>
                   ) : (

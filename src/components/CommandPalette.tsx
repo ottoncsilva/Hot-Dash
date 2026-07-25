@@ -143,7 +143,7 @@ export default function CommandPalette() {
             className="w-full bg-transparent py-3.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600"
           />
         </div>
-        <div className="max-h-[50vh] overflow-y-auto py-1.5">
+        <div className="max-h-[50dvh] overflow-y-auto py-1.5">
           {filtered.length === 0 ? (
             <p className="px-4 py-6 text-center text-sm text-zinc-500">Nada encontrado.</p>
           ) : (

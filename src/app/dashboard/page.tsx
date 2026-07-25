@@ -38,6 +38,7 @@ type BotOverviewData = {
   topPlans: { planId: string; name: string; cents: number; count: number }[];
   byProfile: { profileId: string; profileName: string; botActive: boolean | null; paidCents: number; paidCount: number }[];
   series: { day: string; cents: number }[];
+  netRevenueCents: number;
   netProfitCents: number;
 };
 
@@ -189,12 +190,15 @@ function MetricCard({
   accent,
   muted,
   negative,
+  hint,
 }: {
   label: string;
   value: string | null;
   accent?: boolean;
   muted?: boolean;
   negative?: boolean;
+  /** Legenda curta abaixo do valor (ex.: como o número foi calculado). */
+  hint?: string;
 }) {
   return (
     <div className="card p-4">
@@ -212,6 +216,7 @@ function MetricCard({
       >
         {value ?? <span className="inline-block h-6 w-16 animate-pulse rounded bg-white/5" />}
       </p>
+      {hint && <p className="mt-1 text-[11px] text-zinc-600">{hint}</p>}
     </div>
   );
 }
@@ -397,12 +402,12 @@ function BotSalesPanel({
 
       {/* Cards principais */}
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <MetricCard label="Vendas Aprovadas" value={data ? brl(data.stats.paidCents) : null} accent />
+        <MetricCard label="Faturamento" value={data ? brl(data.stats.paidCents) : null} accent />
         <MetricCard
-          label="Lucro Líquido"
-          value={data ? brl(data.netProfitCents) : null}
-          accent={data ? data.netProfitCents >= 0 : undefined}
-          negative={data ? data.netProfitCents < 0 : false}
+          label="Faturamento Líquido"
+          value={data ? brl(data.netRevenueCents) : null}
+          hint="Já sem a taxa do gateway"
+          accent
         />
         <MetricCard label="Total Starts" value={data ? String(data.funnel.totalStarts) : null} />
       </div>
@@ -557,7 +562,11 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
         </span>
         <span className="font-display text-sm font-semibold text-emerald-400">{brl(total)}</span>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 h-40 w-full" preserveAspectRatio="none">
+      {/* Gráfico + datas rolam JUNTOS: com 30 dias os rótulos não caberiam num
+          celular, então garantimos uma largura mínima por dia e deixamos rolar. */}
+      <div className="mt-2 overflow-x-auto">
+      <div style={{ minWidth: `${Math.max(280, series.length * 38)}px` }}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-40 w-full" preserveAspectRatio="none">
         <defs>
           <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#34d399" stopOpacity="0.35" />
@@ -566,11 +575,21 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
         </defs>
         <path d={areaPath} fill="url(#revenueFill)" stroke="none" />
         <path d={linePath} fill="none" stroke="#34d399" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+        {points.map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.y} r={2.5} fill="#34d399" vectorEffect="non-scaling-stroke" />
+        ))}
       </svg>
-      <div className="mt-1 flex justify-between text-[10px] text-zinc-600">
-        <span>{series[0].day}</span>
-        {series.length > 2 && <span>{series[Math.floor(series.length / 2)].day}</span>}
-        <span>{series[series.length - 1].day}</span>
+      {/* TODAS as datas do período (antes só apareciam primeira, meio e última).
+          Cada rótulo fica alinhado ao seu ponto no gráfico. */}
+      <div
+        className="mt-1 grid text-center text-[10px] text-zinc-600"
+        style={{ gridTemplateColumns: `repeat(${series.length}, minmax(0, 1fr))` }}
+      >
+        {series.map((s, i) => (
+          <span key={i} className="truncate">{s.day}</span>
+        ))}
+      </div>
+      </div>
       </div>
     </div>
   );

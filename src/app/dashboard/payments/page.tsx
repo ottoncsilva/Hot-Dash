@@ -8,6 +8,7 @@ import { IconPlus, IconSettings, IconPayments, IconCopy } from "@/components/ico
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import type { Transaction, Overview } from "@/lib/transactions";
 import type { Profile } from "@/lib/types";
+import { DEFAULT_TIME_ZONE } from "@/lib/timezone";
 
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", {
@@ -25,6 +26,31 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 type PaidFilter = "all" | "paid" | "unpaid";
+type SortKey = "created_desc" | "created_asc" | "paid_desc" | "paid_asc" | "amount_desc" | "amount_asc";
+
+const SORT_LABEL: Record<SortKey, string> = {
+  created_desc: "Geração (mais novo)",
+  created_asc: "Geração (mais antigo)",
+  paid_desc: "Pagamento (mais novo)",
+  paid_asc: "Pagamento (mais antigo)",
+  amount_desc: "Valor (maior)",
+  amount_asc: "Valor (menor)",
+};
+
+/** Data/hora completas no fuso da operação. */
+function dt(ms: number, tz: string) {
+  return new Date(ms).toLocaleString("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "2-digit",
+    hour: "2-digit", minute: "2-digit", timeZone: tz,
+  });
+}
+/** "AAAA-MM-DD" no fuso, para comparar com os campos <input type=date>. */
+function isoDay(ms: number, tz: string) {
+  const p = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date(ms));
+  return p;
+}
 
 type Data = {
   providers: PaymentSettingsPublic;
@@ -39,6 +65,16 @@ export default function PaymentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [charging, setCharging] = useState(false);
   const [paidFilter, setPaidFilter] = useState<PaidFilter>("all");
+  const [sort, setSort] = useState<SortKey>("created_desc");
+  const [fromDay, setFromDay] = useState("");
+  const [toDay, setToDay] = useState("");
+  // O filtro por data é sobre o dia no FUSO DA OPERAÇÃO, não no do navegador.
+  const [tz, setTz] = useState(DEFAULT_TIME_ZONE);
+  useEffect(() => {
+    apiGet<{ timeZone: string }>("/api/settings/general")
+      .then((d) => d.timeZone && setTz(d.timeZone))
+      .catch(() => {});
+  }, []);
 
   async function load() {
     try {
@@ -59,10 +95,39 @@ export default function PaymentsPage() {
 
   const filteredTransactions = useMemo(() => {
     if (!data) return [];
-    if (paidFilter === "all") return data.transactions;
-    if (paidFilter === "paid") return data.transactions.filter((t) => t.status === "paid");
-    return data.transactions.filter((t) => t.status !== "paid");
-  }, [data, paidFilter]);
+    let list = data.transactions;
+
+    if (paidFilter === "paid") list = list.filter((t) => t.status === "paid");
+    else if (paidFilter === "unpaid") list = list.filter((t) => t.status !== "paid");
+
+    // Intervalo de datas pela GERAÇÃO do Pix (createdAt), inclusivo nas pontas.
+    if (fromDay) list = list.filter((t) => isoDay(t.createdAt, tz) >= fromDay);
+    if (toDay) list = list.filter((t) => isoDay(t.createdAt, tz) <= toDay);
+
+    const val = (t: Transaction) => t.netAmountCents ?? t.amountCents;
+    // Sem pagamento ainda: joga pro fim na ordem decrescente e pro fim na
+    // crescente também, para os pendentes não bagunçarem a leitura.
+    const paidTs = (t: Transaction) => t.paidAt ?? null;
+
+    const sorted = [...list];
+    sorted.sort((a, b) => {
+      switch (sort) {
+        case "created_asc": return a.createdAt - b.createdAt;
+        case "amount_desc": return val(b) - val(a);
+        case "amount_asc": return val(a) - val(b);
+        case "paid_desc":
+        case "paid_asc": {
+          const pa = paidTs(a), pb = paidTs(b);
+          if (pa === null && pb === null) return b.createdAt - a.createdAt;
+          if (pa === null) return 1;
+          if (pb === null) return -1;
+          return sort === "paid_desc" ? pb - pa : pa - pb;
+        }
+        default: return b.createdAt - a.createdAt;
+      }
+    });
+    return sorted;
+  }, [data, paidFilter, sort, fromDay, toDay, tz]);
 
   return (
     <div className="page">
@@ -107,17 +172,57 @@ export default function PaymentsPage() {
       </div>
 
       {/* Lista de PIX gerados */}
-      <div className="mt-8 flex items-center justify-between">
+      <div className="mt-8 flex flex-wrap items-end justify-between gap-3">
         <p className="eyebrow">pix gerados</p>
-        <select
-          className="input w-auto py-1.5 text-xs"
-          value={paidFilter}
-          onChange={(e) => setPaidFilter(e.target.value as PaidFilter)}
-        >
-          <option value="all">Pagos: todos</option>
-          <option value="paid">Pagos: sim</option>
-          <option value="unpaid">Pagos: não</option>
-        </select>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">de</span>
+            <input
+              type="date"
+              className="input w-auto py-1.5 text-xs"
+              value={fromDay}
+              max={toDay || undefined}
+              onChange={(e) => setFromDay(e.target.value)}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">até</span>
+            <input
+              type="date"
+              className="input w-auto py-1.5 text-xs"
+              value={toDay}
+              min={fromDay || undefined}
+              onChange={(e) => setToDay(e.target.value)}
+            />
+          </label>
+          <select
+            className="input w-auto py-1.5 text-xs"
+            value={paidFilter}
+            onChange={(e) => setPaidFilter(e.target.value as PaidFilter)}
+          >
+            <option value="all">Pagos: todos</option>
+            <option value="paid">Pagos: sim</option>
+            <option value="unpaid">Pagos: não</option>
+          </select>
+          <select
+            className="input w-auto py-1.5 text-xs"
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortKey)}
+          >
+            {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
+              <option key={k} value={k}>{SORT_LABEL[k]}</option>
+            ))}
+          </select>
+          {(fromDay || toDay || paidFilter !== "all" || sort !== "created_desc") && (
+            <button
+              type="button"
+              onClick={() => { setFromDay(""); setToDay(""); setPaidFilter("all"); setSort("created_desc"); }}
+              className="btn-ghost py-1.5 text-xs"
+            >
+              Limpar
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mt-3 card overflow-hidden">
@@ -133,24 +238,42 @@ export default function PaymentsPage() {
         ) : (
           <div className="divide-y divide-white/[0.06]">
             {filteredTransactions.map((t) => (
-              <div key={t.id} className="flex items-center gap-3 px-4 py-3">
-                <PaidCheck paid={t.status === "paid"} />
+              <div key={t.id} className="flex items-start gap-3 px-4 py-3">
+                <div className="pt-0.5"><PaidCheck paid={t.status === "paid"} /></div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm text-zinc-200">
                     {t.description || t.customer || "Cobrança"}
                   </p>
                   <p className="font-mono text-[11px] uppercase tracking-wider text-zinc-600">
-                    {t.provider} · {STATUS_LABEL[t.status] || t.status} ·{" "}
-                    {new Date(t.createdAt).toLocaleDateString("pt-BR")}
+                    {t.provider} · {STATUS_LABEL[t.status] || t.status}
                   </p>
+                  {/* Os dois horários, um sobre o outro: quando o Pix foi gerado
+                      e quando foi efetivamente pago. */}
+                  <div className="mt-1 space-y-0.5 font-mono text-[11px]">
+                    <p className="text-zinc-500">
+                      <span className="text-zinc-600">gerado</span> {dt(t.createdAt, tz)}
+                    </p>
+                    <p className={t.paidAt ? "text-emerald-400/80" : "text-zinc-700"}>
+                      <span className="text-zinc-600">pago</span>{" "}
+                      {t.paidAt ? dt(t.paidAt, tz) : "—"}
+                    </p>
+                  </div>
                 </div>
-                <p
-                  className={`font-display font-semibold ${
-                    t.status === "paid" ? "text-white" : "text-zinc-500"
-                  }`}
-                >
-                  {brl(t.amountCents)}
-                </p>
+                <div className="shrink-0 text-right">
+                  <p
+                    className={`font-display font-semibold ${
+                      t.status === "paid" ? "text-white" : "text-zinc-500"
+                    }`}
+                  >
+                    {brl(t.amountCents)}
+                  </p>
+                  {/* Líquido só faz sentido depois de pago e informado pelo gateway. */}
+                  {t.status === "paid" && t.netAmountCents !== undefined && t.netAmountCents !== t.amountCents && (
+                    <p className="mt-0.5 font-mono text-[11px] text-emerald-400/70">
+                      líq. {brl(t.netAmountCents)}
+                    </p>
+                  )}
+                </div>
               </div>
             ))}
           </div>

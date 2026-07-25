@@ -54,7 +54,11 @@ export async function GET(req: NextRequest) {
     const byProfile = revenueByProfile(since, until);
     const series = revenueSeriesForDays(days, profileId);
     const finance = getFinanceSettings();
-    const netProfitCents = stats.paidCents - finance.adSpendCents;
+    // Faturamento LÍQUIDO = soma do valor que o gateway repassa (já sem a taxa).
+    // Antes este card era "lucro líquido" = faturamento - anúncios, o que
+    // misturava custo de mídia com a taxa do gateway.
+    const netRevenueCents = stats.paidNetCents;
+    const netProfitCents = netRevenueCents - finance.adSpendCents;
 
     return NextResponse.json({
       period,
@@ -63,6 +67,7 @@ export async function GET(req: NextRequest) {
       topPlans,
       byProfile,
       series,
+      netRevenueCents,
       netProfitCents,
     });
   } catch (err) {

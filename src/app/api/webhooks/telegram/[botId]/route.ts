@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 import { listMedia, getMediaRow } from "@/lib/media";
 import { activeProvider } from "@/lib/payments";
 import { recordTransaction } from "@/lib/transactions";
-import { ensureSyncpayWebhookToken } from "@/lib/settings";
+import { ensureSyncpayWebhookShortToken } from "@/lib/settings";
 import { publicOrigin } from "@/lib/publicOrigin";
 import { randomUUID } from "node:crypto";
 
@@ -169,7 +169,7 @@ export async function POST(
         // criada, o cliente paga, mas a confirmação nunca chega e a venda some
         // do painel. Configure NEXT_PUBLIC_APP_URL (ou WEBHOOK_APP_URL) com o
         // domínio público para garantir isso em produção.
-        const postbackUrl = `${publicOrigin(req)}/api/webhooks/syncpay?token=${encodeURIComponent(ensureSyncpayWebhookToken())}`;
+        const postbackUrl = `${publicOrigin(req)}/w/${ensureSyncpayWebhookShortToken()}`;
 
         // Cria cobrança PIX no SyncPay
         const charge = await provider.createPixCharge({

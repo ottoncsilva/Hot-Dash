@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { activeProvider } from "@/lib/payments";
 import { recordTransaction } from "@/lib/transactions";
-import { ensureSyncpayWebhookToken } from "@/lib/settings";
+import { ensureSyncpayWebhookShortToken } from "@/lib/settings";
 import { publicOrigin } from "@/lib/publicOrigin";
 
 export const runtime = "nodejs";
@@ -35,8 +35,7 @@ export async function POST(req: NextRequest) {
     // confirmada. E usa a origem PÚBLICA (não req.nextUrl.origin, que atrás de
     // proxy/EasyPanel pode resolver para um host interno inalcançável pela
     // SyncPay — outro motivo do dashboard não receber os pagamentos).
-    const token = ensureSyncpayWebhookToken();
-    const postbackUrl = `${publicOrigin(req)}/api/webhooks/${provider.key}?token=${encodeURIComponent(token)}`;
+    const postbackUrl = `${publicOrigin(req)}/w/${ensureSyncpayWebhookShortToken()}`;
 
     const result = await provider.createPixCharge({
       amountCents,

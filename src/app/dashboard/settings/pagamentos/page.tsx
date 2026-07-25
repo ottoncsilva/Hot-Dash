@@ -18,6 +18,10 @@ export default function PaymentSettingsPage() {
   const [origin, setOrigin] = useState("");
   const [copied, setCopied] = useState(false);
   const [lastPaid, setLastPaid] = useState<LastPaid>(null);
+  // Reprocessamento das vendas antigas (recupera o valor líquido no gateway).
+  const [repro, setRepro] = useState<{ pending: number; supported: boolean } | null>(null);
+  const [reproRunning, setReproRunning] = useState(false);
+  const [reproMsg, setReproMsg] = useState<string | null>(null);
 
   function loadDiagnostics() {
     apiGet<{ settings: PaymentSettingsPublic; lastPaid: LastPaid }>("/api/payments/settings")
@@ -38,6 +42,42 @@ export default function PaymentSettingsPage() {
   const webhookUrl = cfg?.syncpay.webhookToken
     ? `${origin}/api/webhooks/syncpay?token=${cfg.syncpay.webhookToken}`
     : "";
+
+  async function loadReprocess() {
+    try {
+      const d = await apiGet<{ pending: number; supported: boolean }>("/api/payments/reprocess");
+      setRepro(d);
+    } catch {
+      setRepro(null);
+    }
+  }
+
+  async function runReprocess() {
+    setReproRunning(true);
+    setReproMsg(null);
+    try {
+      // Em lotes: a API do gateway é consultada uma venda por vez.
+      let total = 0, encontradas = 0, semDados = 0, erros = 0, sobra = 0;
+      for (let volta = 0; volta < 20; volta++) {
+        const r = await apiSend<{
+          processed: number; updated: number; notFound: number; failed: number; remaining: number;
+        }>("/api/payments/reprocess", "POST", { limit: 100 });
+        total += r.processed; encontradas += r.updated; semDados += r.notFound; erros += r.failed;
+        sobra = r.remaining;
+        if (r.processed === 0 || r.remaining === 0) break;
+      }
+      const partes = [`${encontradas} atualizada(s)`];
+      if (semDados) partes.push(`${semDados} sem dados no gateway`);
+      if (erros) partes.push(`${erros} com erro`);
+      if (sobra) partes.push(`${sobra} ainda pendente(s)`);
+      setReproMsg(total === 0 ? "Nada a reprocessar." : partes.join(" · "));
+      await loadReprocess();
+    } catch (e) {
+      setReproMsg(e instanceof Error ? e.message : "Falha ao reprocessar.");
+    } finally {
+      setReproRunning(false);
+    }
+  }
 
   async function copyWebhook() {
     if (!webhookUrl) return;
@@ -177,6 +217,48 @@ export default function PaymentSettingsPage() {
             <button type="button" onClick={loadDiagnostics} className="btn-ghost shrink-0 px-3 py-1.5 text-xs">
               Verificar agora
             </button>
+          </div>
+
+          {/* Reprocessar vendas antigas: recupera no gateway o valor LÍQUIDO das
+              vendas registradas antes de o app passar a guardá-lo. */}
+          <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  Reprocessar vendas antigas
+                </p>
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  Consulta cada venda na SyncPay para preencher o <b>valor líquido</b> (sem a
+                  taxa) das que foram registradas antes desse controle existir.
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {repro === null ? (
+                  <button type="button" onClick={loadReprocess} className="btn-ghost px-3 py-1.5 text-xs">
+                    Verificar pendentes
+                  </button>
+                ) : (
+                  <>
+                    <span className="font-mono text-[11px] text-zinc-500">
+                      {repro.pending} pendente(s)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={runReprocess}
+                      disabled={reproRunning || repro.pending === 0}
+                      className="btn-primary px-3 py-1.5 text-xs"
+                    >
+                      {reproRunning ? "Reprocessando..." : "Reprocessar agora"}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+            {reproMsg && <p className="mt-2 text-xs text-zinc-300">{reproMsg}</p>}
+            <p className="mt-2 text-[11px] text-zinc-600">
+              A SyncPay não oferece listagem de vendas — a consulta é feita uma a uma, pelo
+              identificador que já temos. Vendas que nunca chegaram ao painel não aparecem aqui.
+            </p>
           </div>
         </div>
       </div>

@@ -51,10 +51,23 @@ export type BalanceResult = {
   raw?: unknown;
 };
 
+/** Dados de uma transação consultada no provedor (reprocessamento). */
+export type ProviderTransaction = {
+  /** Valor cheio, em centavos. */
+  grossCents?: number;
+  /** Valor líquido (sem a taxa), em centavos. */
+  netCents?: number;
+  status?: string;
+  paidAtMs?: number;
+  raw?: unknown;
+};
+
 export interface PaymentProvider {
   readonly key: "syncpay";
   /** Cria uma cobrança PIX (ou o método padrão do provedor). */
   createPixCharge(input: ChargeInput): Promise<ChargeResult>;
   /** Saldo disponível na conta do provedor (quando suportado). */
   getBalance?(): Promise<BalanceResult | null>;
+  /** Consulta uma transação já existente pelo id do provedor. */
+  getTransaction?(providerRef: string): Promise<ProviderTransaction | null>;
 }

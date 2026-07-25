@@ -88,6 +88,8 @@ export function recordTransaction(input: {
   currency?: string;
   method?: string;
   status: string;
+  /** Código do deep-link que trouxe o lead (origem do tráfego). */
+  sourceCode?: string;
 }): Transaction {
   const now = Date.now();
   const id = randomUUID();
@@ -108,8 +110,8 @@ export function recordTransaction(input: {
       `INSERT INTO transactions
         (id, provider, provider_ref, profile_id, description, customer,
          amount_cents, net_amount_cents, fee_cents, split_cents, paid_at,
-         currency, method, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         currency, method, status, source_code, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -126,6 +128,7 @@ export function recordTransaction(input: {
       input.currency || "BRL",
       input.method || null,
       input.status,
+      input.sourceCode || null,
       now,
       now,
     );

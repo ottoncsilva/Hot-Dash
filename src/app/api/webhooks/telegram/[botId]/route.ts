@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getBotConfig, listPlans, listCustomButtons, saveSubscription, getPlan, findActiveSubscription, upsertTelegramLead } from "@/lib/telegramDb";
+import { getBotConfig, listPlans, listCustomButtons, saveSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead } from "@/lib/telegramDb";
 import { sendTelegramMessage, sendTelegramMedia, sendTelegramPhotoBuffer, approveTelegramJoinRequest, declineTelegramJoinRequest, telegramWebhookSecret } from "@/lib/telegramApi";
 import QRCode from "qrcode";
 import { listMedia, getMediaRow } from "@/lib/media";
@@ -44,6 +44,11 @@ export async function POST(
       const isStart = typeof text === "string" && text.startsWith("/start");
 
       if (isStart && from) {
+        // Deep-link de divulgação: t.me/<bot>?start=CODIGO chega como
+        // "/start CODIGO". É o que liga a venda à origem do tráfego.
+        const sourceCode = (text.slice("/start".length).trim().split(/\s+/)[0] || "")
+          .replace(/[^\w-]/g, "")
+          .slice(0, 40);
         upsertTelegramLead({
           id: `${bot.id}_${from.id}`,
           profileId: bot.profileId,
@@ -51,6 +56,7 @@ export async function POST(
           lastInteractionAt: Date.now(),
           downsellStepIndex: 0,
           createdAt: Date.now(),
+          sourceCode: sourceCode || undefined,
         });
 
         const plans = listPlans(bot.id);
@@ -183,6 +189,9 @@ export async function POST(
         });
 
         // Registra transação
+        // Origem do tráfego: vem do lead (gravada no /start) e acompanha a
+        // venda, para o funil saber qual link trouxe o dinheiro.
+        const lead = getTelegramLead(`${bot.id}_${from.id}`);
         const tx = recordTransaction({
           provider: provider.key,
           providerRef: charge.providerRef,
@@ -191,6 +200,7 @@ export async function POST(
           customer: from.first_name,
           amountCents,
           status: "pending",
+          sourceCode: lead?.sourceCode,
         });
 
         // Alerta de PIX GERADO pelo bot de vendas (lead pediu o pagamento).

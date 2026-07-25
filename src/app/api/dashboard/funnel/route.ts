@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
-import { funnelByProfile, funnelMetrics, topPlans } from "@/lib/salesFunnel";
+import { funnelByProfile, funnelMetrics, topPlans, trafficSources } from "@/lib/salesFunnel";
 import { getAppTimeZone } from "@/lib/settings";
 import { resolvePeriod } from "@/lib/periodRange";
 
@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
       metricas: profileId ? funnelMetrics(range.since, range.until, profileId) : geral,
       linhas,
       planos: topPlans(range.since, range.until, profileId, 5),
+      fontes: trafficSources(range.since, range.until, profileId),
     });
   } catch (err) {
     return errorResponse(err);

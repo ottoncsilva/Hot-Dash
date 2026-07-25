@@ -253,6 +253,80 @@ export function funnelMetrics(
   return metricas(sinceMs, untilMs, profileId || null);
 }
 
+export type FonteTrafego = {
+  /** Código do deep-link. Vazio = veio sem código. */
+  code: string;
+  starts: number;
+  pixGenerated: number;
+  pixPaid: number;
+  paidCents: number;
+};
+
+/**
+ * Faturamento por ORIGEM de tráfego (o código do deep-link do /start).
+ *
+ * O código chega em `t.me/<bot>?start=CODIGO`, é gravado no lead e copiado
+ * para a venda na criação do PIX. Sem isso não dá para saber qual divulgação
+ * traz dinheiro — só quantos leads cada uma traz, que é a métrica errada.
+ */
+export function trafficSources(
+  sinceMs: number | null,
+  untilMs: number | null = null,
+  profileId?: string,
+): FonteTrafego[] {
+  const db = getDb();
+
+  const l = range(sinceMs, untilMs);
+  const leadWhere = [...l.clauses];
+  const leadParams = [...l.params];
+  if (profileId) {
+    leadWhere.push("profile_id = ?");
+    leadParams.push(profileId);
+  }
+  const leads = db
+    .prepare(
+      `SELECT COALESCE(source_code, '') code, COUNT(*) c FROM telegram_leads
+       ${leadWhere.length ? `WHERE ${leadWhere.join(" AND ")}` : ""}
+       GROUP BY COALESCE(source_code, '')`,
+    )
+    .all(...leadParams) as { code: string; c: number }[];
+
+  const t = range(sinceMs, untilMs);
+  const txWhere = [...t.clauses];
+  const txParams = [...t.params];
+  if (profileId) {
+    txWhere.push("profile_id = ?");
+    txParams.push(profileId);
+  }
+  const vendas = db
+    .prepare(
+      `SELECT COALESCE(source_code, '') code, COUNT(*) gerados,
+              COALESCE(SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END), 0) pagos,
+              COALESCE(SUM(CASE WHEN status = 'paid' THEN amount_cents ELSE 0 END), 0) cents
+       FROM transactions ${txWhere.length ? `WHERE ${txWhere.join(" AND ")}` : ""}
+       GROUP BY COALESCE(source_code, '')`,
+    )
+    .all(...txParams) as { code: string; gerados: number; pagos: number; cents: number }[];
+
+  const mapa = new Map<string, FonteTrafego>();
+  const pega = (code: string) => {
+    let f = mapa.get(code);
+    if (!f) {
+      f = { code, starts: 0, pixGenerated: 0, pixPaid: 0, paidCents: 0 };
+      mapa.set(code, f);
+    }
+    return f;
+  };
+  for (const r of leads) pega(r.code).starts = r.c;
+  for (const r of vendas) {
+    const f = pega(r.code);
+    f.pixGenerated = r.gerados;
+    f.pixPaid = r.pagos;
+    f.paidCents = r.cents;
+  }
+  return [...mapa.values()].sort((a, b) => b.paidCents - a.paidCents || b.starts - a.starts);
+}
+
 export type ProfileRevenue = {
   profileId: string;
   profileName: string;

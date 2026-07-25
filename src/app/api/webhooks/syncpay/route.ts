@@ -7,36 +7,60 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Webhook da SyncPay (postbackUrl das cobranças). Recebe a confirmação de
- * pagamento e atualiza a transação correspondente no banco. NÃO exige login
- * (é a SyncPay chamando), mas só age sobre transações que já existem no nosso
- * banco (criadas pela cobrança) — a menos que ainda não exista, caso em que
- * registra para não perder a venda.
+ * Webhook da SyncPay. Recebe os eventos da conta e atualiza o Financeiro.
+ * NÃO exige login (é a SyncPay chamando) — a autenticidade vem do token na URL.
  *
- * Payload documentado:
- * { "data": { "id", "client": { name, email, document }, "pix_code",
- *   "amount", "final_amount", "currency", "status", "payment_method",
- *   "created_at", "updated_at" } }
- * status: pending | completed | failed | refunded | med
+ * A SyncPay manda por esta URL os DOIS tipos de movimento, e o tipo vem no
+ * HEADER `event`, não no corpo:
+ *
+ *   cashin.create  / cashin.update   -> venda
+ *   cashout.create / cashout.update  -> SAQUE
+ *
+ * Corpo do cashin  (venda): data { id, client{name,email,document}, pix_code,
+ *   amount, final_amount, currency, status, payment_method, created_at,
+ *   updated_at } — e, no update, também end_to_end e debtor_account.
+ * Corpo do cashout (saque): data { id, amount, final_amount, currency, status,
+ *   payment_method, pix_type, pix_key, created_at, updated_at }.
+ *
+ * `amount` é o valor CHEIO e `final_amount` o líquido já sem a taxa. Datas em
+ * GMT. status: pending | completed | failed | refunded | med.
  */
 
-/** Campos onde os gateways costumam dizer que evento é este. */
+type TipoEvento = "cashin" | "cashout" | "desconhecido";
+
+/**
+ * De que tipo é este evento.
+ *
+ * O header `event` é a fonte oficial. Um saque de R$ 273,61 entrou como venda
+ * porque a checagem antiga olhava só o corpo — e o corpo do cashout não tem
+ * campo nenhum dizendo que é saque. Por isso, além do header, valem os dois
+ * sinais estruturais do payload documentado: saque traz `pix_key`/`pix_type` e
+ * NÃO traz `client`; venda traz `client` e `pix_code`.
+ */
+function tipoDoEvento(header: string, data: Record<string, unknown>): TipoEvento {
+  const h = header.trim().toLowerCase();
+  if (h.startsWith("cashout")) return "cashout";
+  if (h.startsWith("cashin")) return "cashin";
+
+  const temChavePix = Boolean(data.pix_key || data.pix_type);
+  const temCliente = Boolean(data.client || data.pix_code || data.debtor_account);
+  if (temChavePix && !temCliente) return "cashout";
+  if (temCliente) return "cashin";
+
+  // Sem header e sem os campos que distinguem: cai nos nomes de tipo que
+  // outros gateways usam, mais valor negativo (que só existe em saída).
+  if (ehSaida(data)) return "cashout";
+  return "desconhecido";
+}
+
+/** Campos onde outros gateways dizem que evento é este (reserva). */
 const CAMPOS_TIPO = [
   "type", "event", "event_type", "eventType", "transaction_type", "transactionType",
   "operation", "operation_type", "kind", "flow", "action", "movement", "category",
 ];
 /** SAÍDA de dinheiro: saque, transferência, estorno. Nada disso é venda. */
-const EH_SAIDA = /cash.?out|saque|withdraw|payout|transfer|sa[ií]da|debit|d[eé]bito|estorno|refund|chargeback/i;
+const EH_SAIDA = /cash.?out|saque|withdraw|payout|transfer|sa[ií]da|debit|d[eé]bito|estorno/i;
 
-/**
- * O webhook da SyncPay é cadastrado POR CONTA, então ela manda por ele todo
- * tipo de movimento — inclusive SAQUE (cash-out). Sem esta checagem um saque
- * de R$ 273,61 entrava no Financeiro como venda paga e inflava o faturamento.
- *
- * A varredura é pelos campos de tipo em qualquer nível do payload, porque o
- * nome varia (`type`, `event`, `transaction_type`…), mais uma rede de segurança
- * para valor negativo — que também só existe em saída.
- */
 function ehSaida(raiz: unknown): boolean {
   const fila: unknown[] = [raiz];
   let guard = 0;
@@ -78,20 +102,29 @@ export async function POST(req: NextRequest) {
       data.id || data.identifier || data.idTransaction || data.transaction_id || "",
     );
     const status = String(data.status || data.status_transaction || "");
-    // Todo evento é registrado cru (ver lib/webhookLog): é a única forma de
-    // saber depois qual campo distingue venda de saque neste gateway.
+    // Tipo do evento: o header é a fonte oficial da SyncPay.
+    const eventHeader = req.headers.get("event") || "";
+    const tipo = tipoDoEvento(eventHeader, data);
+
+    // Todo evento é registrado cru (ver lib/webhookLog), com o header junto:
+    // é o que permite conferir depois por que algo entrou ou não.
     const registra = (decision: string) =>
-      logWebhookEvent({ provider: "syncpay", providerRef, decision, body });
+      logWebhookEvent({
+        provider: "syncpay",
+        providerRef,
+        decision: eventHeader ? `${decision} · event: ${eventHeader}` : decision,
+        body,
+      });
 
     if (!providerRef || !status) {
       registra("ignorado · sem id ou status");
       return NextResponse.json({ ok: true, ignored: true });
     }
 
-    // Saque e afins: reconhece e descarta antes de encostar no banco.
-    if (ehSaida(body)) {
-      registra("ignorado · movimento de saída");
-      return NextResponse.json({ ok: true, ignored: true, reason: "movimento de saída" });
+    // SAQUE: some antes de encostar no banco.
+    if (tipo === "cashout") {
+      registra("ignorado · saque (cashout)");
+      return NextResponse.json({ ok: true, ignored: true, reason: "cashout" });
     }
 
     // A SyncPay manda os DOIS valores: `amount` é o valor CHEIO que o cliente
@@ -204,21 +237,20 @@ export async function POST(req: NextRequest) {
 
     if (!updated) {
       // Venda que ainda não estava registrada (ex.: checkout externo): grava.
-      // Sem uma cobrança nossa para comparar, vale a mesma leitura do resto do
-      // sistema: a SyncPay confirma o LÍQUIDO. Só tratamos `amount` como venda
-      // cheia quando ela manda os dois valores e um é maior que o outro.
+      // `amount` é a VENDA CHEIA e `final_amount` o líquido — é o que a
+      // documentação do cashin diz, e o painel confirma. Nada de deduzir um a
+      // partir do outro: uma venda de R$ 19,90 chegou a virar R$ 20,70 porque
+      // o valor recebido era tratado como líquido e a taxa somada por cima.
+      // Quando só o líquido vier, a taxa é preenchida pela tabela em
+      // recordTransaction, sem inflar a venda.
       const client = (data.client as Record<string, unknown>) || {};
-      const { syncPayFeeCents } = await import("@/lib/payments/syncpayExport");
-      const doisValores = grossCents !== undefined && netCents !== undefined && grossCents > netCents;
-      const liquido = doisValores ? (netCents as number) : (netCents ?? grossCents ?? 0);
-      const cheio = doisValores ? (grossCents as number) : liquido + syncPayFeeCents(liquido);
       recordTransaction({
         provider: "syncpay",
         providerRef,
         description: "Venda SyncPay",
         customer: (client.name as string) || undefined,
-        amountCents: cheio,
-        netAmountCents: liquido || undefined,
+        amountCents: grossCents ?? netCents ?? 0,
+        netAmountCents: netCents,
         method: (data.payment_method as string) || "pix",
         status: normalizeStatus(status),
       });

@@ -23,15 +23,26 @@ export type SyncPayExportRow = {
   amountCents: number;
   /** Valor líquido repassado, em centavos. */
   netCents: number;
-  /** Taxa = cheio − líquido, em centavos. A coluna "Sync Amount" do export NÃO
-   *  é a taxa total (fica fixa em 0,80 mesmo quando o desconto real é 1,55). */
+  /** Taxa do gateway, em centavos (coluna "Sync Amount" do export). Na SyncPay
+   *  é progressiva: R$ 0,80 até R$ 100 e R$ 0,80 + 1,99% acima disso. */
   feeCents: number;
+  /** Split: o que sobra do desconto além da taxa (repasse a terceiros). */
+  splitCents: number;
   status: string;
   /** Instante da criação, em ms (o texto do export é interpretado como UTC). */
   createdAtMs: number;
   customer?: string;
   document?: string;
 };
+
+/**
+ * Taxa da SyncPay para uma venda no PIX, em centavos (tabela do painel):
+ * até R$ 100,00 -> R$ 0,80 fixos; acima disso -> R$ 0,80 + 1,99% da venda.
+ */
+export function syncPayFeeCents(amountCents: number): number {
+  const fixa = 80;
+  return amountCents <= 10000 ? fixa : fixa + Math.round(amountCents * 0.0199);
+}
 
 /** "dd/mm/aaaa hh:mm:ss" (UTC) -> epoch ms. */
 export function parseExportDateUtc(txt: string): number | null {
@@ -58,12 +69,18 @@ function montaLinha(campos: Record<string, string>): SyncPayExportRow | null {
   const externalId = (campos.ext || "").replace(/[^0-9a-zA-Z-]/g, "");
   if (amountCents === null || createdAtMs === null || !externalId) return null;
   const liquido = netCents === null ? amountCents : netCents;
+  const descontoTotal = Math.max(0, amountCents - liquido);
+  // A taxa vem explícita no export; o resto do desconto é split. Quando a
+  // coluna não vier, cai na tabela de preços da SyncPay.
+  const taxa = toCents(campos.sync) ?? syncPayFeeCents(amountCents);
+  const feeCents = Math.min(taxa, descontoTotal);
   return {
     externalId,
     exportId: campos.id || undefined,
     amountCents,
     netCents: liquido,
-    feeCents: Math.max(0, amountCents - liquido),
+    feeCents,
+    splitCents: Math.max(0, descontoTotal - feeCents),
     status: (campos.status || "").replace(/\s+/g, "").toLowerCase(),
     createdAtMs,
     customer: campos.nome && campos.nome !== "-" ? campos.nome : undefined,

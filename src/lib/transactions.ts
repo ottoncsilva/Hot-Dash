@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
 import { getAppTimeZone } from "./settings";
+import { syncPayFeeCents } from "./payments/syncpayExport";
 import {
   addDaysInTimeZone,
   formatDayLabel,
@@ -19,9 +20,12 @@ export type Transaction = {
   customer?: string;
   /** Valor CHEIO da venda (faturamento bruto). */
   amountCents: number;
-  /** Valor LÍQUIDO repassado pelo gateway, já sem a taxa (faturamento líquido).
-   *  Só existe depois que o webhook informa; nulo em cobranças antigas. */
+  /** Valor LÍQUIDO repassado pelo gateway ("você recebe"). */
   netAmountCents?: number;
+  /** Taxa do gateway (fixa, R$ 0,80 na SyncPay). */
+  feeCents?: number;
+  /** Split: parte repassada a terceiros. Zero na maioria das vendas. */
+  splitCents?: number;
   currency: string;
   method?: string;
   status: string;
@@ -40,6 +44,8 @@ type Row = {
   customer: string | null;
   amount_cents: number;
   net_amount_cents: number | null;
+  fee_cents: number | null;
+  split_cents: number | null;
   paid_at: number | null;
   reprocessed_at: number | null;
   currency: string;
@@ -59,6 +65,8 @@ function toClient(r: Row): Transaction {
     customer: r.customer || undefined,
     amountCents: r.amount_cents,
     netAmountCents: r.net_amount_cents ?? undefined,
+    feeCents: r.fee_cents ?? undefined,
+    splitCents: r.split_cents ?? undefined,
     paidAt: r.paid_at ?? undefined,
     currency: r.currency,
     method: r.method || undefined,
@@ -191,7 +199,7 @@ export function updateStatusByRef(
   providerRef: string,
   status: string,
   /** Valores informados pelo gateway: o cheio e o líquido (já sem a taxa). */
-  amounts?: { grossCents?: number; netCents?: number },
+  amounts?: { grossCents?: number; netCents?: number; feeCents?: number; splitCents?: number },
 ): { transaction: Transaction; becamePaid: boolean } | null {
   const existing = findByProviderRef(provider, providerRef);
   if (!existing) return null;
@@ -209,13 +217,25 @@ export function updateStatusByRef(
   // reescreve se já estava paga, para não mascarar a data original.
   const paidAt = normalized === "paid" ? existing.paidAt ?? now : existing.paidAt ?? null;
 
+  // Separa o desconto entre TAXA (tabela do gateway) e SPLIT (repasse), como o
+  // próprio painel da SyncPay mostra: entrada − taxas − split = você recebe.
+  let fee = amounts?.feeCents ?? existing.feeCents ?? null;
+  let split = amounts?.splitCents ?? existing.splitCents ?? null;
+  if (net !== null && fee === null) {
+    const desconto = Math.max(0, gross - net);
+    const tabela = syncPayFeeCents(gross);
+    fee = Math.min(tabela, desconto);
+    split = Math.max(0, desconto - fee);
+  }
+
   getDb()
     .prepare(
       `UPDATE transactions
-       SET status = ?, amount_cents = ?, net_amount_cents = ?, paid_at = ?, updated_at = ?
+       SET status = ?, amount_cents = ?, net_amount_cents = ?, fee_cents = ?, split_cents = ?,
+           paid_at = ?, updated_at = ?
        WHERE id = ?`,
     )
-    .run(normalized, gross, net, paidAt, now, existing.id);
+    .run(normalized, gross, net, fee, split, paidAt, now, existing.id);
   return { transaction: getTransaction(existing.id)!, becamePaid };
 }
 
@@ -281,6 +301,8 @@ export type ImportRow = {
   externalId: string;
   amountCents: number;
   netCents: number;
+  feeCents: number;
+  splitCents: number;
   status: string;
   createdAtMs: number;
   customer?: string;
@@ -291,7 +313,7 @@ export type ImportResult = {
   atualizadas: number;
   novas: number;
   semMudanca: number;
-  amostra: { quando: number; venda: number; taxa: number; liquido: number; status: string; acao: string }[];
+  amostra: { quando: number; venda: number; taxa: number; split: number; liquido: number; status: string; acao: string }[];
 };
 
 /**
@@ -338,6 +360,8 @@ export function importProviderRows(
         const mudou =
           achou.amount_cents !== l.amountCents ||
           achou.net_amount_cents !== l.netCents ||
+          achou.fee_cents !== l.feeCents ||
+          achou.split_cents !== l.splitCents ||
           achou.status !== status;
         if (mudou) {
           res.atualizadas++;
@@ -345,12 +369,13 @@ export function importProviderRows(
           if (!opts.dryRun) {
             db.prepare(
               `UPDATE transactions
-               SET amount_cents = ?, net_amount_cents = ?, status = ?, created_at = ?,
+               SET amount_cents = ?, net_amount_cents = ?, fee_cents = ?, split_cents = ?,
+                   status = ?, created_at = ?,
                    paid_at = COALESCE(paid_at, ?), customer = COALESCE(customer, ?),
                    reprocessed_at = ?, updated_at = ?
                WHERE id = ?`,
             ).run(
-              l.amountCents, l.netCents, status, l.createdAtMs,
+              l.amountCents, l.netCents, l.feeCents, l.splitCents, status, l.createdAtMs,
               pago ? l.createdAtMs : null, l.customer || null,
               Date.now(), Date.now(), achou.id,
             );
@@ -366,12 +391,13 @@ export function importProviderRows(
           db.prepare(
             `INSERT INTO transactions
               (id, provider, provider_ref, profile_id, description, customer,
-               amount_cents, net_amount_cents, paid_at, currency, method, status,
-               reprocessed_at, created_at, updated_at)
-             VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, 'BRL', 'pix', ?, ?, ?, ?)`,
+               amount_cents, net_amount_cents, fee_cents, split_cents, paid_at,
+               currency, method, status, reprocessed_at, created_at, updated_at)
+             VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'BRL', 'pix', ?, ?, ?, ?)`,
           ).run(
             randomUUID(), provider, l.externalId, "Venda SyncPay", l.customer || null,
-            l.amountCents, l.netCents, pago ? l.createdAtMs : null, status,
+            l.amountCents, l.netCents, l.feeCents, l.splitCents,
+            pago ? l.createdAtMs : null, status,
             Date.now(), l.createdAtMs, Date.now(),
           );
         }
@@ -380,7 +406,7 @@ export function importProviderRows(
       if (res.amostra.length < 8) {
         res.amostra.push({
           quando: l.createdAtMs, venda: l.amountCents,
-          taxa: Math.max(0, l.amountCents - l.netCents), liquido: l.netCents,
+          taxa: l.feeCents, split: l.splitCents, liquido: l.netCents,
           status, acao,
         });
       }

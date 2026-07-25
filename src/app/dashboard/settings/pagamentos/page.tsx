@@ -57,9 +57,20 @@ export default function PaymentSettingsPage() {
     loadDiagnostics();
   }, []);
 
-  const webhookUrl = cfg?.syncpay.webhookToken
+  // URL curta: é a que se cola no painel hoje. A longa fica como transição.
+  const webhookUrl = cfg?.syncpay.webhookShort ? `${origin}/w/${cfg.syncpay.webhookShort}` : "";
+  const webhookUrlAntiga = cfg?.syncpay.webhookToken
     ? `${origin}/api/webhooks/syncpay?token=${cfg.syncpay.webhookToken}`
     : "";
+
+  async function alternarAntiga(ligado: boolean) {
+    const { settings } = await apiSend<{ settings: PaymentSettingsPublic }>(
+      "/api/payments/settings",
+      "PATCH",
+      { legacyWebhookEnabled: ligado },
+    );
+    setCfg(settings);
+  }
 
   async function carregarEventos() {
     try {
@@ -254,6 +265,32 @@ export default function PaymentSettingsPage() {
           <p className="mt-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
             o token autentica o webhook — mantenha esta URL privada
           </p>
+
+          {/* URL antiga: continua valendo até você trocar no painel. Depois
+              disso, desligar aposenta o token velho. */}
+          {webhookUrlAntiga && (
+            <div className="mt-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                  URL antiga (longa)
+                </p>
+                <label className="flex items-center gap-2 text-xs text-zinc-400">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-white"
+                    checked={!cfg?.syncpay.legacyWebhookOff}
+                    onChange={(e) => alternarAntiga(e.target.checked)}
+                  />
+                  aceitar
+                </label>
+              </div>
+              <p className="mt-1 break-all font-mono text-[10px] text-zinc-600">{webhookUrlAntiga}</p>
+              <p className="mt-1 text-[11px] text-zinc-500">
+                Continua funcionando para não interromper as vendas. Depois de colar a URL curta no
+                painel da SyncPay, desmarque — assim o token antigo para de valer.
+              </p>
+            </div>
+          )}
 
           {/* Diagnóstico: prova se o webhook está de fato chegando */}
           <div className="mt-3 flex items-center justify-between rounded-lg border border-white/10 bg-black/20 px-3 py-2">

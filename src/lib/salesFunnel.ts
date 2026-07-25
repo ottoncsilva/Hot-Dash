@@ -81,6 +81,178 @@ export function salesFunnel(
   };
 }
 
+export type PlanoConversao = { planId: string; name: string; cents: number; count: number };
+
+/** Planos que mais converteram no período (venda paga → inscrição → plano). */
+export function topPlans(
+  sinceMs: number | null,
+  untilMs: number | null = null,
+  profileId?: string,
+  limit = 5,
+): PlanoConversao[] {
+  const db = getDb();
+  const { clauses, params } = range(sinceMs, untilMs);
+  const where = ["t.status = 'paid'", ...clauses.map((c) => `t.${c}`)];
+  if (profileId) {
+    where.push("t.profile_id = ?");
+    params.push(profileId);
+  }
+  const rows = db
+    .prepare(
+      `SELECT p.id plan_id, p.name plan_name, SUM(t.amount_cents) cents, COUNT(*) cnt
+       FROM transactions t
+       JOIN telegram_subscriptions s ON s.transaction_id = t.id
+       JOIN telegram_plans p ON p.id = s.plan_id
+       WHERE ${where.join(" AND ")}
+       GROUP BY p.id
+       ORDER BY cents DESC
+       LIMIT ?`,
+    )
+    .all(...params, limit) as { plan_id: string; plan_name: string; cents: number; cnt: number }[];
+  return rows.map((r) => ({ planId: r.plan_id, name: r.plan_name, cents: r.cents, count: r.cnt }));
+}
+
+/** Métricas completas do funil de UM recorte (todos os modelos ou um só). */
+export type FunilMetricas = {
+  totalStarts: number;
+  pixGenerated: number;
+  pixPaid: number;
+  /** Faturamento das vendas pagas (valor cheio). */
+  paidCents: number;
+  /** Já sem a taxa do gateway. */
+  netCents: number;
+  /** PIX gerado e ainda não pago — dinheiro na mesa. */
+  pendingCents: number;
+  pendingCount: number;
+  avgTicketCents: number;
+  startToPix: number | null;
+  pixToPaid: number | null;
+  startToPaid: number | null;
+};
+
+function metricas(
+  sinceMs: number | null,
+  untilMs: number | null,
+  profileId: string | null,
+  semModelo = false,
+): FunilMetricas {
+  const db = getDb();
+
+  const leads = range(sinceMs, untilMs);
+  const leadsWhere = [...leads.clauses];
+  const leadsParams = [...leads.params];
+  if (profileId) {
+    leadsWhere.push("profile_id = ?");
+    leadsParams.push(profileId);
+  }
+  // Vendas sem modelo não têm /start nosso — o lead nasceu em outro sistema.
+  const totalStarts = semModelo
+    ? 0
+    : (
+        db
+          .prepare(
+            `SELECT COUNT(*) c FROM telegram_leads ${leadsWhere.length ? `WHERE ${leadsWhere.join(" AND ")}` : ""}`,
+          )
+          .get(...leadsParams) as { c: number }
+      ).c;
+
+  const tx = range(sinceMs, untilMs);
+  const txWhere = [...tx.clauses];
+  const txParams = [...tx.params];
+  if (semModelo) txWhere.push("profile_id IS NULL");
+  else if (profileId) {
+    txWhere.push("profile_id = ?");
+    txParams.push(profileId);
+  }
+  const onde = txWhere.length ? `WHERE ${txWhere.join(" AND ")}` : "";
+
+  const geral = db
+    .prepare(
+      `SELECT COUNT(*) gerados,
+              COALESCE(SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END), 0) pagos,
+              COALESCE(SUM(CASE WHEN status = 'paid' THEN amount_cents ELSE 0 END), 0) pago_cents,
+              COALESCE(SUM(CASE WHEN status = 'paid' THEN COALESCE(net_amount_cents, amount_cents) ELSE 0 END), 0) liq_cents,
+              COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) pendentes,
+              COALESCE(SUM(CASE WHEN status = 'pending' THEN amount_cents ELSE 0 END), 0) pend_cents
+       FROM transactions ${onde}`,
+    )
+    .get(...txParams) as {
+    gerados: number;
+    pagos: number;
+    pago_cents: number;
+    liq_cents: number;
+    pendentes: number;
+    pend_cents: number;
+  };
+
+  return {
+    totalStarts,
+    pixGenerated: geral.gerados,
+    pixPaid: geral.pagos,
+    paidCents: geral.pago_cents,
+    netCents: geral.liq_cents,
+    pendingCents: geral.pend_cents,
+    pendingCount: geral.pendentes,
+    avgTicketCents: geral.pagos > 0 ? Math.round(geral.pago_cents / geral.pagos) : 0,
+    startToPix: totalStarts > 0 ? geral.gerados / totalStarts : null,
+    pixToPaid: geral.gerados > 0 ? geral.pagos / geral.gerados : null,
+    startToPaid: totalStarts > 0 ? geral.pagos / totalStarts : null,
+  };
+}
+
+export type LinhaFunil = FunilMetricas & {
+  profileId: string | null;
+  profileName: string;
+  botActive: boolean | null;
+};
+
+/**
+ * Funil por MODELO.
+ *
+ * A atribuição acontece na CRIAÇÃO da cobrança: quando o bot gera o PIX ele já
+ * sabe de qual perfil é, e grava `profile_id` na transação. Venda que chega só
+ * pelo webhook (checkout externo, ou bot de outro sistema) não tem como ser
+ * atribuída depois — a SyncPay não sabe de modelo nenhum. Essas aparecem numa
+ * linha "sem modelo" em vez de sumirem ou serem chutadas para alguém.
+ */
+export function funnelByProfile(
+  sinceMs: number | null,
+  untilMs: number | null = null,
+): { linhas: LinhaFunil[]; geral: FunilMetricas } {
+  const db = getDb();
+  const perfis = db
+    .prepare(
+      `SELECT pr.id, pr.name, b.operation_active
+       FROM profiles pr LEFT JOIN telegram_bots b ON b.profile_id = pr.id
+       ORDER BY pr.name`,
+    )
+    .all() as { id: string; name: string; operation_active: number | null }[];
+
+  const linhas: LinhaFunil[] = perfis.map((p) => ({
+    profileId: p.id,
+    profileName: p.name,
+    botActive: p.operation_active === null ? null : Boolean(p.operation_active),
+    ...metricas(sinceMs, untilMs, p.id),
+  }));
+
+  const orfas = metricas(sinceMs, untilMs, null, true);
+  if (orfas.pixGenerated > 0) {
+    linhas.push({ profileId: null, profileName: "Sem modelo", botActive: null, ...orfas });
+  }
+
+  linhas.sort((a, b) => b.paidCents - a.paidCents);
+  return { linhas, geral: metricas(sinceMs, untilMs, null) };
+}
+
+/** Métricas de um recorte só (todos ou um modelo). */
+export function funnelMetrics(
+  sinceMs: number | null,
+  untilMs: number | null,
+  profileId?: string,
+): FunilMetricas {
+  return metricas(sinceMs, untilMs, profileId || null);
+}
+
 export type ProfileRevenue = {
   profileId: string;
   profileName: string;

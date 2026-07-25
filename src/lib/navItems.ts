@@ -11,6 +11,7 @@ export type NavKey =
   | "media"
   | "censura"
   | "payments"
+  | "funil"
   | "telegram"
   | "schedule";
 
@@ -22,6 +23,7 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   media: { key: "media", label: "Mídia", href: "/dashboard/media" },
   censura: { key: "censura", label: "Censura com IA", href: "/dashboard/censura" },
   payments: { key: "payments", label: "Financeiro", href: "/dashboard/payments" },
+  funil: { key: "funil", label: "Funil de Vendas", href: "/dashboard/funil" },
   telegram: { key: "telegram", label: "Telegram", href: "/dashboard/telegram" },
   whatsapp: { key: "whatsapp", label: "Whatsapp", href: "/dashboard/whatsapp" },
   whatsapp_settings: { key: "whatsapp_settings", label: "Config. WhatsApp", href: "/dashboard/whatsapp/settings" },
@@ -38,6 +40,7 @@ export const DEFAULT_MENU_ORDER: NavKey[] = [
   "media",
   "schedule",
   "payments",
+  "funil",
   "telegram",
   "whatsapp",
   "settings",

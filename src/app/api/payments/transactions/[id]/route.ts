@@ -25,6 +25,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       feeCents: cents(body.feeCents),
       splitCents: cents(body.splitCents),
       customer: typeof body.customer === "string" ? body.customer : undefined,
+      profileId: typeof body.profileId === "string" ? body.profileId : undefined,
     });
     if (!t) return NextResponse.json({ error: "Cobrança não encontrada." }, { status: 404 });
     return NextResponse.json({ transaction: t });

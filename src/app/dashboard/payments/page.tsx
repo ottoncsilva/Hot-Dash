@@ -359,6 +359,7 @@ export default function PaymentsPage() {
         {editando && (
           <EditarCobranca
             tx={editando}
+            profiles={profiles}
             onClose={() => setEditando(null)}
             onDone={() => {
               setEditando(null);
@@ -388,10 +389,12 @@ export default function PaymentsPage() {
  */
 function EditarCobranca({
   tx,
+  profiles,
   onClose,
   onDone,
 }: {
   tx: Transaction;
+  profiles: Profile[];
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -400,6 +403,7 @@ function EditarCobranca({
   const [taxa, setTaxa] = useState(emReais(tx.feeCents));
   const [split, setSplit] = useState(emReais(tx.splitCents));
   const [nome, setNome] = useState(tx.customer || "");
+  const [perfil, setPerfil] = useState(tx.profileId || "");
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -419,6 +423,7 @@ function EditarCobranca({
         feeCents: cTaxa,
         splitCents: cSplit,
         customer: nome,
+        profileId: perfil,
       });
       onDone();
     } catch (e) {
@@ -444,6 +449,19 @@ function EditarCobranca({
         <div>
           <label className="eyebrow mb-1.5 block">Nome</label>
           <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Cliente" />
+        </div>
+        <div>
+          <label className="eyebrow mb-1.5 block">Modelo</label>
+          <select className="input" value={perfil} onChange={(e) => setPerfil(e.target.value)}>
+            <option value="">Sem modelo</option>
+            {profiles.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <p className="mt-1 text-[11px] text-zinc-600">
+            Venda que chega só pelo webhook nasce sem modelo — a SyncPay não informa de qual é.
+            Atribuir aqui faz ela entrar no Funil de Vendas do modelo certo.
+          </p>
         </div>
         <div className="grid grid-cols-3 gap-3">
           <div>

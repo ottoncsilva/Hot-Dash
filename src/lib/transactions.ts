@@ -218,6 +218,47 @@ export function updateStatusByRef(
   return { transaction: getTransaction(existing.id)!, becamePaid };
 }
 
+/** Transações que ainda não têm o valor líquido gravado (candidatas ao
+ *  reprocessamento). Só as que têm provider_ref — sem ele não há o que
+ *  consultar no gateway. */
+export function transactionsMissingNet(provider: string): Transaction[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM transactions
+       WHERE provider = ? AND provider_ref IS NOT NULL AND provider_ref <> ''
+         AND net_amount_cents IS NULL
+       ORDER BY created_at DESC`,
+    )
+    .all(provider) as Row[];
+  return rows.map(toClient);
+}
+
+/** Grava os valores recuperados do gateway numa transação já existente. */
+export function applyProviderAmounts(
+  id: string,
+  input: { grossCents?: number; netCents?: number; status?: string; paidAtMs?: number },
+): Transaction | null {
+  const existing = getTransaction(id);
+  if (!existing) return null;
+  const status = input.status ? normalizeStatus(input.status) : existing.status;
+  const gross =
+    input.grossCents && input.grossCents > 0 ? input.grossCents : existing.amountCents;
+  const net = input.netCents && input.netCents > 0 ? input.netCents : existing.netAmountCents ?? null;
+  const paidAt =
+    status === "paid"
+      ? existing.paidAt ?? (input.paidAtMs && input.paidAtMs > 0 ? input.paidAtMs : existing.updatedAt)
+      : existing.paidAt ?? null;
+
+  getDb()
+    .prepare(
+      `UPDATE transactions
+       SET amount_cents = ?, net_amount_cents = ?, status = ?, paid_at = ?, updated_at = ?
+       WHERE id = ?`,
+    )
+    .run(gross, net, status, paidAt, Date.now(), id);
+  return getTransaction(id);
+}
+
 /** Agrupa o método de pagamento bruto do provedor num rótulo de exibição. */
 function methodBucket(method: string | null): "Pix" | "Cartão" | "Boleto" | "Outros" {
   const m = (method || "").toLowerCase();

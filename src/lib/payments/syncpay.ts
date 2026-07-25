@@ -159,6 +159,48 @@ export function createSyncPay(creds: {
       };
     },
 
+    /**
+     * Consulta UMA transação pelo id da SyncPay (o nosso provider_ref), para
+     * recuperar valores que só o webhook trazia — em especial o `final_amount`
+     * (líquido, já sem a taxa) das vendas antigas.
+     *
+     * A rota `/api/partner/v1/transaction/{id}` não está no documento da API,
+     * mas existe: uma rota inexistente responde "Not Found", enquanto essa
+     * responde "Server Error" sem token, igual à de saldo. Como o formato da
+     * resposta não é documentado, aceitamos as variações mais prováveis e
+     * devolvemos null quando não der para interpretar — nunca lança.
+     */
+    async getTransaction(providerRef: string) {
+      try {
+        const res = await authedFetch(
+          `/api/partner/v1/transaction/${encodeURIComponent(providerRef)}`,
+          { method: "GET" },
+        );
+        if (!res.ok) return null;
+        const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+        if (!json) return null;
+        // Pode vir como { data: {...} } ou o objeto direto.
+        const d = ((json.data as Record<string, unknown>) || json) as Record<string, unknown>;
+        const num = (v: unknown) => {
+          const n = Number(v);
+          return Number.isFinite(n) && n > 0 ? n : undefined;
+        };
+        const amount = num(d.amount);
+        const finalAmount = num(d.final_amount ?? d.net_amount ?? d.liquid_amount);
+        const status = typeof d.status === "string" ? d.status : undefined;
+        if (amount === undefined && finalAmount === undefined && !status) return null;
+        return {
+          grossCents: amount !== undefined ? Math.round(amount * 100) : undefined,
+          netCents: finalAmount !== undefined ? Math.round(finalAmount * 100) : undefined,
+          status,
+          paidAtMs: typeof d.updated_at === "string" ? Date.parse(d.updated_at) || undefined : undefined,
+          raw: d,
+        };
+      } catch {
+        return null;
+      }
+    },
+
     async getBalance() {
       // Best-effort: a rota de saldo varia por conta; não quebra o painel se falhar.
       try {

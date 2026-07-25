@@ -22,6 +22,9 @@ export default function PaymentSettingsPage() {
   const [origin, setOrigin] = useState("");
   const [copied, setCopied] = useState(false);
   const [lastPaid, setLastPaid] = useState<LastPaid>(null);
+  // Teste do saldo (o card do Dashboard só diz "indisponível" quando falha).
+  const [saldoMsg, setSaldoMsg] = useState<string | null>(null);
+  const [saldoBusy, setSaldoBusy] = useState(false);
   // Importação do export da SyncPay (única fonte do valor líquido do histórico).
   const [impPrev, setImpPrev] = useState<any>(null);
   const [impBusy, setImpBusy] = useState(false);
@@ -47,6 +50,35 @@ export default function PaymentSettingsPage() {
   const webhookUrl = cfg?.syncpay.webhookToken
     ? `${origin}/api/webhooks/syncpay?token=${cfg.syncpay.webhookToken}`
     : "";
+
+  async function testarSaldo() {
+    setSaldoBusy(true);
+    setSaldoMsg("consultando...");
+    try {
+      const d = await apiGet<{
+        error?: string;
+        cents?: number | null;
+        attempts?: { path: string; httpStatus?: number; bodySample?: string; error?: string }[];
+      }>("/api/payments/balance?diagnose=1");
+      if (d.error) {
+        setSaldoMsg(d.error);
+        return;
+      }
+      const linhas = (d.attempts || []).map(
+        (a) => `GET ${a.path} → ${a.httpStatus ?? "?"}${a.error ? ` · ${a.error}` : ""}${a.bodySample ? `\n   ${a.bodySample}` : ""}`,
+      );
+      setSaldoMsg(
+        (d.cents === null || d.cents === undefined
+          ? "Nenhum caminho devolveu o saldo.\n"
+          : `Saldo lido: ${(d.cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}\n`) +
+          linhas.join("\n"),
+      );
+    } catch (e) {
+      setSaldoMsg(e instanceof Error ? e.message : "Falha ao consultar o saldo.");
+    } finally {
+      setSaldoBusy(false);
+    }
+  }
 
   async function enviarExport(file: File, dryRun: boolean) {
     setImpBusy(true);
@@ -213,6 +245,29 @@ export default function PaymentSettingsPage() {
             <button type="button" onClick={loadDiagnostics} className="btn-ghost shrink-0 px-3 py-1.5 text-xs">
               Verificar agora
             </button>
+          </div>
+
+          {/* Saldo: quando o card do Dashboard fica vazio, é aqui que dá para
+              ver o que a SyncPay respondeu em cada caminho tentado. */}
+          <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  Saldo na SyncPay
+                </p>
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  Testa a consulta de saldo e mostra a resposta crua do gateway.
+                </p>
+              </div>
+              <button type="button" onClick={testarSaldo} className="btn-ghost shrink-0 px-3 py-1.5 text-xs">
+                {saldoBusy ? "Consultando..." : "Testar saldo"}
+              </button>
+            </div>
+            {saldoMsg && (
+              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-white/10 bg-black/40 p-2 font-mono text-[10px] leading-relaxed text-zinc-400">
+                {saldoMsg}
+              </pre>
+            )}
           </div>
 
           {/* Importar o export da SyncPay: única fonte do valor líquido do

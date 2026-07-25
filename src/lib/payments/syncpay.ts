@@ -19,6 +19,60 @@ import type { ChargeInput, ChargeResult, PaymentProvider } from "./types";
  */
 const BASE = process.env.SYNCPAY_BASE_URL || "https://api.syncpayments.com.br";
 
+/** Uma tentativa de leitura do saldo, guardada para diagnóstico. */
+export type BalanceAttempt = {
+  path: string;
+  httpStatus?: number;
+  bodySample?: string;
+  error?: string;
+};
+
+/**
+ * Caminho do saldo. É UM só, o do OpenAPI da SyncPay:
+ * `GET /api/partner/v1/balance`, bearer do auth-token, `{ "balance": "90.00" }`.
+ * Sair tentando caminhos parecidos só gastaria o limite de chamadas — a mesma
+ * rota devolve 429 quando é chamada demais.
+ */
+const BALANCE_PATH = "/api/partner/v1/balance";
+
+/** Chaves de saldo aceitas, das mais específicas para as mais genéricas — para
+ *  não confundir com "saldo bloqueado" e afins. */
+const CHAVES_SALDO = [
+  "balance",
+  "saldo",
+  "available",
+  "available_balance",
+  "availablebalance",
+  "balance_available",
+  "amount",
+  "value",
+];
+
+/**
+ * Procura o saldo em qualquer nível do JSON. É busca em largura: o campo do
+ * nível mais raso ganha, e entre os do mesmo nível vale a ordem de
+ * `CHAVES_SALDO`. Assim `{"balance":"90.00"}` e `{"data":{"balance":90}}`
+ * funcionam sem precisar mapear o formato de cada conta.
+ */
+function achaSaldo(raiz: unknown): number | null {
+  const fila: unknown[] = [raiz];
+  let guard = 0;
+  while (fila.length > 0 && guard++ < 200) {
+    const no = fila.shift();
+    if (!no || typeof no !== "object") continue;
+    const obj = no as Record<string, unknown>;
+    for (const chave of CHAVES_SALDO) {
+      for (const k of Object.keys(obj)) {
+        if (k.toLowerCase().replace(/[^a-z_]/g, "") !== chave) continue;
+        const v = toReais(obj[k]);
+        if (v !== null) return v;
+      }
+    }
+    for (const v of Object.values(obj)) if (v && typeof v === "object") fila.push(v);
+  }
+  return null;
+}
+
 /**
  * Converte um valor monetário da API para reais. A SyncPay devolve números
  * como string ("90.00"), e algumas respostas usam o formato brasileiro
@@ -179,30 +233,81 @@ export function createSyncPay(creds: {
     },
 
     /**
-     * Saldo do usuário — GET /api/partner/v1/balance, resposta documentada
-     * `{ "balance": "90.00" }`.
+     * Saldo do usuário. O caminho documentado é
+     * `GET /api/partner/v1/balance` → `{ "balance": "90.00" }`, mas ele não
+     * responde em toda conta — por isso tentamos alguns caminhos irmãos e
+     * guardamos o que cada um respondeu, para o botão "Testar saldo" das
+     * Configurações mostrar o motivo quando nenhum funcionar (antes o card só
+     * dizia "indisponível", sem como saber por quê).
      *
-     * O valor vem como STRING. A versão anterior exigia `typeof === "number"`
-     * e por isso devolvia null sempre, deixando o card do saldo eternamente
-     * "indisponível". Aqui aceitamos número ou string (inclusive no formato
-     * brasileiro "1.234,56") e o objeto aninhado em `data`, que algumas contas
-     * usam.
+     * O valor vem como STRING no exemplo da própria SyncPay, então a leitura
+     * aceita número, string ("90.00" e "1.234,56") e o objeto aninhado.
      */
     async getBalance() {
-      try {
-        const res = await authedFetch("/api/partner/v1/balance", { method: "GET" });
-        if (!res.ok) return null;
-        const data = (await res.json()) as Record<string, unknown>;
-        const dentro = (data.data as Record<string, unknown>) || {};
-        const bruto =
-          data.balance ?? data.available ?? data.available_balance ?? dentro.balance ?? dentro.available;
-        const reais = toReais(bruto);
-        if (reais === null) return null;
-        // A API devolve em reais; guardamos em centavos.
-        return { availableCents: Math.round(reais * 100), raw: data };
-      } catch {
-        return null;
-      }
+      const { cents, raw } = await consultaSaldo();
+      return cents === null ? null : { availableCents: cents, raw };
+    },
+
+    async diagnoseBalance() {
+      const { cents, attempts } = await consultaSaldo();
+      return { cents, attempts };
     },
   };
+
+  /**
+   * Lê o saldo, guardando o que o gateway respondeu.
+   *
+   * O 429 é tratado à parte porque a rota é limitada: nesse caso não existe
+   * "saldo zero" nem erro de credencial, é só esperar — e quem chamou deve
+   * manter o último valor conhecido em vez de mostrar "indisponível".
+   */
+  async function consultaSaldo(): Promise<{
+    cents: number | null;
+    raw?: unknown;
+    rateLimited?: boolean;
+    attempts: BalanceAttempt[];
+  }> {
+    const attempts: BalanceAttempt[] = [];
+    try {
+      const res = await authedFetch(BALANCE_PATH, { method: "GET" });
+      const texto = await res.text();
+      const tentativa: BalanceAttempt = {
+        path: BALANCE_PATH,
+        httpStatus: res.status,
+        bodySample: texto.slice(0, 300),
+      };
+      attempts.push(tentativa);
+
+      if (res.status === 429) {
+        tentativa.error = "limite de consultas da SyncPay atingido — tente de novo em instantes";
+        return { cents: null, rateLimited: true, attempts };
+      }
+      if (res.status === 401) {
+        tentativa.error = "não autorizado — o client id/secret não tem acesso ao saldo";
+        return { cents: null, attempts };
+      }
+      if (!res.ok) return { cents: null, attempts };
+
+      let data: unknown;
+      try {
+        data = JSON.parse(texto);
+      } catch {
+        tentativa.error = "resposta não é JSON";
+        return { cents: null, attempts };
+      }
+      const reais = achaSaldo(data);
+      if (reais === null) {
+        tentativa.error = "JSON sem campo de saldo reconhecível";
+        return { cents: null, attempts };
+      }
+      // A API devolve em reais; guardamos em centavos.
+      return { cents: Math.round(reais * 100), raw: data, attempts };
+    } catch (e) {
+      attempts.push({
+        path: BALANCE_PATH,
+        error: e instanceof Error ? e.message : "falha de rede",
+      });
+      return { cents: null, attempts };
+    }
+  }
 }

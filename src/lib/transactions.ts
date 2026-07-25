@@ -166,6 +166,36 @@ export function listTransactions(limit = 50, profileId?: string): Transaction[] 
   return rows.map(toClient);
 }
 
+/** Cobranças de um intervalo [since, until) — as pontas vêm resolvidas no fuso
+ *  da operação. Usada pelo Financeiro, que filtra por período na origem em vez
+ *  de cortar as últimas 50 no navegador (senão o filtro só veria essas 50). */
+export function listTransactionsInRange(
+  sinceMs: number | null,
+  untilMs: number | null,
+  limit = 500,
+  profileId?: string,
+): Transaction[] {
+  const clauses: string[] = [];
+  const params: (string | number)[] = [];
+  if (sinceMs !== null) {
+    clauses.push("created_at >= ?");
+    params.push(sinceMs);
+  }
+  if (untilMs !== null) {
+    clauses.push("created_at < ?");
+    params.push(untilMs);
+  }
+  if (profileId) {
+    clauses.push("profile_id = ?");
+    params.push(profileId);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const rows = getDb()
+    .prepare(`SELECT * FROM transactions ${where} ORDER BY created_at DESC LIMIT ?`)
+    .all(...params, limit) as Row[];
+  return rows.map(toClient);
+}
+
 /**
  * Normaliza o status de um provedor para o vocabulário interno. "med"
  * (disputa/chargeback da SyncPay) fica separado de "refunded" para que o
@@ -538,6 +568,56 @@ export function revenueSeriesForDays(days: number, profileId?: string): { day: s
     series.push({ day: formatDayLabel(dayStart, tz), cents: r.s });
   }
   return series;
+}
+
+/**
+ * Série diária do gráfico para um intervalo já resolvido.
+ *
+ * Regra: o gráfico cobre o período escolhido, mas nunca menos de 7 dias — com
+ * "Hoje" um gráfico de um ponto só não diz nada, e ver a semana em volta dá o
+ * contexto. Teto de 92 dias para o eixo não virar um borrão (e "Máximo" cair
+ * nos últimos 30, como antes).
+ */
+export function revenueSeriesForRange(
+  sinceMs: number | null,
+  untilMs: number | null,
+  profileId?: string,
+): { day: string; cents: number }[] {
+  const tz = getAppTimeZone();
+  if (sinceMs === null) return revenueSeriesForDays(30, profileId);
+
+  const inicio = startOfDayInTimeZone(sinceMs, tz);
+  // `until` é exclusivo: o último dia mostrado é o anterior a ele.
+  const fim = startOfDayInTimeZone(untilMs === null ? Date.now() : untilMs - 1, tz);
+  const dias = Math.round((fim - inicio) / 86_400_000) + 1;
+  const total = Math.min(92, Math.max(7, dias));
+  // Quando o período é curto, completa para trás a partir do último dia dele.
+  const primeiro = addDaysInTimeZone(fim, -(total - 1), tz);
+  return seriesBetween(primeiro, total, profileId);
+}
+
+function seriesBetween(
+  primeiroDia: number,
+  dias: number,
+  profileId?: string,
+): { day: string; cents: number }[] {
+  const db = getDb();
+  const tz = getAppTimeZone();
+  const out: { day: string; cents: number }[] = [];
+  for (let i = 0; i < dias; i++) {
+    const dayStart = addDaysInTimeZone(primeiroDia, i, tz);
+    const dayEnd = addDaysInTimeZone(dayStart, 1, tz);
+    const params: (string | number)[] = [dayStart, dayEnd];
+    let sql =
+      "SELECT COALESCE(SUM(amount_cents),0) s FROM transactions WHERE status = 'paid' AND created_at >= ? AND created_at < ?";
+    if (profileId) {
+      sql += " AND profile_id = ?";
+      params.push(profileId);
+    }
+    const r = db.prepare(sql).get(...params) as { s: number };
+    out.push({ day: formatDayLabel(dayStart, tz), cents: r.s });
+  }
+  return out;
 }
 
 export function overview(profileId?: string): Overview {

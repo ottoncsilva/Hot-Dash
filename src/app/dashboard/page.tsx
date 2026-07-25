@@ -7,6 +7,8 @@ import type { Profile } from "@/lib/types";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import type { PeriodStats } from "@/lib/transactions";
 import { IconSettings } from "@/components/icons";
+import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
+import { DEFAULT_PERIOD, type PeriodKey } from "@/lib/periods";
 
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -16,17 +18,11 @@ function pct(ratio: number) {
 }
 
 // ---- Painel do Bot de Vendas (estilo BobzBot/ApexVips) ----
-const BOT_PERIODS = [
-  { key: "today", label: "Hoje" },
-  { key: "yesterday", label: "Ontem" },
-  { key: "last7", label: "Últimos 7 dias" },
-  { key: "last30", label: "Últimos 30 dias" },
-  { key: "all", label: "Máximo" },
-] as const;
-type BotPeriodKey = (typeof BOT_PERIODS)[number]["key"];
+// A lista de períodos e o cálculo das datas ficam em lib/periods + PeriodPicker,
+// compartilhados com o Financeiro.
 
 type BotOverviewData = {
-  period: BotPeriodKey;
+  period: PeriodKey;
   stats: PeriodStats;
   funnel: {
     totalStarts: number;
@@ -302,7 +298,9 @@ function BotSalesPanel({
   profiles: Profile[] | null;
   reloadKey: number;
 }) {
-  const [period, setPeriod] = useState<BotPeriodKey>("last7");
+  // Padrão: HOJE — ao abrir ou recarregar o painel, o número que interessa é o
+  // do dia corrente.
+  const [period, setPeriod] = useState<PeriodState>({ period: DEFAULT_PERIOD, from: "", to: "" });
   const [data, setData] = useState<BotOverviewData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [innerReload, setInnerReload] = useState(0);
@@ -324,7 +322,7 @@ function BotSalesPanel({
     let cancelled = false;
     setData(null);
     setError(null);
-    const qs = new URLSearchParams({ period });
+    const qs = new URLSearchParams(periodQuery(period));
     if (profileId) qs.set("profileId", profileId);
     apiGet<BotOverviewData>(`/api/dashboard/bot-overview?${qs.toString()}`)
       .then((d) => {
@@ -347,21 +345,7 @@ function BotSalesPanel({
     <div className="mt-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="font-display text-base font-semibold text-white">Painel do Bot de Vendas</p>
-        <div className="flex flex-wrap gap-1.5">
-          {BOT_PERIODS.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => setPeriod(p.key)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                period === p.key
-                  ? "bg-emerald-500 text-black"
-                  : "border border-white/10 bg-white/[0.02] text-zinc-400 hover:text-zinc-200"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
+        <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 
       {error && (

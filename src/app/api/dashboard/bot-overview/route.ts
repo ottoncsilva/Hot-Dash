@@ -1,57 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
-import { periodStatsInRange, revenueSeriesForDays } from "@/lib/transactions";
+import { periodStatsInRange, revenueSeriesForRange } from "@/lib/transactions";
 import { salesFunnel, revenueByProfile } from "@/lib/salesFunnel";
 import { getFinanceSettings, getAppTimeZone } from "@/lib/settings";
-import { startOfDayInTimeZone, addDaysInTimeZone } from "@/lib/timezone";
+import { resolvePeriod } from "@/lib/periodRange";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PERIODS = ["today", "yesterday", "last7", "last30", "all"] as const;
-type PeriodKey = (typeof PERIODS)[number];
-
 /**
- * Início/fim (ms) de cada período, com os limites do dia calculados no FUSO DA
- * OPERAÇÃO (Configurações → Geral). Antes usava o fuso local do servidor, que
- * em produção é UTC: "hoje" começava às 21h de Brasília do dia anterior e as
- * vendas da noite apareciam no dia seguinte. "all" não tem limite.
+ * Painel do bot de vendas para o período escolhido.
+ *
+ * Os limites de cada período vêm de `resolvePeriod`: calculados no FUSO DA
+ * OPERAÇÃO (em produção o servidor roda em UTC, e "hoje" começaria às 21h de
+ * Brasília do dia anterior) e compartilhados com o Financeiro, para "esta
+ * semana" querer dizer a mesma coisa nas duas telas.
  */
-function rangeFor(period: PeriodKey, tz: string): { since: number | null; until: number | null; days: number } {
-  const now = Date.now();
-  const startOfToday = startOfDayInTimeZone(now, tz);
-
-  switch (period) {
-    case "today":
-      return { since: startOfToday, until: null, days: 7 };
-    case "yesterday":
-      return { since: addDaysInTimeZone(startOfToday, -1, tz), until: startOfToday, days: 7 };
-    case "last7":
-      return { since: addDaysInTimeZone(startOfToday, -6, tz), until: null, days: 7 };
-    case "last30":
-      return { since: addDaysInTimeZone(startOfToday, -29, tz), until: null, days: 30 };
-    case "all":
-    default:
-      return { since: null, until: null, days: 30 };
-  }
-}
-
 export async function GET(req: NextRequest) {
   try {
     await requireUser(req);
     const profileId = req.nextUrl.searchParams.get("profileId") || undefined;
-    const periodParam = req.nextUrl.searchParams.get("period") || "last7";
-    const period = (PERIODS as readonly string[]).includes(periodParam)
-      ? (periodParam as PeriodKey)
-      : "last7";
-
     const tz = getAppTimeZone();
-    const { since, until, days } = rangeFor(period, tz);
+    const { period, range } = resolvePeriod(
+      req.nextUrl.searchParams.get("period"),
+      req.nextUrl.searchParams.get("from"),
+      req.nextUrl.searchParams.get("to"),
+      tz,
+    );
+    const { since, until } = range;
 
     const stats = periodStatsInRange(since, until, profileId);
     const funnel = salesFunnel(since, until, profileId);
     const byProfile = revenueByProfile(since, until);
-    const series = revenueSeriesForDays(days, profileId);
+    const series = revenueSeriesForRange(since, until, profileId);
     const finance = getFinanceSettings();
     // Faturamento LÍQUIDO = soma do valor que o gateway repassa (já sem a taxa).
     // Antes este card era "lucro líquido" = faturamento - anúncios, o que

@@ -12,7 +12,8 @@ import { partsInTimeZone, zonedWallTimeToUtcMs } from "./timezone";
  * - 30 a 35 posts/dia, número e sequência aleatórios (nenhum dia igual).
  * - 8 janelas de horário (fuso America/São_Paulo), cada uma com objetivo e
  *   tipos priorizados; horários sorteados, sem repetir, com gap mínimo.
- * - Distribuição-alvo ~36% humanização / 30% engajamento / 34% conversão (±10).
+ * - Mix medido em 300 dias simulados: ~39% humanização / ~20% engajamento /
+ *   ~41% conversão, com a venda ESPALHADA (nunca em bloco) — ver planDay.
  * - Só os tipos de CONVERSÃO levam o botão VIP (cta=true).
  * - PICÂNCIA ESCALONADA pela hora (ver `heatForHour`): de manhã insinuante, de
  *   madrugada sem vergonha. Prévia morna não converte, mas prévia explícita o
@@ -22,7 +23,7 @@ import { partsInTimeZone, zonedWallTimeToUtcMs } from "./timezone";
 // "Kind físico" = o que o motor de envio realmente posta.
 export type MkKind = "foto" | "video" | "reacao" | "enquete" | "texto";
 
-// Os 17 tipos do método (sabor da copy sobre o kind físico).
+// Os tipos do método (sabor da copy sobre o kind físico).
 export type MkType =
   | "GOOD_MORNING"
   | "HUMANIZATION"
@@ -32,6 +33,7 @@ export type MkType =
   | "BEHIND_SCENES"
   | "PHOTO_PREMIUM"
   | "VIDEO_PREMIUM"
+  | "CENSORED_PREVIEW"
   | "REACTION"
   | "POLL"
   | "QUESTION"
@@ -39,6 +41,8 @@ export type MkType =
   | "PRESENT"
   | "COUNTDOWN"
   | "VIP_INVITATION"
+  | "SOCIAL_PROOF"
+  | "OFFER"
   | "GOOD_NIGHT"
   | "LAST_CALL";
 
@@ -66,9 +70,12 @@ export const TYPE_DEFS: Record<MkType, TypeDef> = {
   POLL: { kind: "enquete", intent: "engaja", cta: false },
   PHOTO_PREMIUM: { kind: "foto", intent: "converte", cta: true, media: "photo" },
   VIDEO_PREMIUM: { kind: "video", intent: "converte", cta: true, media: "video" },
+  CENSORED_PREVIEW: { kind: "foto", intent: "converte", cta: true, media: "photo" },
   PRESENT: { kind: "foto", intent: "converte", cta: true, media: "photo" },
   COUNTDOWN: { kind: "texto", intent: "converte", cta: true },
   VIP_INVITATION: { kind: "texto", intent: "converte", cta: true },
+  SOCIAL_PROOF: { kind: "texto", intent: "converte", cta: true },
+  OFFER: { kind: "texto", intent: "converte", cta: true },
   LAST_CALL: { kind: "texto", intent: "converte", cta: true },
   GOOD_NIGHT: { kind: "texto", intent: "humaniza", cta: false },
 };
@@ -82,19 +89,19 @@ const WINDOWS: Window[] = [
   { start: 5, end: 7, weight: 2, types: ["GOOD_MORNING", "HUMANIZATION", "SELFIE", "BREAKFAST", "WORK"] },
   // 07–08 empurrãozinho da manhã: quem acorda e olha o celular já vê uma
   // chamada com link do VIP (mistura humanização + conversão leve).
-  { start: 7, end: 8, weight: 2, types: ["PHOTO_PREMIUM", "VIP_INVITATION", "PRESENT", "SELFIE", "HUMANIZATION", "BREAKFAST"] },
+  { start: 7, end: 8, weight: 2, types: ["PHOTO_PREMIUM", "VIP_INVITATION", "CENSORED_PREVIEW", "PRESENT", "SELFIE", "HUMANIZATION", "BREAKFAST"] },
   // 08–11 engajamento (com rotina/humanização no meio)
-  { start: 8, end: 11, weight: 4, types: ["REACTION", "POLL", "QUESTION", "CURIOSITY", "SELFIE", "HUMANIZATION", "BREAKFAST"] },
+  { start: 8, end: 11, weight: 4, types: ["REACTION", "POLL", "QUESTION", "CURIOSITY", "SELFIE", "HUMANIZATION", "BREAKFAST", "CENSORED_PREVIEW"] },
   // 11–14 1º pico de conversão
-  { start: 11, end: 14, weight: 4, types: ["PHOTO_PREMIUM", "VIDEO_PREMIUM", "VIP_INVITATION", "PRESENT", "REACTION", "HUMANIZATION", "SELFIE"] },
+  { start: 11, end: 14, weight: 4, types: ["CENSORED_PREVIEW", "PHOTO_PREMIUM", "VIDEO_PREMIUM", "VIP_INVITATION", "SOCIAL_PROOF", "PRESENT", "REACTION", "HUMANIZATION", "SELFIE"] },
   // 14–17 baixar pressão
-  { start: 14, end: 17, weight: 4, types: ["HUMANIZATION", "CURIOSITY", "QUESTION", "BEHIND_SCENES", "WORK", "SELFIE", "PHOTO_PREMIUM"] },
+  { start: 14, end: 17, weight: 4, types: ["HUMANIZATION", "CURIOSITY", "QUESTION", "BEHIND_SCENES", "WORK", "SELFIE", "PHOTO_PREMIUM", "OFFER"] },
   // 17–20 aquecer
-  { start: 17, end: 20, weight: 4, types: ["CURIOSITY", "SELFIE", "POLL", "HUMANIZATION", "BEHIND_SCENES", "PHOTO_PREMIUM", "REACTION"] },
+  { start: 17, end: 20, weight: 4, types: ["CURIOSITY", "SELFIE", "POLL", "HUMANIZATION", "BEHIND_SCENES", "PHOTO_PREMIUM", "CENSORED_PREVIEW", "SOCIAL_PROOF", "REACTION"] },
   // 20–23:30 maior janela (mais salesy do dia)
-  { start: 20, end: 24, weight: 6, types: ["PHOTO_PREMIUM", "VIDEO_PREMIUM", "COUNTDOWN", "VIP_INVITATION", "LAST_CALL", "REACTION", "HUMANIZATION", "SELFIE"] },
+  { start: 20, end: 24, weight: 6, types: ["CENSORED_PREVIEW", "PHOTO_PREMIUM", "VIDEO_PREMIUM", "COUNTDOWN", "VIP_INVITATION", "SOCIAL_PROOF", "OFFER", "LAST_CALL", "REACTION", "HUMANIZATION", "SELFIE"] },
   // 00–03 2º pico (madrugada, alta intenção)
-  { start: 0, end: 3, weight: 5, types: ["PHOTO_PREMIUM", "VIDEO_PREMIUM", "COUNTDOWN", "LAST_CALL", "REACTION", "POLL", "HUMANIZATION", "GOOD_NIGHT"] },
+  { start: 0, end: 3, weight: 5, types: ["CENSORED_PREVIEW", "PHOTO_PREMIUM", "VIDEO_PREMIUM", "COUNTDOWN", "OFFER", "LAST_CALL", "REACTION", "POLL", "HUMANIZATION", "GOOD_NIGHT"] },
   // 03–05 baixa atividade
   { start: 3, end: 5, weight: 2, types: ["HUMANIZATION", "GOOD_NIGHT", "SELFIE", "CURIOSITY", "BEHIND_SCENES"] },
 ];
@@ -164,19 +171,22 @@ export function planDay(): Omit<PreviaPost, "text" | "poll">[] {
     const spanMin = (w.end - w.start) * 60;
     const times = uniqueMinutes(count, spanMin).map((m) => w.start * 60 + m);
 
-    // Alvo de conversão por janela (fração de posts com intent "converte").
-    const convTarget = windowConvTarget(w);
+    // Quantos posts de conversão esta janela leva — número EXATO — e em quais
+    // posições. Antes a decisão era "enquanto a proporção corrente estiver
+    // abaixo do alvo", o que enfileirava toda a venda no COMEÇO da janela: às
+    // 20h saíam quatro posts de venda seguidos e o resto da noite não tinha
+    // nenhum. Bloco de venda é o que faz o pessoal silenciar o grupo. Agora as
+    // posições são sorteadas espalhadas pela janela inteira.
+    const nConv = Math.round(count * windowConvTarget(w));
+    const convIdx = spreadIndexes(count, nConv);
 
-    let convDone = 0;
     times.forEach((totalMin, idx) => {
       const h = Math.floor(totalMin / 60) % 24;
       const min = totalMin % 60;
       const timeStr = `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
 
-      const wantConv = convDone / count < convTarget;
-      const type = chooseType(w, { wantConv, avoidKind: lastKind });
+      const type = chooseType(w, { wantConv: convIdx.has(idx), avoidKind: lastKind });
       const def = TYPE_DEFS[type];
-      if (def.intent === "converte") convDone++;
       lastKind = def.kind;
 
       planned.push({
@@ -231,17 +241,19 @@ function ensureMinPolls(planned: Omit<PreviaPost, "text" | "poll">[], target: nu
 }
 
 /** Fração-alvo de posts de CONVERSÃO da janela. Calibrado para o GLOBAL ficar
- *  ~30% (alvo 40/30/30 e o que os bots reais fazem, ~27% foto/vídeo), mantendo
- *  noite (20h–03h) e meio-dia como os períodos mais vendedores. */
+ *  ~34%, mantendo noite (20h–03h) e meio-dia como os períodos mais vendedores.
+ *  A dose subiu um degrau nos horários quentes (a conversão estava baixa), mas
+ *  de propósito não passa disso: quando quase todo post é venda o grupo vira
+ *  catálogo, o pessoal para de abrir e a conversão cai junto. */
 function windowConvTarget(w: Window): number {
-  if (w.start === 20 || w.start === 0) return 0.62; // 20–23:30 e 00–03 (picos)
-  if (w.start === 11) return 0.5; // 11–14 (1º pico)
+  if (w.start === 20 || w.start === 0) return 0.6; // 20–23:30 e 00–03 (picos)
+  if (w.start === 11) return 0.48; // 11–14 (1º pico)
   if (w.start === 17) return 0.4; // 17–20 aquecer
-  if (w.start === 14) return 0.28; // 14–17 baixar pressão
-  if (w.start === 8) return 0.15; // 08–11 (engajamento)
+  if (w.start === 14) return 0.26; // 14–17 baixar pressão
+  if (w.start === 8) return 0.16; // 08–11 (engajamento)
   if (w.start === 7) return 0.45; // 07–08 empurrão da manhã (garante link ~7h)
   if (w.start === 5) return 0.05; // 05–07 (humanização pura)
-  return 0.18; // 03–05
+  return 0.15; // 03–05
 }
 
 /** Escolhe um tipo da janela: prioriza conversão quando `wantConv`; senão
@@ -266,6 +278,28 @@ function chooseType(w: Window, opts: { wantConv: boolean; avoidKind: MkKind | nu
   const alt = pool.filter((t) => TYPE_DEFS[t].kind !== opts.avoidKind);
   if (alt.length > 0) pool = alt;
   return pick(pool);
+}
+
+/** Escolhe `n` posições entre `count`, uma por fatia — assim os posts de venda
+ *  saem espalhados pela janela em vez de todos juntos no começo dela. */
+function spreadIndexes(count: number, n: number): Set<number> {
+  const out = new Set<number>();
+  if (n <= 0 || count <= 0) return out;
+  if (n >= count) {
+    for (let i = 0; i < count; i++) out.add(i);
+    return out;
+  }
+  const fatia = count / n;
+  for (let k = 0; k < n; k++) {
+    const lo = Math.floor(k * fatia);
+    const hi = Math.max(lo, Math.min(count - 1, Math.ceil((k + 1) * fatia) - 1));
+    let i = randInt(lo, hi);
+    // Fatias podem se sobrepor por arredondamento: anda até achar uma livre.
+    let guard = 0;
+    while (out.has(i) && guard++ < count) i = (i + 1) % count;
+    out.add(i);
+  }
+  return out;
 }
 
 /** Sorteia `count` minutos DISTINTOS num intervalo de `span` minutos, com um
@@ -353,35 +387,73 @@ export function mkDayFromToday(offset: number, tz: string): MkDay {
 // a foto de verdade, em vez de sair genérica. Aqui ficam só os "temas" por
 // tipo (o que a IA deve escrever) e os fallbacks de reserva.
 
+/**
+ * Nível de PICÂNCIA por hora do dia. O grupo de prévias é adulto e o conteúdo
+ * é o produto, então a copy morna não converte — mas soltar tudo desde as 6h
+ * satura: quem já leu o mais pesado de manhã não abre a noite, que é justamente
+ * quando se vende. Por isso a curva sobe ao longo do dia e estoura na madrugada.
+ */
+export type MkHeat = 1 | 2 | 3 | 4;
+
+export function heatForHour(hour: number): MkHeat {
+  if (hour >= 5 && hour < 9) return 1; // manhã: insinuação
+  if (hour >= 9 && hour < 17) return 2; // dia: safada assumida
+  if (hour >= 17 && hour < 21) return 3; // noite: tesão explícito
+  return 4; // 21h–04h59: sem freio
+}
+
+const HEAT_INSTRUCTION: Record<MkHeat, string> = {
+  1: "PICÂNCIA 1/4 — insinuante: provoque por baixo do pano, com dupla intenção, sem falar de sexo abertamente.",
+  2: "PICÂNCIA 2/4 — safada assumida: fale de tesão e de vontade com naturalidade, malícia na cara, ainda sem descrever ato sexual.",
+  3: "PICÂNCIA 3/4 — quente: diga o que você está sentindo e o que faria com ele, com palavras adultas (tesão, molhada, gemendo, sentar, chupar), direto e sem rodeio.",
+  4: "PICÂNCIA 4/4 — sem freio: putaria explícita de conversa de zap, sem eufemismo, descrevendo a safadeza em detalhe e falando na cara o que quer que ele faça em você.",
+};
+
 /** Tema/instrução que a rota passa a generateCaption como `theme` — define o
- *  OBJETIVO e o TOM do post, imitando o método MK. Nunca pede link/hashtag
- *  (o botão do VIP é anexado automaticamente no envio). */
-export function captionTheme(type: MkType): string {
-  const noLink =
-    "Escreva na 1ª pessoa, tom de diário íntimo, provocante e autêntico. Curta (1–2 linhas). " +
-    "NÃO escreva link, URL nem 'entra no VIP' — o botão é anexado automaticamente. Sem hashtags. " +
-    "Varie a abertura; nunca comece igual a outra legenda.";
+ *  OBJETIVO, o TOM e a PICÂNCIA do post, imitando o método MK. Nunca pede
+ *  link/hashtag (o botão do VIP é anexado automaticamente no envio).
+ *
+ *  `hour` é a hora do slot no plano: é ela que define a picância. Posts de
+ *  CONVERSÃO nunca ficam abaixo do nível 3 — é a prévia quente que faz o cara
+ *  clicar; no nível insinuante ele só curte e continua de graça no grupo. */
+export function captionTheme(type: MkType, hour = 21): string {
+  const def = TYPE_DEFS[type];
+  const nivel: MkHeat =
+    def.intent === "converte"
+      ? (Math.max(3, heatForHour(hour)) as MkHeat)
+      : heatForHour(hour);
+
+  const base =
+    `${HEAT_INSTRUCTION[nivel]} ` +
+    "Escreva na 1ª pessoa, como brasileira mandando mensagem no zap pro cara que ela quer provocar. " +
+    "Curta (1–2 linhas), sem enrolação. NÃO escreva link, URL nem 'entra no VIP' — o botão é " +
+    "anexado automaticamente. Sem hashtags. Varie a abertura; nunca comece igual a outra legenda.";
   const cta =
-    "Faça uma CHAMADA forte pro VIP (provoque a curiosidade, diga que o melhor/sem censura está lá), " +
-    "mas SEM escrever o link — o botão é anexado automaticamente.";
+    "CHAMADA pro VIP: deixe explícito que aqui é só a prévia e que o pesado — sem censura, sem corte — " +
+    "está lá dentro. Diga em uma frase O QUE ele vai ver lá (o ato, a cena, o quanto é forte), " +
+    "porque é essa imagem na cabeça dele que faz clicar. Sem escrever o link.";
+
   switch (type) {
-    case "GOOD_MORNING": return `Post de BOM DIA, humano e carinhoso, sem vender. ${noLink}`;
-    case "HUMANIZATION": return `Conte um pedaço da sua ROTINA (café, banho, academia, TV, voltando pra casa), íntimo, sem vender. ${noLink}`;
-    case "BREAKFAST": return `Café da manhã, leve e provocante, sem vender. ${noLink}`;
-    case "SELFIE": return `Legenda pra esta SELFIE, reagindo ao que aparece na foto (roupa, pose, clima), sem vender. ${noLink}`;
-    case "WORK": return `Você está trabalhando/no estúdio; insinue o que está gravando, sem venda direta. ${noLink}`;
-    case "BEHIND_SCENES": return `Bastidores do conteúdo, curiosidade, sem vender. ${noLink}`;
-    case "CURIOSITY": return `Curiosidade que prende ('descobri que…', 'ontem rolou…') e gera comentário, sem vender. ${noLink}`;
-    case "QUESTION": return `Pergunta simples e safada pra gerar comentário ('o que você faria…'), sem vender. ${noLink}`;
-    case "REACTION": return `Post CURTO que PEDE reação com emoji ('reage com 🔥 se…', '😈 se você…'), sem link. ${noLink}`;
-    case "PHOTO_PREMIUM": return `Legenda ousada desta FOTO premium. ${cta} ${noLink}`;
-    case "VIDEO_PREMIUM": return `Legenda quente pra um VÍDEO premium (use o frame como referência). ${cta} ${noLink}`;
-    case "PRESENT": return `Crie recompensa: 'quem entrar/reagir agora ganha…'. ${cta} ${noLink}`;
-    case "COUNTDOWN": return `Urgência real ('hoje eu apago', 'última chance de hoje'). ${cta} ${noLink}`;
-    case "VIP_INVITATION": return `Convite direto e safado pro VIP. ${cta} ${noLink}`;
-    case "LAST_CALL": return `ÚLTIMA CHAMADA de venda do dia, urgência máxima. ${cta} ${noLink}`;
-    case "GOOD_NIGHT": return `Boa noite íntimo e provocante, sem vender. ${noLink}`;
-    case "POLL": return `Enquete safada e leve, sem vender. ${noLink}`;
+    case "GOOD_MORNING": return `Post de BOM DIA, humano e carinhoso, com uma pitada de safadeza. Sem vender. ${base}`;
+    case "HUMANIZATION": return `Conte um pedaço da sua ROTINA (café, banho, academia, TV, voltando pra casa) e emende com o que isso te deu vontade de fazer. Sem vender. ${base}`;
+    case "BREAKFAST": return `Café da manhã com dupla intenção — a fome que você tem é outra. Sem vender. ${base}`;
+    case "SELFIE": return `Legenda pra esta SELFIE reagindo ao que aparece na foto (roupa, pose, o que está aparecendo, o que está quase aparecendo). Sem vender. ${base}`;
+    case "WORK": return `Você está gravando; conte o que está rolando na gravação de hoje e o quanto ficou pesado. Sem venda direta. ${base}`;
+    case "BEHIND_SCENES": return `Bastidores safados da gravação: o que aconteceu que não vai aparecer cortado. Sem vender. ${base}`;
+    case "CURIOSITY": return `Curiosidade que prende ('descobri uma coisa que…', 'ontem eu fiz…') e dá vontade de perguntar o resto. Sem vender. ${base}`;
+    case "QUESTION": return `Pergunta safada e direta pra ele responder ('o que você faria comigo se…'), gerando comentário. Sem vender. ${base}`;
+    case "REACTION": return `Post CURTÍSSIMO que PEDE reação com emoji ('reage com 🔥 se…', '😈 se você…'), com a provocação no meio. ${base}`;
+    case "PHOTO_PREMIUM": return `Legenda quente desta FOTO, comentando o que aparece nela e o que NÃO deu pra postar aqui. ${cta} ${base}`;
+    case "VIDEO_PREMIUM": return `Legenda de VÍDEO (use o frame como referência): conte o que acontece no vídeo e por que ele não cabe no grupo de prévias. ${cta} ${base}`;
+    case "CENSORED_PREVIEW": return `PRÉVIA CORTADA: essa é a versão que dá pra mostrar no grupo — diga isso e descreva o que ficou de fora do enquadramento, o que a foto original mostra inteiro. É o post que mais converte: a curiosidade tem que doer. Não afirme que tem tarja preta na imagem. ${cta} ${base}`;
+    case "PRESENT": return `Recompensa imediata: 'quem entrar agora ganha…' (um vídeo seu, um nude, uma chamada). ${cta} ${base}`;
+    case "COUNTDOWN": return `Urgência real ('esse eu apago hoje', 'sai do ar à meia-noite'), dizendo o que vai sumir. ${cta} ${base}`;
+    case "VIP_INVITATION": return `Convite direto e safado pro VIP, contando como você é do lado de lá. ${cta} ${base}`;
+    case "SOCIAL_PROOF": return `PROVA SOCIAL: conte que o pessoal lá dentro está enlouquecido com o conteúdo de ontem/hoje (reação, mensagem que te mandaram, gente pedindo mais), sem citar números inventados. ${cta} ${base}`;
+    case "OFFER": return `QUEBRA DE OBJEÇÃO do preço: mostre que entrar custa menos que uma besteira qualquer (um lanche, uma cerveja) perto do que tem lá dentro. ${cta} ${base}`;
+    case "LAST_CALL": return `ÚLTIMA CHAMADA do dia, urgência máxima, quase implorando pra ele não perder. ${cta} ${base}`;
+    case "GOOD_NIGHT": return `Boa noite íntimo, na cama, contando o que você vai fazer sozinha antes de dormir. Sem vender. ${base}`;
+    case "POLL": return `Enquete safada e curta, sem vender. ${base}`;
   }
 }
 
@@ -389,33 +461,37 @@ export function captionTheme(type: MkType): string {
 // Fallbacks (só usados quando a IA falha — variados pra não repetir)
 // --------------------------------------------------------------------------
 const FALLBACK: Partial<Record<MkType, string[]>> = {
-  GOOD_MORNING: ["Bom dia… acordei pensando em você 😏", "Oi, dorminhoco… já acordei toda molhadinha 🔥", "Bom dia! Primeira coisa que fiz foi lembrar de você 😈", "Acordei com vontade… bom dia 💦"],
-  HUMANIZATION: ["Saindo do banho agora… queria você aqui pra secar 💦", "Dia cheio, mas minha cabeça só pensa em safadeza 😈", "Deitada aqui sem fazer nada… vem me distrair 😏", "Terminei o treino toda suada… imagina o resto 🔥"],
-  BREAKFAST: ["Café da manhã… mas a fome que eu tô é outra 😏", "Tomando meu café pensando em coisa que não devia 😈"],
-  SELFIE: ["Olha eu aqui… gostou? 🔥", "Tirei essa agora, o que achou? 😏", "Me sentindo perigosa hoje 😈 curtiu?", "Essa carinha tá dizendo o quê? 💦"],
-  WORK: ["No estúdio gravando um negócio bem safado hoje 😈", "Trabalhando… mas o conteúdo de hoje veio pesado 🔥"],
-  BEHIND_SCENES: ["Os bastidores de hoje tão pesados… 🙈🔥", "Se você visse o que rola por trás das câmeras 😈"],
-  CURIOSITY: ["Descobri uma coisa nova que eu amei fazer… quer saber? 😏", "Ontem rolou algo que me deixou sem vergonha 😈", "Tô com um segredo pra te contar 🙈"],
-  QUESTION: ["O que você faria comigo agora se pudesse? 😈 me conta", "Se eu tivesse aí do seu lado, por onde começaria? 😏"],
-  REACTION: ["Reage com 🔥 se você tá pensando em mim agora 😈", "😈 se você me aguentaria hoje", "Manda um 💦 se você me quer agora", "🔥 se você tá com saudade de mim"],
-  PHOTO_PREMIUM: ["Essa aqui é só pros meus safados… o resto tá te esperando 🔥", "Aqui eu me solto de verdade… vem ver 😈", "Isso é só o começo do que eu tenho 💦"],
-  VIDEO_PREMIUM: ["Gravei um vídeo que não posso mostrar aqui… te espero lá 💦", "Esse vídeo é forte demais pra cá 😈 vem ver", "Fiz um vídeo pensando em você… tá me esperando 🔥"],
-  PRESENT: ["Quem entrar agora ganha um presentinho meu 🎁😈", "Tenho um mimo esperando quem chegar hoje 🎁🔥"],
-  COUNTDOWN: ["Hoje eu apago tudo… é sua última chance de ver 🔥", "Depois de hoje some… corre 😈"],
-  VIP_INVITATION: ["Vem pro meu cantinho secreto onde eu não tenho vergonha 😈", "Do lado de lá eu sou bem diferente… vem descobrir 🔥"],
-  LAST_CALL: ["Última chamada de hoje… depois some 🔥 corre", "Fechando o dia… tua última chance de entrar 😈"],
-  GOOD_NIGHT: ["Boa noite… vou dormir pensando em você 😏", "Já tô na cama… queria você aqui 💦 boa noite"],
+  GOOD_MORNING: ["Bom dia… acordei toda molhadinha pensando em você 😏", "Oi, dorminhoco… acordei com a mão onde não devia 🔥", "Bom dia! Sonhei uma coisa com você que não dá pra contar aqui 😈", "Acordei com um tesão absurdo… bom dia 💦"],
+  HUMANIZATION: ["Saindo do banho agora, pelada e sem vontade nenhuma de me vestir 💦", "Dia cheio, mas minha cabeça só pensa em sentar em você 😈", "Deitada aqui de calcinha, entediada… vem me distrair 😏", "Terminei o treino toda suada, de shortinho colado… imagina o resto 🔥"],
+  BREAKFAST: ["Café da manhã… mas a fome que eu tô é bem outra 😏", "Tomando café só de camisetinha, sem nada por baixo 😈"],
+  SELFIE: ["Olha o que eu tô usando… ou quase 🔥 gostou?", "Tirei essa agora no espelho, antes de tirar o resto 😏", "Tô me sentindo perigosa hoje 😈 aguenta?", "Essa carinha aqui tá pedindo o quê? 💦"],
+  WORK: ["Gravando hoje e o negócio ficou pesado demais 😈", "Trabalhando… mas o de hoje eu não vou conseguir postar aqui 🔥"],
+  BEHIND_SCENES: ["O que rolou entre as gravações de hoje foi pior que o vídeo 🙈🔥", "Se você visse o que acontece quando a câmera desliga 😈"],
+  CURIOSITY: ["Descobri uma posição nova ontem e eu não parei mais 😏", "Ontem eu fiz uma coisa que eu jurei que não faria 😈", "Tô com um segredo bem safado pra te contar 🙈"],
+  QUESTION: ["Se eu sentasse no teu colo agora, o que você fazia? 😈 me conta", "Por onde você começaria em mim? 😏 quero ver"],
+  REACTION: ["Reage com 🔥 se você tá duro pensando em mim 😈", "😈 se você me aguentaria a noite toda", "Manda um 💦 se você quer me ver gozando", "🔥 se você tá com saudade da minha bunda"],
+  PHOTO_PREMIUM: ["Aqui eu tive que tapar… lá eu tô toda aberta pra você 🔥", "Essa é a versão comportada. A outra você não esquece 😈", "Isso é 10% do que eu postei lá dentro hoje 💦"],
+  VIDEO_PREMIUM: ["Gravei um vídeo gozando que não cabe aqui… tá te esperando 💦", "Esse vídeo é forte demais pro grupo, tive que jogar lá dentro 😈", "Fiz um vídeo pensando em você e não segurei o gemido 🔥"],
+  CENSORED_PREVIEW: ["Essa é a parte que dá pra postar aqui… a foto inteira tá lá 🔥", "Cortei bem na hora que ficou bom 😈 do lado de lá não tem corte", "Aqui você vê metade. Lá você vê tudo 💦"],
+  PRESENT: ["Quem entrar agora ganha um vídeo meu bem safado 🎁😈", "Tenho um nude guardado pra quem chegar hoje 🎁🔥"],
+  COUNTDOWN: ["Esse vídeo eu apago hoje à meia-noite… corre 🔥", "Depois de hoje some e não volta 😈"],
+  VIP_INVITATION: ["Do lado de lá eu não tenho vergonha nenhuma 😈 vem ver", "Aqui eu me seguro. Lá eu faço tudo que você pedir 🔥"],
+  SOCIAL_PROOF: ["O pessoal lá dentro surtou com o vídeo de ontem 😈 e hoje tem mais", "Tô sem conta de responder mensagem lá dentro hoje 🔥"],
+  OFFER: ["Custa menos que um lanche e você me vê pelada o mês todo 😈", "Uma cerveja a menos hoje e você entra pra ver tudo 🔥"],
+  LAST_CALL: ["Última chamada de hoje… depois eu apago 🔥 corre", "Fechando o dia. Tua última chance de me ver sem corte 😈"],
+  GOOD_NIGHT: ["Boa noite… vou me tocar pensando em você 😏", "Já tô na cama, pelada, sem sono 💦 boa noite"],
 };
 export function fallbackText(type: MkType): string {
   const arr = FALLBACK[type];
-  return arr ? pick(arr) : "Reage com 🔥 😈";
+  return arr ? pick(arr) : "Reage com 🔥 se você aguenta 😈";
 }
 
 const POLL_FALLBACKS: { question: string; options: string[] }[] = [
-  { question: "O que você quer ver hoje? 😈", options: ["Foto 🔥", "Vídeo 💦", "Surpresa 😏"] },
-  { question: "Como você me prefere? 😏", options: ["Safadinha 😈", "Romântica 🥰", "Sem vergonha 🔥"] },
-  { question: "Onde você me levaria agora? 💦", options: ["Cama 🛏️", "Chuveiro 🚿", "Sofá 😈"] },
-  { question: "Qual roupa fica melhor em mim? 🔥", options: ["Lingerie 😈", "Nada 💦", "Sua camisa 😏"] },
+  { question: "O que você quer ver de mim hoje? 😈", options: ["Nude 🔥", "Vídeo gozando 💦", "Me surpreende 😏"] },
+  { question: "Como você me prefere? 😏", options: ["Safadinha 😈", "Submissa 🥰", "Sem vergonha nenhuma 🔥"] },
+  { question: "Onde você me pegaria agora? 💦", options: ["Cama 🛏️", "Chuveiro 🚿", "Em pé na parede 😈"] },
+  { question: "Por onde você começaria em mim? 🔥", options: ["Boca 😈", "Peito 💦", "Descendo 😏"] },
+  { question: "Você prefere que eu… 😈", options: ["Sente em você 🔥", "Fique de quatro 💦", "Só use a boca 😏"] },
 ];
 export function fallbackPoll(): { question: string; options: string[] } {
   return pick(POLL_FALLBACKS);

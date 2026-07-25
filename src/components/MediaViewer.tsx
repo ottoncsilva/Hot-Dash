@@ -88,7 +88,7 @@ export default function MediaViewer({
       onClick={onClose}
     >
       <div
-        className={`card flex w-full max-w-2xl flex-col overflow-hidden bg-ink-900 ${editing ? 'h-[88vh]' : 'max-h-[88vh]'}`}
+        className={`card flex w-full max-w-2xl flex-col overflow-hidden bg-ink-900 ${editing ? 'h-[88dvh]' : 'max-h-[88dvh]'}`}
         onClick={(e) => e.stopPropagation()}
       >
         {editing && profileId && onEdited && item.kind === "image" ? (
@@ -182,7 +182,7 @@ export default function MediaViewer({
                 controls
                 playsInline
                 autoPlay
-                className="max-h-[60vh] max-w-full"
+                className="max-h-[60dvh] max-w-full"
               />
             </div>
           )}

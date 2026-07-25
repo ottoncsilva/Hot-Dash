@@ -222,7 +222,7 @@ export default function GenerateScheduleModal({
 
   return (
     <Modal open onClose={onClose} maxWidth="max-w-2xl">
-      <div className="max-h-[80vh] overflow-y-auto pr-1">
+      <div className="max-h-[80dvh] overflow-y-auto pr-1">
         <p className="eyebrow">{step === "form" ? "gerar" : "revisar"}</p>
         <h2 className="mt-1.5 font-display text-lg font-semibold">
           {step === "form" ? "Gerar cronograma com IA" : `Revisar propostas (${proposals.length})`}

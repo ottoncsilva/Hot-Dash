@@ -32,6 +32,7 @@ import {
 } from "@/components/icons";
 import CommandPalette from "@/components/CommandPalette";
 import PullToRefresh from "@/components/PullToRefresh";
+import MobileDrawer from "@/components/MobileDrawer";
 
 const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   dashboard: IconDashboard,
@@ -94,6 +95,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (!loading && !user) router.replace("/login");
   }, [user, loading, router]);
 
+  // Fecha o menu ao trocar de tela (inclusive no voltar do navegador), senão
+  // ele fica aberto por cima do conteúdo novo.
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [pathname]);
+
   useEffect(() => {
     if (pathname?.startsWith("/dashboard/settings")) setSettingsOpen(true);
     if (pathname?.startsWith("/dashboard/whatsapp")) setWhatsappOpen(true);
@@ -118,7 +125,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex min-h-dvh bg-ink-950 text-white">
       {/* Sidebar Desktop */}
-      <aside className="hidden w-64 flex-col border-r border-white/[0.06] bg-ink-950 p-6 md:flex">
+      <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto overscroll-contain border-r border-white/[0.06] bg-ink-950 p-6 lg:flex lg:h-dvh">
         <Brand />
         <button
           onClick={() => window.dispatchEvent(new Event("hotdash:command"))}
@@ -302,15 +309,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <button
         onClick={() => setMobileMenuOpen(true)}
         style={{ top: "calc(env(safe-area-inset-top) + 0.5rem)" }}
-        className="fixed left-3 z-40 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-ink-950/70 text-zinc-100 shadow-lg backdrop-blur-md transition-colors hover:bg-ink-900 md:hidden"
+        className="fixed left-3 z-40 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-ink-950/70 text-zinc-100 shadow-lg backdrop-blur-md transition-colors hover:bg-ink-900 lg:hidden"
         aria-label="Abrir menu"
       >
         <IconMenu size={22} />
       </button>
 
-      {/* Drawer Mobile Overlay (Menu Hambúrguer) */}
-      {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-ink-950 px-6 pb-6 pt-[calc(1.5rem+env(safe-area-inset-top))] md:hidden overflow-y-auto">
+      {/* Menu lateral TEMPORÁRIO (mobile e celular deitado): desliza por cima
+          do conteúdo e some quando fechado, sem tomar a tela. Abre arrastando
+          da borda esquerda; fecha arrastando para a esquerda. */}
+      <MobileDrawer open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+        <div className="flex h-full flex-col overflow-y-auto overscroll-contain px-5 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))]">
           <div className="flex items-center justify-between">
             <Brand />
             <button
@@ -321,8 +330,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <IconX size={20} />
             </button>
           </div>
-          
-          <nav className="mt-8 flex-1 flex flex-col gap-1.5">
+
+          <nav className="mt-6 flex flex-1 flex-col gap-1.5">
             {visible.map(({ key }) => {
               const item = NAV_ITEMS[key];
               const Icon = ICONS[key];
@@ -501,11 +510,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <UserBox email={user?.email ?? null} onSignOut={() => { setMobileMenuOpen(false); signOut(); }} />
           </div>
         </div>
-      )}
+      </MobileDrawer>
 
       {/* Conteúdo. No mobile, o padding-top livra a barra superior fixa + o
-          recorte da câmera; no desktop, md:py-10 assume. */}
-      <main className="flex-1 px-4 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-[calc(3.5rem+env(safe-area-inset-top))] md:h-dvh md:overflow-y-auto md:px-10 md:py-10 md:pt-10">
+          recorte da câmera; no desktop, lg:py-10 assume. */}
+      <main className="min-w-0 flex-1 px-4 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-[calc(3.5rem+env(safe-area-inset-top))] lg:h-dvh lg:overflow-y-auto lg:px-10 lg:py-10 lg:pt-10">
         <PullToRefresh>
           <div className="animate-fade-in">{children}</div>
         </PullToRefresh>

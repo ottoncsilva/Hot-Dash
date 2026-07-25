@@ -163,6 +163,11 @@ export default function CalendarGrid({
         </button>
       </div>
 
+      {/* No celular, 7 colunas em ~390px deixam cada dia com ~55px — ilegível.
+          Aqui a grade rola na horizontal com largura mínima por coluna; a
+          partir de sm volta a caber inteira na tela. */}
+      <div className="overflow-x-auto">
+      <div className="min-w-[700px] sm:min-w-0">
       <div className="grid grid-cols-7 border-b border-white/[0.06]">
         {/* No MÊS o cabeçalho é fixo (seg…dom); na SEMANA acompanha os dias reais,
             já que a primeira coluna é sempre HOJE. */}
@@ -206,7 +211,7 @@ export default function CalendarGrid({
                 if (postId) onPostMove(postId, new Date(d));
               }}
               className={`flex flex-col border-b border-r border-white/[0.04] p-1 text-left align-top transition-colors hover:bg-white/[0.03] ${
-                view === "week" ? "h-[420px]" : "min-h-[72px] sm:min-h-[96px]"
+                view === "week" ? "h-[65dvh] max-h-[420px] min-h-[260px]" : "min-h-[72px] sm:min-h-[96px]"
               } ${inMonth ? "" : "opacity-35"} ${isToday && view === "week" ? "bg-white/[0.02]" : ""}`}
             >
               <span
@@ -287,6 +292,8 @@ export default function CalendarGrid({
             </button>
           );
         })}
+      </div>
+      </div>
       </div>
     </div>
   );

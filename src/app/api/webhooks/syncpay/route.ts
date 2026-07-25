@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeStatus, recordTransaction, updateStatusByRef } from "@/lib/transactions";
 import { ensureSyncpayWebhookToken } from "@/lib/settings";
+import { logWebhookEvent } from "@/lib/webhookLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,12 +78,19 @@ export async function POST(req: NextRequest) {
       data.id || data.identifier || data.idTransaction || data.transaction_id || "",
     );
     const status = String(data.status || data.status_transaction || "");
+    // Todo evento é registrado cru (ver lib/webhookLog): é a única forma de
+    // saber depois qual campo distingue venda de saque neste gateway.
+    const registra = (decision: string) =>
+      logWebhookEvent({ provider: "syncpay", providerRef, decision, body });
+
     if (!providerRef || !status) {
+      registra("ignorado · sem id ou status");
       return NextResponse.json({ ok: true, ignored: true });
     }
 
     // Saque e afins: reconhece e descarta antes de encostar no banco.
     if (ehSaida(body)) {
+      registra("ignorado · movimento de saída");
       return NextResponse.json({ ok: true, ignored: true, reason: "movimento de saída" });
     }
 
@@ -98,6 +106,7 @@ export async function POST(req: NextRequest) {
     const netCents = toCents(data.final_amount ?? data.net_amount);
 
     const updated = updateStatusByRef("syncpay", providerRef, status, { grossCents, netCents });
+    registra(updated ? `cobrança atualizada · ${normalizeStatus(status)}` : `venda nova · ${normalizeStatus(status)}`);
 
     if (updated && updated.becamePaid) {
       // Verifica se existe uma inscrição do Telegram pendente para esta transação

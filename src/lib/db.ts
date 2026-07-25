@@ -71,6 +71,21 @@ function migrate(d: Database.Database) {
       value TEXT NOT NULL
     );
 
+    -- Registro cru dos webhooks do gateway. Existe porque a SyncPay manda por
+    -- uma URL só TODO tipo de movimento (venda, saque…) e a documentação
+    -- descreve apenas o de venda: sem ver o payload de verdade não dá para
+    -- separar um do outro com certeza. Guarda os últimos eventos e o que o
+    -- sistema decidiu sobre cada um.
+    CREATE TABLE IF NOT EXISTS webhook_events (
+      id           TEXT PRIMARY KEY,
+      provider     TEXT NOT NULL,
+      received_at  INTEGER NOT NULL,
+      provider_ref TEXT,
+      decision     TEXT NOT NULL,
+      body         TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_webhook_events_at ON webhook_events(received_at DESC);
+
     CREATE TABLE IF NOT EXISTS transactions (
       id            TEXT PRIMARY KEY,
       provider      TEXT NOT NULL,

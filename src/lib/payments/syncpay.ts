@@ -176,7 +176,10 @@ export function createSyncPay(creds: {
       cache: "no-store",
       headers: {
         ...(init.headers || {}),
-        "Content-Type": "application/json",
+        // Content-Type só quando há corpo: a requisição documentada do saldo é
+        // um GET com o Authorization e mais nada, e declarar corpo JSON onde
+        // não existe corpo é o tipo de detalhe que alguns gateways recusam.
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
         Authorization: `Bearer ${token}`,
       },
     });

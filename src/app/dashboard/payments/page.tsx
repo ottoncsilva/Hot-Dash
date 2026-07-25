@@ -225,7 +225,9 @@ export default function PaymentsPage() {
         </div>
       </div>
 
-      <div className="mt-3 card overflow-hidden">
+      {/* Tabela: cada informação numa coluna própria. Os dois horários
+          (geração do Pix e pagamento) ficam com data sobre hora. */}
+      <div className="mt-3 card overflow-x-auto">
         {!data ? (
           <div className="h-32 animate-pulse" />
         ) : filteredTransactions.length === 0 ? (
@@ -236,47 +238,77 @@ export default function PaymentsPage() {
             <p className="text-sm text-zinc-500">Nenhum PIX encontrado.</p>
           </div>
         ) : (
-          <div className="divide-y divide-white/[0.06]">
-            {filteredTransactions.map((t) => (
-              <div key={t.id} className="flex items-start gap-3 px-4 py-3">
-                <div className="pt-0.5"><PaidCheck paid={t.status === "paid"} /></div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm text-zinc-200">
-                    {t.description || t.customer || "Cobrança"}
-                  </p>
-                  <p className="font-mono text-[11px] uppercase tracking-wider text-zinc-600">
-                    {t.provider} · {STATUS_LABEL[t.status] || t.status}
-                  </p>
-                  {/* Os dois horários, um sobre o outro: quando o Pix foi gerado
-                      e quando foi efetivamente pago. */}
-                  <div className="mt-1 space-y-0.5 font-mono text-[11px]">
-                    <p className="text-zinc-500">
-                      <span className="text-zinc-600">gerado</span> {dt(t.createdAt, tz)}
-                    </p>
-                    <p className={t.paidAt ? "text-emerald-400/80" : "text-zinc-700"}>
-                      <span className="text-zinc-600">pago</span>{" "}
-                      {t.paidAt ? dt(t.paidAt, tz) : "—"}
-                    </p>
-                  </div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <p
-                    className={`font-display font-semibold ${
-                      t.status === "paid" ? "text-white" : "text-zinc-500"
-                    }`}
-                  >
-                    {brl(t.amountCents)}
-                  </p>
-                  {/* Líquido só faz sentido depois de pago e informado pelo gateway. */}
-                  {t.status === "paid" && t.netAmountCents !== undefined && t.netAmountCents !== t.amountCents && (
-                    <p className="mt-0.5 font-mono text-[11px] text-emerald-400/70">
-                      líq. {brl(t.netAmountCents)}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+          <table className="w-full min-w-[820px] border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-b border-white/[0.06] bg-white/[0.02] font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                <th className="p-3">Nome</th>
+                <th className="p-3 w-32">Gerado</th>
+                <th className="p-3 w-24 text-center">Status</th>
+                <th className="p-3 w-32">Pago</th>
+                <th className="p-3 w-28 text-right">Venda</th>
+                <th className="p-3 w-24 text-right">Taxa</th>
+                <th className="p-3 w-28 text-right">Líquido</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/[0.04]">
+              {filteredTransactions.map((t) => {
+                const pago = t.status === "paid";
+                // Taxa = venda − líquido. É o desconto real do gateway; a coluna
+                // "Sync Amount" do export fica fixa em 0,80 e não bate.
+                const liquido = t.netAmountCents;
+                const taxa = liquido === undefined ? undefined : Math.max(0, t.amountCents - liquido);
+                return (
+                  <tr key={t.id} className="hover:bg-white/[0.01]">
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <PaidCheck paid={pago} />
+                        <div className="min-w-0">
+                          <p className="truncate text-zinc-200">
+                            {t.customer || t.description || "Venda SyncPay"}
+                          </p>
+                          <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                            {t.provider}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <DataHora ms={t.createdAt} tz={tz} />
+                    </td>
+                    <td className="p-3 text-center">
+                      <span
+                        className={`inline-block rounded px-2 py-0.5 text-[10px] font-bold uppercase ${
+                          pago
+                            ? "bg-emerald-500/10 text-emerald-400"
+                            : t.status === "pending"
+                              ? "bg-amber-500/10 text-amber-400"
+                              : "bg-zinc-500/10 text-zinc-400"
+                        }`}
+                      >
+                        {STATUS_LABEL[t.status] || t.status}
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      {t.paidAt ? (
+                        <DataHora ms={t.paidAt} tz={tz} accent />
+                      ) : (
+                        <span className="font-mono text-[11px] text-zinc-700">—</span>
+                      )}
+                    </td>
+                    <td className={`p-3 text-right font-display font-semibold ${pago ? "text-white" : "text-zinc-500"}`}>
+                      {brl(t.amountCents)}
+                    </td>
+                    <td className="p-3 text-right font-mono text-xs text-zinc-500">
+                      {taxa === undefined ? "—" : `-${brl(taxa)}`}
+                    </td>
+                    <td className={`p-3 text-right font-display font-semibold ${pago ? "text-emerald-400" : "text-zinc-600"}`}>
+                      {liquido === undefined ? "—" : brl(liquido)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         )}
       </div>
 
@@ -290,6 +322,23 @@ export default function PaymentsPage() {
           }}
         />
       </Modal>
+    </div>
+  );
+}
+
+/** Data em cima, hora embaixo — no fuso da operação. */
+function DataHora({ ms, tz, accent }: { ms: number; tz: string; accent?: boolean }) {
+  const d = new Date(ms);
+  const data = d.toLocaleDateString("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "2-digit", timeZone: tz,
+  });
+  const hora = d.toLocaleTimeString("pt-BR", {
+    hour: "2-digit", minute: "2-digit", timeZone: tz,
+  });
+  return (
+    <div className="font-mono text-[11px] leading-tight">
+      <p className={accent ? "text-emerald-400/90" : "text-zinc-300"}>{data}</p>
+      <p className="text-zinc-600">{hora}</p>
     </div>
   );
 }

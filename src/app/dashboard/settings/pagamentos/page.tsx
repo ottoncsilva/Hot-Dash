@@ -22,6 +22,8 @@ export default function PaymentSettingsPage() {
   const [repro, setRepro] = useState<{ pending: number; supported: boolean } | null>(null);
   const [reproRunning, setReproRunning] = useState(false);
   const [reproMsg, setReproMsg] = useState<string | null>(null);
+  // Diagnóstico: o que o gateway respondeu de fato (para quando não funciona).
+  const [diag, setDiag] = useState<string | null>(null);
 
   function loadDiagnostics() {
     apiGet<{ settings: PaymentSettingsPublic; lastPaid: LastPaid }>("/api/payments/settings")
@@ -71,11 +73,38 @@ export default function PaymentSettingsPage() {
       if (erros) partes.push(`${erros} com erro`);
       if (sobra) partes.push(`${sobra} ainda pendente(s)`);
       setReproMsg(total === 0 ? "Nada a reprocessar." : partes.join(" · "));
+      // Se não atualizou nada, já traz o diagnóstico sem o usuário precisar pedir.
+      if (total > 0 && encontradas === 0) await runDiagnose();
       await loadReprocess();
     } catch (e) {
       setReproMsg(e instanceof Error ? e.message : "Falha ao reprocessar.");
     } finally {
       setReproRunning(false);
+    }
+  }
+
+  async function runDiagnose() {
+    setDiag("consultando...");
+    try {
+      const d = await apiGet<{
+        error?: string; ok?: boolean; providerRef?: string;
+        data?: Record<string, unknown>;
+        attempts?: { path: string; method: string; httpStatus?: number; bodySample?: string; error?: string }[];
+      }>("/api/payments/reprocess?diagnose=1");
+      if (d.error) { setDiag(d.error); return; }
+      if (d.ok) {
+        setDiag(`Funcionou nesta venda (${d.providerRef}): ${JSON.stringify(d.data)}`);
+        return;
+      }
+      const linhas = (d.attempts || []).map(
+        (a) => `${a.method} ${a.path} → ${a.httpStatus ?? a.error ?? "?"}${a.bodySample ? ` · ${a.bodySample}` : ""}`,
+      );
+      setDiag(
+        `Venda testada: ${d.providerRef}\nNenhum caminho respondeu com os valores:\n` +
+          linhas.join("\n"),
+      );
+    } catch (e) {
+      setDiag(e instanceof Error ? e.message : "Falha no diagnóstico.");
     }
   }
 
@@ -225,17 +254,17 @@ export default function PaymentSettingsPage() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-                  Reprocessar vendas antigas
+                  Reconferir vendas antigas
                 </p>
                 <p className="mt-0.5 text-xs text-zinc-500">
-                  Consulta cada venda na SyncPay para preencher o <b>valor líquido</b> (sem a
-                  taxa) das que foram registradas antes desse controle existir.
+                  Consulta cada venda na SyncPay e corrige o <b>status</b> e o <b>valor cheio</b>
+                  — útil quando algum webhook se perdeu.
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 {repro === null ? (
                   <button type="button" onClick={loadReprocess} className="btn-ghost px-3 py-1.5 text-xs">
-                    Verificar pendentes
+                    Verificar quantas
                   </button>
                 ) : (
                   <>
@@ -248,16 +277,36 @@ export default function PaymentSettingsPage() {
                       disabled={reproRunning || repro.pending === 0}
                       className="btn-primary px-3 py-1.5 text-xs"
                     >
-                      {reproRunning ? "Reprocessando..." : "Reprocessar agora"}
+                      {reproRunning ? "Reconferindo..." : "Reconferir agora"}
                     </button>
                   </>
                 )}
               </div>
             </div>
             {reproMsg && <p className="mt-2 text-xs text-zinc-300">{reproMsg}</p>}
-            <p className="mt-2 text-[11px] text-zinc-600">
-              A SyncPay não oferece listagem de vendas — a consulta é feita uma a uma, pelo
-              identificador que já temos. Vendas que nunca chegaram ao painel não aparecem aqui.
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button type="button" onClick={runDiagnose} className="btn-ghost px-3 py-1.5 text-xs">
+                Testar com 1 venda
+              </button>
+              {diag && (
+                <button type="button" onClick={() => setDiag(null)} className="text-[11px] text-zinc-500 hover:text-white">
+                  limpar
+                </button>
+              )}
+            </div>
+            {diag && (
+              <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-white/10 bg-black/40 p-2 font-mono text-[10px] leading-relaxed text-zinc-400">
+                {diag}
+              </pre>
+            )}
+            <p className="mt-2 text-[11px] text-amber-400/80">
+              O <b>valor líquido</b> das vendas antigas não pode ser recuperado: a consulta da
+              SyncPay devolve só o valor cheio — o líquido (<span className="font-mono">final_amount</span>)
+              existe apenas no webhook. Da data do deploy em diante ele é gravado normalmente.
+            </p>
+            <p className="mt-1 text-[11px] text-zinc-600">
+              A SyncPay também não oferece listagem de vendas — a consulta é feita uma a uma,
+              pelo identificador que já temos. Vendas que nunca chegaram ao painel não aparecem.
             </p>
           </div>
         </div>

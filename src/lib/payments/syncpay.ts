@@ -1,5 +1,10 @@
 import "server-only";
-import type { ChargeInput, ChargeResult, PaymentProvider } from "./types";
+import type {
+  ChargeInput,
+  ChargeResult,
+  PaymentProvider,
+  ProviderTransactionResult,
+} from "./types";
 
 /**
  * Adaptador SyncPay (gateway PIX brasileiro), via REST puro (sem SDK).
@@ -18,6 +23,14 @@ import type { ChargeInput, ChargeResult, PaymentProvider } from "./types";
  * dedicados), com o secret criptografado no banco.
  */
 const BASE = process.env.SYNCPAY_BASE_URL || "https://api.syncpayments.com.br";
+
+type AttemptInfo = {
+  path: string;
+  method: string;
+  httpStatus?: number;
+  bodySample?: string;
+  error?: string;
+};
 
 /** Dígito verificador de CPF sobre os dígitos já existentes. */
 function cpfCheckDigit(digits: number[]): number {
@@ -160,44 +173,71 @@ export function createSyncPay(creds: {
     },
 
     /**
-     * Consulta UMA transação pelo id da SyncPay (o nosso provider_ref), para
-     * recuperar valores que só o webhook trazia — em especial o `final_amount`
-     * (líquido, já sem a taxa) das vendas antigas.
+     * Consulta o status de UMA transação — "Consulta status da transação" na
+     * documentação: GET /api/partner/v1/transaction/{identifier}, onde o
+     * identifier é o mesmo devolvido no cash-in (o nosso provider_ref).
      *
-     * A rota `/api/partner/v1/transaction/{id}` não está no documento da API,
-     * mas existe: uma rota inexistente responde "Not Found", enquanto essa
-     * responde "Server Error" sem token, igual à de saldo. Como o formato da
-     * resposta não é documentado, aceitamos as variações mais prováveis e
-     * devolvemos null quando não der para interpretar — nunca lança.
+     * ATENÇÃO: a resposta traz apenas
+     *   { data: { reference_id, currency, amount, transaction_date, status,
+     *             description, pix_code } }
+     * — NÃO existe `final_amount` aqui. O valor LÍQUIDO só chega no webhook.
+     * Ou seja: esta consulta serve para corrigir status e valor cheio das
+     * vendas antigas, mas não recupera o líquido delas.
      */
-    async getTransaction(providerRef: string) {
+    async getTransaction(providerRef: string): Promise<ProviderTransactionResult> {
+      const path = `/api/partner/v1/transaction/${encodeURIComponent(providerRef)}`;
       try {
-        const res = await authedFetch(
-          `/api/partner/v1/transaction/${encodeURIComponent(providerRef)}`,
-          { method: "GET" },
-        );
-        if (!res.ok) return null;
-        const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-        if (!json) return null;
-        // Pode vir como { data: {...} } ou o objeto direto.
+        const res = await authedFetch(path, { method: "GET" });
+        const texto = await res.text().catch(() => "");
+        if (!res.ok) {
+          return {
+            ok: false,
+            attempts: [{ path, method: "GET", httpStatus: res.status, bodySample: texto.slice(0, 180) }],
+          };
+        }
+        let json: Record<string, unknown> | null = null;
+        try {
+          json = JSON.parse(texto) as Record<string, unknown>;
+        } catch {
+          json = null;
+        }
+        if (!json) {
+          return {
+            ok: false,
+            attempts: [{ path, method: "GET", httpStatus: res.status, bodySample: texto.slice(0, 180) }],
+          };
+        }
         const d = ((json.data as Record<string, unknown>) || json) as Record<string, unknown>;
         const num = (v: unknown) => {
           const n = Number(v);
           return Number.isFinite(n) && n > 0 ? n : undefined;
         };
         const amount = num(d.amount);
-        const finalAmount = num(d.final_amount ?? d.net_amount ?? d.liquid_amount);
+        // Tentamos mesmo assim, caso a conta devolva algum campo de líquido.
+        const liquido = num(d.final_amount ?? d.net_amount ?? d.liquid_amount);
         const status = typeof d.status === "string" ? d.status : undefined;
-        if (amount === undefined && finalAmount === undefined && !status) return null;
+        if (amount === undefined && !status) {
+          return {
+            ok: false,
+            attempts: [{ path, method: "GET", httpStatus: res.status, bodySample: texto.slice(0, 180) }],
+          };
+        }
+        const dataTx = typeof d.transaction_date === "string" ? d.transaction_date : undefined;
         return {
-          grossCents: amount !== undefined ? Math.round(amount * 100) : undefined,
-          netCents: finalAmount !== undefined ? Math.round(finalAmount * 100) : undefined,
-          status,
-          paidAtMs: typeof d.updated_at === "string" ? Date.parse(d.updated_at) || undefined : undefined,
-          raw: d,
+          ok: true,
+          data: {
+            grossCents: amount !== undefined ? Math.round(amount * 100) : undefined,
+            netCents: liquido !== undefined ? Math.round(liquido * 100) : undefined,
+            status,
+            paidAtMs: dataTx ? Date.parse(dataTx) || undefined : undefined,
+            raw: d,
+          },
         };
-      } catch {
-        return null;
+      } catch (e) {
+        return {
+          ok: false,
+          attempts: [{ path, method: "GET", error: e instanceof Error ? e.message : "falha de rede" }],
+        };
       }
     },
 

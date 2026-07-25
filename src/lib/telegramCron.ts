@@ -78,6 +78,9 @@ export async function runTelegramAutopost(): Promise<number> {
   const db = getDb();
 
   let totalPosted = 0;
+  // Resumo do ciclo para o alerta no celular (um push por ciclo, não por post:
+  // o Método MK publica 20-35 vezes por dia e viraria spam).
+  const cycle = { vip: 0, previas: 0, failed: 0 };
 
   for (const profile of profiles) {
     const bot = getBotConfigByProfile(profile.id);
@@ -199,14 +202,47 @@ export async function runTelegramAutopost(): Promise<number> {
         }
         updatePost(post.id, { status: "posted" });
         totalPosted++;
+        if (isWarmup) cycle.previas++;
+        else cycle.vip++;
 
         if (isWarmup && sent?.message_id) {
           await setTelegramMessageReaction(bot.botToken, chatId, sent.message_id, seedEmoji).catch(() => {});
         }
       } catch (e) {
         console.error(`Erro ao postar post ${post.id} no Telegram:`, e);
+        cycle.failed++;
         // O post permanece 'scheduled' e será tentado novamente no próximo ciclo
       }
+    }
+  }
+
+  // Alerta de POSTAGEM DO TELEGRAM: um resumo por ciclo. Falha tem prioridade,
+  // porque é o caso em que você precisa agir.
+  if (cycle.vip + cycle.previas + cycle.failed > 0) {
+    try {
+      const { sendPushEvent } = await import("@/lib/push");
+      const partes: string[] = [];
+      if (cycle.vip) partes.push(`${cycle.vip} no VIP`);
+      if (cycle.previas) partes.push(`${cycle.previas} nas Prévias`);
+      const enviados = partes.join(" e ");
+      if (cycle.failed > 0) {
+        await sendPushEvent(
+          "telegramPost",
+          `⚠️ Falha ao postar no Telegram (${cycle.failed})`,
+          enviados ? `${enviados} saíram; ${cycle.failed} falharam e serão tentados de novo.`
+                   : `${cycle.failed} post(s) falharam e serão tentados de novo.`,
+          "/dashboard/telegram",
+        );
+      } else {
+        await sendPushEvent(
+          "telegramPost",
+          `✅ Publicado no Telegram — ${totalPosted} post(s)`,
+          enviados,
+          "/dashboard/telegram",
+        );
+      }
+    } catch (pErr) {
+      console.error("Erro ao enviar push de postagem do Telegram:", pErr);
     }
   }
 

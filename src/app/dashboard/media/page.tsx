@@ -507,7 +507,7 @@ export default function MediaPage() {
 
   return (
     <div
-      className="mx-auto max-w-5xl pb-20"
+      className="page pb-20"
       onDragOver={onDragOverFiles}
       onDragLeave={onDragLeaveFiles}
       onDrop={onDropFiles}

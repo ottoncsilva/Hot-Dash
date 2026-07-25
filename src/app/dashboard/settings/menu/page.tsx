@@ -43,7 +43,7 @@ export default function MenuSettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="page-narrow">
       <BackToSettings />
       <p className="eyebrow mt-4">menu</p>
       <h1 className="mt-1.5 font-display text-2xl font-semibold tracking-tight">Ordem do menu</h1>

@@ -124,14 +124,15 @@ export async function POST(req: NextRequest) {
       // atrasá-la, e num try/catch próprio — falha de push não pode derrubar
       // o webhook (o gateway reenviaria em loop).
       try {
-        const { sendPushToAll } = await import("@/lib/push");
+        const { sendPushEvent } = await import("@/lib/push");
         const t = updated.transaction;
         const valStr = (t.amountCents / 100).toLocaleString("pt-BR", {
           style: "currency",
           currency: "BRL",
         });
         const detalhe = [t.description, t.customer].filter(Boolean).join(" · ");
-        await sendPushToAll(
+        await sendPushEvent(
+          "sale",
           `💰 Venda aprovada — ${valStr}`,
           detalhe || "Pagamento confirmado no SyncPay.",
           "/dashboard",

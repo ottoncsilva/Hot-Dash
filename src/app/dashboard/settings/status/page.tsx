@@ -89,7 +89,7 @@ export default function ProfileStatusSettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="page-narrow">
       <BackToSettings />
       <p className="eyebrow mt-4">organização</p>
       <h1 className="mt-1.5 flex items-center gap-2 font-display text-2xl font-semibold tracking-tight">

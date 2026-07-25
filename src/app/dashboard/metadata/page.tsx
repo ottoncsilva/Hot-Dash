@@ -135,7 +135,7 @@ export default function MetadataPage() {
   ).length;
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="page-narrow">
       <p className="eyebrow">ferramenta</p>
       <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight">
         Limpar Metadados

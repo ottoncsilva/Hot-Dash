@@ -193,6 +193,23 @@ export async function POST(
           status: "pending",
         });
 
+        // Alerta de PIX GERADO pelo bot de vendas (lead pediu o pagamento).
+        try {
+          const { sendPushEvent } = await import("@/lib/push");
+          const valStr = (amountCents / 100).toLocaleString("pt-BR", {
+            style: "currency",
+            currency: "BRL",
+          });
+          await sendPushEvent(
+            "pix",
+            `⏳ Pix gerado — ${valStr}`,
+            `${plan.name} · ${from.first_name} (bot de vendas)`,
+            "/dashboard/payments",
+          );
+        } catch (pErr) {
+          console.error("Erro ao enviar push de Pix gerado:", pErr);
+        }
+
         // Registra inscrição pendente (guarda planId p/ resolver duração e
         // entregável na confirmação do pagamento).
         saveSubscription({

@@ -249,7 +249,7 @@ export default function LiveChatPage() {
 
               {/* Input Area */}
               <div className="bg-[#141418] border-t border-white/[0.04] p-4 z-10">
-                <form onSubmit={sendMessage} className="relative mx-auto max-w-4xl">
+                <form onSubmit={sendMessage} className="relative page-narrow">
                   <div className="flex items-center gap-3 rounded-full bg-[#0B0B0E] border border-white/[0.08] p-1.5 pl-4 focus-within:border-emerald-500/50 focus-within:bg-[#111115] transition-all shadow-inner">
                     <button 
                       type="button" 

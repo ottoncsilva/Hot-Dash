@@ -307,7 +307,7 @@ export default function SchedulePage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="page">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="eyebrow">planejamento</p>

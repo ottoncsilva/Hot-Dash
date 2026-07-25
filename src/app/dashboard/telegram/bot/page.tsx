@@ -103,7 +103,7 @@ export default function BotVendasPage() {
   }, [load]);
 
   return (
-    <div className="mx-auto max-w-4xl px-1 py-2">
+    <div className="page px-1 py-2">
       {ConfirmDialog}
       <div className="mb-5">
         <p className="eyebrow">telegram · vendas</p>

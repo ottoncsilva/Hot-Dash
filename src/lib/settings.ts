@@ -7,6 +7,10 @@ import {
   type MenuEntry,
 } from "./navItems";
 import { DEFAULT_TIME_ZONE, isValidTimeZone } from "./timezone";
+import {
+  normalizeNotificationPrefs,
+  type NotificationPrefs,
+} from "./notificationTypes";
 
 /** Lê um valor JSON da tabela settings. */
 function getJson<T>(key: string, fallback: T): T {
@@ -170,6 +174,17 @@ export function getAppTimeZone(): string {
 export function setAppTimeZone(tz: string): string {
   const next = isValidTimeZone(tz) ? tz : DEFAULT_TIME_ZONE;
   setJson("timezone", next);
+  return next;
+}
+
+// ---- Tipos de alerta (push) que o operador quer receber ----
+export function getNotificationPrefs(): NotificationPrefs {
+  return normalizeNotificationPrefs(getJson<unknown>("notification_prefs", {}));
+}
+
+export function setNotificationPrefs(patch: Partial<NotificationPrefs>): NotificationPrefs {
+  const next = normalizeNotificationPrefs({ ...getNotificationPrefs(), ...patch });
+  setJson("notification_prefs", next);
   return next;
 }
 

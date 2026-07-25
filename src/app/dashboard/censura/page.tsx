@@ -257,7 +257,7 @@ export default function CensuraPage() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6">
+    <div className="page px-4 py-6">
       <div className="mb-5">
         <p className="eyebrow">ferramentas · IA</p>
         <h1 className="mt-1 flex items-center gap-2 font-display text-2xl font-semibold">

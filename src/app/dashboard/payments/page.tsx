@@ -65,7 +65,7 @@ export default function PaymentsPage() {
   }, [data, paidFilter]);
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="page">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="eyebrow">financeiro</p>

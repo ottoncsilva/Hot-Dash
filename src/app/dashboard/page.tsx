@@ -344,6 +344,15 @@ function BotSalesPanel({
   const [error, setError] = useState<string | null>(null);
   const [innerReload, setInnerReload] = useState(0);
 
+  // Saldo do gateway: não depende do período, então é buscado à parte (a rota
+  // tem cache curto) e não é refeito ao trocar Hoje/Ontem/7 dias.
+  const [balance, setBalance] = useState<{ connected: boolean; balanceCents: number | null; stale?: boolean } | null>(null);
+  useEffect(() => {
+    apiGet<{ connected: boolean; balanceCents: number | null; stale?: boolean }>("/api/payments/balance")
+      .then(setBalance)
+      .catch(() => setBalance(null));
+  }, [innerReload]);
+
   useEffect(() => {
     let cancelled = false;
     setData(null);
@@ -411,9 +420,32 @@ function BotSalesPanel({
         />
         <MetricCard label="Total Starts" value={data ? String(data.funnel.totalStarts) : null} />
       </div>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
         <MetricCard label="Quantidade de Vendas" value={data ? String(data.stats.paidCount) : null} />
         <MetricCard label="Ticket Médio" value={data ? brl(data.stats.avgTicketCents) : null} />
+        {/* Saldo é uma foto do AGORA — não muda com o período escolhido. */}
+        <MetricCard
+          label="Saldo na SyncPay"
+          value={
+            balance === null
+              ? null
+              : !balance.connected
+                ? "—"
+                : balance.balanceCents === null
+                  ? "indisponível"
+                  : brl(balance.balanceCents)
+          }
+          muted={balance !== null && (!balance.connected || balance.balanceCents === null)}
+          hint={
+            balance === null
+              ? undefined
+              : !balance.connected
+                ? "Conecte a SyncPay em Configurações"
+                : balance.stale
+                  ? "Último valor conhecido"
+                  : "Disponível agora"
+          }
+        />
       </div>
 
       {/* Faturamento por período */}

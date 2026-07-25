@@ -166,6 +166,18 @@ export function listTransactions(limit = 50, profileId?: string): Transaction[] 
   return rows.map(toClient);
 }
 
+/**
+ * Apaga uma cobrança do histórico. Existe porque o webhook da SyncPay é por
+ * CONTA e traz movimentos que não são venda (saque, por exemplo) — quando um
+ * deles escapa da filtragem, o operador precisa poder tirar do Financeiro sem
+ * mexer no banco. A inscrição do Telegram que apontasse para ela fica com
+ * `transaction_id` nulo (ON DELETE SET NULL), sem perder o acesso do cliente.
+ */
+export function deleteTransaction(id: string): boolean {
+  const r = getDb().prepare("DELETE FROM transactions WHERE id = ?").run(id);
+  return r.changes > 0;
+}
+
 /** Cobranças de um intervalo [since, until) — as pontas vêm resolvidas no fuso
  *  da operação. Usada pelo Financeiro, que filtra por período na origem em vez
  *  de cortar as últimas 50 no navegador (senão o filtro só veria essas 50). */

@@ -9,6 +9,7 @@ import CalendarGrid from "@/components/schedule/CalendarGrid";
 import TelegramPostForm from "@/components/telegram/TelegramPostForm";
 import CaptionEditor, { CaptionPreview, captionPlainText } from "@/components/telegram/CaptionEditor";
 import { IconCalendar, IconList, IconPlus, IconTrash, IconEdit, IconCheck, IconEye, IconEyeOff } from "@/components/icons";
+import { DEFAULT_TIME_ZONE } from "@/lib/timezone";
 
 /** Classifica o post pelo TIPO DE CONTEÚDO (enquete, vídeo, foto ou texto). */
 function contentKind(post: ScheduledPost): { label: string; cls: string } {
@@ -49,6 +50,15 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
   // Necessário para renderizar o modal via portal (document.body só existe no cliente).
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  // Fuso da operação (Configurações → Geral): os horários exibidos seguem ele,
+  // não o relógio do navegador de quem está olhando.
+  const [timeZone, setTimeZone] = useState(DEFAULT_TIME_ZONE);
+  useEffect(() => {
+    apiGet<{ timeZone: string }>("/api/settings/general")
+      .then((d) => d.timeZone && setTimeZone(d.timeZone))
+      .catch(() => {});
+  }, []);
 
   // Trava a rolagem do fundo enquanto a pré-visualização está aberta.
   useEffect(() => {
@@ -432,7 +442,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                         year: "numeric",
                         hour: "2-digit",
                         minute: "2-digit",
-                        timeZone: "America/Sao_Paulo",
+                        timeZone,
                       })}
                     </td>
                     <td className="p-3 text-zinc-400 truncate max-w-[200px] sm:max-w-xs md:max-w-md lg:max-w-lg">
@@ -501,7 +511,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                 <div className="flex flex-col">
                   <span className="text-white font-semibold text-base leading-tight">Pré-visualização</span>
                   <span className="text-[#8e98a3] text-xs">
-                    {new Date(editingPost.scheduledAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" })}
+                    {new Date(editingPost.scheduledAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone })}
                   </span>
                 </div>
               </div>

@@ -16,11 +16,13 @@ import { createPost } from "@/lib/posts";
 import type { MediaItem } from "@/lib/types";
 import {
   planDay,
-  saoPauloWallTimeToUtcMs,
+  mkSlotToUtcMs,
+  mkDayFromToday,
   captionTheme,
   fallbackText,
   fallbackPoll,
 } from "@/lib/previasAi";
+import { getAppTimeZone } from "@/lib/settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -201,17 +203,20 @@ export async function POST(req: NextRequest) {
     }
 
     let created = 0;
+    let createdToday = 0;
     let angleIdx = 0;
 
     // Gera o RESTO de hoje (offset 0 — horários passados pulados) + os `days`
-    // dias seguintes completos.
+    // dias seguintes completos. O dia base vem do FUSO DA OPERAÇÃO, não do
+    // relógio do servidor (UTC): senão, das 21h às 23h59 de Brasília o servidor
+    // já estava em "amanhã" e o resto da noite era pulado.
+    const tz = getAppTimeZone();
     for (let dayOffset = 0; dayOffset <= days; dayOffset++) {
-      const base = new Date();
-      base.setDate(base.getDate() + dayOffset);
+      const base = mkDayFromToday(dayOffset, tz);
       const plan = planDay();
 
       for (const slot of plan) {
-        const at = saoPauloWallTimeToUtcMs(base, slot.time, true);
+        const at = mkSlotToUtcMs(base, slot.time, tz, true);
         if (at <= Date.now()) continue; // não agenda no passado
         let clash = false;
         for (const t of taken) if (Math.abs(t - at) < 5 * 60 * 1000) clash = true;
@@ -229,6 +234,7 @@ export async function POST(req: NextRequest) {
           });
           taken.add(at);
           created++;
+          if (dayOffset === 0) createdToday++;
           continue;
         }
 
@@ -267,10 +273,11 @@ export async function POST(req: NextRequest) {
         });
         taken.add(at);
         created++;
+        if (dayOffset === 0) createdToday++;
       }
     }
 
-    return NextResponse.json({ ok: true, generated: created, aiError });
+    return NextResponse.json({ ok: true, generated: created, generatedToday: createdToday, aiError });
   } catch (err) {
     console.error("Generate Prévias Error:", err);
     return NextResponse.json({ error: "Erro interno." }, { status: 500 });

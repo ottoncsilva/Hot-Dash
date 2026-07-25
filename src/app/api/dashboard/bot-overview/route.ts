@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { periodStatsInRange, revenueSeriesForDays } from "@/lib/transactions";
 import { salesFunnel, topPlansByRevenue, revenueByProfile } from "@/lib/salesFunnel";
-import { getFinanceSettings } from "@/lib/settings";
+import { getFinanceSettings, getAppTimeZone } from "@/lib/settings";
+import { startOfDayInTimeZone, addDaysInTimeZone } from "@/lib/timezone";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,30 +11,25 @@ export const dynamic = "force-dynamic";
 const PERIODS = ["today", "yesterday", "last7", "last30", "all"] as const;
 type PeriodKey = (typeof PERIODS)[number];
 
-/** Início/fim (ms) de cada período, no fuso local do servidor. "all" não tem limite. */
-function rangeFor(period: PeriodKey): { since: number | null; until: number | null; days: number } {
-  const now = new Date();
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
+/**
+ * Início/fim (ms) de cada período, com os limites do dia calculados no FUSO DA
+ * OPERAÇÃO (Configurações → Geral). Antes usava o fuso local do servidor, que
+ * em produção é UTC: "hoje" começava às 21h de Brasília do dia anterior e as
+ * vendas da noite apareciam no dia seguinte. "all" não tem limite.
+ */
+function rangeFor(period: PeriodKey, tz: string): { since: number | null; until: number | null; days: number } {
+  const now = Date.now();
+  const startOfToday = startOfDayInTimeZone(now, tz);
 
   switch (period) {
     case "today":
-      return { since: startOfToday.getTime(), until: null, days: 7 };
-    case "yesterday": {
-      const startOfYesterday = new Date(startOfToday);
-      startOfYesterday.setDate(startOfYesterday.getDate() - 1);
-      return { since: startOfYesterday.getTime(), until: startOfToday.getTime(), days: 7 };
-    }
-    case "last7": {
-      const since = new Date(startOfToday);
-      since.setDate(since.getDate() - 6);
-      return { since: since.getTime(), until: null, days: 7 };
-    }
-    case "last30": {
-      const since = new Date(startOfToday);
-      since.setDate(since.getDate() - 29);
-      return { since: since.getTime(), until: null, days: 30 };
-    }
+      return { since: startOfToday, until: null, days: 7 };
+    case "yesterday":
+      return { since: addDaysInTimeZone(startOfToday, -1, tz), until: startOfToday, days: 7 };
+    case "last7":
+      return { since: addDaysInTimeZone(startOfToday, -6, tz), until: null, days: 7 };
+    case "last30":
+      return { since: addDaysInTimeZone(startOfToday, -29, tz), until: null, days: 30 };
     case "all":
     default:
       return { since: null, until: null, days: 30 };
@@ -49,7 +45,8 @@ export async function GET(req: NextRequest) {
       ? (periodParam as PeriodKey)
       : "last7";
 
-    const { since, until, days } = rangeFor(period);
+    const tz = getAppTimeZone();
+    const { since, until, days } = rangeFor(period, tz);
 
     const stats = periodStatsInRange(since, until, profileId);
     const funnel = salesFunnel(since, until, profileId);

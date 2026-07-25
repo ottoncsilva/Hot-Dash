@@ -1,4 +1,5 @@
 import "server-only";
+import { partsInTimeZone, zonedWallTimeToUtcMs } from "./timezone";
 
 /**
  * Método MK v2 — PLANEJADOR do dia inteiro do grupo de PRÉVIAS.
@@ -291,49 +292,54 @@ function wallOrder(time: string): number {
 }
 
 // --------------------------------------------------------------------------
-// Fuso horário — America/São_Paulo (UTC−3, sem horário de verão desde 2019)
+// Fuso horário — vem das Configurações (padrão America/São_Paulo, UTC−3)
 // --------------------------------------------------------------------------
 
-/** Offset (minutos) de America/São_Paulo em relação ao UTC para uma data.
- *  Calculado via Intl para ser robusto (retorna -180 hoje). */
-function saoPauloOffsetMinutes(atUtc: Date): number {
-  try {
-    const dtf = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Sao_Paulo",
-      year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-    });
-    const parts = dtf.formatToParts(atUtc).reduce<Record<string, number>>((acc, p) => {
-      if (p.type !== "literal") acc[p.type] = parseInt(p.value, 10);
-      return acc;
-    }, {});
-    const asUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour % 24, parts.minute, parts.second);
-    return Math.round((asUtc - atUtc.getTime()) / 60000);
-  } catch {
-    return -180; // fallback: UTC−3
-  }
-}
+/** Dia do calendário (no fuso da operação) usado como base de um plano. */
+export type MkDay = { year: number; month: number; day: number };
 
-/** Converte uma hora de PAREDE de São Paulo (HH:MM, no dia `dateBase`) no
- *  instante UTC (ms) correto. Madrugada (00:00–04:59) pertence ao dia seguinte.
- *  `jitter` aplica ±3 min para o horário não sair redondo. */
-export function saoPauloWallTimeToUtcMs(dateBase: Date, time: string, jitter = false): number {
+/**
+ * Converte um horário do plano (HH:MM, hora de PAREDE do fuso) no instante UTC
+ * (ms), tomando `base` como o DIA MK. Madrugada (00:00–04:59) pertence ao dia
+ * seguinte, porque o "dia MK" vai das 05:00 às 04:59.
+ *
+ * O dia precisa vir em campos explícitos do fuso da operação: usar um `Date` e
+ * ler getDate() pegava o calendário do SERVIDOR (UTC em produção) e, entre 21h
+ * e 23h59 de Brasília, já era "amanhã" para o servidor — o gerador pulava o
+ * resto da noite, justamente a janela de maior venda.
+ *
+ * `jitter` aplica ±3 min para o horário não sair redondo.
+ */
+export function mkSlotToUtcMs(base: MkDay, time: string, tz: string, jitter = false): number {
   const m = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
   const h = m ? Math.min(23, Math.max(0, parseInt(m[1], 10))) : 12;
   const min = m ? Math.min(59, Math.max(0, parseInt(m[2], 10))) : 0;
 
-  // Dia BRT-alvo: base + (madrugada → dia seguinte).
-  const y = dateBase.getFullYear();
-  const mo = dateBase.getMonth();
-  const d = dateBase.getDate() + (h < 5 ? 1 : 0);
+  // Normaliza o dia-alvo (madrugada → dia seguinte), deixando o Date.UTC
+  // resolver estouro de mês/ano.
+  const target = new Date(Date.UTC(base.year, base.month - 1, base.day + (h < 5 ? 1 : 0)));
+  let at = zonedWallTimeToUtcMs(
+    target.getUTCFullYear(),
+    target.getUTCMonth() + 1,
+    target.getUTCDate(),
+    h,
+    min,
+    tz,
+  );
 
-  // 1ª aproximação assumindo UTC−3, depois corrige com o offset real do instante.
-  let guessUtc = Date.UTC(y, mo, d, h + 3, min, 0);
-  const off = saoPauloOffsetMinutes(new Date(guessUtc)); // ex.: -180
-  guessUtc = Date.UTC(y, mo, d, h, min, 0) - off * 60000;
+  if (jitter) at += (Math.floor(Math.random() * 7) - 3) * 60000;
+  return at;
+}
 
-  if (jitter) guessUtc += (Math.floor(Math.random() * 7) - 3) * 60000;
-  return guessUtc;
+/** Dia MK de hoje (no fuso) somado de `offset` dias — base dos planos gerados. */
+export function mkDayFromToday(offset: number, tz: string): MkDay {
+  const p = partsInTimeZone(Date.now(), tz);
+  const shifted = new Date(Date.UTC(p.year, p.month - 1, p.day + offset));
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+  };
 }
 
 // --------------------------------------------------------------------------

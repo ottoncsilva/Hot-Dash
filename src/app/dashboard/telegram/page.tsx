@@ -161,8 +161,9 @@ export default function TelegramUnifiedPage() {
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Erro ao gerar prévias.");
       window.dispatchEvent(new Event("reloadTelegramCalendar"));
+      const hoje = d.generatedToday ? ` (${d.generatedToday} ainda hoje)` : " (nenhum ainda hoje — o dia já acabou)";
       if (d.aiError) toast.error(`Parcial: ${d.aiError}`);
-      else toast.success(`${d.generated} post(s) de prévias gerados! Veja no calendário.`);
+      else toast.success(`${d.generated} post(s) de prévias gerados${hoje}. Veja no calendário.`);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -183,8 +184,9 @@ export default function TelegramUnifiedPage() {
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Erro ao gerar VIP.");
       window.dispatchEvent(new Event("reloadTelegramCalendar"));
+      const hoje = d.generatedToday ? ` (${d.generatedToday} ainda hoje)` : " (nenhum ainda hoje — o dia já acabou)";
       if (d.aiError) toast.error(`Parcial: ${d.aiError}`);
-      else toast.success(`${d.generated} post(s) do VIP gerados! Veja no calendário.`);
+      else toast.success(`${d.generated} post(s) do VIP gerados${hoje}. Veja no calendário.`);
     } catch (err: any) {
       toast.error(err.message);
     } finally {

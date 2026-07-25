@@ -308,12 +308,11 @@ function BotSalesPanel({
   // Saldo do gateway: não depende do período, então é buscado à parte e não é
   // refeito ao trocar Hoje/Ontem/7 dias. `refresh=1` fura o cache da rota —
   // toda abertura (ou recarga) do Dashboard consulta a SyncPay de novo.
-  const [balance, setBalance] = useState<{ connected: boolean; balanceCents: number | null; stale?: boolean } | null>(null);
+  type Balance = { connected: boolean; balanceCents: number | null; stale?: boolean; reason?: string };
+  const [balance, setBalance] = useState<Balance | null>(null);
   useEffect(() => {
     setBalance(null);
-    apiGet<{ connected: boolean; balanceCents: number | null; stale?: boolean }>(
-      "/api/payments/balance?refresh=1",
-    )
+    apiGet<Balance>("/api/payments/balance?refresh=1")
       .then(setBalance)
       .catch(() => setBalance(null));
   }, [innerReload, reloadKey]);
@@ -392,9 +391,11 @@ function BotSalesPanel({
               ? undefined
               : !balance.connected
                 ? "Conecte a SyncPay em Configurações"
-                : balance.stale
-                  ? "Último valor conhecido"
-                  : "Disponível agora"
+                : balance.balanceCents === null
+                  ? balance.reason || "Teste em Configurações → Pagamentos"
+                  : balance.stale
+                    ? "Último valor conhecido"
+                    : "Disponível agora"
           }
         />
       </div>

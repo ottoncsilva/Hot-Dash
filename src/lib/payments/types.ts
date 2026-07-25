@@ -57,4 +57,10 @@ export interface PaymentProvider {
   createPixCharge(input: ChargeInput): Promise<ChargeResult>;
   /** Saldo disponível na conta do provedor (quando suportado). */
   getBalance?(): Promise<BalanceResult | null>;
+  /** O que o provedor respondeu na consulta de saldo — para a tela de
+   *  Configurações mostrar o motivo quando o saldo não vem. */
+  diagnoseBalance?(): Promise<{
+    cents: number | null;
+    attempts: { path: string; httpStatus?: number; bodySample?: string; error?: string }[];
+  }>;
 }

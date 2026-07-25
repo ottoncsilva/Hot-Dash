@@ -6,9 +6,11 @@ import { apiGet, apiSend } from "@/lib/api";
 import Modal from "@/components/Modal";
 import { IconPlus, IconSettings, IconPayments, IconCopy } from "@/components/icons";
 import type { PaymentSettingsPublic } from "@/lib/settings";
-import type { Transaction, Overview } from "@/lib/transactions";
+import type { Transaction, PeriodStats } from "@/lib/transactions";
 import type { Profile } from "@/lib/types";
 import { DEFAULT_TIME_ZONE } from "@/lib/timezone";
+import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
+import { DEFAULT_PERIOD, PERIOD_OPTIONS } from "@/lib/periods";
 
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", {
@@ -37,24 +39,10 @@ const SORT_LABEL: Record<SortKey, string> = {
   amount_asc: "Valor (menor)",
 };
 
-/** Data/hora completas no fuso da operação. */
-function dt(ms: number, tz: string) {
-  return new Date(ms).toLocaleString("pt-BR", {
-    day: "2-digit", month: "2-digit", year: "2-digit",
-    hour: "2-digit", minute: "2-digit", timeZone: tz,
-  });
-}
-/** "AAAA-MM-DD" no fuso, para comparar com os campos <input type=date>. */
-function isoDay(ms: number, tz: string) {
-  const p = new Intl.DateTimeFormat("en-CA", {
-    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(new Date(ms));
-  return p;
-}
-
 type Data = {
   providers: PaymentSettingsPublic;
-  overview: Overview;
+  /** Totais do PERÍODO selecionado (os cards do topo). */
+  periodStats: PeriodStats;
   transactions: Transaction[];
   balanceCents: number | null;
 };
@@ -66,8 +54,9 @@ export default function PaymentsPage() {
   const [charging, setCharging] = useState(false);
   const [paidFilter, setPaidFilter] = useState<PaidFilter>("all");
   const [sort, setSort] = useState<SortKey>("created_desc");
-  const [fromDay, setFromDay] = useState("");
-  const [toDay, setToDay] = useState("");
+  // Mesmo seletor do Dashboard, com o mesmo padrão (hoje). O recorte é feito no
+  // servidor — ver /api/payments/overview.
+  const [period, setPeriod] = useState<PeriodState>({ period: DEFAULT_PERIOD, from: "", to: "" });
   // O filtro por data é sobre o dia no FUSO DA OPERAÇÃO, não no do navegador.
   const [tz, setTz] = useState(DEFAULT_TIME_ZONE);
   useEffect(() => {
@@ -78,7 +67,7 @@ export default function PaymentsPage() {
 
   async function load() {
     try {
-      setData(await apiGet<Data>("/api/payments/overview"));
+      setData(await apiGet<Data>(`/api/payments/overview?${periodQuery(period)}`));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha.");
@@ -86,12 +75,19 @@ export default function PaymentsPage() {
   }
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period]);
+  useEffect(() => {
     apiGet<{ profiles: Profile[] }>("/api/profiles")
       .then((r) => setProfiles(r.profiles))
       .catch(() => {});
   }, []);
 
   const anyProvider = data?.providers.syncpay.enabled;
+  const periodLabel =
+    period.period === "custom"
+      ? "Período"
+      : PERIOD_OPTIONS.find((p) => p.key === period.period)?.label || "Período";
 
   const filteredTransactions = useMemo(() => {
     if (!data) return [];
@@ -99,10 +95,6 @@ export default function PaymentsPage() {
 
     if (paidFilter === "paid") list = list.filter((t) => t.status === "paid");
     else if (paidFilter === "unpaid") list = list.filter((t) => t.status !== "paid");
-
-    // Intervalo de datas pela GERAÇÃO do Pix (createdAt), inclusivo nas pontas.
-    if (fromDay) list = list.filter((t) => isoDay(t.createdAt, tz) >= fromDay);
-    if (toDay) list = list.filter((t) => isoDay(t.createdAt, tz) <= toDay);
 
     const val = (t: Transaction) => t.netAmountCents ?? t.amountCents;
     // Sem pagamento ainda: joga pro fim na ordem decrescente e pro fim na
@@ -127,7 +119,7 @@ export default function PaymentsPage() {
       }
     });
     return sorted;
-  }, [data, paidFilter, sort, fromDay, toDay, tz]);
+  }, [data, paidFilter, sort]);
 
   return (
     <div className="page">
@@ -164,12 +156,22 @@ export default function PaymentsPage() {
         </div>
       )}
 
-      {/* Resumo simples: faturamento hoje / semana / mês + saldo no gateway.
-          O saldo é consultado na SyncPay a cada carregamento desta tela. */}
-      <div className="mt-5 flex flex-wrap gap-3">
-        <SummaryChip label="Hoje" value={data ? brl(data.overview.today.paidCents) : null} />
-        <SummaryChip label="Semana" value={data ? brl(data.overview.week.paidCents) : null} />
-        <SummaryChip label="Mês" value={data ? brl(data.overview.month.paidCents) : null} />
+      {/* Período — o mesmo seletor do Dashboard, valendo para os totais e para
+          a lista abaixo. */}
+      <div className="mt-5">
+        <PeriodPicker value={period} onChange={setPeriod} />
+      </div>
+
+      {/* Totais do período + saldo no gateway (consultado na SyncPay a cada
+          carregamento desta tela). */}
+      <div className="mt-4 flex flex-wrap gap-3">
+        <SummaryChip label={periodLabel} value={data ? brl(data.periodStats.paidCents) : null} />
+        <SummaryChip
+          label="Líquido"
+          value={data ? brl(data.periodStats.paidNetCents) : null}
+          accent
+        />
+        <SummaryChip label="Vendas" value={data ? String(data.periodStats.paidCount) : null} />
         <SummaryChip
           label="Saldo na SyncPay"
           value={data ? (data.balanceCents === null ? "indisponível" : brl(data.balanceCents)) : null}
@@ -181,26 +183,6 @@ export default function PaymentsPage() {
       <div className="mt-8 flex flex-wrap items-end justify-between gap-3">
         <p className="eyebrow">pix gerados</p>
         <div className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">de</span>
-            <input
-              type="date"
-              className="input w-auto py-1.5 text-xs"
-              value={fromDay}
-              max={toDay || undefined}
-              onChange={(e) => setFromDay(e.target.value)}
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">até</span>
-            <input
-              type="date"
-              className="input w-auto py-1.5 text-xs"
-              value={toDay}
-              min={fromDay || undefined}
-              onChange={(e) => setToDay(e.target.value)}
-            />
-          </label>
           <select
             className="input w-auto py-1.5 text-xs"
             value={paidFilter}
@@ -219,10 +201,10 @@ export default function PaymentsPage() {
               <option key={k} value={k}>{SORT_LABEL[k]}</option>
             ))}
           </select>
-          {(fromDay || toDay || paidFilter !== "all" || sort !== "created_desc") && (
+          {(paidFilter !== "all" || sort !== "created_desc") && (
             <button
               type="button"
-              onClick={() => { setFromDay(""); setToDay(""); setPaidFilter("all"); setSort("created_desc"); }}
+              onClick={() => { setPaidFilter("all"); setSort("created_desc"); }}
               className="btn-ghost py-1.5 text-xs"
             >
               Limpar

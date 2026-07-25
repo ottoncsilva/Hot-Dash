@@ -1,10 +1,5 @@
 import "server-only";
-import type {
-  ChargeInput,
-  ChargeResult,
-  PaymentProvider,
-  ProviderTransactionResult,
-} from "./types";
+import type { ChargeInput, ChargeResult, PaymentProvider } from "./types";
 
 /**
  * Adaptador SyncPay (gateway PIX brasileiro), via REST puro (sem SDK).
@@ -24,13 +19,20 @@ import type {
  */
 const BASE = process.env.SYNCPAY_BASE_URL || "https://api.syncpayments.com.br";
 
-type AttemptInfo = {
-  path: string;
-  method: string;
-  httpStatus?: number;
-  bodySample?: string;
-  error?: string;
-};
+/**
+ * Converte um valor monetário da API para reais. A SyncPay devolve números
+ * como string ("90.00"), e algumas respostas usam o formato brasileiro
+ * ("1.234,56") — os dois precisam virar 1234.56.
+ */
+function toReais(v: unknown): number | null {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v !== "string") return null;
+  const limpo = v.replace(/[^\d.,-]/g, "").trim();
+  if (!limpo) return null;
+  const norm = /,\d{1,2}$/.test(limpo) ? limpo.replace(/\./g, "").replace(",", ".") : limpo.replace(/,/g, "");
+  const n = Number(norm);
+  return Number.isFinite(n) ? n : null;
+}
 
 /** Dígito verificador de CPF sobre os dígitos já existentes. */
 function cpfCheckDigit(digits: number[]): number {
@@ -114,6 +116,10 @@ export function createSyncPay(creds: {
     const token = await getToken();
     return fetch(`${BASE}${path}`, {
       ...init,
+      // O Next guarda respostas de `fetch` num cache próprio, e um GET repetido
+      // (o saldo) voltaria congelado no primeiro valor lido. Aqui a resposta
+      // precisa ser sempre a de agora.
+      cache: "no-store",
       headers: {
         ...(init.headers || {}),
         "Content-Type": "application/json",
@@ -173,87 +179,27 @@ export function createSyncPay(creds: {
     },
 
     /**
-     * Consulta o status de UMA transação — "Consulta status da transação" na
-     * documentação: GET /api/partner/v1/transaction/{identifier}, onde o
-     * identifier é o mesmo devolvido no cash-in (o nosso provider_ref).
+     * Saldo do usuário — GET /api/partner/v1/balance, resposta documentada
+     * `{ "balance": "90.00" }`.
      *
-     * ATENÇÃO: a resposta traz apenas
-     *   { data: { reference_id, currency, amount, transaction_date, status,
-     *             description, pix_code } }
-     * — NÃO existe `final_amount` aqui. O valor LÍQUIDO só chega no webhook.
-     * Ou seja: esta consulta serve para corrigir status e valor cheio das
-     * vendas antigas, mas não recupera o líquido delas.
+     * O valor vem como STRING. A versão anterior exigia `typeof === "number"`
+     * e por isso devolvia null sempre, deixando o card do saldo eternamente
+     * "indisponível". Aqui aceitamos número ou string (inclusive no formato
+     * brasileiro "1.234,56") e o objeto aninhado em `data`, que algumas contas
+     * usam.
      */
-    async getTransaction(providerRef: string): Promise<ProviderTransactionResult> {
-      const path = `/api/partner/v1/transaction/${encodeURIComponent(providerRef)}`;
-      try {
-        const res = await authedFetch(path, { method: "GET" });
-        const texto = await res.text().catch(() => "");
-        if (!res.ok) {
-          return {
-            ok: false,
-            attempts: [{ path, method: "GET", httpStatus: res.status, bodySample: texto.slice(0, 180) }],
-          };
-        }
-        let json: Record<string, unknown> | null = null;
-        try {
-          json = JSON.parse(texto) as Record<string, unknown>;
-        } catch {
-          json = null;
-        }
-        if (!json) {
-          return {
-            ok: false,
-            attempts: [{ path, method: "GET", httpStatus: res.status, bodySample: texto.slice(0, 180) }],
-          };
-        }
-        const d = ((json.data as Record<string, unknown>) || json) as Record<string, unknown>;
-        const num = (v: unknown) => {
-          const n = Number(v);
-          return Number.isFinite(n) && n > 0 ? n : undefined;
-        };
-        const amount = num(d.amount);
-        // Tentamos mesmo assim, caso a conta devolva algum campo de líquido.
-        const liquido = num(d.final_amount ?? d.net_amount ?? d.liquid_amount);
-        const status = typeof d.status === "string" ? d.status : undefined;
-        if (amount === undefined && !status) {
-          return {
-            ok: false,
-            attempts: [{ path, method: "GET", httpStatus: res.status, bodySample: texto.slice(0, 180) }],
-          };
-        }
-        const dataTx = typeof d.transaction_date === "string" ? d.transaction_date : undefined;
-        return {
-          ok: true,
-          data: {
-            grossCents: amount !== undefined ? Math.round(amount * 100) : undefined,
-            netCents: liquido !== undefined ? Math.round(liquido * 100) : undefined,
-            status,
-            paidAtMs: dataTx ? Date.parse(dataTx) || undefined : undefined,
-            raw: d,
-          },
-        };
-      } catch (e) {
-        return {
-          ok: false,
-          attempts: [{ path, method: "GET", error: e instanceof Error ? e.message : "falha de rede" }],
-        };
-      }
-    },
-
     async getBalance() {
-      // Best-effort: a rota de saldo varia por conta; não quebra o painel se falhar.
       try {
         const res = await authedFetch("/api/partner/v1/balance", { method: "GET" });
         if (!res.ok) return null;
         const data = (await res.json()) as Record<string, unknown>;
-        const val =
-          (data.balance as number) ??
-          (data.available as number) ??
-          ((data.data as Record<string, unknown>)?.balance as number);
-        if (typeof val !== "number") return null;
+        const dentro = (data.data as Record<string, unknown>) || {};
+        const bruto =
+          data.balance ?? data.available ?? data.available_balance ?? dentro.balance ?? dentro.available;
+        const reais = toReais(bruto);
+        if (reais === null) return null;
         // A API devolve em reais; guardamos em centavos.
-        return { availableCents: Math.round(val * 100), raw: data };
+        return { availableCents: Math.round(reais * 100), raw: data };
       } catch {
         return null;
       }

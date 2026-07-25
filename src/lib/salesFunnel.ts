@@ -81,37 +81,6 @@ export function salesFunnel(
   };
 }
 
-export type TopPlan = { planId: string; name: string; cents: number; count: number };
-
-/** Ranking de planos por faturamento (join transações pagas → assinatura → plano). */
-export function topPlansByRevenue(
-  sinceMs: number | null,
-  untilMs: number | null = null,
-  profileId?: string,
-  limit = 5,
-): TopPlan[] {
-  const db = getDb();
-  const { clauses, params } = range(sinceMs, untilMs);
-  const where = ["t.status = 'paid'", ...clauses.map((c) => `t.${c}`)];
-  if (profileId) {
-    where.push("t.profile_id = ?");
-    params.push(profileId);
-  }
-  const rows = db
-    .prepare(
-      `SELECT p.id plan_id, p.name plan_name, SUM(t.amount_cents) cents, COUNT(*) cnt
-       FROM transactions t
-       JOIN telegram_subscriptions s ON s.transaction_id = t.id
-       JOIN telegram_plans p ON p.id = s.plan_id
-       WHERE ${where.join(" AND ")}
-       GROUP BY p.id
-       ORDER BY cents DESC
-       LIMIT ?`,
-    )
-    .all(...params, limit) as { plan_id: string; plan_name: string; cents: number; cnt: number }[];
-  return rows.map((r) => ({ planId: r.plan_id, name: r.plan_name, cents: r.cents, count: r.cnt }));
-}
-
 export type ProfileRevenue = {
   profileId: string;
   profileName: string;

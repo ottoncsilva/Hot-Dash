@@ -6,7 +6,7 @@ import { apiGet } from "@/lib/api";
 import type { Profile } from "@/lib/types";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import type { PeriodStats } from "@/lib/transactions";
-import { IconSettings, IconSparkle, IconChevronRight } from "@/components/icons";
+import { IconSettings } from "@/components/icons";
 
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -35,7 +35,6 @@ type BotOverviewData = {
     userConversion: number | null;
     paymentConversion: number | null;
   };
-  topPlans: { planId: string; name: string; cents: number; count: number }[];
   byProfile: { profileId: string; profileName: string; botActive: boolean | null; paidCents: number; paidCount: number }[];
   series: { day: string; cents: number }[];
   netRevenueCents: number;
@@ -170,15 +169,9 @@ export default function DashboardHome() {
 
       {/* Operação */}
       <p className="eyebrow mt-10">operação</p>
-      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div className="mt-3 grid grid-cols-2 gap-3">
         <Stat label="Modelos" value={profileCount} />
         <Stat label="Contas sociais" value={accountCount} />
-        <ModuleLink
-          href="/dashboard/metadata"
-          icon={<IconSparkle size={18} />}
-          title="Limpar Metadados"
-          desc="EXIF, GPS e rastros de IA"
-        />
       </div>
     </div>
   );
@@ -295,36 +288,6 @@ function Stat({ label, value }: { label: string; value: number | null }) {
   );
 }
 
-function ModuleLink({
-  href,
-  icon,
-  title,
-  desc,
-}: {
-  href: string;
-  icon: React.ReactNode;
-  title: string;
-  desc: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="card group flex items-center gap-3 p-4 transition-all hover:border-white/20 hover:bg-white/[0.04]"
-    >
-      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/[0.03] text-zinc-300 transition-colors group-hover:text-white">
-        {icon}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-white">{title}</p>
-        <p className="truncate text-xs text-zinc-500">{desc}</p>
-      </div>
-      <span className="text-zinc-600 transition-transform group-hover:translate-x-0.5 group-hover:text-zinc-300">
-        <IconChevronRight size={16} />
-      </span>
-    </Link>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Painel do Bot de Vendas — cards, gráfico de faturamento, funil de conversão
 // e faturamento por modelo. Espelha o painel do bot de vendas (ex-ApexVips),
@@ -344,14 +307,18 @@ function BotSalesPanel({
   const [error, setError] = useState<string | null>(null);
   const [innerReload, setInnerReload] = useState(0);
 
-  // Saldo do gateway: não depende do período, então é buscado à parte (a rota
-  // tem cache curto) e não é refeito ao trocar Hoje/Ontem/7 dias.
+  // Saldo do gateway: não depende do período, então é buscado à parte e não é
+  // refeito ao trocar Hoje/Ontem/7 dias. `refresh=1` fura o cache da rota —
+  // toda abertura (ou recarga) do Dashboard consulta a SyncPay de novo.
   const [balance, setBalance] = useState<{ connected: boolean; balanceCents: number | null; stale?: boolean } | null>(null);
   useEffect(() => {
-    apiGet<{ connected: boolean; balanceCents: number | null; stale?: boolean }>("/api/payments/balance")
+    setBalance(null);
+    apiGet<{ connected: boolean; balanceCents: number | null; stale?: boolean }>(
+      "/api/payments/balance?refresh=1",
+    )
       .then(setBalance)
       .catch(() => setBalance(null));
-  }, [innerReload]);
+  }, [innerReload, reloadKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -458,7 +425,7 @@ function BotSalesPanel({
 
       {/* Conversões do bot */}
       <p className="eyebrow mt-8">conversões do bot</p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <ConversionCard
           title="Conversão de Usuário"
           subtitle="% que compraram"
@@ -477,24 +444,6 @@ function BotSalesPanel({
           value={data ? brl(data.stats.avgTicketCents) : "—"}
           rows={data ? [["Vendas", String(data.stats.paidCount)], ["Receita", brl(data.stats.paidCents)]] : []}
         />
-        <div className="card p-4">
-          <p className="eyebrow">Códigos de Venda</p>
-          <p className="mt-0.5 text-[11px] text-zinc-600">top faturamento</p>
-          <div className="mt-3 space-y-2">
-            {!data ? (
-              <span className="inline-block h-5 w-24 animate-pulse rounded bg-white/5" />
-            ) : data.topPlans.length === 0 ? (
-              <p className="text-xs text-zinc-600">Sem dados</p>
-            ) : (
-              data.topPlans.map((p) => (
-                <div key={p.planId} className="flex items-center justify-between text-xs">
-                  <span className="truncate pr-2 text-zinc-300">{p.name}</span>
-                  <span className="shrink-0 font-mono text-zinc-500">{brl(p.cents)}</span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
       </div>
 
       {/* Faturamento por Modelo */}

@@ -91,12 +91,25 @@ export function recordTransaction(input: {
 }): Transaction {
   const now = Date.now();
   const id = randomUUID();
+  // Já nasce com a conta fechada quando a venda entra paga: taxa pela tabela da
+  // SyncPay (determinística), split com o que sobrar do desconto informado.
+  let fee: number | null = null;
+  let split: number | null = null;
+  let net = input.netAmountCents ?? null;
+  if (input.status === "paid") {
+    const tabela = syncPayFeeCents(input.amountCents);
+    const desconto = net !== null && net < input.amountCents ? input.amountCents - net : tabela;
+    fee = Math.min(tabela, desconto);
+    split = Math.max(0, desconto - fee);
+    if (net === null) net = input.amountCents - desconto;
+  }
   getDb()
     .prepare(
       `INSERT INTO transactions
         (id, provider, provider_ref, profile_id, description, customer,
-         amount_cents, net_amount_cents, paid_at, currency, method, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         amount_cents, net_amount_cents, fee_cents, split_cents, paid_at,
+         currency, method, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -106,7 +119,9 @@ export function recordTransaction(input: {
       input.description || null,
       input.customer || null,
       input.amountCents,
-      input.netAmountCents ?? null,
+      net,
+      fee,
+      split,
       input.status === "paid" ? now : null,
       input.currency || "BRL",
       input.method || null,
@@ -211,7 +226,7 @@ export function updateStatusByRef(
   // sempre atualizado quando vier (é ele que traz a taxa já descontada).
   const gross =
     amounts?.grossCents && amounts.grossCents > 0 ? amounts.grossCents : existing.amountCents;
-  const net =
+  let net =
     amounts?.netCents && amounts.netCents > 0 ? amounts.netCents : existing.netAmountCents ?? null;
   // paid_at marca a hora do PAGAMENTO (createdAt é a geração do Pix). Não
   // reescreve se já estava paga, para não mascarar a data original.
@@ -219,13 +234,19 @@ export function updateStatusByRef(
 
   // Separa o desconto entre TAXA (tabela do gateway) e SPLIT (repasse), como o
   // próprio painel da SyncPay mostra: entrada − taxas − split = você recebe.
+  // Quando o gateway não manda o líquido, a taxa ainda é conhecida: a tabela da
+  // SyncPay é determinística (R$ 0,80 até R$ 100; + 1,99% acima). Sem isso a
+  // venda entraria no extrato sem taxa e sem líquido.
   let fee = amounts?.feeCents ?? existing.feeCents ?? null;
   let split = amounts?.splitCents ?? existing.splitCents ?? null;
-  if (net !== null && fee === null) {
-    const desconto = Math.max(0, gross - net);
+  if (fee === null && normalized === "paid") {
     const tabela = syncPayFeeCents(gross);
+    const desconto = net !== null ? Math.max(0, gross - net) : tabela;
     fee = Math.min(tabela, desconto);
     split = Math.max(0, desconto - fee);
+  }
+  if (net === null && fee !== null && normalized === "paid") {
+    net = gross - fee - (split ?? 0);
   }
 
   getDb()
@@ -237,58 +258,6 @@ export function updateStatusByRef(
     )
     .run(normalized, gross, net, fee, split, paidAt, now, existing.id);
   return { transaction: getTransaction(existing.id)!, becamePaid };
-}
-
-/** Vendas ainda NÃO consultadas no gateway. O critério é `reprocessed_at`, e
- *  não "sem valor líquido": a consulta da SyncPay não devolve o líquido, então
- *  usar a ausência dele deixaria o lote girando sobre as mesmas vendas. */
-export function transactionsToReprocess(provider: string): Transaction[] {
-  const rows = getDb()
-    .prepare(
-      `SELECT * FROM transactions
-       WHERE provider = ? AND provider_ref IS NOT NULL AND provider_ref <> ''
-         AND reprocessed_at IS NULL
-       ORDER BY created_at DESC`,
-    )
-    .all(provider) as Row[];
-  return rows.map(toClient);
-}
-
-/** Grava os valores recuperados do gateway numa transação já existente. */
-export function applyProviderAmounts(
-  id: string,
-  input: { grossCents?: number; netCents?: number; status?: string; paidAtMs?: number },
-): Transaction | null {
-  const existing = getTransaction(id);
-  if (!existing) return null;
-  const status = input.status ? normalizeStatus(input.status) : existing.status;
-  const gross =
-    input.grossCents && input.grossCents > 0 ? input.grossCents : existing.amountCents;
-  const net = input.netCents && input.netCents > 0 ? input.netCents : existing.netAmountCents ?? null;
-  const paidAt =
-    status === "paid"
-      ? existing.paidAt ?? (input.paidAtMs && input.paidAtMs > 0 ? input.paidAtMs : existing.updatedAt)
-      : existing.paidAt ?? null;
-
-  getDb()
-    .prepare(
-      `UPDATE transactions
-       SET amount_cents = ?, net_amount_cents = ?, status = ?, paid_at = ?,
-           reprocessed_at = ?, updated_at = ?
-       WHERE id = ?`,
-    )
-    .run(gross, net, status, paidAt, Date.now(), Date.now(), id);
-  return getTransaction(id);
-}
-
-/** Marca a venda como já consultada, sem alterar valores. Usado quando o
- *  gateway respondeu que não conhece a transação — sem isso ela voltaria à
- *  fila em todo lote. Erros de rede NÃO passam por aqui, para poderem ser
- *  tentados de novo depois. */
-export function markReprocessed(id: string): void {
-  getDb()
-    .prepare("UPDATE transactions SET reprocessed_at = ? WHERE id = ?")
-    .run(Date.now(), id);
 }
 
 /** Normaliza um identificador para comparação (o export corta em 30 chars e

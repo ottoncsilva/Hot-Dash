@@ -2,6 +2,7 @@ import "server-only";
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { resolve, join } from "node:path";
+import { syncPayFeeCents } from "./payments/syncpayExport";
 
 /**
  * Banco de dados SQLite no disco da VPS — a fonte de verdade de todos os
@@ -393,10 +394,62 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "posts", "reminded", "INTEGER NOT NULL DEFAULT 0");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
+  backfillSyncPayAmounts(d);
 
   d.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_media_public_token ON media(public_token) WHERE public_token IS NOT NULL;`,
   );
+}
+
+/**
+ * Fecha a conta das vendas ANTIGAS da SyncPay, que ficaram sem taxa, sem
+ * líquido e sem hora de pagamento — eram gravadas quando o app só guardava um
+ * número por venda.
+ *
+ * Dá para reconstruir tudo sem consultar nada porque a taxa da SyncPay é
+ * determinística (R$ 0,80 até R$ 100; R$ 0,80 + 1,99% acima disso). Quando o
+ * líquido JÁ é conhecido (webhook recente), o desconto real manda: a taxa é o
+ * mínimo entre a tabela e o desconto, e o que sobrar é split. Quando não é,
+ * aplica-se a tabela e o split fica zero — hoje ele não é cobrado (vinha da
+ * ApexVips, que não está mais em uso).
+ *
+ * Idempotente: só toca em linhas com `fee_cents` nulo, então rodar a cada boot
+ * não custa nada. A importação da exportação da SyncPay sobrepõe estes valores
+ * quando o operador quiser os números exatos do painel.
+ */
+function backfillSyncPayAmounts(d: Database.Database) {
+  const pendentes = d
+    .prepare(
+      `SELECT id, amount_cents, net_amount_cents FROM transactions
+       WHERE status = 'paid' AND fee_cents IS NULL`,
+    )
+    .all() as { id: string; amount_cents: number; net_amount_cents: number | null }[];
+
+  if (pendentes.length > 0) {
+    const upd = d.prepare(
+      "UPDATE transactions SET fee_cents = ?, split_cents = ?, net_amount_cents = ? WHERE id = ?",
+    );
+    const aplicar = d.transaction(() => {
+      for (const t of pendentes) {
+        const tabela = syncPayFeeCents(t.amount_cents);
+        const temLiquido = t.net_amount_cents !== null && t.net_amount_cents < t.amount_cents;
+        const desconto = temLiquido ? t.amount_cents - (t.net_amount_cents as number) : tabela;
+        const taxa = Math.min(tabela, desconto);
+        const split = Math.max(0, desconto - taxa);
+        upd.run(taxa, split, t.amount_cents - desconto, t.id);
+      }
+    });
+    aplicar();
+  }
+
+  // Hora do pagamento: nas vendas antigas o webhook não guardava `paid_at`, e a
+  // coluna "Pago" do Financeiro ficava vazia. A geração do Pix é a melhor
+  // aproximação que temos (no PIX o pagamento sai em segundos).
+  d.prepare("UPDATE transactions SET paid_at = created_at WHERE status = 'paid' AND paid_at IS NULL").run();
+
+  // As vendas que chegaram só pelo webhook ficavam com o rótulo interno
+  // "Venda (webhook)", que não diz nada para quem lê o extrato.
+  d.prepare("UPDATE transactions SET description = 'Venda SyncPay' WHERE description = 'Venda (webhook)'").run();
 }
 
 /**

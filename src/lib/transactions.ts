@@ -1,6 +1,14 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
+import { getAppTimeZone } from "./settings";
+import {
+  addDaysInTimeZone,
+  formatDayLabel,
+  partsInTimeZone,
+  startOfDayInTimeZone,
+  zonedWallTimeToUtcMs,
+} from "./timezone";
 
 export type Transaction = {
   id: string;
@@ -295,15 +303,14 @@ export type Overview = {
  *  antigo → hoje. Usada no gráfico "Faturamento por período". */
 export function revenueSeriesForDays(days: number, profileId?: string): { day: string; cents: number }[] {
   const db = getDb();
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
+  // Os "dias" do gráfico seguem o FUSO DA OPERAÇÃO, não o do servidor (UTC).
+  const tz = getAppTimeZone();
+  const startOfToday = startOfDayInTimeZone(Date.now(), tz);
   const series: { day: string; cents: number }[] = [];
   for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(startOfToday);
-    d.setDate(d.getDate() - i);
-    const next = new Date(d);
-    next.setDate(next.getDate() + 1);
-    const params: (string | number)[] = [d.getTime(), next.getTime()];
+    const dayStart = addDaysInTimeZone(startOfToday, -i, tz);
+    const dayEnd = addDaysInTimeZone(dayStart, 1, tz);
+    const params: (string | number)[] = [dayStart, dayEnd];
     let sql =
       "SELECT COALESCE(SUM(amount_cents),0) s FROM transactions WHERE status = 'paid' AND created_at >= ? AND created_at < ?";
     if (profileId) {
@@ -311,22 +318,21 @@ export function revenueSeriesForDays(days: number, profileId?: string): { day: s
       params.push(profileId);
     }
     const r = db.prepare(sql).get(...params) as { s: number };
-    series.push({
-      day: d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
-      cents: r.s,
-    });
+    series.push({ day: formatDayLabel(dayStart, tz), cents: r.s });
   }
   return series;
 }
 
 export function overview(profileId?: string): Overview {
   const db = getDb();
-  const now = new Date();
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
-  const startOfWeek = new Date(startOfToday);
-  startOfWeek.setDate(startOfWeek.getDate() - ((startOfWeek.getDay() + 6) % 7)); // segunda
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  // Hoje/semana/mês seguem o FUSO DA OPERAÇÃO (Configurações → Geral).
+  const tz = getAppTimeZone();
+  const startOfToday = startOfDayInTimeZone(Date.now(), tz);
+  const p = partsInTimeZone(startOfToday, tz);
+  // Dia da semana no fuso: usa o calendário local reconstruído em UTC.
+  const dow = new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay(); // 0=dom
+  const startOfWeek = addDaysInTimeZone(startOfToday, -((dow + 6) % 7), tz); // segunda
+  const startOfMonth = zonedWallTimeToUtcMs(p.year, p.month, 1, 0, 0, tz);
 
   const lastSaleQuery = profileId
     ? (db
@@ -339,9 +345,9 @@ export function overview(profileId?: string): Overview {
         .get() as { m: number | null });
 
   return {
-    today: computePeriodStats(startOfToday.getTime(), profileId),
-    week: computePeriodStats(startOfWeek.getTime(), profileId),
-    month: computePeriodStats(startOfMonth.getTime(), profileId),
+    today: computePeriodStats(startOfToday, profileId),
+    week: computePeriodStats(startOfWeek, profileId),
+    month: computePeriodStats(startOfMonth, profileId),
     total: computePeriodStats(null, profileId),
     lastSaleAt: lastSaleQuery.m,
     dailySeries: revenueSeriesForDays(14, profileId),

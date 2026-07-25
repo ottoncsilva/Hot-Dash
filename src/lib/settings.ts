@@ -6,6 +6,7 @@ import {
   normalizeMenu,
   type MenuEntry,
 } from "./navItems";
+import { DEFAULT_TIME_ZONE, isValidTimeZone } from "./timezone";
 
 /** Lê um valor JSON da tabela settings. */
 function getJson<T>(key: string, fallback: T): T {
@@ -155,6 +156,21 @@ export function updatePaymentSettings(patch: {
   }
   setJson("payments", s);
   return getPaymentSettingsPublic();
+}
+
+// ---- Fuso horário da operação ----
+// O container roda em UTC; sem isto, "hoje" no painel começaria às 21h de
+// Brasília do dia anterior. Todo cálculo de dia (vendas, geração de posts) usa
+// este fuso.
+export function getAppTimeZone(): string {
+  const tz = getJson<string>("timezone", DEFAULT_TIME_ZONE);
+  return typeof tz === "string" && isValidTimeZone(tz) ? tz : DEFAULT_TIME_ZONE;
+}
+
+export function setAppTimeZone(tz: string): string {
+  const next = isValidTimeZone(tz) ? tz : DEFAULT_TIME_ZONE;
+  setJson("timezone", next);
+  return next;
 }
 
 // ---- Configuração financeira manual (sem integração de plataforma de anúncios) ----

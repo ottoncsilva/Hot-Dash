@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
       recordTransaction({
         provider: "syncpay",
         providerRef,
-        description: "Venda (webhook)",
+        description: "Venda SyncPay",
         customer: (client.name as string) || undefined,
         // Cheio no amount, líquido à parte (antes o líquido era gravado como se
         // fosse o total, e o faturamento bruto ficava subestimado).

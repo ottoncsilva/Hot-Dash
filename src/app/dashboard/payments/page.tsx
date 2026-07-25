@@ -164,11 +164,17 @@ export default function PaymentsPage() {
         </div>
       )}
 
-      {/* Resumo simples: faturamento hoje / semana / mês */}
+      {/* Resumo simples: faturamento hoje / semana / mês + saldo no gateway.
+          O saldo é consultado na SyncPay a cada carregamento desta tela. */}
       <div className="mt-5 flex flex-wrap gap-3">
         <SummaryChip label="Hoje" value={data ? brl(data.overview.today.paidCents) : null} />
         <SummaryChip label="Semana" value={data ? brl(data.overview.week.paidCents) : null} />
         <SummaryChip label="Mês" value={data ? brl(data.overview.month.paidCents) : null} />
+        <SummaryChip
+          label="Saldo na SyncPay"
+          value={data ? (data.balanceCents === null ? "indisponível" : brl(data.balanceCents)) : null}
+          accent={Boolean(data && data.balanceCents !== null)}
+        />
       </div>
 
       {/* Lista de PIX gerados */}
@@ -357,11 +363,11 @@ function DataHora({ ms, tz, accent }: { ms: number; tz: string; accent?: boolean
   );
 }
 
-function SummaryChip({ label, value }: { label: string; value: string | null }) {
+function SummaryChip({ label, value, accent }: { label: string; value: string | null; accent?: boolean }) {
   return (
     <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.02] px-4 py-2">
       <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">{label}</span>
-      <span className="font-display text-sm font-semibold text-white">
+      <span className={`font-display text-sm font-semibold ${accent ? "text-emerald-400" : "text-white"}`}>
         {value ?? <span className="inline-block h-4 w-14 animate-pulse rounded bg-white/5" />}
       </span>
     </div>

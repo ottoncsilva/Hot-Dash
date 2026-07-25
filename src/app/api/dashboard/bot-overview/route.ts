@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { periodStatsInRange, revenueSeriesForDays } from "@/lib/transactions";
-import { salesFunnel, topPlansByRevenue, revenueByProfile } from "@/lib/salesFunnel";
+import { salesFunnel, revenueByProfile } from "@/lib/salesFunnel";
 import { getFinanceSettings, getAppTimeZone } from "@/lib/settings";
 import { startOfDayInTimeZone, addDaysInTimeZone } from "@/lib/timezone";
 
@@ -50,7 +50,6 @@ export async function GET(req: NextRequest) {
 
     const stats = periodStatsInRange(since, until, profileId);
     const funnel = salesFunnel(since, until, profileId);
-    const topPlans = topPlansByRevenue(since, until, profileId, 5);
     const byProfile = revenueByProfile(since, until);
     const series = revenueSeriesForDays(days, profileId);
     const finance = getFinanceSettings();
@@ -64,7 +63,6 @@ export async function GET(req: NextRequest) {
       period,
       stats,
       funnel,
-      topPlans,
       byProfile,
       series,
       netRevenueCents,

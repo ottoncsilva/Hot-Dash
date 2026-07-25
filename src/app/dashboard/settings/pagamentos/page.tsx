@@ -22,12 +22,6 @@ export default function PaymentSettingsPage() {
   const [origin, setOrigin] = useState("");
   const [copied, setCopied] = useState(false);
   const [lastPaid, setLastPaid] = useState<LastPaid>(null);
-  // Reprocessamento das vendas antigas (recupera o valor líquido no gateway).
-  const [repro, setRepro] = useState<{ pending: number; supported: boolean } | null>(null);
-  const [reproRunning, setReproRunning] = useState(false);
-  const [reproMsg, setReproMsg] = useState<string | null>(null);
-  // Diagnóstico: o que o gateway respondeu de fato (para quando não funciona).
-  const [diag, setDiag] = useState<string | null>(null);
   // Importação do export da SyncPay (única fonte do valor líquido do histórico).
   const [impPrev, setImpPrev] = useState<any>(null);
   const [impBusy, setImpBusy] = useState(false);
@@ -54,69 +48,6 @@ export default function PaymentSettingsPage() {
     ? `${origin}/api/webhooks/syncpay?token=${cfg.syncpay.webhookToken}`
     : "";
 
-  async function loadReprocess() {
-    try {
-      const d = await apiGet<{ pending: number; supported: boolean }>("/api/payments/reprocess");
-      setRepro(d);
-    } catch {
-      setRepro(null);
-    }
-  }
-
-  async function runReprocess() {
-    setReproRunning(true);
-    setReproMsg(null);
-    try {
-      // Em lotes: a API do gateway é consultada uma venda por vez.
-      let total = 0, encontradas = 0, semDados = 0, erros = 0, sobra = 0;
-      for (let volta = 0; volta < 20; volta++) {
-        const r = await apiSend<{
-          processed: number; updated: number; notFound: number; failed: number; remaining: number;
-        }>("/api/payments/reprocess", "POST", { limit: 100 });
-        total += r.processed; encontradas += r.updated; semDados += r.notFound; erros += r.failed;
-        sobra = r.remaining;
-        if (r.processed === 0 || r.remaining === 0) break;
-      }
-      const partes = [`${encontradas} atualizada(s)`];
-      if (semDados) partes.push(`${semDados} sem dados no gateway`);
-      if (erros) partes.push(`${erros} com erro`);
-      if (sobra) partes.push(`${sobra} ainda pendente(s)`);
-      setReproMsg(total === 0 ? "Nada a reprocessar." : partes.join(" · "));
-      // Se não atualizou nada, já traz o diagnóstico sem o usuário precisar pedir.
-      if (total > 0 && encontradas === 0) await runDiagnose();
-      await loadReprocess();
-    } catch (e) {
-      setReproMsg(e instanceof Error ? e.message : "Falha ao reprocessar.");
-    } finally {
-      setReproRunning(false);
-    }
-  }
-
-  async function runDiagnose() {
-    setDiag("consultando...");
-    try {
-      const d = await apiGet<{
-        error?: string; ok?: boolean; providerRef?: string;
-        data?: Record<string, unknown>;
-        attempts?: { path: string; method: string; httpStatus?: number; bodySample?: string; error?: string }[];
-      }>("/api/payments/reprocess?diagnose=1");
-      if (d.error) { setDiag(d.error); return; }
-      if (d.ok) {
-        setDiag(`Funcionou nesta venda (${d.providerRef}): ${JSON.stringify(d.data)}`);
-        return;
-      }
-      const linhas = (d.attempts || []).map(
-        (a) => `${a.method} ${a.path} → ${a.httpStatus ?? a.error ?? "?"}${a.bodySample ? ` · ${a.bodySample}` : ""}`,
-      );
-      setDiag(
-        `Venda testada: ${d.providerRef}\nNenhum caminho respondeu com os valores:\n` +
-          linhas.join("\n"),
-      );
-    } catch (e) {
-      setDiag(e instanceof Error ? e.message : "Falha no diagnóstico.");
-    }
-  }
-
   async function enviarExport(file: File, dryRun: boolean) {
     setImpBusy(true);
     setImpMsg(null);
@@ -136,7 +67,6 @@ export default function PaymentSettingsPage() {
           `Importado: ${d.atualizadas} atualizada(s), ${d.novas} nova(s), ${d.semMudanca} sem mudança.`,
         );
         loadDiagnostics();
-        loadReprocess();
       }
     } catch (e) {
       setImpMsg(e instanceof Error ? e.message : "Falha na importação.");
@@ -292,10 +222,11 @@ export default function PaymentSettingsPage() {
               Importar histórico da SyncPay
             </p>
             <p className="mt-0.5 text-xs text-zinc-500">
-              No painel da SyncPay, gere <b>Exportação: Transaction</b> do período desejado e
-              envie o arquivo (PDF ou CSV) aqui. É de onde vêm o <b>valor da taxa</b> e o
-              <b> líquido</b> das vendas antigas. Os horários do arquivo estão em UTC e são
-              convertidos para o seu fuso.
+              O Financeiro já calcula taxa e líquido sozinho — a taxa da SyncPay é fixa
+              (R$&nbsp;0,80 até R$&nbsp;100; + 1,99% acima). Use a importação só quando quiser os
+              números exatos do painel dela, inclusive de vendas que nunca chegaram aqui: gere a
+              <b> Exportação: Transaction</b> do período e envie o arquivo (PDF ou CSV). Os
+              horários do arquivo estão em UTC e são convertidos para o seu fuso.
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <input
@@ -342,67 +273,6 @@ export default function PaymentSettingsPage() {
             {impMsg && <p className="mt-2 text-xs text-zinc-300">{impMsg}</p>}
           </div>
 
-          {/* Reprocessar vendas antigas: recupera no gateway o valor LÍQUIDO das
-              vendas registradas antes de o app passar a guardá-lo. */}
-          <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-                  Reconferir vendas antigas
-                </p>
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  Consulta cada venda na SyncPay e corrige o <b>status</b> e o <b>valor cheio</b>
-                  — útil quando algum webhook se perdeu.
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {repro === null ? (
-                  <button type="button" onClick={loadReprocess} className="btn-ghost px-3 py-1.5 text-xs">
-                    Verificar quantas
-                  </button>
-                ) : (
-                  <>
-                    <span className="font-mono text-[11px] text-zinc-500">
-                      {repro.pending} pendente(s)
-                    </span>
-                    <button
-                      type="button"
-                      onClick={runReprocess}
-                      disabled={reproRunning || repro.pending === 0}
-                      className="btn-primary px-3 py-1.5 text-xs"
-                    >
-                      {reproRunning ? "Reconferindo..." : "Reconferir agora"}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-            {reproMsg && <p className="mt-2 text-xs text-zinc-300">{reproMsg}</p>}
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <button type="button" onClick={runDiagnose} className="btn-ghost px-3 py-1.5 text-xs">
-                Testar com 1 venda
-              </button>
-              {diag && (
-                <button type="button" onClick={() => setDiag(null)} className="text-[11px] text-zinc-500 hover:text-white">
-                  limpar
-                </button>
-              )}
-            </div>
-            {diag && (
-              <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-white/10 bg-black/40 p-2 font-mono text-[10px] leading-relaxed text-zinc-400">
-                {diag}
-              </pre>
-            )}
-            <p className="mt-2 text-[11px] text-amber-400/80">
-              O <b>valor líquido</b> das vendas antigas não pode ser recuperado: a consulta da
-              SyncPay devolve só o valor cheio — o líquido (<span className="font-mono">final_amount</span>)
-              existe apenas no webhook. Da data do deploy em diante ele é gravado normalmente.
-            </p>
-            <p className="mt-1 text-[11px] text-zinc-600">
-              A SyncPay também não oferece listagem de vendas — a consulta é feita uma a uma,
-              pelo identificador que já temos. Vendas que nunca chegaram ao painel não aparecem.
-            </p>
-          </div>
         </div>
       </div>
 

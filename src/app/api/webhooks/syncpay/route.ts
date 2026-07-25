@@ -18,6 +18,41 @@ export const dynamic = "force-dynamic";
  *   "created_at", "updated_at" } }
  * status: pending | completed | failed | refunded | med
  */
+
+/** Campos onde os gateways costumam dizer que evento é este. */
+const CAMPOS_TIPO = [
+  "type", "event", "event_type", "eventType", "transaction_type", "transactionType",
+  "operation", "operation_type", "kind", "flow", "action", "movement", "category",
+];
+/** SAÍDA de dinheiro: saque, transferência, estorno. Nada disso é venda. */
+const EH_SAIDA = /cash.?out|saque|withdraw|payout|transfer|sa[ií]da|debit|d[eé]bito|estorno|refund|chargeback/i;
+
+/**
+ * O webhook da SyncPay é cadastrado POR CONTA, então ela manda por ele todo
+ * tipo de movimento — inclusive SAQUE (cash-out). Sem esta checagem um saque
+ * de R$ 273,61 entrava no Financeiro como venda paga e inflava o faturamento.
+ *
+ * A varredura é pelos campos de tipo em qualquer nível do payload, porque o
+ * nome varia (`type`, `event`, `transaction_type`…), mais uma rede de segurança
+ * para valor negativo — que também só existe em saída.
+ */
+function ehSaida(raiz: unknown): boolean {
+  const fila: unknown[] = [raiz];
+  let guard = 0;
+  while (fila.length > 0 && guard++ < 100) {
+    const no = fila.shift();
+    if (!no || typeof no !== "object") continue;
+    const obj = no as Record<string, unknown>;
+    for (const [k, v] of Object.entries(obj)) {
+      const chave = k.toLowerCase().replace(/[^a-z_]/g, "");
+      if (CAMPOS_TIPO.includes(chave) && typeof v === "string" && EH_SAIDA.test(v)) return true;
+      if (chave === "amount" && Number(v) < 0) return true;
+      if (v && typeof v === "object") fila.push(v);
+    }
+  }
+  return false;
+}
+
 export async function POST(req: NextRequest) {
   try {
     // Autenticidade do webhook: aceita o token gerenciado (o que a UI mostra
@@ -44,6 +79,11 @@ export async function POST(req: NextRequest) {
     const status = String(data.status || data.status_transaction || "");
     if (!providerRef || !status) {
       return NextResponse.json({ ok: true, ignored: true });
+    }
+
+    // Saque e afins: reconhece e descarta antes de encostar no banco.
+    if (ehSaida(body)) {
+      return NextResponse.json({ ok: true, ignored: true, reason: "movimento de saída" });
     }
 
     // A SyncPay manda os DOIS valores: `amount` é o valor CHEIO que o cliente

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { apiGet, apiSend } from "@/lib/api";
 import Modal from "@/components/Modal";
-import { IconPlus, IconSettings, IconPayments, IconCopy } from "@/components/icons";
+import { IconPlus, IconSettings, IconPayments, IconCopy, IconTrash } from "@/components/icons";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import type { Transaction, PeriodStats } from "@/lib/transactions";
 import type { Profile } from "@/lib/types";
@@ -82,6 +82,22 @@ export default function PaymentsPage() {
       .then((r) => setProfiles(r.profiles))
       .catch(() => {});
   }, []);
+
+  const [excluindo, setExcluindo] = useState<string | null>(null);
+
+  async function excluir(t: Transaction) {
+    const nome = t.customer || t.description || "esta cobrança";
+    if (!confirm(`Remover ${nome} de ${brl(t.amountCents)} do histórico? Isso não cancela nada na SyncPay.`)) return;
+    setExcluindo(t.id);
+    try {
+      await apiSend(`/api/payments/transactions/${t.id}`, "DELETE");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Falha ao remover.");
+    } finally {
+      setExcluindo(null);
+    }
+  }
 
   const anyProvider = data?.providers.syncpay.enabled;
   const periodLabel =
@@ -238,6 +254,7 @@ export default function PaymentsPage() {
                 <th className="p-3 w-24 text-right">Taxa</th>
                 <th className="p-3 w-24 text-right">Split</th>
                 <th className="p-3 w-28 text-right">Líquido</th>
+                <th className="p-3 w-10"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.04]">
@@ -305,6 +322,19 @@ export default function PaymentsPage() {
                     </td>
                     <td className={`p-3 text-right font-display font-semibold ${pago ? "text-emerald-400" : "text-zinc-600"}`}>
                       {liquido === undefined ? "—" : brl(liquido)}
+                    </td>
+                    {/* Remover: o webhook da SyncPay é por conta e traz
+                        movimento que não é venda (saque, por exemplo). */}
+                    <td className="p-3 text-right">
+                      <button
+                        type="button"
+                        title="Remover do histórico"
+                        onClick={() => excluir(t)}
+                        disabled={excluindo === t.id}
+                        className="text-zinc-700 transition-colors hover:text-red-400 disabled:opacity-40"
+                      >
+                        <IconTrash size={14} />
+                      </button>
                     </td>
                   </tr>
                 );

@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
     const stats = periodStatsInRange(since, until, profileId);
     const funnel = salesFunnel(since, until, profileId);
     const byProfile = revenueByProfile(since, until);
-    const series = revenueSeriesForRange(since, until, profileId);
+    const series = revenueSeriesForRange(period, since, until, profileId);
     const finance = getFinanceSettings();
     // Faturamento LÍQUIDO = soma do valor que o gateway repassa (já sem a taxa).
     // Antes este card era "lucro líquido" = faturamento - anúncios, o que

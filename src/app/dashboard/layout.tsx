@@ -71,6 +71,8 @@ const WHATSAPP_SUBSECTIONS: { label: string; href: string }[] = [
 const TELEGRAM_SUBSECTIONS: { label: string; href: string }[] = [
   { label: "Automação de postagens", href: "/dashboard/telegram" },
   { label: "Bot de vendas", href: "/dashboard/telegram/bot" },
+  { label: "Mailing", href: "/dashboard/telegram/mailing" },
+  { label: "Usuários", href: "/dashboard/telegram/usuarios" },
 ];
 
 const MEDIA_SUBSECTIONS: { label: string; href: string }[] = [

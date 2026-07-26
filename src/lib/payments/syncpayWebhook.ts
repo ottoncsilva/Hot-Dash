@@ -142,7 +142,25 @@ export async function processarWebhookSyncPay(
         const bot = getBotConfig(sub.botId);
         if (bot) {
           const { createTelegramInviteLink, sendTelegramMessage } = await import("@/lib/telegramApi");
-          const plan = sub.planId ? getPlan(sub.planId) : null;
+          // O que foi comprado: normalmente um plano do bot, mas a compra pode
+          // ter vindo de uma OFERTA DE MAILING — nome, preço e duração
+          // ajustados só para aquele disparo. Quando existe, ela manda.
+          const basePlan = sub.planId ? getPlan(sub.planId) : null;
+          let plan: { name: string; durationDays: number; kind: string; deliverable?: string } | null =
+            basePlan;
+          if (sub.offerId) {
+            const { getMailingOffer } = await import("@/lib/telegramMailing");
+            const offer = getMailingOffer(sub.offerId);
+            if (offer) {
+              plan = {
+                name: offer.name,
+                durationDays: offer.durationDays,
+                kind: offer.kind,
+                // Sem entregável próprio, herda o do plano de origem.
+                deliverable: offer.deliverable || basePlan?.deliverable,
+              };
+            }
+          }
           const isPackage = plan?.kind === "package";
 
           try {

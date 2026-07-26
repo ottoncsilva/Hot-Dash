@@ -70,10 +70,14 @@ async function telegramFormFetch(
 
 /**
  * Registra o webhook do bot apontando para o Hot-Dash. Passa `allowed_updates`
- * EXPLÍCITO — o Telegram NÃO entrega `chat_join_request` por padrão, e é ele
- * que dispara a aprovação automática nos grupos VIP/Prévias. O `secret_token`
- * (opcional) é devolvido pelo Telegram no header X-Telegram-Bot-Api-Secret-Token
- * de cada update, e o handler do webhook o valida.
+ * EXPLÍCITO — o Telegram NÃO entrega por padrão três tipos de que dependemos:
+ *   • `chat_join_request` dispara a aprovação automática nos grupos VIP/Prévias;
+ *   • `chat_member` avisa quem entrou/saiu dos grupos (monta a lista de
+ *     Usuários — um bot não pode consultar os membros de um grupo);
+ *   • `my_chat_member` avisa quando alguém bloqueia/desbloqueia o bot, que é o
+ *     que tira (e devolve) a pessoa dos disparos de mailing.
+ * O `secret_token` (opcional) é devolvido pelo Telegram no header
+ * X-Telegram-Bot-Api-Secret-Token de cada update, e o handler do webhook o valida.
  */
 export async function setTelegramWebhook(
   botToken: string,
@@ -82,7 +86,13 @@ export async function setTelegramWebhook(
 ): Promise<boolean> {
   return telegramFetch(botToken, "setWebhook", {
     url,
-    allowed_updates: ["message", "callback_query", "chat_join_request"],
+    allowed_updates: [
+      "message",
+      "callback_query",
+      "chat_join_request",
+      "chat_member",
+      "my_chat_member",
+    ],
     secret_token: secretToken || undefined,
     drop_pending_updates: false,
   });

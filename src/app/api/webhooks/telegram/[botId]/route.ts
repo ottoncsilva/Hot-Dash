@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBotConfig, listPlans, listCustomButtons, saveSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead } from "@/lib/telegramDb";
+import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup } from "@/lib/telegramUsers";
+import { getMailingOffer } from "@/lib/telegramMailing";
 import { sendTelegramMessage, sendTelegramMedia, sendTelegramPhotoBuffer, approveTelegramJoinRequest, declineTelegramJoinRequest, telegramWebhookSecret } from "@/lib/telegramApi";
 import QRCode from "qrcode";
 import { listMedia, getMediaRow } from "@/lib/media";
@@ -43,6 +45,54 @@ export async function POST(
       const { chat, text, from } = update.message;
       const isStart = typeof text === "string" && text.startsWith("/start");
 
+      // Qualquer mensagem no PRIVADO confirma que o bot pode falar com a
+      // pessoa — é o que a habilita a receber mailing. Nos GRUPOS, a mensagem
+      // serve para reconhecer quem já era membro antes de o painel existir
+      // (o Telegram não deixa um bot listar os membros de um grupo).
+      if (from && !from.is_bot) {
+        const isPrivate = chat?.type === "private";
+        const inVipGroup = String(chat?.id) === bot.idVip;
+        const inPreviasGroup = String(chat?.id) === bot.idAquecimento;
+        if (isPrivate || inVipGroup || inPreviasGroup) {
+          upsertTelegramUser({
+            botId: bot.id,
+            profileId: bot.profileId,
+            telegramUserId: from.id,
+            username: from.username,
+            firstName: from.first_name,
+            lastName: from.last_name,
+            chatId: isPrivate ? String(chat.id) : undefined,
+            canDm: isPrivate,
+            inVip: inVipGroup ? true : undefined,
+            inPrevias: inPreviasGroup ? true : undefined,
+            source: isPrivate ? "start" : "grupo",
+          });
+        }
+      }
+
+      // Entradas e saídas dos grupos chegam como mensagem de serviço.
+      const joinedGroup =
+        String(chat?.id) === bot.idVip ? "vip" : String(chat?.id) === bot.idAquecimento ? "previas" : null;
+      if (joinedGroup && Array.isArray(update.message.new_chat_members)) {
+        for (const member of update.message.new_chat_members) {
+          if (member?.is_bot) continue;
+          upsertTelegramUser({
+            botId: bot.id,
+            profileId: bot.profileId,
+            telegramUserId: member.id,
+            username: member.username,
+            firstName: member.first_name,
+            lastName: member.last_name,
+            inVip: joinedGroup === "vip" ? true : undefined,
+            inPrevias: joinedGroup === "previas" ? true : undefined,
+            source: joinedGroup === "vip" ? "vip" : "previas",
+          });
+        }
+      }
+      if (joinedGroup && update.message.left_chat_member && !update.message.left_chat_member.is_bot) {
+        setTelegramUserGroup(bot.id, update.message.left_chat_member.id, joinedGroup, false);
+      }
+
       if (isStart && from) {
         // Deep-link de divulgação: t.me/<bot>?start=CODIGO chega como
         // "/start CODIGO". É o que liga a venda à origem do tráfego.
@@ -58,6 +108,22 @@ export async function POST(
           createdAt: Date.now(),
           sourceCode: sourceCode || undefined,
         });
+        // O mesmo código de origem também fica no usuário, para a lista mostrar
+        // por qual link cada pessoa chegou.
+        if (sourceCode) {
+          upsertTelegramUser({
+            botId: bot.id,
+            profileId: bot.profileId,
+            telegramUserId: from.id,
+            username: from.username,
+            firstName: from.first_name,
+            lastName: from.last_name,
+            chatId: String(chat.id),
+            canDm: true,
+            source: "start",
+            sourceCode,
+          });
+        }
 
         const plans = listPlans(bot.id);
         const customButtons = listCustomButtons(bot.id);
@@ -131,20 +197,47 @@ export async function POST(
     if (update.callback_query) {
       const { id, data, from, message } = update.callback_query;
 
-      if (typeof data === "string" && data.startsWith("buy_plan_")) {
-        const parts = data.replace("buy_plan_", "").split("_");
-        const planId = parts[0];
-        const discountPercent = parseInt(parts[1]) || 0;
+      const isPlanBuy = typeof data === "string" && data.startsWith("buy_plan_");
+      // Oferta de um MAILING: mesmo fluxo do plano, mas com nome/preço/duração
+      // ajustados só para aquele disparo (o plano original fica intacto).
+      const isOfferBuy = typeof data === "string" && data.startsWith("buy_offer_");
 
-        const plan = getPlan(planId);
+      if (isPlanBuy || isOfferBuy) {
+        let planId = "";
+        let offerId = "";
+        let itemName = "";
+        let basePriceCents = 0;
+        let discountPercent = 0;
 
-        if (!plan) {
-          await sendTelegramMessage(
-            bot.botToken,
-            String(message.chat.id),
-            "⚠️ Plano não encontrado ou inativo."
-          );
-          return NextResponse.json({ ok: true });
+        if (isPlanBuy) {
+          const parts = data.replace("buy_plan_", "").split("_");
+          planId = parts[0];
+          discountPercent = parseInt(parts[1]) || 0;
+          const plan = getPlan(planId);
+          if (!plan) {
+            await sendTelegramMessage(
+              bot.botToken,
+              String(message.chat.id),
+              "⚠️ Plano não encontrado ou inativo."
+            );
+            return NextResponse.json({ ok: true });
+          }
+          itemName = plan.name;
+          basePriceCents = plan.priceCents;
+        } else {
+          offerId = data.replace("buy_offer_", "");
+          const offer = getMailingOffer(offerId);
+          if (!offer) {
+            await sendTelegramMessage(
+              bot.botToken,
+              String(message.chat.id),
+              "⚠️ Esta oferta não está mais disponível."
+            );
+            return NextResponse.json({ ok: true });
+          }
+          planId = offer.planId || "";
+          itemName = offer.name;
+          basePriceCents = offer.priceCents;
         }
 
         const provider = activeProvider();
@@ -164,7 +257,7 @@ export async function POST(
           "⏳ Gerando cobrança PIX..."
         );
 
-        let amountCents = plan.priceCents;
+        let amountCents = basePriceCents;
         if (discountPercent > 0 && discountPercent <= 100) {
           amountCents = Math.floor(amountCents * (1 - discountPercent / 100));
         }
@@ -180,7 +273,7 @@ export async function POST(
         // Cria cobrança PIX no SyncPay
         const charge = await provider.createPixCharge({
           amountCents,
-          description: `Assinatura ${plan.name}`,
+          description: `Assinatura ${itemName}`,
           postbackUrl,
           customer: {
             name: from.first_name + (from.last_name ? ` ${from.last_name}` : ""),
@@ -196,7 +289,7 @@ export async function POST(
           provider: provider.key,
           providerRef: charge.providerRef,
           profileId: bot.profileId,
-          description: `Assinatura Telegram - ${plan.name}`,
+          description: `Assinatura Telegram - ${itemName}`,
           customer: from.first_name,
           amountCents,
           status: "pending",
@@ -213,20 +306,21 @@ export async function POST(
           await sendPushEvent(
             "pix",
             `⏳ Pix gerado — ${valStr}`,
-            `${plan.name} · ${from.first_name} (bot de vendas)`,
+            `${itemName} · ${from.first_name} (bot de vendas)`,
             "/dashboard/payments",
           );
         } catch (pErr) {
           console.error("Erro ao enviar push de Pix gerado:", pErr);
         }
 
-        // Registra inscrição pendente (guarda planId p/ resolver duração e
-        // entregável na confirmação do pagamento).
+        // Registra inscrição pendente (guarda planId/offerId p/ resolver
+        // duração e entregável na confirmação do pagamento).
         saveSubscription({
           id: randomUUID(),
           botId: bot.id,
           transactionId: tx.id,
-          planId: plan.id,
+          planId: planId || undefined,
+          offerId: offerId || undefined,
           telegramUserId: from.id,
           telegramUsername: from.username || undefined,
           status: "pending",
@@ -264,6 +358,20 @@ export async function POST(
       const { chat, from } = update.chat_join_request;
       const chatId = String(chat.id);
 
+      // Quem pede entrada entra na lista de usuários mesmo que seja recusado —
+      // é um contato conhecido da operação.
+      if (chatId === bot.idVip || chatId === bot.idAquecimento) {
+        upsertTelegramUser({
+          botId: bot.id,
+          profileId: bot.profileId,
+          telegramUserId: from.id,
+          username: from.username,
+          firstName: from.first_name,
+          lastName: from.last_name,
+          source: chatId === bot.idVip ? "vip" : "previas",
+        });
+      }
+
       if (chatId === bot.idVip) {
         // VIP: só entra quem tem assinatura ativa (pagou).
         const activeSub = findActiveSubscription(bot.id, from.id);
@@ -284,6 +392,42 @@ export async function POST(
           const msg = bot.previewsWelcomeMessage.replace(/{nome}/gi, from.first_name || "linda(o)");
           await sendTelegramMessage(bot.botToken, String(from.id), msg).catch(() => {});
         }
+      }
+    }
+
+    // ---- Entrada/saída confirmada nos grupos (chat_member) ----
+    // É o evento completo: cobre quem entrou por link direto, foi adicionado
+    // por um admin ou saiu por conta própria — casos que a mensagem de serviço
+    // nem sempre traz.
+    if (update.chat_member) {
+      const { chat, new_chat_member: member } = update.chat_member;
+      const chatId = String(chat?.id);
+      const group = chatId === bot.idVip ? "vip" : chatId === bot.idAquecimento ? "previas" : null;
+      const user = member?.user;
+      if (group && user && !user.is_bot) {
+        const isMember = ["member", "administrator", "creator", "restricted"].includes(member.status);
+        upsertTelegramUser({
+          botId: bot.id,
+          profileId: bot.profileId,
+          telegramUserId: user.id,
+          username: user.username,
+          firstName: user.first_name,
+          lastName: user.last_name,
+          inVip: group === "vip" ? isMember : undefined,
+          inPrevias: group === "previas" ? isMember : undefined,
+          source: group,
+        });
+      }
+    }
+
+    // ---- Bloqueio/desbloqueio do bot (my_chat_member no privado) ----
+    // "kicked" no chat privado é o Telegram dizendo que a pessoa bloqueou o
+    // bot: ela sai dos disparos e volta sozinha se desbloquear.
+    if (update.my_chat_member && update.my_chat_member.chat?.type === "private") {
+      const status = update.my_chat_member.new_chat_member?.status;
+      const user = update.my_chat_member.from;
+      if (user && (status === "kicked" || status === "member")) {
+        setTelegramUserBlocked(bot.id, user.id, status === "kicked");
       }
     }
 

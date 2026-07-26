@@ -20,8 +20,26 @@ import {
   unbanTelegramMember,
   createTelegramInviteLink,
 } from "@/lib/telegramApi";
+import {
+  listAudienceRecipients,
+  getTelegramUsersByIds,
+  setTelegramUserBlocked,
+} from "@/lib/telegramUsers";
+import {
+  listDueMailings,
+  getMailing,
+  enqueueMailing,
+  nextQueueBatch,
+  markQueueItem,
+  pendingQueueCount,
+  updateMailingStatus,
+  computeNextRunAt,
+  renderMailingText,
+  type Mailing,
+} from "@/lib/telegramMailing";
 import { updatePost } from "@/lib/posts";
 import { listMedia, getMediaRow } from "@/lib/media";
+import { getProfile } from "@/lib/profiles";
 import { DEFAULT_CTA_BUTTONS, pickCtaButtonText, CTA_BUTTON_MAX } from "@/lib/postTypes";
 
 /**
@@ -398,6 +416,8 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
           id: row.id,
           botId: row.bot_id,
           transactionId: row.transaction_id || undefined,
+          planId: row.plan_id || undefined,
+          offerId: row.offer_id || undefined,
           telegramUserId: row.telegram_user_id,
           telegramUsername: row.telegram_username || undefined,
           inviteLink: row.invite_link || undefined,
@@ -438,7 +458,189 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
 }
 
 // ---------------------------------------------------------------------------
-// 3) EXPIRAÇÃO — remove do VIP quem venceu e reconduz ao grupo de prévias
+// 3) MAILING — disparo de mensagem em massa para os usuários do bot
+// ---------------------------------------------------------------------------
+
+/**
+ * Quantas mensagens saem por ciclo (o agendador roda de minuto em minuto) e o
+ * intervalo entre elas. O Telegram tolera ~30 mensagens por segundo no total;
+ * 50 ms entre envios (20/s) deixa folga para o bot seguir atendendo /start e
+ * pagamentos enquanto o disparo acontece. Com 300 por ciclo, uma base de mil
+ * pessoas leva ~4 minutos — e a fila garante que um restart no meio retome de
+ * onde parou em vez de mandar tudo de novo.
+ */
+const MAILING_BATCH = 300;
+const MAILING_DELAY_MS = 50;
+/** Limite de legenda de mídia do Telegram (a mensagem de texto vai a 4096). */
+const CAPTION_MAX = 1024;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Classifica a recusa do Telegram: bloqueio do usuário ≠ falha de envio. */
+function classifySendError(err: unknown): { kind: "blocked" | "failed" | "flood"; message: string } {
+  const message = err instanceof Error ? err.message : String(err);
+  const m = message.toLowerCase();
+  if (m.includes("too many requests") || m.includes("retry after")) {
+    return { kind: "flood", message };
+  }
+  if (
+    m.includes("bot was blocked by the user") ||
+    m.includes("user is deactivated") ||
+    m.includes("chat not found") ||
+    m.includes("bot can't initiate conversation") ||
+    m.includes("peer_id_invalid")
+  ) {
+    return { kind: "blocked", message };
+  }
+  return { kind: "failed", message };
+}
+
+/** Botões do disparo: ofertas (compra) + links personalizados. */
+function buildMailingMarkup(mailing: Mailing) {
+  const rows: { text: string; url?: string; callback_data?: string }[][] = [];
+  for (const offer of mailing.offers) {
+    const priceStr = (offer.priceCents / 100).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
+    rows.push([{ text: `${offer.name} - ${priceStr}`, callback_data: `buy_offer_${offer.id}` }]);
+  }
+  for (const btn of mailing.buttons) {
+    if (btn.text.trim() && btn.url.trim()) rows.push([{ text: btn.text, url: btn.url }]);
+  }
+  return rows.length > 0 ? { inline_keyboard: rows } : undefined;
+}
+
+/** Uma mídia aleatória entre as que têm as etiquetas escolhidas (se houver). */
+function pickMailingMedia(profileId: string, mediaTags?: string): string | null {
+  const tags = (mediaTags || "")
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
+  if (tags.length === 0) return null;
+  const candidates = listMedia(profileId).filter((m) =>
+    m.tags.some((t) => tags.includes(t.name.toLowerCase())),
+  );
+  if (candidates.length === 0) return null;
+  const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+  const row = getMediaRow(chosen.id);
+  return row ? row.path : null;
+}
+
+export async function runTelegramMailings(): Promise<{ sent: number; failed: number }> {
+  const due = listDueMailings();
+  let sent = 0;
+  let failed = 0;
+
+  for (const mailing of due) {
+    const bot = getBotConfig(mailing.botId);
+    if (!bot || !bot.botToken) continue;
+
+    // 1) Agendado cujo horário chegou → monta a fila desta rodada.
+    if (mailing.status === "scheduled") {
+      const recipients = listAudienceRecipients(mailing.botId, mailing.audiences);
+      if (recipients.length === 0) {
+        // Nada a enviar agora: reagenda (ou encerra, se era de uma vez só).
+        const next = computeNextRunAt(mailing);
+        updateMailingStatus(mailing.id, next ? "scheduled" : "sent", next ?? null);
+        continue;
+      }
+      enqueueMailing(mailing.id, recipients);
+    }
+
+    // 2) Drena um lote da fila.
+    const batch = nextQueueBatch(mailing.id, MAILING_BATCH);
+    if (batch.length > 0) {
+      const profile = await getProfile(mailing.profileId);
+      const users = getTelegramUsersByIds(
+        mailing.botId,
+        batch.map((b) => b.telegramUserId),
+      );
+      const replyMarkup = buildMailingMarkup(mailing);
+      const mediaPath = pickMailingMedia(mailing.profileId, mailing.mediaTags);
+
+      for (const item of batch) {
+        const user = users.get(item.telegramUserId);
+        const text = renderMailingText(
+          mailing.message,
+          {
+            firstName: user?.firstName,
+            lastName: user?.lastName,
+            username: user?.username,
+            telegramUserId: item.telegramUserId,
+          },
+          { profileName: profile?.name, botUsername: bot.botUsername },
+        );
+
+        try {
+          if (mediaPath && text.length > CAPTION_MAX) {
+            // Legenda de mídia no Telegram vai até 1024 caracteres (a mensagem
+            // de texto vai a 4096). Texto longo com mídia sai em duas partes,
+            // com os botões na segunda — senão o envio inteiro seria recusado.
+            await sendTelegramMedia(bot.botToken, item.chatId, mediaPath, undefined);
+            await sendTelegramMessage(bot.botToken, item.chatId, text, {
+              reply_markup: replyMarkup,
+            });
+          } else if (mediaPath) {
+            await sendTelegramMedia(bot.botToken, item.chatId, mediaPath, text, {
+              reply_markup: replyMarkup,
+            });
+          } else {
+            await sendTelegramMessage(bot.botToken, item.chatId, text, {
+              reply_markup: replyMarkup,
+            });
+          }
+          markQueueItem(item.id, mailing.id, "sent");
+          sent++;
+        } catch (err) {
+          const { kind, message } = classifySendError(err);
+          if (kind === "flood") {
+            // Limite do Telegram: para o lote e tenta de novo no próximo ciclo,
+            // deixando os itens restantes como pendentes.
+            console.warn(`[hotdash] mailing ${mailing.id} pausado por flood control: ${message}`);
+            break;
+          }
+          if (kind === "blocked") {
+            setTelegramUserBlocked(mailing.botId, item.telegramUserId, true);
+            markQueueItem(item.id, mailing.id, "blocked", message);
+          } else {
+            markQueueItem(item.id, mailing.id, "failed", message);
+            failed++;
+          }
+        }
+        await sleep(MAILING_DELAY_MS);
+      }
+    }
+
+    // 3) Fila vazia → encerra ou reagenda a próxima rodada.
+    if (pendingQueueCount(mailing.id) === 0) {
+      // Recarrega para o resumo sair com os contadores desta rodada.
+      const fresh = getMailing(mailing.id);
+      const next = computeNextRunAt(mailing);
+      updateMailingStatus(mailing.id, next ? "scheduled" : "sent", next ?? null);
+
+      try {
+        const { sendPushEvent } = await import("@/lib/push");
+        const s = fresh?.sentCount ?? 0;
+        const f = fresh?.failedCount ?? 0;
+        const b = fresh?.blockedCount ?? 0;
+        await sendPushEvent(
+          "mailing",
+          `📣 Mailing enviado — ${s} mensagem(ns)`,
+          `${mailing.name}${f ? ` · ${f} falha(s)` : ""}${b ? ` · ${b} bloqueado(s)` : ""}`,
+          "/dashboard/telegram/mailing",
+        );
+      } catch (pErr) {
+        console.error("Erro ao enviar push de mailing:", pErr);
+      }
+    }
+  }
+
+  return { sent, failed };
+}
+
+// ---------------------------------------------------------------------------
+// 4) EXPIRAÇÃO — remove do VIP quem venceu e reconduz ao grupo de prévias
 // ---------------------------------------------------------------------------
 
 export async function runTelegramEviction(): Promise<number> {
@@ -469,6 +671,8 @@ export async function runTelegramEviction(): Promise<number> {
         id: row.id,
         botId: row.bot_id,
         transactionId: row.transaction_id || undefined,
+        planId: row.plan_id || undefined,
+        offerId: row.offer_id || undefined,
         telegramUserId: row.telegram_user_id,
         telegramUsername: row.telegram_username || undefined,
         inviteLink: row.invite_link || undefined,

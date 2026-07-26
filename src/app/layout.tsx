@@ -44,8 +44,10 @@ export const viewport: Viewport = {
   themeColor: "#070708",
   width: "device-width",
   initialScale: 1,
-  // Zoom liberado (acessibilidade) — antes estava travado com
-  // maximumScale/userScalable, o que impedia ampliar a tela.
+  // Zoom travado: no iPhone (Safari/PWA) dava para dar pinch-zoom na tela,
+  // o que quebra a sensação de app nativo.
+  maximumScale: 1,
+  userScalable: false,
   viewportFit: "cover",
 };
 

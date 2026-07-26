@@ -149,3 +149,9 @@ export function formatDayLabel(atUtcMs: number, tz: string = DEFAULT_TIME_ZONE):
   const p = partsInTimeZone(atUtcMs, tz);
   return `${String(p.day).padStart(2, "0")}/${String(p.month).padStart(2, "0")}`;
 }
+
+/** Rótulo curto "HHh" da hora, no fuso (gráfico do painel quando o período é 1 dia só). */
+export function formatHourLabel(atUtcMs: number, tz: string = DEFAULT_TIME_ZONE): string {
+  const p = partsInTimeZone(atUtcMs, tz);
+  return `${String(p.hour).padStart(2, "0")}h`;
+}

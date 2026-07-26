@@ -3,9 +3,11 @@ import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
 import { getAppTimeZone } from "./settings";
 import { syncPayFeeCents } from "./payments/syncpayExport";
+import type { PeriodKey } from "./periods";
 import {
   addDaysInTimeZone,
   formatDayLabel,
+  formatHourLabel,
   partsInTimeZone,
   startOfDayInTimeZone,
   zonedWallTimeToUtcMs,
@@ -623,14 +625,18 @@ export function revenueSeriesForDays(days: number, profileId?: string): { day: s
 }
 
 /**
- * Série diária do gráfico para um intervalo já resolvido.
+ * Série do gráfico "faturamento por período" para um intervalo já resolvido.
  *
- * Regra: o gráfico cobre o período escolhido, mas nunca menos de 7 dias — com
- * "Hoje" um gráfico de um ponto só não diz nada, e ver a semana em volta dá o
- * contexto. Teto de 92 dias para o eixo não virar um borrão (e "Máximo" cair
- * nos últimos 30, como antes).
+ * A granularidade acompanha o período escolhido em vez de sempre ser diária:
+ *  - um dia só (Hoje, Ontem, ou uma única data no seletor) → por HORA;
+ *  - "Esta semana" → segunda a domingo inteiros (7 pontos, dias futuros com zero);
+ *  - "Este mês" → dia 1 ao último dia do mês (idem);
+ *  - "Máximo" (sem início) → últimos 30 dias, como antes;
+ *  - qualquer outro intervalo (últimos 7/30 dias, datas escolhidas à mão) →
+ *    exatamente os dias do intervalo, sem completar para trás.
  */
 export function revenueSeriesForRange(
+  period: PeriodKey,
   sinceMs: number | null,
   untilMs: number | null,
   profileId?: string,
@@ -638,14 +644,50 @@ export function revenueSeriesForRange(
   const tz = getAppTimeZone();
   if (sinceMs === null) return revenueSeriesForDays(30, profileId);
 
+  if (period === "thisWeek") return seriesBetween(sinceMs, 7, profileId);
+  if (period === "thisMonth") return seriesBetween(sinceMs, daysInMonth(sinceMs, tz), profileId);
+  if (isSingleDayRange(sinceMs, untilMs, tz)) return hourlySeriesForDay(sinceMs, profileId);
+
   const inicio = startOfDayInTimeZone(sinceMs, tz);
   // `until` é exclusivo: o último dia mostrado é o anterior a ele.
   const fim = startOfDayInTimeZone(untilMs === null ? Date.now() : untilMs - 1, tz);
   const dias = Math.round((fim - inicio) / 86_400_000) + 1;
-  const total = Math.min(92, Math.max(7, dias));
-  // Quando o período é curto, completa para trás a partir do último dia dele.
-  const primeiro = addDaysInTimeZone(fim, -(total - 1), tz);
-  return seriesBetween(primeiro, total, profileId);
+  return seriesBetween(inicio, Math.min(92, Math.max(1, dias)), profileId);
+}
+
+/** O período resolvido cobre um único dia de parede? (Hoje, Ontem, ou uma
+ *  data só escolhida à mão) — nesses casos o gráfico vira por hora. */
+function isSingleDayRange(sinceMs: number, untilMs: number | null, tz: string): boolean {
+  if (untilMs !== null) return untilMs - sinceMs === 86_400_000;
+  return sinceMs === startOfDayInTimeZone(Date.now(), tz);
+}
+
+/** Quantidade de dias do mês (de parede) que contém `monthStartMs`. */
+function daysInMonth(monthStartMs: number, tz: string): number {
+  const p = partsInTimeZone(monthStartMs, tz);
+  return new Date(Date.UTC(p.year, p.month, 0)).getUTCDate();
+}
+
+/** Série por hora (24 pontos) de um único dia — usada quando o período
+ *  resolvido é Hoje, Ontem ou uma data única do seletor. */
+function hourlySeriesForDay(dayStartMs: number, profileId?: string): { day: string; cents: number }[] {
+  const db = getDb();
+  const tz = getAppTimeZone();
+  const out: { day: string; cents: number }[] = [];
+  for (let h = 0; h < 24; h++) {
+    const hourStart = dayStartMs + h * 3_600_000;
+    const hourEnd = hourStart + 3_600_000;
+    const params: (string | number)[] = [hourStart, hourEnd];
+    let sql =
+      "SELECT COALESCE(SUM(amount_cents),0) s FROM transactions WHERE status = 'paid' AND created_at >= ? AND created_at < ?";
+    if (profileId) {
+      sql += " AND profile_id = ?";
+      params.push(profileId);
+    }
+    const r = db.prepare(sql).get(...params) as { s: number };
+    out.push({ day: formatHourLabel(hourStart, tz), cents: r.s });
+  }
+  return out;
 }
 
 function seriesBetween(

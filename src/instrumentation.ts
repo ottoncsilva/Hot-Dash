@@ -27,6 +27,7 @@ export async function register() {
     const {
       runTelegramAutopost,
       runTelegramFunnels,
+      runTelegramMailings,
       runTelegramEviction,
     } = await import("@/lib/telegramCron");
 
@@ -54,6 +55,12 @@ export async function register() {
           await runTelegramFunnels();
         } catch (err) {
           console.error("[hotdash] Erro no cron (funis Telegram):", err);
+        }
+        try {
+          const { sent } = await runTelegramMailings();
+          if (sent > 0) console.log(`[hotdash] mailing Telegram: ${sent} mensagem(ns) enviadas.`);
+        } catch (err) {
+          console.error("[hotdash] Erro no cron (mailing Telegram):", err);
         }
         try {
           await runTelegramEviction();

@@ -7,7 +7,7 @@
  * no ponto que dispara — a preferência passa a valer sozinha.
  */
 
-export type PushEventType = "sale" | "pix" | "scheduleReminder" | "telegramPost";
+export type PushEventType = "sale" | "pix" | "scheduleReminder" | "telegramPost" | "mailing";
 
 export type PushEventDef = {
   id: PushEventType;
@@ -45,6 +45,13 @@ export const PUSH_EVENTS: PushEventDef[] = [
     description:
       "Quando a automação publica no VIP ou nas Prévias. Avisa também se algum envio falhar.",
     defaultOn: false,
+  },
+  {
+    id: "mailing",
+    label: "Mailing",
+    description:
+      "Ao terminar um disparo em massa, com quantas mensagens saíram, falharam e quantos bloquearam o bot.",
+    defaultOn: true,
   },
 ];
 

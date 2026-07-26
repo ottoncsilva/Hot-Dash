@@ -37,6 +37,8 @@ export type TelegramSubscription = {
   botId: string;
   transactionId?: string;
   planId?: string;
+  /** Oferta de um MAILING (nome/preço/duração só daquele disparo), se veio de lá. */
+  offerId?: string;
   telegramUserId: number;
   telegramUsername?: string;
   inviteLink?: string;
@@ -188,15 +190,13 @@ export function deletePlan(id: string): void {
   getDb().prepare("DELETE FROM telegram_plans WHERE id = ?").run(id);
 }
 
-export function listSubscriptions(botId: string): TelegramSubscription[] {
-  const rows = getDb()
-    .prepare("SELECT * FROM telegram_subscriptions WHERE bot_id = ? ORDER BY created_at DESC")
-    .all(botId) as any[];
-  return rows.map((r) => ({
+function toSubscription(r: any): TelegramSubscription {
+  return {
     id: r.id,
     botId: r.bot_id,
     transactionId: r.transaction_id || undefined,
     planId: r.plan_id || undefined,
+    offerId: r.offer_id || undefined,
     telegramUserId: r.telegram_user_id,
     telegramUsername: r.telegram_username || undefined,
     inviteLink: r.invite_link || undefined,
@@ -205,26 +205,19 @@ export function listSubscriptions(botId: string): TelegramSubscription[] {
     lastUpsellAt: r.last_upsell_at || undefined,
     upsellStepIndex: r.upsell_step_index,
     createdAt: r.created_at,
-  }));
+  };
+}
+
+export function listSubscriptions(botId: string): TelegramSubscription[] {
+  const rows = getDb()
+    .prepare("SELECT * FROM telegram_subscriptions WHERE bot_id = ? ORDER BY created_at DESC")
+    .all(botId) as any[];
+  return rows.map(toSubscription);
 }
 
 export function getSubscription(id: string): TelegramSubscription | null {
   const row = getDb().prepare("SELECT * FROM telegram_subscriptions WHERE id = ?").get(id) as any;
-  if (!row) return null;
-  return {
-    id: row.id,
-    botId: row.bot_id,
-    transactionId: row.transaction_id || undefined,
-    planId: row.plan_id || undefined,
-    telegramUserId: row.telegram_user_id,
-    telegramUsername: row.telegram_username || undefined,
-    inviteLink: row.invite_link || undefined,
-    status: row.status,
-    expiresAt: row.expires_at,
-    lastUpsellAt: row.last_upsell_at || undefined,
-    upsellStepIndex: row.upsell_step_index,
-    createdAt: row.created_at,
-  };
+  return row ? toSubscription(row) : null;
 }
 
 export function findActiveSubscription(botId: string, telegramUserId: number): TelegramSubscription | null {
@@ -233,48 +226,20 @@ export function findActiveSubscription(botId: string, telegramUserId: number): T
       "SELECT * FROM telegram_subscriptions WHERE bot_id = ? AND telegram_user_id = ? AND status = 'active'"
     )
     .get(botId, telegramUserId) as any;
-  if (!row) return null;
-  return {
-    id: row.id,
-    botId: row.bot_id,
-    transactionId: row.transaction_id || undefined,
-    planId: row.plan_id || undefined,
-    telegramUserId: row.telegram_user_id,
-    telegramUsername: row.telegram_username || undefined,
-    inviteLink: row.invite_link || undefined,
-    status: row.status,
-    expiresAt: row.expires_at,
-    lastUpsellAt: row.last_upsell_at || undefined,
-    upsellStepIndex: row.upsell_step_index,
-    createdAt: row.created_at,
-  };
+  return row ? toSubscription(row) : null;
 }
 
 export function findSubscriptionByTransaction(transactionId: string): TelegramSubscription | null {
   const row = getDb()
     .prepare("SELECT * FROM telegram_subscriptions WHERE transaction_id = ?")
     .get(transactionId) as any;
-  if (!row) return null;
-  return {
-    id: row.id,
-    botId: row.bot_id,
-    transactionId: row.transaction_id || undefined,
-    planId: row.plan_id || undefined,
-    telegramUserId: row.telegram_user_id,
-    telegramUsername: row.telegram_username || undefined,
-    inviteLink: row.invite_link || undefined,
-    status: row.status,
-    expiresAt: row.expires_at,
-    lastUpsellAt: row.last_upsell_at || undefined,
-    upsellStepIndex: row.upsell_step_index,
-    createdAt: row.created_at,
-  };
+  return row ? toSubscription(row) : null;
 }
 
 export function saveSubscription(sub: TelegramSubscription): void {
   getDb().prepare(
-    `INSERT INTO telegram_subscriptions (id, bot_id, transaction_id, plan_id, telegram_user_id, telegram_username, invite_link, status, expires_at, last_upsell_at, upsell_step_index, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_subscriptions (id, bot_id, transaction_id, plan_id, offer_id, telegram_user_id, telegram_username, invite_link, status, expires_at, last_upsell_at, upsell_step_index, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        status = excluded.status,
        expires_at = excluded.expires_at,
@@ -282,12 +247,14 @@ export function saveSubscription(sub: TelegramSubscription): void {
        telegram_username = excluded.telegram_username,
        last_upsell_at = excluded.last_upsell_at,
        upsell_step_index = excluded.upsell_step_index,
-       plan_id = excluded.plan_id`
+       plan_id = excluded.plan_id,
+       offer_id = excluded.offer_id`
   ).run(
     sub.id,
     sub.botId,
     sub.transactionId || null,
     sub.planId || null,
+    sub.offerId || null,
     sub.telegramUserId,
     sub.telegramUsername || null,
     sub.inviteLink || null,

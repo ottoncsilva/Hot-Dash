@@ -269,6 +269,95 @@ function migrate(d: Database.Database) {
       FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
     );
 
+    -- Lista de USUÁRIOS do bot (tela Telegram → Usuários). Reúne num lugar só
+    -- quem deu /start no bot e quem entrou nos grupos VIP/Prévias. O Telegram
+    -- não deixa um bot listar membros de um grupo: a lista é montada pelos
+    -- eventos que chegam no webhook (start, pedido de entrada, entrada/saída,
+    -- bloqueio) — por isso ela cresce com o uso, não de uma vez só.
+    CREATE TABLE IF NOT EXISTS telegram_users (
+      id                  TEXT PRIMARY KEY,  -- bot_id + "_" + telegram_user_id
+      bot_id              TEXT NOT NULL,
+      profile_id          TEXT NOT NULL,
+      telegram_user_id    INTEGER NOT NULL,
+      username            TEXT,
+      first_name          TEXT,
+      last_name           TEXT,
+      -- Chat PRIVADO com o bot (só existe depois do /start). Sem ele o Telegram
+      -- proíbe o envio: é o que separa quem pode receber mailing de quem não pode.
+      chat_id             TEXT,
+      can_dm              INTEGER NOT NULL DEFAULT 0,
+      blocked             INTEGER NOT NULL DEFAULT 0,
+      in_vip              INTEGER NOT NULL DEFAULT 0,
+      in_previas          INTEGER NOT NULL DEFAULT 0,
+      source              TEXT,
+      source_code         TEXT,
+      last_interaction_at INTEGER,
+      created_at          INTEGER NOT NULL,
+      UNIQUE (bot_id, telegram_user_id),
+      FOREIGN KEY (bot_id) REFERENCES telegram_bots(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_telegram_users_bot ON telegram_users(bot_id);
+
+    -- Disparos de mensagem em massa (tela Telegram → Mailing).
+    CREATE TABLE IF NOT EXISTS telegram_mailings (
+      id                TEXT PRIMARY KEY,
+      bot_id            TEXT NOT NULL,
+      profile_id        TEXT NOT NULL,
+      name              TEXT NOT NULL,
+      message           TEXT NOT NULL DEFAULT '',
+      audiences         TEXT NOT NULL DEFAULT 'todos', -- lista separada por vírgula
+      media_tags        TEXT,
+      buttons           TEXT,                          -- JSON [{text,url}]
+      schedule_type     TEXT NOT NULL DEFAULT 'once',  -- once|daily|interval|weekdays
+      schedule_times    TEXT,                          -- "09:00,18:00"
+      schedule_weekdays TEXT,                          -- "1,3,5" (0=domingo)
+      interval_hours    INTEGER,
+      scheduled_at      INTEGER,                       -- 'once': quando disparar
+      status            TEXT NOT NULL DEFAULT 'draft', -- draft|scheduled|sending|sent|paused
+      last_run_at       INTEGER,
+      next_run_at       INTEGER,
+      total_recipients  INTEGER NOT NULL DEFAULT 0,
+      sent_count        INTEGER NOT NULL DEFAULT 0,
+      failed_count      INTEGER NOT NULL DEFAULT 0,
+      blocked_count     INTEGER NOT NULL DEFAULT 0,
+      created_at        INTEGER NOT NULL,
+      FOREIGN KEY (bot_id) REFERENCES telegram_bots(id) ON DELETE CASCADE
+    );
+
+    -- Ofertas do disparo: um plano existente com nome/preço/duração ajustados
+    -- SÓ para este mailing (o plano original continua intacto).
+    CREATE TABLE IF NOT EXISTS telegram_mailing_offers (
+      id            TEXT PRIMARY KEY,
+      mailing_id    TEXT NOT NULL,
+      plan_id       TEXT,
+      name          TEXT NOT NULL,
+      price_cents   INTEGER NOT NULL,
+      duration_days INTEGER NOT NULL DEFAULT 30,
+      kind          TEXT NOT NULL DEFAULT 'subscription',
+      deliverable   TEXT,
+      sort_order    INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (mailing_id) REFERENCES telegram_mailings(id) ON DELETE CASCADE
+    );
+
+    -- Fila de envio: o disparo é gravado inteiro aqui e drenado aos poucos pelo
+    -- agendador. É o que dá retomada (um restart no meio não perde o disparo),
+    -- limite de velocidade e a contagem real de enviados/falhos/bloqueados.
+    CREATE TABLE IF NOT EXISTS telegram_mailing_queue (
+      id               TEXT PRIMARY KEY,
+      mailing_id       TEXT NOT NULL,
+      telegram_user_id INTEGER NOT NULL,
+      chat_id          TEXT NOT NULL,
+      status           TEXT NOT NULL DEFAULT 'pending', -- pending|sent|failed|blocked
+      error            TEXT,
+      created_at       INTEGER NOT NULL,
+      sent_at          INTEGER,
+      FOREIGN KEY (mailing_id) REFERENCES telegram_mailings(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tg_mailing_queue
+      ON telegram_mailing_queue(mailing_id, status);
+
     CREATE TABLE IF NOT EXISTS whatsapp_instances (
       id            TEXT PRIMARY KEY,
       profile_id    TEXT NOT NULL UNIQUE,
@@ -412,9 +501,14 @@ function migrate(d: Database.Database) {
   // é o que liga faturamento a origem de tráfego.
   ensureColumn(d, "telegram_leads", "source_code", "TEXT");
   ensureColumn(d, "transactions", "source_code", "TEXT");
+  // Oferta do MAILING que originou a venda (nome/preço/duração ajustados só
+  // para aquele disparo). Quando presente, manda na confirmação do pagamento
+  // no lugar do plano original.
+  ensureColumn(d, "telegram_subscriptions", "offer_id", "TEXT");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);
+  backfillTelegramUsers(d);
 
   d.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_media_public_token ON media(public_token) WHERE public_token IS NOT NULL;`,
@@ -504,6 +598,64 @@ function backfillSyncPayAmounts(d: Database.Database) {
   // As vendas que chegaram só pelo webhook ficavam com o rótulo interno
   // "Venda (webhook)", que não diz nada para quem lê o extrato.
   d.prepare("UPDATE transactions SET description = 'Venda SyncPay' WHERE description = 'Venda (webhook)'").run();
+}
+
+/**
+ * Semeia a lista de USUÁRIOS do Telegram com quem o sistema já conhece.
+ *
+ * A tabela nasceu depois da operação já estar rodando, e o Telegram não deixa
+ * um bot perguntar "quem são os membros deste grupo" — sem isto a tela de
+ * Usuários começaria vazia e só encheria conforme cada pessoa voltasse a
+ * interagir. Os dois lugares onde os contatos já estavam guardados são os
+ * LEADS (quem deu /start) e as ASSINATURAS (quem gerou PIX/comprou).
+ *
+ * Roda a cada inicialização de propósito: é um INSERT que ignora conflito, e
+ * novas linhas de lead/assinatura criadas por versões antigas do webhook
+ * continuam sendo absorvidas sem precisar de marca de "já rodou".
+ */
+function backfillTelegramUsers(d: Database.Database) {
+  const now = Date.now();
+
+  // Leads: o id é "<bot_id>_<user_id>" e, no privado, chat_id === user_id.
+  d.prepare(
+    `INSERT OR IGNORE INTO telegram_users
+       (id, bot_id, profile_id, telegram_user_id, chat_id, can_dm, source, source_code,
+        last_interaction_at, created_at)
+     SELECT l.id, b.id, l.profile_id, CAST(l.chat_id AS INTEGER), l.chat_id, 1, 'start',
+            l.source_code, l.last_interaction_at, l.created_at
+       FROM telegram_leads l
+       JOIN telegram_bots b ON b.profile_id = l.profile_id
+      WHERE CAST(l.chat_id AS INTEGER) > 0`,
+  ).run();
+
+  // Assinantes: quem comprou necessariamente falou com o bot no privado.
+  d.prepare(
+    `INSERT OR IGNORE INTO telegram_users
+       (id, bot_id, profile_id, telegram_user_id, username, chat_id, can_dm, source,
+        last_interaction_at, created_at)
+     SELECT b.id || '_' || s.telegram_user_id, b.id, b.profile_id, s.telegram_user_id,
+            s.telegram_username, CAST(s.telegram_user_id AS TEXT), 1, 'compra',
+            s.created_at, s.created_at
+       FROM telegram_subscriptions s
+       JOIN telegram_bots b ON b.id = s.bot_id`,
+  ).run();
+
+  // Um @username que só existe na assinatura preenche a lista (o /start antigo
+  // não guardava nome nenhum).
+  d.prepare(
+    `UPDATE telegram_users
+        SET username = (
+          SELECT s.telegram_username FROM telegram_subscriptions s
+           WHERE s.bot_id = telegram_users.bot_id
+             AND s.telegram_user_id = telegram_users.telegram_user_id
+             AND s.telegram_username IS NOT NULL
+           ORDER BY s.created_at DESC LIMIT 1)
+      WHERE username IS NULL`,
+  ).run();
+
+  d.prepare(
+    "UPDATE telegram_users SET created_at = ? WHERE created_at IS NULL OR created_at = 0",
+  ).run(now);
 }
 
 /**

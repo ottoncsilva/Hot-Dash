@@ -101,6 +101,40 @@ export function pickCtaLinkTexts(list: string, count = 3): string[] {
   return Array.from({ length: count }, (_, i) => pool[i % pool.length]);
 }
 
+/**
+ * Bloco de convite ao VIP do fim da legenda das Prévias: uma linha por frase,
+ * cada uma hiperlinkada para o grupo.
+ *
+ * O texto da frase vai ESCAPADO: uma frase com `<` ou `&` quebraria o
+ * `parse_mode: HTML` e o Telegram recusaria a mensagem inteira.
+ */
+export function buildVipCtaLines(vipLink: string, texts: string[]): string {
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const href = vipLink.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  const lines = texts.length > 0 ? texts : ["ACESSAR O VIP 🎁"];
+  return lines.map((t) => `👉 <a href="${href}">${esc(t)}</a>`).join("\n");
+}
+
+/** Cola o bloco de convite ao fim de uma legenda já escrita. */
+export function appendVipCtaLines(
+  caption: string,
+  vipLink: string,
+  texts: string[],
+): string {
+  const body = (caption || "").trimEnd();
+  const block = buildVipCtaLines(vipLink, texts);
+  return body ? `${body}\n\n${block}` : block;
+}
+
+/** A legenda já carrega um hiperlink para este link do VIP? É o que evita o
+ *  convite sair duplicado quando o gerador já gravou as linhas na legenda. */
+export function captionHasVipLink(caption: string, vipLink: string): boolean {
+  if (!caption || !vipLink) return false;
+  const escaped = vipLink.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  return caption.includes(`href="${vipLink}"`) || caption.includes(`href="${escaped}"`);
+}
+
 /** Escolhe uma frase de CTA aleatória da lista, respeitando o limite de
  *  caracteres (trunca com reticências se passar). Retorna null se lista vazia. */
 export function pickCtaButtonText(list: string, max = CTA_BUTTON_MAX): string | null {

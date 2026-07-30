@@ -13,6 +13,7 @@ import { extractVideoThumbnail, extname } from "@/lib/metadata";
 import { readBuffer } from "@/lib/storage";
 import { getAiCredentials, type AiProvider } from "@/lib/settings";
 import { createPost } from "@/lib/posts";
+import { DEFAULT_CTA_BUTTONS, appendVipCtaLines, pickCtaLinkTexts } from "@/lib/postTypes";
 import type { MediaItem } from "@/lib/types";
 import {
   planDay,
@@ -65,12 +66,17 @@ export async function POST(req: NextRequest) {
 
     const db = getDb();
     const settings = db
-      .prepare("SELECT warmup_tags FROM telegram_autopost_settings WHERE profile_id = ?")
-      .get(profile.id) as { warmup_tags?: string } | undefined;
+      .prepare(
+        "SELECT warmup_tags, warmup_cta_buttons FROM telegram_autopost_settings WHERE profile_id = ?",
+      )
+      .get(profile.id) as { warmup_tags?: string; warmup_cta_buttons?: string } | undefined;
     const allowedTagNames = (settings?.warmup_tags || "")
       .split(",")
       .map((t) => t.trim().toLowerCase())
       .filter(Boolean);
+    // Frases dos "Botões da copy" — as mesmas que viram os hiperlinks do fim
+    // da legenda (o motor de envio usa esta lista para o botão inline).
+    const ctaList = (settings?.warmup_cta_buttons ?? "").trim() || DEFAULT_CTA_BUTTONS;
 
     // Cadeia de provedores (grok primeiro — costuma aceitar conteúdo adulto).
     const providerChain: AiProvider[] = (["grok", "openai", "gemini"] as AiProvider[]).filter(
@@ -263,7 +269,15 @@ export async function POST(req: NextRequest) {
           if (img) images.push(img);
         }
         const hora = parseInt(slot.time.slice(0, 2), 10);
-        const caption = await writeCaption(slot.type, hora, images, angleIdx++);
+        const written = await writeCaption(slot.type, hora, images, angleIdx++);
+        // Toda foto e todo vídeo já sai com as 3 linhas de convite ao VIP
+        // GRAVADAS na legenda — assim aparecem no editor do calendário e podem
+        // ser revisadas antes de ir ao ar. Post sem mídia continua recebendo o
+        // convite só na hora do envio, quando o método pede CTA.
+        const caption =
+          media && profile.bioVipLink
+            ? appendVipCtaLines(written, profile.bioVipLink, pickCtaLinkTexts(ctaList, 3))
+            : written;
 
         createPost({
           profileId: profile.id,

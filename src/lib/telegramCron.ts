@@ -43,6 +43,8 @@ import { audienceFromPostType, logMediaPosted } from "@/lib/mediaUsage";
 import { getProfile } from "@/lib/profiles";
 import {
   DEFAULT_CTA_BUTTONS,
+  buildVipCtaLines,
+  captionHasVipLink,
   pickCtaButtonText,
   pickCtaLinkTexts,
   CTA_BUTTON_MAX,
@@ -87,9 +89,7 @@ function escapeHtmlAllowingLinks(s: string): string {
  *  posts de versões antigas. */
 function buildWarmupCaption(rawCaption: string, vipLink: string, texts: string[]): string {
   const body = (rawCaption || "").replace(/\n*👉\s*Acesse:.*$/s, "").trimEnd();
-  const href = vipLink.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-  const lines = texts.length > 0 ? texts : ["ACESSAR O VIP 🎁"];
-  const cta = lines.map((t) => `👉 <a href="${href}">${escapeHtml(t)}</a>`).join("\n");
+  const cta = buildVipCtaLines(vipLink, texts);
   return body ? `${escapeHtmlAllowingLinks(body)}\n\n${cta}` : cta;
 }
 
@@ -191,17 +191,22 @@ export async function runTelegramAutopost(): Promise<number> {
 
       if (wantsVipCta && profile.bioVipLink) {
         // Os dois ao mesmo tempo: o BOTÃO inline (uma frase) e as 3 linhas de
-        // HIPERLINK no fim da legenda (outras frases da mesma lista). Antes era
-        // um ou outro — o hiperlink só aparecia quando não havia lista de frases.
+        // HIPERLINK no fim da legenda (outras frases da mesma lista).
         const ctaButtonText = pickCtaButtonText(ctaList);
         if (ctaButtonText) {
           replyMarkup = { inline_keyboard: [[{ text: ctaButtonText, url: profile.bioVipLink }]] };
         }
-        finalCaption = buildWarmupCaption(
-          post.caption || "",
-          profile.bioVipLink,
-          pickCtaLinkTexts(ctaList, 3),
-        );
+        // O gerador já grava as 3 linhas na legenda dos posts de mídia, para
+        // você poder revisá-las no calendário. Aqui só completa quem ainda não
+        // tem — post manual, ou agendado antes dessa mudança —, senão o convite
+        // sairia duplicado.
+        if (!captionHasVipLink(post.caption || "", profile.bioVipLink)) {
+          finalCaption = buildWarmupCaption(
+            post.caption || "",
+            profile.bioVipLink,
+            pickCtaLinkTexts(ctaList, 3),
+          );
+        }
       } else if (wantsWaCta && profile.bioWhatsappLink) {
         const waText =
           (profile.bioWhatsappButton || "meu whatsapp particular").slice(0, CTA_BUTTON_MAX) ||

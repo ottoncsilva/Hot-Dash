@@ -7,6 +7,7 @@ import ColorSwatches from "@/components/ColorSwatches";
 import { TAG_COLORS, type Tag } from "@/lib/types";
 import { useConfirm } from "@/hooks/useConfirm";
 import { BackToSettings } from "../_shared";
+import { showToast } from "@/lib/toast";
 
 export default function TagSettingsPage() {
   const [tags, setTags] = useState<Tag[]>([]);
@@ -39,6 +40,7 @@ export default function TagSettingsPage() {
       });
       setTags((prev) => [...prev, tag].sort((a, b) => a.name.localeCompare(b.name)));
       setName("");
+      showToast("Salvo!");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao criar.");
     } finally {
@@ -50,6 +52,7 @@ export default function TagSettingsPage() {
     if (!(await confirm("Excluir esta etiqueta? Ela será removida de todas as mídias."))) return;
     await apiSend(`/api/tags/${id}`, "DELETE");
     setTags((prev) => prev.filter((t) => t.id !== id));
+    showToast("Etiqueta excluída.");
   }
 
   function startEdit(t: Tag) {
@@ -76,6 +79,7 @@ export default function TagSettingsPage() {
         prev.map((t) => (t.id === id ? tag : t)).sort((a, b) => a.name.localeCompare(b.name)),
       );
       setEditingId(null);
+      showToast("Salvo!");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao salvar.");
     } finally {

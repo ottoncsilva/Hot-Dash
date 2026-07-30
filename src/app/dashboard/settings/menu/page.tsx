@@ -5,6 +5,7 @@ import { apiGet, apiSend } from "@/lib/api";
 import { IconChevronUp, IconChevronDown, IconEye, IconEyeOff } from "@/components/icons";
 import { NAV_ITEMS, normalizeMenu, type MenuEntry } from "@/lib/navItems";
 import { BackToSettings } from "../_shared";
+import { showToast } from "@/lib/toast";
 
 export default function MenuSettingsPage() {
   const [menu, setMenu] = useState<MenuEntry[]>([]);
@@ -37,6 +38,7 @@ export default function MenuSettingsPage() {
     try {
       await apiSend("/api/settings/menu", "PATCH", { menu });
       setSaved(true);
+      showToast("Salvo!");
     } finally {
       setSaving(false);
     }

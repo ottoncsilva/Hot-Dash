@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
 import { TIME_ZONES, DEFAULT_TIME_ZONE } from "@/lib/timezone";
 import { BackToSettings } from "../_shared";
+import { showToast } from "@/lib/toast";
 
 type GeneralSettings = { timeZone: string; now: string; serverUtc?: string };
 
@@ -29,6 +30,7 @@ export default function GeneralSettingsPage() {
       const d = await apiSend<GeneralSettings>("/api/settings/general", "PATCH", { timeZone });
       setSaved(d);
       setOk(true);
+      showToast("Salvo!");
     } finally {
       setSaving(false);
     }

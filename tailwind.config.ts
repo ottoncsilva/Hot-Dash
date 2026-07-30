@@ -4,6 +4,11 @@ const config: Config = {
   content: [
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
+    // `src/lib` também monta classes (o toast de `lib/toast.ts` é criado no
+    // DOM na mão). Sem esta linha o Tailwind não via essas classes e as
+    // removia da build: o toast aparecia sem fundo, sem z-index e fora da
+    // tela — ou seja, salvar não dava retorno nenhum.
+    "./src/lib/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
     extend: {

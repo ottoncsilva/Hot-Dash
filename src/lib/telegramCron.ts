@@ -262,7 +262,14 @@ export async function runTelegramAutopost(): Promise<number> {
         // galeria e faz o Método MK preferir a mídia menos postada no grupo.
         if (post.media_id) {
           const audience = audienceFromPostType(post.post_type);
-          if (audience) logMediaPosted([post.media_id], profile.id, audience, post.id);
+          // Nunca deixa uma falha de REGISTRO virar falha de ENVIO: o post já
+          // saiu e já está marcado como postado — cair no catch de baixo o
+          // contabilizaria como erro e alertaria à toa.
+          try {
+            if (audience) logMediaPosted([post.media_id], profile.id, audience, post.id);
+          } catch (e) {
+            console.error(`Falha ao registrar publicação da mídia do post ${post.id}:`, e);
+          }
         }
         totalPosted++;
         if (isWarmup) cycle.previas++;

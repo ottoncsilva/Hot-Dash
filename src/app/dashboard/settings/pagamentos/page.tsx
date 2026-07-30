@@ -5,6 +5,7 @@ import { apiGet, apiSend } from "@/lib/api";
 import { IconLock } from "@/components/icons";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import { BackToSettings, ConnectionBadge } from "../_shared";
+import { showToast } from "@/lib/toast";
 
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -166,6 +167,7 @@ export default function PaymentSettingsPage() {
       setCfg(settings);
       setSyncClientSecret("");
       setSaved(true);
+      showToast("Salvo!");
     } finally {
       setSaving(false);
     }

@@ -5,6 +5,7 @@ import { apiGet, apiSend } from "@/lib/api";
 import { IconRefresh } from "@/components/icons";
 import type { AiSettingsPublic } from "@/lib/settings";
 import { BackToSettings, ConnectionBadge } from "../_shared";
+import { showToast } from "@/lib/toast";
 
 // Usados só se a busca ao vivo (lista real de modelos do provedor) falhar.
 const FALLBACK_OPENAI_MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"];
@@ -201,6 +202,7 @@ export default function AiSettingsPage() {
       setMagnificKey("");
       setNudenetToken("");
       setSaved(true);
+      showToast("Salvo!");
     } finally {
       setSaving(false);
     }

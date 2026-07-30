@@ -7,6 +7,7 @@ import ColorSwatches from "@/components/ColorSwatches";
 import { TAG_COLORS, type ProfileStatusDef } from "@/lib/types";
 import { useConfirm } from "@/hooks/useConfirm";
 import { BackToSettings } from "../_shared";
+import { showToast } from "@/lib/toast";
 
 export default function ProfileStatusSettingsPage() {
   const [statuses, setStatuses] = useState<ProfileStatusDef[]>([]);
@@ -40,6 +41,7 @@ export default function ProfileStatusSettingsPage() {
       );
       setStatuses((prev) => [...prev, status]);
       setName("");
+      showToast("Salvo!");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao criar.");
     } finally {
@@ -53,6 +55,7 @@ export default function ProfileStatusSettingsPage() {
     try {
       await apiSend(`/api/profile-statuses/${id}`, "DELETE");
       setStatuses((prev) => prev.filter((s) => s.id !== id));
+      showToast("Status excluído.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao excluir.");
     }

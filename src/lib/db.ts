@@ -692,6 +692,26 @@ function backfillTelegramUsers(d: Database.Database) {
  * inflar a contagem. "Aquecimento" é o rótulo legado de "Prévias".
  */
 function backfillMediaPostLog(d: Database.Database) {
+  // 1) Conserta o que a primeira versão desta migração duplicou. Lá o registro
+  //    do envio usava id aleatório e o do backfill, id determinístico: o
+  //    `INSERT OR IGNORE` não reconhecia que era o MESMO envio e somava uma
+  //    linha a cada reinício do servidor, inflando a contagem da galeria.
+  //    Uma linha por (post, mídia, grupo) é o certo — o mesmo post não sai
+  //    duas vezes no mesmo grupo. Mantém a mais antiga (a do envio real, com
+  //    o instante correto).
+  d.prepare(
+    `DELETE FROM media_post_log
+      WHERE post_id IS NOT NULL
+        AND rowid NOT IN (
+          SELECT MIN(rowid) FROM media_post_log
+           WHERE post_id IS NOT NULL
+           GROUP BY post_id, media_id, audience)`,
+  ).run();
+
+  // 2) Reconstrói o histórico dos posts já publicados. `sort_order = 0` porque
+  //    é só a primeira mídia que o autopost envia — contar as outras inflaria
+  //    um post de várias fotos. O NOT EXISTS garante a ideia de "um envio, uma
+  //    linha" mesmo que o id venha de outro caminho.
   d.prepare(
     `INSERT OR IGNORE INTO media_post_log (id, media_id, profile_id, audience, post_id, posted_at)
      SELECT p.id || ':' || pm.media_id || ':' ||
@@ -701,9 +721,14 @@ function backfillMediaPostLog(d: Database.Database) {
             p.id, COALESCE(p.updated_at, p.scheduled_at)
        FROM posts p
        JOIN post_networks pn ON pn.post_id = p.id AND pn.network = 'telegram'
-       JOIN post_media pm ON pm.post_id = p.id
+       JOIN post_media pm ON pm.post_id = p.id AND pm.sort_order = 0
       WHERE p.status = 'posted'
-        AND pn.post_type IN ('VIP', 'Prévias', 'Aquecimento')`,
+        AND pn.post_type IN ('VIP', 'Prévias', 'Aquecimento')
+        AND NOT EXISTS (
+          SELECT 1 FROM media_post_log l
+           WHERE l.post_id = p.id
+             AND l.media_id = pm.media_id
+             AND l.audience = CASE WHEN pn.post_type = 'VIP' THEN 'vip' ELSE 'previas' END)`,
   ).run();
 }
 

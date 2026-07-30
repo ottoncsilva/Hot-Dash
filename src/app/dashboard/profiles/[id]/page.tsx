@@ -27,6 +27,7 @@ import {
   type SocialNetwork,
 } from "@/lib/types";
 import { buildSocialUrl, networkMeta } from "@/lib/socialLinks";
+import { showToast } from "@/lib/toast";
 
 export default function ProfileDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -123,6 +124,7 @@ export default function ProfileDetailPage() {
         });
         setBotOrig({ token: botToken.trim(), vip: botIdVip.trim(), prev: botIdPrevias.trim() });
       }
+      showToast("Salvo!");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao salvar.");
     } finally {

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
 import { BackToSettings, ConnectionBadge } from "../_shared";
 import type { EvolutionSettingsPublic } from "@/lib/settings";
+import { showToast } from "@/lib/toast";
 
 export default function WhatsAppSettingsPage() {
   const [cfg, setCfg] = useState<EvolutionSettingsPublic | null>(null);
@@ -37,6 +38,7 @@ export default function WhatsAppSettingsPage() {
       setCfg(settings);
       setApiKey("");
       setSaved(true);
+      showToast("Salvo!");
     } finally {
       setSaving(false);
     }

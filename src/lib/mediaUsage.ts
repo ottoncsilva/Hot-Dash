@@ -43,13 +43,24 @@ export function logMediaPosted(
   if (ids.length === 0) return;
   const db = getDb();
   const stmt = db.prepare(
-    `INSERT INTO media_post_log (id, media_id, profile_id, audience, post_id, posted_at)
+    `INSERT OR IGNORE INTO media_post_log (id, media_id, profile_id, audience, post_id, posted_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
   );
   const now = Date.now();
   const run = db.transaction((list: string[]) => {
     for (const mediaId of list) {
-      stmt.run(randomUUID(), mediaId, profileId, audience, postId || null, now);
+      // Id DETERMINÍSTICO por (post, mídia, grupo) — o mesmo que o backfill da
+      // migração calcula. É o que faz o backfill reconhecer este envio e não
+      // somar uma segunda linha a cada reinício do servidor; com id aleatório,
+      // a contagem da galeria dobrava a cada boot.
+      stmt.run(
+        postId ? `${postId}:${mediaId}:${audience}` : randomUUID(),
+        mediaId,
+        profileId,
+        audience,
+        postId || null,
+        now,
+      );
     }
   });
   run(ids);

@@ -161,6 +161,7 @@ export default function ProfileDetailPage() {
       return;
     try {
       await apiSend(`/api/profiles/${id}`, "DELETE");
+      showToast("Modelo excluído.");
       router.replace("/dashboard/profiles");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao excluir.");

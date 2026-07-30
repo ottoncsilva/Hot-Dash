@@ -6,6 +6,7 @@ import Modal from "@/components/Modal";
 import { IconPlus, IconTrash } from "@/components/icons";
 import { NETWORK_LABELS, type SocialNetwork } from "@/lib/types";
 import { POST_TYPES, WEEKDAY_LABELS, type MediaKindFilter } from "@/lib/postTypes";
+import { showToast } from "@/lib/toast";
 
 type EditableSlot = {
   key: string;
@@ -102,6 +103,7 @@ export default function ScheduleTemplateModal({ onClose }: { onClose: () => void
           mediaKind: s.mediaKind,
         })),
       });
+      showToast("Programa semanal salvo!");
       onClose();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Falha ao salvar.");

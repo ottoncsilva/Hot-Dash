@@ -11,6 +11,7 @@ import type { Profile } from "@/lib/types";
 import { DEFAULT_TIME_ZONE } from "@/lib/timezone";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import { DEFAULT_PERIOD, PERIOD_OPTIONS } from "@/lib/periods";
+import { showToast } from "@/lib/toast";
 
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", {
@@ -93,6 +94,7 @@ export default function PaymentsPage() {
     try {
       await apiSend(`/api/payments/transactions/${t.id}`, "DELETE");
       await load();
+      showToast("Lançamento excluído.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha ao remover.");
     } finally {
@@ -425,6 +427,7 @@ function EditarCobranca({
         customer: nome,
         profileId: perfil,
       });
+      showToast("Salvo!");
       onDone();
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Falha ao salvar.");

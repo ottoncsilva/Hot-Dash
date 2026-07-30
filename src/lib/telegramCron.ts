@@ -39,6 +39,7 @@ import {
 } from "@/lib/telegramMailing";
 import { updatePost } from "@/lib/posts";
 import { listMedia, getMediaRow } from "@/lib/media";
+import { audienceFromPostType, logMediaPosted } from "@/lib/mediaUsage";
 import { getProfile } from "@/lib/profiles";
 import { DEFAULT_CTA_BUTTONS, pickCtaButtonText, CTA_BUTTON_MAX } from "@/lib/postTypes";
 
@@ -219,6 +220,13 @@ export async function runTelegramAutopost(): Promise<number> {
             | undefined;
         }
         updatePost(post.id, { status: "posted" });
+        // Só conta o que REALMENTE foi ao ar (falha cai no catch e o post
+        // continua agendado): é esse registro que alimenta o contador da
+        // galeria e faz o Método MK preferir a mídia menos postada no grupo.
+        if (post.media_id) {
+          const audience = audienceFromPostType(post.post_type);
+          if (audience) logMediaPosted([post.media_id], profile.id, audience, post.id);
+        }
         totalPosted++;
         if (isWarmup) cycle.previas++;
         else cycle.vip++;

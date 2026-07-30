@@ -226,6 +226,31 @@ export default function MediaViewer({
               })}
             </span>
           </p>
+          {/* Histórico de publicação nos grupos do Telegram, com a data da
+              última vez que a mídia foi ao ar em cada um. */}
+          {(item.postCounts?.previas || item.postCounts?.vip) ? (
+            <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-center font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+              {item.postCounts.previas > 0 && (
+                <span>
+                  prévias ×{item.postCounts.previas}
+                  {item.postCounts.lastPreviasAt
+                    ? ` · ${new Date(item.postCounts.lastPreviasAt).toLocaleDateString("pt-BR")}`
+                    : ""}
+                </span>
+              )}
+              {item.postCounts.previas > 0 && item.postCounts.vip > 0 && (
+                <span className="text-zinc-700">·</span>
+              )}
+              {item.postCounts.vip > 0 && (
+                <span>
+                  vip ×{item.postCounts.vip}
+                  {item.postCounts.lastVipAt
+                    ? ` · ${new Date(item.postCounts.lastVipAt).toLocaleDateString("pt-BR")}`
+                    : ""}
+                </span>
+              )}
+            </p>
+          ) : null}
           {tags && tags.length > 0 && onToggleTag && (
             <div className="flex flex-wrap justify-center gap-1.5">
               {tags.map((t) => {

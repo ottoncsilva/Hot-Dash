@@ -81,6 +81,15 @@ export const TAG_COLORS = [
   "#ec4899", // pink
 ] as const;
 
+/** Quantas vezes a mídia já foi publicada em cada grupo do Telegram (e quando
+ *  foi a última vez). Alimentado pelo envio real, nunca pelo agendamento. */
+export type MediaPostCounts = {
+  previas: number;
+  vip: number;
+  lastPreviasAt?: number;
+  lastVipAt?: number;
+};
+
 /** Item de mídia (foto ou vídeo) vinculado a um perfil. */
 export type MediaItem = {
   id: string;
@@ -99,6 +108,8 @@ export type MediaItem = {
   width?: number;
   height?: number;
   publicToken?: string;
+  /** Histórico de publicação por grupo do Telegram. Ausente = nunca postada. */
+  postCounts?: MediaPostCounts;
 };
 
 /** URL do arquivo de mídia com cache-busting por updatedAt (reflete edições sobrescritas). */

@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getProfile } from "@/lib/profiles";
 import { getBotConfigByProfile } from "@/lib/telegramDb";
+import { listMedia, getMediaRow, renderVisionImageBase64 } from "@/lib/media";
 import {
-  listMedia,
-  listUsedMediaIds,
-  getMediaRow,
-  renderVisionImageBase64,
-} from "@/lib/media";
+  createMediaQueue,
+  getMediaPostCounts,
+  listScheduledMediaIds,
+} from "@/lib/mediaUsage";
 import { generateCaption, callAiRaw, isSystemicAiError } from "@/lib/ai";
 import { extractVideoThumbnail, extname } from "@/lib/metadata";
 import { readBuffer } from "@/lib/storage";
@@ -101,16 +101,22 @@ export async function POST(req: NextRequest) {
       richNotes += `\nPersonalidade/estilo: ${pType}`;
     }
 
-    // Mídias das prévias ainda não usadas — separadas em fotos e vídeos.
-    const usedIds = listUsedMediaIds(profile.id);
-    const allowed = listMedia(profile.id).filter(
-      (m) =>
-        !usedIds.has(m.id) &&
-        (allowedTagNames.length === 0 ||
-          m.tags.some((t) => allowedTagNames.includes(t.name.toLowerCase()))),
+    // Mídias candidatas das Prévias, na ordem em que o método deve consumi-las:
+    // menos postada NO GRUPO DE PRÉVIAS → inserida mais recentemente → há mais
+    // tempo sem sair. As etiquetas seguem mandando em quem entra na lista.
+    // O que já está agendado para as Prévias fica de fora para a mesma foto não
+    // aparecer duas vezes na fila.
+    const scheduledIds = listScheduledMediaIds(profile.id, "previas");
+    const queue = createMediaQueue(
+      listMedia(profile.id).filter(
+        (m) =>
+          !scheduledIds.has(m.id) &&
+          (allowedTagNames.length === 0 ||
+            m.tags.some((t) => allowedTagNames.includes(t.name.toLowerCase()))),
+      ),
+      getMediaPostCounts(profile.id),
+      "previas",
     );
-    let photoPool = allowed.filter((m) => m.kind === "image");
-    let videoPool = allowed.filter((m) => m.kind === "video");
 
     // Idempotência: horários já ocupados por Prévias agendadas (janela 5 min).
     const existing = db
@@ -245,22 +251,10 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // Seleciona a mídia (vídeo → foto se faltar). Fotos/vídeos não repetem.
+        // Próxima mídia da fila (vídeo cai para foto quando não há vídeo).
         let media: MediaItem | null = null;
-        if (slot.kind === "video") {
-          if (videoPool.length > 0) {
-            media = videoPool[Math.floor(Math.random() * videoPool.length)];
-            videoPool = videoPool.filter((m) => m.id !== media!.id);
-          } else if (photoPool.length > 0) {
-            media = photoPool[Math.floor(Math.random() * photoPool.length)];
-            photoPool = photoPool.filter((m) => m.id !== media!.id);
-          }
-        } else if (slot.kind === "foto") {
-          if (photoPool.length > 0) {
-            media = photoPool[Math.floor(Math.random() * photoPool.length)];
-            photoPool = photoPool.filter((m) => m.id !== media!.id);
-          }
-        }
+        if (slot.kind === "video") media = queue.take("video");
+        else if (slot.kind === "foto") media = queue.take("photo");
 
         // Legenda: com a FOTO (visão) quando houver mídia; senão texto puro.
         const images: { mime: string; base64: string }[] = [];

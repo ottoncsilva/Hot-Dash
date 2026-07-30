@@ -32,6 +32,14 @@ type SortKey = "date_desc" | "date_asc" | "size_desc" | "size_asc" | "tag_asc" |
 /** Estado inicial do filtro de data: tudo, sem recorte de período. */
 const NO_PERIOD: PeriodState = { period: "all", from: "", to: "" };
 
+/** Recortes por histórico de publicação nos grupos do Telegram. */
+type PostedFilter = "never" | "previas" | "vip";
+const POSTED_FILTERS: { key: PostedFilter; label: string }[] = [
+  { key: "never", label: "nunca postada" },
+  { key: "previas", label: "postada nas prévias" },
+  { key: "vip", label: "postada no vip" },
+];
+
 /**
  * Colunas da grade. O quadro é 3:4 (o formato predominante do acervo, junto com
  * o 9:16) e a miniatura aparece INTEIRA dentro dele — sem recorte.
@@ -66,6 +74,8 @@ export default function MediaPage() {
   const [filterRatios, setFilterRatios] = useState<Set<RatioBucket>>(new Set());
   // Filtro por data de INSERÇÃO na galeria (createdAt) — "Máximo" = sem filtro.
   const [filterPeriod, setFilterPeriod] = useState<PeriodState>(NO_PERIOD);
+  // Filtro por histórico de publicação nos grupos do Telegram (vazio = tudo).
+  const [filterPosted, setFilterPosted] = useState<Set<PostedFilter>>(new Set());
   const [grouping, setGrouping] = useState(false);
   const [sortBy, setSortBy] = useState<SortKey>("date_desc");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -136,6 +146,7 @@ export default function MediaPage() {
     setFilterNoTag(false);
     setFilterRatios(new Set());
     setFilterPeriod(NO_PERIOD);
+    setFilterPosted(new Set());
     loadMedia();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId]);
@@ -388,9 +399,16 @@ export default function MediaPage() {
       // Data de inserção: `until` é exclusivo (começo do dia seguinte ao "até").
       const dateOk =
         (since === null || m.createdAt >= since) && (until === null || m.createdAt < until);
-      return tagOk && ratioOk && dateOk;
+      const previas = m.postCounts?.previas || 0;
+      const vip = m.postCounts?.vip || 0;
+      const postedOk =
+        filterPosted.size === 0 ||
+        (filterPosted.has("never") && previas === 0 && vip === 0) ||
+        (filterPosted.has("previas") && previas > 0) ||
+        (filterPosted.has("vip") && vip > 0);
+      return tagOk && ratioOk && dateOk && postedOk;
     });
-  }, [media, filterTagIds, filterNoTag, filterRatios, filterPeriod]);
+  }, [media, filterTagIds, filterNoTag, filterRatios, filterPeriod, filterPosted]);
 
   const sortedMedia = useMemo(() => {
     const list = [...filteredMedia];
@@ -673,6 +691,37 @@ export default function MediaPage() {
             <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
               {filteredMedia.length} de {media.length}
             </span>
+          )}
+        </div>
+      )}
+
+      {/* Filtro por histórico de publicação nos grupos do Telegram */}
+      {media && media.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="eyebrow">publicação</span>
+          {POSTED_FILTERS.map((f) => (
+            <ToggleChip
+              key={f.key}
+              active={filterPosted.has(f.key)}
+              onClick={() =>
+                setFilterPosted((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(f.key)) next.delete(f.key);
+                  else next.add(f.key);
+                  return next;
+                })
+              }
+            >
+              {f.label}
+            </ToggleChip>
+          ))}
+          {filterPosted.size > 0 && (
+            <button
+              onClick={() => setFilterPosted(new Set())}
+              className="font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-white"
+            >
+              limpar
+            </button>
           )}
         </div>
       )}
@@ -1043,6 +1092,23 @@ function MediaGrid({
                 {item.kind === "video" ? "vídeo" : "foto"}
               </span>
             </span>
+
+            {/* Quantas vezes já foi ao ar em cada grupo do Telegram. Some no
+                modo seleção, onde o canto é do indicador de marcado. */}
+            {!selecting && (item.postCounts?.previas || item.postCounts?.vip) ? (
+              <span className="pointer-events-none absolute right-2 top-2 flex flex-col items-end gap-1">
+                {item.postCounts.previas > 0 && (
+                  <span className="chip bg-black/60" title="Vezes publicada no grupo de Prévias">
+                    prévias ×{item.postCounts.previas}
+                  </span>
+                )}
+                {item.postCounts.vip > 0 && (
+                  <span className="chip bg-black/60" title="Vezes publicada no grupo VIP">
+                    vip ×{item.postCounts.vip}
+                  </span>
+                )}
+              </span>
+            ) : null}
 
             {item.tags.length > 0 && (
               <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-black/50 px-1.5 py-1">

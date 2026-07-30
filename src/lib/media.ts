@@ -5,7 +5,8 @@ import { getDb } from "./db";
 import { deleteFile, fileExists, readBuffer, saveFile } from "./storage";
 import { extractVideoThumbnail } from "./metadata";
 import { getTagsForMedia } from "./tags";
-import type { MediaItem, Tag } from "./types";
+import { getMediaPostCounts } from "./mediaUsage";
+import type { MediaItem, MediaPostCounts, Tag } from "./types";
 
 type MediaRow = {
   id: string;
@@ -24,7 +25,7 @@ type MediaRow = {
   file_created_at: number | null;
 };
 
-function toClient(r: MediaRow, tags: Tag[]): MediaItem {
+function toClient(r: MediaRow, tags: Tag[], postCounts?: MediaPostCounts): MediaItem {
   return {
     id: r.id,
     profileId: r.profile_id,
@@ -40,6 +41,7 @@ function toClient(r: MediaRow, tags: Tag[]): MediaItem {
     height: r.height || undefined,
     publicToken: r.public_token || undefined,
     fileCreatedAt: r.file_created_at || undefined,
+    postCounts,
   };
 }
 
@@ -213,7 +215,11 @@ export async function overwriteMediaFile(input: {
     await deleteFile(videoThumbRelPath(oldPath)).catch(() => {});
   }
   const updated = getMediaRow(input.id);
-  return updated ? toClient(updated, getTagsForMedia(input.id)) : null;
+  if (!updated) return null;
+  // Mantém o histórico de publicação no item devolvido: sobrescrever o arquivo
+  // não apaga o que já foi ao ar, e a galeria continua mostrando o selo.
+  const counts = getMediaPostCounts(updated.profile_id).get(input.id);
+  return toClient(updated, getTagsForMedia(input.id), counts);
 }
 
 export function listMedia(profileId: string): MediaItem[] {
@@ -222,7 +228,9 @@ export function listMedia(profileId: string): MediaItem[] {
       "SELECT * FROM media WHERE profile_id = ? ORDER BY created_at DESC",
     )
     .all(profileId) as MediaRow[];
-  return rows.map((r) => toClient(r, getTagsForMedia(r.id)));
+  // Contagem de publicações do perfil inteiro em UMA consulta (não uma por item).
+  const counts = getMediaPostCounts(profileId);
+  return rows.map((r) => toClient(r, getTagsForMedia(r.id), counts.get(r.id)));
 }
 
 /** Ids de mídia já usados em QUALQUER post (agendado ou postado) deste perfil. */

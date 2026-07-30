@@ -157,6 +157,26 @@ function migrate(d: Database.Database) {
       FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
     );
 
+    -- Histórico de PUBLICAÇÃO de cada mídia, por grupo do Telegram: uma linha
+    -- por envio que realmente saiu. É o que permite ao Método MK escolher a
+    -- mídia menos postada em cada grupo e a galeria mostrar quantas vezes cada
+    -- foto já foi ao ar.
+    -- Tabela própria, e não uma consulta em posts/post_media, porque o post
+    -- pode ser excluído do calendário depois de publicado: o envio aconteceu e
+    -- a contagem não pode voltar atrás.
+    CREATE TABLE IF NOT EXISTS media_post_log (
+      id         TEXT PRIMARY KEY,
+      media_id   TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      audience   TEXT NOT NULL,  -- 'previas' | 'vip'
+      post_id    TEXT,
+      posted_at  INTEGER NOT NULL,
+      FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_media_post_log_media ON media_post_log(media_id, audience);
+    CREATE INDEX IF NOT EXISTS idx_media_post_log_profile ON media_post_log(profile_id, audience);
+
     CREATE TABLE IF NOT EXISTS push_subscriptions (
       id                TEXT PRIMARY KEY,
       subscription_json TEXT NOT NULL,
@@ -509,6 +529,7 @@ function migrate(d: Database.Database) {
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);
   backfillTelegramUsers(d);
+  backfillMediaPostLog(d);
 
   d.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_media_public_token ON media(public_token) WHERE public_token IS NOT NULL;`,
@@ -656,6 +677,31 @@ function backfillTelegramUsers(d: Database.Database) {
   d.prepare(
     "UPDATE telegram_users SET created_at = ? WHERE created_at IS NULL OR created_at = 0",
   ).run(now);
+}
+
+/**
+ * Reconstrói o histórico de publicação das mídias a partir dos posts do
+ * Telegram que JÁ FORAM PUBLICADOS, para o contador da galeria e a escolha do
+ * Método MK não começarem do zero em um banco que já rodava.
+ *
+ * O id é determinístico (`post_id:media_id:audience`), então o `INSERT OR
+ * IGNORE` faz a deduplicação sozinho e a função pode rodar em todo boot sem
+ * inflar a contagem. "Aquecimento" é o rótulo legado de "Prévias".
+ */
+function backfillMediaPostLog(d: Database.Database) {
+  d.prepare(
+    `INSERT OR IGNORE INTO media_post_log (id, media_id, profile_id, audience, post_id, posted_at)
+     SELECT p.id || ':' || pm.media_id || ':' ||
+            CASE WHEN pn.post_type = 'VIP' THEN 'vip' ELSE 'previas' END,
+            pm.media_id, p.profile_id,
+            CASE WHEN pn.post_type = 'VIP' THEN 'vip' ELSE 'previas' END,
+            p.id, COALESCE(p.updated_at, p.scheduled_at)
+       FROM posts p
+       JOIN post_networks pn ON pn.post_id = p.id AND pn.network = 'telegram'
+       JOIN post_media pm ON pm.post_id = p.id
+      WHERE p.status = 'posted'
+        AND pn.post_type IN ('VIP', 'Prévias', 'Aquecimento')`,
+  ).run();
 }
 
 /**

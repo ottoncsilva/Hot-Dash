@@ -504,6 +504,9 @@ function migrate(d: Database.Database) {
   // "Botões da copy": frases de CTA (1 por linha) anexadas como botão nas Prévias.
   ensureColumn(d, "telegram_autopost_settings", "warmup_cta_buttons", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "vip_prompt", "TEXT");
+  // Frases dos "Botões da copy" do VIP — o convite do VIP aponta para o
+  // WhatsApp particular, então a lista é separada da das Prévias.
+  ensureColumn(d, "telegram_autopost_settings", "vip_cta_buttons", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "warmup_prompt", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "warmup_link", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "vip_schedule_type", "TEXT DEFAULT 'interval'");

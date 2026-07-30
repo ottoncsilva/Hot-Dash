@@ -187,11 +187,11 @@ export async function POST(req: NextRequest) {
       db.prepare(
         `INSERT INTO telegram_autopost_settings (
           profile_id, enabled,
-          vip_post_interval, vip_tags, vip_prompt, vip_schedule_type, vip_fixed_times,
+          vip_post_interval, vip_tags, vip_prompt, vip_schedule_type, vip_fixed_times, vip_cta_buttons,
           warmup_post_interval, warmup_tags, warmup_prompt, warmup_link, warmup_schedule_type, warmup_fixed_times,
           warmup_seed_reaction, warmup_seed_emoji, warmup_mk_prompt, warmup_cta_buttons
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(profile_id) DO UPDATE SET
            enabled = excluded.enabled,
            vip_post_interval = excluded.vip_post_interval,
@@ -199,6 +199,7 @@ export async function POST(req: NextRequest) {
            vip_prompt = excluded.vip_prompt,
            vip_schedule_type = excluded.vip_schedule_type,
            vip_fixed_times = excluded.vip_fixed_times,
+           vip_cta_buttons = excluded.vip_cta_buttons,
            warmup_post_interval = excluded.warmup_post_interval,
            warmup_tags = excluded.warmup_tags,
            warmup_prompt = excluded.warmup_prompt,
@@ -217,6 +218,7 @@ export async function POST(req: NextRequest) {
         vipPrompt || "",
         vipScheduleType || "interval",
         vipFixedTimes || "",
+        typeof body.vipCtaButtons === "string" ? body.vipCtaButtons : "",
         Number(warmupPostInterval || 24),
         warmupTags || "",
         warmupPrompt || "",

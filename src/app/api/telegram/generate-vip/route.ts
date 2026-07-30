@@ -13,6 +13,12 @@ import { extractVideoThumbnail, extname } from "@/lib/metadata";
 import { getAiCredentials, getAppTimeZone, type AiProvider } from "@/lib/settings";
 import { readBuffer } from "@/lib/storage";
 import { createPost } from "@/lib/posts";
+import {
+  DEFAULT_VIP_CTA_BUTTONS,
+  WHATSAPP_CTA_FALLBACK,
+  appendCtaLines,
+  pickCtaLinkTexts,
+} from "@/lib/postTypes";
 import type { MediaItem } from "@/lib/types";
 import { mkSlotToUtcMs, mkDayFromToday, fallbackPoll } from "@/lib/previasAi";
 import { planDayVip, captionThemeVip, fallbackTextVip } from "@/lib/vipAi";
@@ -56,12 +62,17 @@ export async function POST(req: NextRequest) {
 
     const db = getDb();
     const settings = db
-      .prepare("SELECT vip_tags FROM telegram_autopost_settings WHERE profile_id = ?")
-      .get(profile.id) as { vip_tags?: string } | undefined;
+      .prepare(
+        "SELECT vip_tags, vip_cta_buttons FROM telegram_autopost_settings WHERE profile_id = ?",
+      )
+      .get(profile.id) as { vip_tags?: string; vip_cta_buttons?: string } | undefined;
     const allowedTagNames = (settings?.vip_tags || "")
       .split(",")
       .map((t) => t.trim().toLowerCase())
       .filter(Boolean);
+    // Frases dos "Botões da copy (VIP)" — as mesmas que viram os hiperlinks do
+    // fim da legenda (o motor de envio usa esta lista para o botão inline).
+    const ctaList = (settings?.vip_cta_buttons ?? "").trim() || DEFAULT_VIP_CTA_BUTTONS;
 
     // Cadeia de provedores (grok primeiro — costuma aceitar conteúdo adulto).
     const providerChain: AiProvider[] = (["grok", "openai", "gemini"] as AiProvider[]).filter(
@@ -244,7 +255,20 @@ export async function POST(req: NextRequest) {
           const img = await mediaImageBase64(media);
           if (img) images.push(img);
         }
-        const caption = await writeCaption(slot.type, images, angleIdx++);
+        const written = await writeCaption(slot.type, images, angleIdx++);
+        // Só os slots de convite (WHATSAPP_INVITE / WHATSAPP_PHOTO) levam o
+        // convite ao WhatsApp particular — o resto do VIP segue limpo, como o
+        // método prevê. Nesses, as 3 linhas já saem GRAVADAS na legenda, para
+        // aparecerem no editor do calendário e poderem ser revisadas.
+        const caption =
+          slot.cta && profile.bioWhatsappLink
+            ? appendCtaLines(
+                written,
+                profile.bioWhatsappLink,
+                pickCtaLinkTexts(ctaList, 3),
+                WHATSAPP_CTA_FALLBACK,
+              )
+            : written;
 
         createPost({
           profileId: profile.id,

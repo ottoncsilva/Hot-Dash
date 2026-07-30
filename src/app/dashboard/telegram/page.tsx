@@ -6,7 +6,7 @@ import TelegramCalendar from "@/components/telegram/TelegramCalendar";
 import { useConfirm } from "@/hooks/useConfirm";
 import Switch from "@/components/Switch";
 import type { Profile } from "@/lib/types";
-import { DEFAULT_CTA_BUTTONS, CTA_BUTTON_MAX } from "@/lib/postTypes";
+import { DEFAULT_CTA_BUTTONS, DEFAULT_VIP_CTA_BUTTONS, CTA_BUTTON_MAX } from "@/lib/postTypes";
 
 const toast = {
   success: (msg: string) => showToast(msg, "success"),
@@ -24,6 +24,7 @@ type TelegramSettings = {
   vipPostInterval: number;
   vipTags: string;
   vipPrompt: string;
+  vipCtaButtons: string;
   vipScheduleType: "manual" | "interval" | "fixed" | "mk";
   vipFixedTimes: string;
   warmupPostInterval: number;
@@ -65,6 +66,7 @@ export default function TelegramUnifiedPage() {
     vipPostInterval: 120,
     vipTags: "",
     vipPrompt: "",
+    vipCtaButtons: DEFAULT_VIP_CTA_BUTTONS,
     vipScheduleType: "manual",
     vipFixedTimes: "",
     warmupPostInterval: 120,
@@ -113,6 +115,7 @@ export default function TelegramUnifiedPage() {
         vipPostInterval: vipInt,
         vipTags: d.autopost?.vip_tags || "",
         vipPrompt: d.autopost?.vip_prompt || "",
+        vipCtaButtons: d.autopost?.vip_cta_buttons || DEFAULT_VIP_CTA_BUTTONS,
         vipScheduleType: vipType as any,
         vipFixedTimes: d.autopost?.vip_fixed_times || "",
         warmupPostInterval: warmupInt,
@@ -532,6 +535,28 @@ export default function TelegramUnifiedPage() {
                      value={settings.vipPrompt}
                      onChange={(e) => setSettings({ ...settings, vipPrompt: e.target.value })}
                      className="w-full rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none resize-none font-mono"
+                  />
+                </div>
+
+                {/* Botões da copy (VIP) — frases de CTA (1 por linha). Aqui o
+                    destino é o WhatsApp particular, não o VIP: quem está no VIP
+                    já é assinante, e a conversa no privado é o que vira LTV. */}
+                <div className="space-y-2 rounded-lg border border-blue-500/10 bg-blue-900/10 p-3">
+                  <label className="text-xs font-semibold text-blue-300">
+                    Botões da copy (VIP) <span className="text-blue-200/50 font-normal">— 1 por linha</span>
+                  </label>
+                  <p className="text-[11px] text-blue-200/60">
+                    Usadas nos posts de convite ao <b>WhatsApp particular</b>: 1 frase vira o{" "}
+                    <b>botão</b> e outras 3 viram os <b>hiperlinks</b> no fim da legenda. O limite de{" "}
+                    <b>{CTA_BUTTON_MAX} caracteres</b> vale só para o botão — nos hiperlinks a frase
+                    sai inteira. Deixe em branco para usar as frases-padrão.
+                  </p>
+                  <textarea
+                    rows={8}
+                    value={settings.vipCtaButtons}
+                    onChange={(e) => setSettings({ ...settings, vipCtaButtons: e.target.value })}
+                    placeholder={DEFAULT_VIP_CTA_BUTTONS}
+                    className="w-full rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none resize-y font-mono"
                   />
                 </div>
 

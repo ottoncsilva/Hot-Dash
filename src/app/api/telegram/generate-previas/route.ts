@@ -13,7 +13,7 @@ import { extractVideoThumbnail, extname } from "@/lib/metadata";
 import { readBuffer } from "@/lib/storage";
 import { getAiCredentials, type AiProvider } from "@/lib/settings";
 import { createPost } from "@/lib/posts";
-import { DEFAULT_CTA_BUTTONS, appendVipCtaLines, pickCtaLinkTexts } from "@/lib/postTypes";
+import { DEFAULT_CTA_BUTTONS, appendCtaLines, pickCtaLinkTexts } from "@/lib/postTypes";
 import type { MediaItem } from "@/lib/types";
 import {
   planDay,
@@ -276,7 +276,7 @@ export async function POST(req: NextRequest) {
         // convite só na hora do envio, quando o método pede CTA.
         const caption =
           media && profile.bioVipLink
-            ? appendVipCtaLines(written, profile.bioVipLink, pickCtaLinkTexts(ctaList, 3))
+            ? appendCtaLines(written, profile.bioVipLink, pickCtaLinkTexts(ctaList, 3))
             : written;
 
         createPost({

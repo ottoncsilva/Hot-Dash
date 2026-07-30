@@ -43,8 +43,11 @@ import { audienceFromPostType, logMediaPosted } from "@/lib/mediaUsage";
 import { getProfile } from "@/lib/profiles";
 import {
   DEFAULT_CTA_BUTTONS,
-  buildVipCtaLines,
-  captionHasVipLink,
+  DEFAULT_VIP_CTA_BUTTONS,
+  WHATSAPP_CTA_FALLBACK,
+  appendCtaLines,
+  buildCtaLines,
+  captionHasLink,
   pickCtaButtonText,
   pickCtaLinkTexts,
   CTA_BUTTON_MAX,
@@ -89,7 +92,7 @@ function escapeHtmlAllowingLinks(s: string): string {
  *  posts de versões antigas. */
 function buildWarmupCaption(rawCaption: string, vipLink: string, texts: string[]): string {
   const body = (rawCaption || "").replace(/\n*👉\s*Acesse:.*$/s, "").trimEnd();
-  const cta = buildVipCtaLines(vipLink, texts);
+  const cta = buildCtaLines(vipLink, texts);
   return body ? `${escapeHtmlAllowingLinks(body)}\n\n${cta}` : cta;
 }
 
@@ -119,9 +122,13 @@ export async function runTelegramAutopost(): Promise<number> {
     // "Botões da copy": frases de CTA (1 por linha). O sistema escolhe 1 por
     // post de prévia e anexa como botão inline com o link do VIP.
     const apRow = db
-      .prepare("SELECT warmup_cta_buttons FROM telegram_autopost_settings WHERE profile_id = ?")
-      .get(profile.id) as { warmup_cta_buttons?: string } | undefined;
+      .prepare(
+        "SELECT warmup_cta_buttons, vip_cta_buttons FROM telegram_autopost_settings WHERE profile_id = ?",
+      )
+      .get(profile.id) as { warmup_cta_buttons?: string; vip_cta_buttons?: string } | undefined;
     const ctaList = (apRow?.warmup_cta_buttons ?? "").trim() || DEFAULT_CTA_BUTTONS;
+    // Lista própria do VIP: lá o convite aponta para o WhatsApp particular.
+    const vipCtaList = (apRow?.vip_cta_buttons ?? "").trim() || DEFAULT_VIP_CTA_BUTTONS;
 
     // Busca todos os posts agendados pendentes para Telegram (VIP ou Prévias)
     // deste perfil cujo horário já chegou.
@@ -200,7 +207,7 @@ export async function runTelegramAutopost(): Promise<number> {
         // você poder revisá-las no calendário. Aqui só completa quem ainda não
         // tem — post manual, ou agendado antes dessa mudança —, senão o convite
         // sairia duplicado.
-        if (!captionHasVipLink(post.caption || "", profile.bioVipLink)) {
+        if (!captionHasLink(post.caption || "", profile.bioVipLink)) {
           finalCaption = buildWarmupCaption(
             post.caption || "",
             profile.bioVipLink,
@@ -208,10 +215,21 @@ export async function runTelegramAutopost(): Promise<number> {
           );
         }
       } else if (wantsWaCta && profile.bioWhatsappLink) {
+        // Mesmo esquema das Prévias, com o destino do VIP: botão do WhatsApp
+        // particular MAIS as 3 linhas de hiperlink no fim da legenda. O botão
+        // usa a frase do cadastro do modelo; as linhas, a lista do VIP.
         const waText =
           (profile.bioWhatsappButton || "meu whatsapp particular").slice(0, CTA_BUTTON_MAX) ||
           "meu whatsapp particular";
         replyMarkup = { inline_keyboard: [[{ text: waText, url: profile.bioWhatsappLink }]] };
+        if (!captionHasLink(post.caption || "", profile.bioWhatsappLink)) {
+          finalCaption = appendCtaLines(
+            escapeHtmlAllowingLinks(post.caption || ""),
+            profile.bioWhatsappLink,
+            pickCtaLinkTexts(vipCtaList, 3),
+            WHATSAPP_CTA_FALLBACK,
+          );
+        }
       }
 
       const sendOpts = replyMarkup ? { reply_markup: replyMarkup } : {};

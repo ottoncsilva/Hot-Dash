@@ -32,6 +32,20 @@ type SortKey = "date_desc" | "date_asc" | "size_desc" | "size_asc" | "tag_asc" |
 /** Estado inicial do filtro de data: tudo, sem recorte de período. */
 const NO_PERIOD: PeriodState = { period: "all", from: "", to: "" };
 
+/**
+ * Colunas da grade. O quadro é 3:4 (o formato predominante do acervo, junto com
+ * o 9:16) e a miniatura aparece INTEIRA dentro dele — sem recorte.
+ *
+ * As faixas foram escolhidas para o item ficar sempre em torno de 170–220px de
+ * largura (~230–290px de altura): é o tamanho em que dá para reconhecer a foto
+ * sem abrir. Com 4 colunas fixas no desktop cada foto passava de 380px e
+ * cabiam pouquíssimas por tela. No celular continuam 2 por linha (~173px).
+ * Em `lg` a barra lateral aparece e come 256px da largura, por isso as colunas
+ * só voltam a subir em `xl`.
+ */
+const MEDIA_GRID_COLS =
+  "grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 3xl:grid-cols-8";
+
 export default function MediaPage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profileId, setProfileId] = useState<string>("");
@@ -797,9 +811,9 @@ export default function MediaPage() {
           }
         />
       ) : media === null ? (
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="aspect-square animate-pulse rounded-xl bg-white/5" />
+        <div className={`mt-6 ${MEDIA_GRID_COLS}`}>
+          {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+            <div key={i} className="aspect-[3/4] animate-pulse rounded-xl bg-white/5" />
           ))}
         </div>
       ) : media.length === 0 ? (
@@ -979,14 +993,14 @@ function MediaGrid({
   onRemove: (item: MediaItem) => void;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+    <div className={MEDIA_GRID_COLS}>
       {items.map((item) => {
         const isSelected = selected.has(item.id);
         return (
           <div
             key={item.id}
             data-media-id={item.id}
-            className={`group relative aspect-square overflow-hidden rounded-xl border bg-ink-850 transition-all ${
+            className={`group relative aspect-[3/4] overflow-hidden rounded-xl border bg-ink-850 transition-all ${
               isSelected ? "border-white ring-2 ring-white/70" : "border-white/10"
             }`}
           >
@@ -999,7 +1013,7 @@ function MediaGrid({
                   src={mediaThumbUrl(item)}
                   alt={item.filename}
                   loading="lazy"
-                  className={`h-full w-full object-cover transition-opacity ${
+                  className={`h-full w-full object-contain transition-opacity ${
                     isSelected ? "opacity-70" : ""
                   }`}
                   fallback={<div className="h-full w-full bg-ink-800" />}
@@ -1010,7 +1024,7 @@ function MediaGrid({
                     src={mediaThumbUrl(item)}
                     alt={item.filename}
                     loading="lazy"
-                    className={`h-full w-full object-cover transition-opacity ${
+                    className={`h-full w-full object-contain transition-opacity ${
                       isSelected ? "opacity-70" : ""
                     }`}
                     fallback={<div className="h-full w-full bg-ink-800" />}

@@ -7,6 +7,14 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      screens: {
+        // Monitores widescreen (1920 e acima). Existe porque o `2xl` do Tailwind
+        // pára em 1536px e, daí para cima, grades como a da galeria de mídia
+        // continuavam esticando os itens em vez de caber mais por linha.
+        // 1800 (e não 1920) para pegar a janela mesmo com a barra de rolagem
+        // ocupando alguns pixels da largura.
+        "3xl": "1800px",
+      },
       colors: {
         // Paleta monocromática high-tech (preto → branco).
         ink: {

@@ -503,6 +503,9 @@ function ChartSkeleton() {
 
 /** Gráfico de linha simples (SVG), sem dependências externas. */
 function RevenueChart({ series }: { series: { day: string; cents: number }[] }) {
+  // Ponto sob o cursor/dedo. Fica antes do early-return porque hook não pode
+  // ficar depois de um return condicional.
+  const [active, setActive] = useState<number | null>(null);
   if (series.length === 0) {
     return <div className="grid h-40 place-items-center text-xs text-zinc-600">sem dados no período</div>;
   }
@@ -532,6 +535,8 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
           celular, então garantimos uma largura mínima por dia e deixamos rolar. */}
       <div className="mt-2 overflow-x-auto">
       <div style={{ minWidth: `${Math.max(280, series.length * 38)}px` }}>
+      {/* `relative` para ancorar a camada de interação e o balão do valor. */}
+      <div className="relative" onMouseLeave={() => setActive(null)}>
       <svg viewBox={`0 0 ${W} ${H}`} className="h-40 w-full" preserveAspectRatio="none">
         <defs>
           <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
@@ -541,10 +546,78 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
         </defs>
         <path d={areaPath} fill="url(#revenueFill)" stroke="none" />
         <path d={linePath} fill="none" stroke="#34d399" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+        {/* Guia vertical no ponto ativo. */}
+        {active !== null && (
+          <line
+            x1={points[active].x}
+            y1={PAD}
+            x2={points[active].x}
+            y2={H - PAD}
+            stroke="#34d399"
+            strokeOpacity={0.35}
+            strokeDasharray="3 3"
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
         {points.map((p, i) => (
-          <circle key={i} cx={p.x} cy={p.y} r={2.5} fill="#34d399" vectorEffect="non-scaling-stroke" />
+          <circle
+            key={i}
+            cx={p.x}
+            cy={p.y}
+            r={active === i ? 5 : 2.5}
+            fill="#34d399"
+            stroke={active === i ? "#052e1f" : "none"}
+            strokeWidth={active === i ? 2 : 0}
+            vectorEffect="non-scaling-stroke"
+          />
         ))}
       </svg>
+
+      {/* Camada de interação: uma faixa invisível por ponto, cobrindo toda a
+          altura. Passar o mouse ou tocar mostra o valor daquele dia. Faixas em
+          vez de mirar no pontinho: no toque, acertar um círculo de 5px é
+          impossível. */}
+      <div className="absolute inset-0 flex">
+        {series.map((s, i) => (
+          <button
+            key={i}
+            type="button"
+            aria-label={`${s.day}: ${brl(s.cents)}`}
+            className="h-full flex-1 cursor-default"
+            onMouseEnter={() => setActive(i)}
+            onFocus={() => setActive(i)}
+            onTouchStart={() => setActive(i)}
+          />
+        ))}
+      </div>
+
+      {/* Balão com o valor do ponto ativo. Fica ACIMA do ponto, mas vira para
+          BAIXO quando o ponto é alto: a área do gráfico rola na horizontal e
+          isso faz o navegador cortar tudo que passa do topo — nos dias de pico
+          o balão simplesmente sumia. Nas pontas ele encosta na borda lateral em
+          vez de vazar para fora. */}
+      {active !== null && (() => {
+        const abaixo = points[active].y < H * 0.4;
+        const dx = active === 0 ? "0" : active === series.length - 1 ? "-100%" : "-50%";
+        return (
+        <div
+          className="pointer-events-none absolute z-10 whitespace-nowrap rounded-lg border border-emerald-500/30 bg-ink-900/95 px-2.5 py-1.5 text-center shadow-xl backdrop-blur-sm"
+          style={{
+            left: `${((PAD + active * stepX) / W) * 100}%`,
+            top: `${(points[active].y / H) * 100}%`,
+            transform: `translate(${dx}, ${abaixo ? "8px" : "calc(-100% - 8px)"})`,
+          }}
+        >
+          <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+            {series[active].day}
+          </div>
+          <div className="font-display text-sm font-semibold text-emerald-400">
+            {brl(series[active].cents)}
+          </div>
+        </div>
+        );
+      })()}
+      </div>
       {/* TODAS as datas do período (antes só apareciam primeira, meio e última).
           Cada rótulo fica alinhado ao seu ponto no gráfico. */}
       <div

@@ -581,7 +581,22 @@ export default function MediaPage() {
                 onClick={() => (selectMode ? clearSelection() : setSelectMode(true))}
                 className={selectMode ? "btn-ghost border-white/40 bg-white/10 text-white" : "btn-ghost"}
               >
-                {selectMode ? "Cancelar seleção" : "Selecionar"}
+                {/* O rótulo troca de "Selecionar" para "Cancelar seleção", que é
+                    bem mais largo. Como a área de ações é alinhada à direita, o
+                    botão mudava de tamanho e ARRASTAVA a si mesmo e ao "Enviar
+                    mídia" para o lado a cada clique — no iPad o dedo já estava
+                    fora do botão. Aqui os dois rótulos ficam empilhados na mesma
+                    célula da grade: o invisível reserva a largura do maior, e a
+                    caixa não muda mais. Reservar por medida (min-width fixo)
+                    quebraria com outra fonte ou tamanho de texto. */}
+                <span className="grid">
+                  <span aria-hidden className="col-start-1 row-start-1 invisible">
+                    Cancelar seleção
+                  </span>
+                  <span className="col-start-1 row-start-1">
+                    {selectMode ? "Cancelar seleção" : "Selecionar"}
+                  </span>
+                </span>
               </button>
               <button
                 onClick={() => fileRef.current?.click()}

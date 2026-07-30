@@ -79,6 +79,28 @@ export const DEFAULT_CTA_BUTTONS = [
   "VEM ME PROVAR AGORA",
 ].join("\n");
 
+/**
+ * Escolhe `count` frases da lista para os hiperlinks do fim da legenda das
+ * Prévias. Sem repetir enquanto houver frase nova; lista curta repete para
+ * completar as linhas. Não trunca: o limite de {@link CTA_BUTTON_MAX} é do
+ * BOTÃO do Telegram, um hiperlink na legenda não tem esse teto.
+ */
+export function pickCtaLinkTexts(list: string, count = 3): string[] {
+  const lines = list
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return [];
+  // Fisher-Yates (embaralhar com sort(() => Math.random() - 0.5) enviesa a
+  // ordem e faria as mesmas frases caírem juntas com frequência).
+  const pool = [...lines];
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return Array.from({ length: count }, (_, i) => pool[i % pool.length]);
+}
+
 /** Escolhe uma frase de CTA aleatória da lista, respeitando o limite de
  *  caracteres (trunca com reticências se passar). Retorna null se lista vazia. */
 export function pickCtaButtonText(list: string, max = CTA_BUTTON_MAX): string | null {

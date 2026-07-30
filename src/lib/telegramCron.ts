@@ -41,7 +41,12 @@ import { updatePost } from "@/lib/posts";
 import { listMedia, getMediaRow } from "@/lib/media";
 import { audienceFromPostType, logMediaPosted } from "@/lib/mediaUsage";
 import { getProfile } from "@/lib/profiles";
-import { DEFAULT_CTA_BUTTONS, pickCtaButtonText, CTA_BUTTON_MAX } from "@/lib/postTypes";
+import {
+  DEFAULT_CTA_BUTTONS,
+  pickCtaButtonText,
+  pickCtaLinkTexts,
+  CTA_BUTTON_MAX,
+} from "@/lib/postTypes";
 
 /**
  * Núcleo das tarefas agendadas do Telegram (autopost, funis e expiração).
@@ -77,13 +82,14 @@ function escapeHtmlAllowingLinks(s: string): string {
 }
 
 /** Monta a legenda das Prévias: corpo (limpo/escapado) + 3 chamadas para ação
- *  em HIPERLINK ("ACESSAR O VIP 🎁"), em vez do link cru. Remove também o CTA
- *  em texto puro ("👉 Acesse: ...") que ficou salvo em posts de versões antigas. */
-function buildWarmupCaption(rawCaption: string, vipLink: string): string {
+ *  em HIPERLINK no fim, uma por linha, com as frases dos "Botões da copy".
+ *  Remove também o CTA em texto puro ("👉 Acesse: ...") que ficou salvo em
+ *  posts de versões antigas. */
+function buildWarmupCaption(rawCaption: string, vipLink: string, texts: string[]): string {
   const body = (rawCaption || "").replace(/\n*👉\s*Acesse:.*$/s, "").trimEnd();
   const href = vipLink.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-  const linkLine = `<a href="${href}">ACESSAR O VIP 🎁</a>`;
-  const cta = `${linkLine}\n${linkLine}\n${linkLine}`;
+  const lines = texts.length > 0 ? texts : ["ACESSAR O VIP 🎁"];
+  const cta = lines.map((t) => `👉 <a href="${href}">${escapeHtml(t)}</a>`).join("\n");
   return body ? `${escapeHtmlAllowingLinks(body)}\n\n${cta}` : cta;
 }
 
@@ -152,40 +158,8 @@ export async function runTelegramAutopost(): Promise<number> {
         if (row) mediaPath = row.path;
       }
 
-      // Link de saída do post, dependente do GRUPO:
-      //  • PRÉVIAS: botão/link do VIP (convida a galera PRA dentro do VIP). Só
-      //    quando o post PEDE CTA — no Método MK só conversão tem cta=1;
-      //    humanização/reação/enquete têm cta=0. cta=NULL = post legado/manual →
-      //    mantém o comportamento antigo (sempre com CTA).
-      //  • VIP: botão do WhatsApp particular (puxa o lead pro WhatsApp p/ LTV).
-      //    Só quando o post estiver MARCADO (cta=1) e o link estiver configurado
-      //    — o padrão do VIP é SEM link (cta=NULL/0).
-      const wantsVipCta = isWarmup && Boolean(profile.bioVipLink) && post.cta !== 0;
-      const wantsWaCta =
-        post.post_type === "VIP" && post.cta === 1 && Boolean(profile.bioWhatsappLink);
-
-      let replyMarkup: { inline_keyboard: { text: string; url: string }[][] } | undefined;
-      let finalCaption = escapeHtmlAllowingLinks(post.caption || "");
-
-      if (wantsVipCta && profile.bioVipLink) {
-        const ctaButtonText = pickCtaButtonText(ctaList);
-        if (ctaButtonText) {
-          // Com botão: a legenda vai limpa e o link fica no botão inline.
-          replyMarkup = { inline_keyboard: [[{ text: ctaButtonText, url: profile.bioVipLink }]] };
-        } else {
-          // Sem lista de frases: cai nos hiperlinks "ACESSAR O VIP 🎁" na legenda.
-          finalCaption = buildWarmupCaption(post.caption || "", profile.bioVipLink);
-        }
-      } else if (wantsWaCta && profile.bioWhatsappLink) {
-        const waText =
-          (profile.bioWhatsappButton || "meu whatsapp particular").slice(0, CTA_BUTTON_MAX) ||
-          "meu whatsapp particular";
-        replyMarkup = { inline_keyboard: [[{ text: waText, url: profile.bioWhatsappLink }]] };
-      }
-
-      const sendOpts = replyMarkup ? { reply_markup: replyMarkup } : {};
-
-      // Enquete do post (se houver).
+      // Enquete do post (se houver). Lida antes do CTA porque é ela que define
+      // se o post é de MÍDIA — e post de mídia das Prévias sempre leva convite.
       let poll: { question?: string; options?: unknown } | null = null;
       try {
         if (post.poll) poll = JSON.parse(post.poll);
@@ -195,10 +169,50 @@ export async function runTelegramAutopost(): Promise<number> {
       const pollOptions = Array.isArray(poll?.options)
         ? (poll!.options as unknown[]).filter((o): o is string => typeof o === "string")
         : [];
+      const hasPoll = Boolean(poll?.question) && pollOptions.length >= 2;
+      const isMediaPost = !hasPoll && Boolean(mediaPath);
+
+      // Link de saída do post, dependente do GRUPO:
+      //  • PRÉVIAS: convite pro VIP. TODA foto e TODO vídeo leva o convite,
+      //    independente do cta — a mídia é o que prende o olho, e é onde o
+      //    convite converte. Sem mídia (texto puro/enquete) vale a regra do
+      //    método: só conversão tem cta=1; humanização/reação/enquete têm
+      //    cta=0. cta=NULL = post legado/manual → sempre com CTA, como antes.
+      //  • VIP: botão do WhatsApp particular (puxa o lead pro WhatsApp p/ LTV).
+      //    Só quando o post estiver MARCADO (cta=1) e o link estiver configurado
+      //    — o padrão do VIP é SEM link (cta=NULL/0).
+      const wantsVipCta =
+        isWarmup && Boolean(profile.bioVipLink) && (isMediaPost || post.cta !== 0);
+      const wantsWaCta =
+        post.post_type === "VIP" && post.cta === 1 && Boolean(profile.bioWhatsappLink);
+
+      let replyMarkup: { inline_keyboard: { text: string; url: string }[][] } | undefined;
+      let finalCaption = escapeHtmlAllowingLinks(post.caption || "");
+
+      if (wantsVipCta && profile.bioVipLink) {
+        // Os dois ao mesmo tempo: o BOTÃO inline (uma frase) e as 3 linhas de
+        // HIPERLINK no fim da legenda (outras frases da mesma lista). Antes era
+        // um ou outro — o hiperlink só aparecia quando não havia lista de frases.
+        const ctaButtonText = pickCtaButtonText(ctaList);
+        if (ctaButtonText) {
+          replyMarkup = { inline_keyboard: [[{ text: ctaButtonText, url: profile.bioVipLink }]] };
+        }
+        finalCaption = buildWarmupCaption(
+          post.caption || "",
+          profile.bioVipLink,
+          pickCtaLinkTexts(ctaList, 3),
+        );
+      } else if (wantsWaCta && profile.bioWhatsappLink) {
+        const waText =
+          (profile.bioWhatsappButton || "meu whatsapp particular").slice(0, CTA_BUTTON_MAX) ||
+          "meu whatsapp particular";
+        replyMarkup = { inline_keyboard: [[{ text: waText, url: profile.bioWhatsappLink }]] };
+      }
+
+      const sendOpts = replyMarkup ? { reply_markup: replyMarkup } : {};
 
       // Post sem enquete, sem mídia e sem texto não tem o que enviar: marca como
       // postado para não travar a fila tentando repetidamente uma mensagem vazia.
-      const hasPoll = Boolean(poll?.question) && pollOptions.length >= 2;
       if (!hasPoll && !mediaPath && !finalCaption.trim()) {
         updatePost(post.id, { status: "posted" });
         continue;

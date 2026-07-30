@@ -338,6 +338,41 @@ export function userStats(botId: string): {
   };
 }
 
+/**
+ * Como `userStats`, mas somando TODOS os bots — é o número que o Dashboard
+ * mostra. Sem `profileId`, é a operação inteira; com ele, só a modelo.
+ *
+ * Vale para bot com automação DESLIGADA: o webhook registra usuário, lead,
+ * entrada em grupo e assinatura sem olhar essa chave. Desligado o bot não
+ * dispara nada, mas continua captando.
+ */
+export function userStatsAll(profileId?: string): {
+  total: number;
+  vips: number;
+  expirados: number;
+  leads: number;
+  bloqueados: number;
+} {
+  const db = getDb();
+  const now = Date.now();
+  const escopo = profileId ? "u.profile_id = ?" : "1 = 1";
+  const base = profileId ? [profileId] : [];
+  const one = (where: string, params: unknown[] = []) =>
+    (
+      db
+        .prepare(`SELECT COUNT(*) c FROM telegram_users u WHERE ${escopo} AND ${where}`)
+        .get(...base, ...params) as { c: number }
+    ).c;
+
+  return {
+    total: one("1 = 1"),
+    vips: one(`u.blocked = 0 AND ${ACTIVE_VIP}`, [now]),
+    expirados: one(`u.blocked = 0 AND ${HAS_EXPIRED} AND NOT ${ACTIVE_VIP}`, [now]),
+    leads: one(`u.blocked = 0 AND NOT ${HAS_ANY_SUB}`),
+    bloqueados: one("u.blocked = 1"),
+  };
+}
+
 export type UserFilter = "todos" | "vips" | "expirados" | "leads" | "bloqueados";
 
 /**

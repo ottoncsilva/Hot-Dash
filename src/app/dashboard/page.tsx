@@ -35,6 +35,10 @@ type BotOverviewData = {
   series: { day: string; cents: number }[];
   netRevenueCents: number;
   netProfitCents: number;
+  /** Base de usuários do Telegram — foto do AGORA, não muda com o período. */
+  users: { total: number; vips: number; expirados: number; leads: number; bloqueados: number };
+  byWeekday: { key: number; label: string; cents: number; count: number }[];
+  byHour: { key: number; label: string; cents: number; count: number }[];
 };
 
 export default function DashboardHome() {
@@ -431,6 +435,31 @@ function BotSalesPanel({
         />
       </div>
 
+      {/* Base de usuários do Telegram. Fica no Dashboard porque é retrato da
+          operação, não etapa de funil. Continua contando com a automação
+          desligada: o bot só não dispara, mas segue captando. */}
+      <p className="eyebrow mt-8">usuários do telegram</p>
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <UserStat label="Total" value={data?.users.total} />
+        <UserStat label="VIPs" value={data?.users.vips} tone="text-emerald-400" />
+        <UserStat label="Expirados" value={data?.users.expirados} tone="text-amber-400" />
+        <UserStat label="Leads" value={data?.users.leads} tone="text-sky-400" />
+        <UserStat label="Bloqueados" value={data?.users.bloqueados} tone="text-rose-400" />
+      </div>
+
+      {/* Quando o público compra — dia da semana e hora. */}
+      <p className="eyebrow mt-8">quando o público compra</p>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <RankingCard
+          title="Dias com mais vendas"
+          rows={data?.byWeekday.slice(0, 5).map((d) => ({ label: d.label, count: d.count, cents: d.cents }))}
+        />
+        <RankingCard
+          title="Horários com mais vendas"
+          rows={data?.byHour.slice(0, 5).map((h) => ({ label: h.label, count: h.count, cents: h.cents }))}
+        />
+      </div>
+
       {/* Faturamento por Modelo */}
       <p className="eyebrow mt-8">faturamento por modelo</p>
       <div className="mt-3 card overflow-x-auto p-0">
@@ -502,6 +531,58 @@ function ChartSkeleton() {
 }
 
 /** Gráfico de linha simples (SVG), sem dependências externas. */
+/** Número da base de usuários. `undefined` = ainda carregando. */
+function UserStat({ label, value, tone }: { label: string; value?: number; tone?: string }) {
+  return (
+    <div className="card p-4">
+      <p className="eyebrow">{label}</p>
+      {value === undefined ? (
+        <div className="mt-2 h-7 w-16 animate-pulse rounded bg-white/5" />
+      ) : (
+        <p className={`mt-1 font-display text-2xl font-semibold ${tone || "text-white"}`}>{value}</p>
+      )}
+    </div>
+  );
+}
+
+/** Ranking simples (dia/hora) com quantidade e faturamento. */
+function RankingCard({
+  title,
+  rows,
+}: {
+  title: string;
+  rows?: { label: string; count: number; cents: number }[];
+}) {
+  return (
+    <div className="card p-4">
+      <p className="eyebrow">{title}</p>
+      {!rows ? (
+        <div className="mt-3 space-y-2">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-6 animate-pulse rounded bg-white/5" />
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="mt-3 text-xs text-zinc-600">Nenhuma venda no período.</p>
+      ) : (
+        <div className="mt-3 space-y-1.5">
+          {rows.map((r) => (
+            <div key={r.label} className="flex items-baseline justify-between gap-3 text-sm">
+              <span className="text-zinc-200">{r.label}</span>
+              <span className="flex items-baseline gap-2">
+                <span className="font-mono text-[11px] text-zinc-600">
+                  {r.count} {r.count === 1 ? "venda" : "vendas"}
+                </span>
+                <span className="font-display font-semibold text-emerald-400">{brl(r.cents)}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RevenueChart({ series }: { series: { day: string; cents: number }[] }) {
   // Ponto sob o cursor/dedo. Fica antes do early-return porque hook não pode
   // ficar depois de um return condicional.

@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
-import { periodStatsInRange, revenueSeriesForRange } from "@/lib/transactions";
+import {
+  periodStatsInRange,
+  revenueSeriesForRange,
+  revenueByWeekdayAndHour,
+} from "@/lib/transactions";
+import { userStatsAll } from "@/lib/telegramUsers";
 import { salesFunnel, revenueByProfile } from "@/lib/salesFunnel";
 import { getFinanceSettings, getAppTimeZone } from "@/lib/settings";
 import { resolvePeriod } from "@/lib/periodRange";
@@ -33,6 +38,11 @@ export async function GET(req: NextRequest) {
     const funnel = salesFunnel(since, until, profileId);
     const byProfile = revenueByProfile(since, until);
     const series = revenueSeriesForRange(period, since, until, profileId);
+    // Quando o público compra (dia da semana / hora) e a base de usuários do
+    // Telegram. A base é uma FOTO DO AGORA — não muda com o período: "quantos
+    // VIPs eu tenho" não é uma pergunta sobre a semana passada.
+    const quando = revenueByWeekdayAndHour(since, until, tz, profileId);
+    const users = userStatsAll(profileId);
     const finance = getFinanceSettings();
     // Faturamento LÍQUIDO = soma do valor que o gateway repassa (já sem a taxa).
     // Antes este card era "lucro líquido" = faturamento - anúncios, o que
@@ -48,6 +58,9 @@ export async function GET(req: NextRequest) {
       series,
       netRevenueCents,
       netProfitCents,
+      users,
+      byWeekday: quando.weekday,
+      byHour: quando.hour,
     });
   } catch (err) {
     return errorResponse(err);

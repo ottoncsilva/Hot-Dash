@@ -508,6 +508,77 @@ export type PeriodStats = {
 /** Como computePeriodStats, mas aceita também um limite superior (untilMs) —
  *  necessário para períodos fechados como "Ontem" ([início, fim)). Exportada
  *  para o painel do bot de vendas (períodos Hoje/Ontem/7 dias/30 dias/Máximo). */
+const DIAS_SEMANA = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+
+/**
+ * Vendas pagas agrupadas por DIA DA SEMANA e por HORA — "quando o público
+ * compra". Serve para escolher os horários de pico do bot e do disparo.
+ *
+ * Os baldes saem do FUSO DA OPERAÇÃO, não do relógio do servidor: em produção
+ * ele roda em UTC e uma venda das 22h de Brasília cairia no dia seguinte.
+ * Devolve as faixas ORDENADAS por faturamento (maior primeiro), sem as vazias.
+ */
+export function revenueByWeekdayAndHour(
+  sinceMs: number | null,
+  untilMs: number | null,
+  tz: string,
+  profileId?: string,
+): {
+  weekday: { key: number; label: string; cents: number; count: number }[];
+  hour: { key: number; label: string; cents: number; count: number }[];
+} {
+  const clauses = ["status = 'paid'"];
+  const params: (string | number)[] = [];
+  // COALESCE: transação antiga pode não ter paid_at — cai no created_at.
+  if (sinceMs !== null) {
+    clauses.push("COALESCE(paid_at, created_at) >= ?");
+    params.push(sinceMs);
+  }
+  if (untilMs !== null) {
+    clauses.push("COALESCE(paid_at, created_at) < ?");
+    params.push(untilMs);
+  }
+  if (profileId) {
+    clauses.push("profile_id = ?");
+    params.push(profileId);
+  }
+  const rows = getDb()
+    .prepare(
+      `SELECT COALESCE(paid_at, created_at) AS at, amount_cents
+         FROM transactions WHERE ${clauses.join(" AND ")}`,
+    )
+    .all(...params) as { at: number; amount_cents: number }[];
+
+  const porDia = new Map<number, { cents: number; count: number }>();
+  const porHora = new Map<number, { cents: number; count: number }>();
+  for (const r of rows) {
+    const p = partsInTimeZone(r.at, tz);
+    const dia = new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay();
+    const soma = (m: Map<number, { cents: number; count: number }>, k: number) => {
+      const cur = m.get(k) || { cents: 0, count: 0 };
+      cur.cents += r.amount_cents;
+      cur.count += 1;
+      m.set(k, cur);
+    };
+    soma(porDia, dia);
+    soma(porHora, p.hour);
+  }
+
+  const ordena = <T extends { cents: number }>(l: T[]) => l.sort((a, b) => b.cents - a.cents);
+  return {
+    weekday: ordena(
+      [...porDia.entries()].map(([key, v]) => ({ key, label: DIAS_SEMANA[key], ...v })),
+    ),
+    hour: ordena(
+      [...porHora.entries()].map(([key, v]) => ({
+        key,
+        label: `${String(key).padStart(2, "0")}h`,
+        ...v,
+      })),
+    ),
+  };
+}
+
 export function periodStatsInRange(
   sinceMs: number | null,
   untilMs: number | null,

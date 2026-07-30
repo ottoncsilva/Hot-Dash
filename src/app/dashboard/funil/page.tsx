@@ -123,15 +123,14 @@ export default function FunilPage() {
         )}
       </div>
 
-      {/* Números do período */}
+      {/* Números do período — só o que é ETAPA da jornada. Receita, receita
+          líquida e ticket médio saíram daqui: são os mesmos números do
+          Dashboard, e ver o mesmo valor em duas telas só gera dúvida sobre
+          qual está certo. O Dashboard responde "quanto entrou"; esta tela,
+          "onde as pessoas param". */}
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <Card label="Receita" valor={m ? brl(m.paidCents) : null} accent />
-        <Card label="Receita líquida" valor={m ? brl(m.netCents) : null} hint="Já sem a taxa do gateway" />
-        <Card label="Ticket médio" valor={m ? brl(m.avgTicketCents) : null} />
-      </div>
-      <div className="mt-3 grid gap-3 sm:grid-cols-3">
         <Card label="Total starts" valor={m ? String(m.totalStarts) : null} />
-        <Card label="Vendas pagas" valor={m ? String(m.pixPaid) : null} />
+        <Card label="Vendas pagas" valor={m ? String(m.pixPaid) : null} accent />
         <Card
           label="PIX pendente"
           valor={m ? brl(m.pendingCents) : null}

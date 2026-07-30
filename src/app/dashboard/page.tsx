@@ -329,7 +329,7 @@ function BotSalesPanel({
     setError(null);
     const qs = new URLSearchParams(periodQuery(period));
     if (profileId) qs.set("profileId", profileId);
-    apiGet<BotOverviewData>(`/api/dashboard/bot-overview?${qs.toString()}`)
+    apiGet<BotOverviewData>(`/api/dashboard/bot-overview?${qs.toString()}&refresh=1`)
       .then((d) => {
         if (!cancelled) {
           setData(d);

@@ -15,7 +15,12 @@ import { getTelegramChat, getTelegramChatMemberCount, getTelegramMe } from "./te
  * `error` guardado na linha, e o último número conhecido continua visível.
  */
 
-const INTERVALO_MS = 10 * 60 * 1000; // 10 min: contagem de grupo não muda a cada minuto
+const INTERVALO_MS = 10 * 60 * 1000; // 10 min: ritmo de fundo, no agendador
+// Piso para a consulta pedida pela tela: mesmo abrindo o painel várias vezes
+// seguidas, não consulta o Telegram mais que uma vez a cada 15s por grupo.
+const PISO_MS = 15 * 1000;
+// Teto de espera de uma consulta pedida pela tela.
+const TIMEOUT_PADRAO_MS = 4000;
 
 export type GroupStat = {
   profileId: string;
@@ -116,14 +121,25 @@ function upsert(
  * Atualiza o retrato de todos os bots cadastrados. Roda a cada ciclo do
  * agendador, mas só consulta o Telegram a cada {@link INTERVALO_MS} por grupo.
  */
-export async function runTelegramGroupMonitor(): Promise<number> {
+export async function runTelegramGroupMonitor(opts?: {
+  /** Ignora o intervalo normal e consulta agora (usado ao abrir/atualizar a
+   *  tela). Ainda respeita {@link PISO_MS} para o painel não martelar a API do
+   *  Telegram quando a página recarrega várias vezes seguidas. */
+  force?: boolean;
+  /** Limita a espera: um Telegram lento não pode segurar o carregamento do
+   *  painel. Estourando o tempo, a tela mostra o último retrato conhecido. */
+  timeoutMs?: number;
+  profileId?: string;
+}): Promise<number> {
   const db = getDb();
+  const filtro = opts?.profileId ? " AND profile_id = ?" : "";
+  const params = opts?.profileId ? [opts.profileId] : [];
   const bots = db
     .prepare(
       `SELECT id, profile_id, bot_token, bot_username, id_vip, id_aquecimento
-         FROM telegram_bots WHERE bot_token IS NOT NULL AND bot_token <> ''`,
+         FROM telegram_bots WHERE bot_token IS NOT NULL AND bot_token <> ''${filtro}`,
     )
-    .all() as {
+    .all(...params) as {
     id: string;
     profile_id: string;
     bot_token: string;
@@ -146,13 +162,25 @@ export async function runTelegramGroupMonitor(): Promise<number> {
       const anterior = db
         .prepare("SELECT checked_at FROM telegram_group_stats WHERE id = ?")
         .get(`${bot.id}:${alvo.kind}`) as { checked_at: number } | undefined;
-      if (anterior && agora - anterior.checked_at < INTERVALO_MS) continue;
+      const minimo = opts?.force ? PISO_MS : INTERVALO_MS;
+      if (anterior && agora - anterior.checked_at < minimo) continue;
 
       try {
-        const [chat, count] = await Promise.all([
+        const consulta = Promise.all([
           getTelegramChat(bot.bot_token, alvo.chatId).catch(() => null),
           getTelegramChatMemberCount(bot.bot_token, alvo.chatId),
         ]);
+        const [chat, count] = await (opts?.timeoutMs || opts?.force
+          ? Promise.race([
+              consulta,
+              new Promise<never>((_, rej) =>
+                setTimeout(
+                  () => rej(new Error("Telegram demorou para responder.")),
+                  opts?.timeoutMs ?? TIMEOUT_PADRAO_MS,
+                ),
+              ),
+            ])
+          : consulta);
         upsert(bot.id, bot.profile_id, alvo.kind, alvo.chatId, {
           title: chat?.title ?? null,
           memberCount: count,

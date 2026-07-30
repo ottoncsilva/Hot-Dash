@@ -6,7 +6,7 @@ import {
   revenueByWeekdayAndHour,
 } from "@/lib/transactions";
 import { userStatsAll } from "@/lib/telegramUsers";
-import { groupTotals } from "@/lib/telegramMonitor";
+import { groupTotals, runTelegramGroupMonitor } from "@/lib/telegramMonitor";
 import { salesFunnel, revenueByProfile } from "@/lib/salesFunnel";
 import { getFinanceSettings, getAppTimeZone } from "@/lib/settings";
 import { resolvePeriod } from "@/lib/periodRange";
@@ -44,6 +44,13 @@ export async function GET(req: NextRequest) {
     // VIPs eu tenho" não é uma pergunta sobre a semana passada.
     const quando = revenueByWeekdayAndHour(since, until, tz, profileId);
     const users = userStatsAll(profileId);
+    // Ao ABRIR/ATUALIZAR a tela, consulta os grupos na hora em vez de esperar o
+    // ciclo de fundo. Nunca derruba o painel: erro ou demora caem no último
+    // retrato conhecido. O polling de 20s da tela não manda `refresh`, para não
+    // martelar a API do Telegram.
+    if (req.nextUrl.searchParams.get("refresh") === "1") {
+      await runTelegramGroupMonitor({ force: true, profileId }).catch(() => {});
+    }
     // Membros dos grupos: vêm de consulta periódica à API, então existem mesmo
     // com a operação do bot desligada.
     const groups = groupTotals(profileId);

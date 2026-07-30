@@ -20,12 +20,17 @@ import {
 } from "@/components/icons";
 import { RATIO_BUCKETS, ratioBucket, mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type RatioBucket, type Tag } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
+import PeriodPicker, { type PeriodState } from "@/components/PeriodPicker";
+import { resolvePeriodLocal } from "@/lib/periods";
 import { showToast } from "@/lib/toast";
 import Link from "next/link";
 
 const MAX_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? "200");
 
 type SortKey = "date_desc" | "date_asc" | "size_desc" | "size_asc" | "tag_asc" | "file_date_desc" | "file_date_asc";
+
+/** Estado inicial do filtro de data: tudo, sem recorte de período. */
+const NO_PERIOD: PeriodState = { period: "all", from: "", to: "" };
 
 export default function MediaPage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -45,6 +50,8 @@ export default function MediaPage() {
   const [filterTagIds, setFilterTagIds] = useState<Set<string>>(new Set());
   const [filterNoTag, setFilterNoTag] = useState(false);
   const [filterRatios, setFilterRatios] = useState<Set<RatioBucket>>(new Set());
+  // Filtro por data de INSERÇÃO na galeria (createdAt) — "Máximo" = sem filtro.
+  const [filterPeriod, setFilterPeriod] = useState<PeriodState>(NO_PERIOD);
   const [grouping, setGrouping] = useState(false);
   const [sortBy, setSortBy] = useState<SortKey>("date_desc");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -114,6 +121,7 @@ export default function MediaPage() {
     setFilterTagIds(new Set());
     setFilterNoTag(false);
     setFilterRatios(new Set());
+    setFilterPeriod(NO_PERIOD);
     loadMedia();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId]);
@@ -350,6 +358,11 @@ export default function MediaPage() {
 
   const filteredMedia = useMemo(() => {
     const list = media || [];
+    const { since, until } = resolvePeriodLocal(
+      filterPeriod.period,
+      filterPeriod.from,
+      filterPeriod.to,
+    );
     return list.filter((m) => {
       const tagOk =
         filterTagIds.size === 0 && !filterNoTag
@@ -358,9 +371,12 @@ export default function MediaPage() {
             m.tags.some((t) => filterTagIds.has(t.id));
       const ratioOk =
         filterRatios.size === 0 ? true : filterRatios.has(ratioBucket(m.width, m.height));
-      return tagOk && ratioOk;
+      // Data de inserção: `until` é exclusivo (começo do dia seguinte ao "até").
+      const dateOk =
+        (since === null || m.createdAt >= since) && (until === null || m.createdAt < until);
+      return tagOk && ratioOk && dateOk;
     });
-  }, [media, filterTagIds, filterNoTag, filterRatios]);
+  }, [media, filterTagIds, filterNoTag, filterRatios, filterPeriod]);
 
   const sortedMedia = useMemo(() => {
     const list = [...filteredMedia];
@@ -630,6 +646,19 @@ export default function MediaPage() {
             >
               limpar
             </button>
+          )}
+        </div>
+      )}
+
+      {/* Filtro por data de inserção na galeria */}
+      {media && media.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="eyebrow">inserção</span>
+          <PeriodPicker value={filterPeriod} onChange={setFilterPeriod} />
+          {filterPeriod.period !== "all" && (
+            <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
+              {filteredMedia.length} de {media.length}
+            </span>
           )}
         </div>
       )}

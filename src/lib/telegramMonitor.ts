@@ -1,6 +1,8 @@
 import "server-only";
 import { getDb } from "./db";
 import { getTelegramChat, getTelegramChatMemberCount, getTelegramMe } from "./telegramApi";
+import { getAppTimeZone } from "./settings";
+import { partsInTimeZone } from "./timezone";
 
 /**
  * Monitor dos grupos do Telegram — quantos membros o VIP e as Prévias têm.
@@ -115,6 +117,70 @@ function upsert(
       Date.now(),
       dados.error ?? null,
     );
+
+  // Histórico do dia: guarda a ÚLTIMA medição de cada dia. A diferença entre
+  // dois dias é o crescimento líquido do grupo. Sem contagem (falha), não
+  // grava — melhor um dia sem ponto do que um ponto errado.
+  if (typeof dados.memberCount === "number") {
+    const p = partsInTimeZone(Date.now(), getAppTimeZone());
+    const dia = `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+    getDb()
+      .prepare(
+        `INSERT INTO telegram_group_history (id, bot_id, profile_id, kind, day, member_count, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET member_count = excluded.member_count, updated_at = excluded.updated_at`,
+      )
+      .run(`${botId}:${kind}:${dia}`, botId, profileId, kind, dia, dados.memberCount, Date.now());
+  }
+}
+
+/**
+ * Série diária de crescimento dos grupos: tamanho no fim de cada dia e a
+ * VARIAÇÃO em relação ao dia anterior (entrou menos saiu).
+ *
+ * Enquanto outro sistema opera o bot, só dá para saber o líquido — o Telegram
+ * não entrega os eventos de entrada/saída para quem não consome os updates, e
+ * não existe método para listar membros. Quando o Hot-Dash assumir a operação,
+ * a mesma tela pode passar a separar entradas de saídas.
+ */
+export function groupGrowthSeries(
+  dias = 14,
+  profileId?: string,
+): { day: string; vip: number | null; previas: number | null; vipDelta: number | null; previasDelta: number | null }[] {
+  const filtro = profileId ? " AND profile_id = ?" : "";
+  const params = profileId ? [profileId] : [];
+  const rows = getDb()
+    .prepare(
+      `SELECT day, kind, SUM(member_count) AS total
+         FROM telegram_group_history
+        WHERE 1 = 1${filtro}
+        GROUP BY day, kind ORDER BY day`,
+    )
+    .all(...params) as { day: string; kind: string; total: number }[];
+
+  const porDia = new Map<string, { vip: number | null; previas: number | null }>();
+  for (const r of rows) {
+    const cur = porDia.get(r.day) || { vip: null, previas: null };
+    if (r.kind === "vip") cur.vip = r.total;
+    else cur.previas = r.total;
+    porDia.set(r.day, cur);
+  }
+
+  const ordenados = [...porDia.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const recorte = ordenados.slice(-dias);
+  return recorte.map(([day, v], i) => {
+    // O delta do primeiro ponto do RECORTE usa o dia anterior da série
+    // completa quando ele existe — senão o gráfico começaria sempre com zero.
+    const anteriorIdx = ordenados.length - recorte.length + i - 1;
+    const ant = anteriorIdx >= 0 ? ordenados[anteriorIdx][1] : null;
+    return {
+      day,
+      vip: v.vip,
+      previas: v.previas,
+      vipDelta: ant && ant.vip !== null && v.vip !== null ? v.vip - ant.vip : null,
+      previasDelta: ant && ant.previas !== null && v.previas !== null ? v.previas - ant.previas : null,
+    };
+  });
 }
 
 /**

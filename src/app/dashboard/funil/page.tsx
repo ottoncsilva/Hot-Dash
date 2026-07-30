@@ -39,6 +39,19 @@ type Dados = {
 export default function FunilPage() {
   const [period, setPeriod] = useState<PeriodState>({ period: DEFAULT_PERIOD, from: "", to: "" });
   const [profileId, setProfileId] = useState("");
+  // Crescimento dos grupos: vem de consulta à API do Telegram, não das vendas
+  // — por isso tem rota própria e não depende do período escolhido.
+  const [grupos, setGrupos] = useState<
+    { day: string; vip: number | null; previas: number | null; vipDelta: number | null; previasDelta: number | null }[] | null
+  >(null);
+
+  useEffect(() => {
+    const qs = new URLSearchParams({ days: "14" });
+    if (profileId) qs.set("profileId", profileId);
+    apiGet<{ series: typeof grupos }>(`/api/dashboard/group-growth?${qs.toString()}`)
+      .then((d) => setGrupos(d.series || []))
+      .catch(() => setGrupos([]));
+  }, [profileId]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [data, setData] = useState<Dados | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -210,6 +223,17 @@ export default function FunilPage() {
           , pelo botão de correção da linha.
         </p>
       )}
+
+      {/* Crescimento dos grupos do Telegram */}
+      <p className="eyebrow mt-8">crescimento dos grupos</p>
+      <div className="mt-3 card p-4">
+        <p className="text-xs text-zinc-500">
+          Variação do número de membros por dia — entradas menos saídas. Medido por consulta
+          ao Telegram, então funciona mesmo sem o Hot-Dash operar o bot. Quando ele assumir a
+          operação, dá para separar quem entrou de quem saiu.
+        </p>
+        <CrescimentoGrupos series={grupos} />
+      </div>
 
       {/* Fontes de tráfego */}
       <div className="mt-8 flex flex-wrap items-end justify-between gap-2">
@@ -392,6 +416,76 @@ function Etapa({
           {pct(taxa)} <span className="text-zinc-600">{taxaLabel}</span>
         </p>
       )}
+    </div>
+  );
+}
+
+/** Barras de variação diária: verde cresceu, vermelho encolheu. */
+function CrescimentoGrupos({
+  series,
+}: {
+  series:
+    | { day: string; vip: number | null; previas: number | null; vipDelta: number | null; previasDelta: number | null }[]
+    | null;
+}) {
+  if (series === null) {
+    return <div className="mt-4 h-24 animate-pulse rounded-lg bg-white/5" />;
+  }
+  const comDelta = series.filter((d) => d.vipDelta !== null || d.previasDelta !== null);
+  if (comDelta.length === 0) {
+    return (
+      <p className="mt-4 text-xs text-zinc-600">
+        Ainda sem histórico. O primeiro dia serve de base — a variação aparece a partir do
+        segundo dia de medição.
+      </p>
+    );
+  }
+  // Escala comum aos dois grupos para as barras serem comparáveis entre si.
+  const maior = Math.max(
+    1,
+    ...comDelta.map((d) => Math.max(Math.abs(d.vipDelta || 0), Math.abs(d.previasDelta || 0))),
+  );
+  const barra = (delta: number | null, cor: string) => {
+    if (delta === null) return <div className="h-6 flex-1" />;
+    const altura = Math.max(2, (Math.abs(delta) / maior) * 24);
+    return (
+      <div className="flex h-6 flex-1 items-end justify-center" title={`${delta > 0 ? "+" : ""}${delta}`}>
+        <div
+          className={`w-full rounded-sm ${delta < 0 ? "bg-rose-500/70" : cor}`}
+          style={{ height: `${altura}px` }}
+        />
+      </div>
+    );
+  };
+  return (
+    <div className="mt-4 space-y-3">
+      {(
+        [
+          { rotulo: "VIP", campo: "vipDelta" as const, cor: "bg-emerald-500/80" },
+          { rotulo: "Prévias", campo: "previasDelta" as const, cor: "bg-sky-500/80" },
+        ]
+      ).map((g) => {
+        const total = comDelta.reduce((n, d) => n + (d[g.campo] || 0), 0);
+        return (
+          <div key={g.rotulo}>
+            <div className="flex items-baseline justify-between text-xs">
+              <span className="text-zinc-300">{g.rotulo}</span>
+              <span className={total < 0 ? "text-rose-400" : "text-emerald-400"}>
+                {total > 0 ? "+" : ""}
+                {total} no período
+              </span>
+            </div>
+            <div className="mt-1 flex gap-1">{comDelta.map((d, i) => (
+              <div key={i} className="flex-1">{barra(d[g.campo], g.cor)}</div>
+            ))}</div>
+          </div>
+        );
+      })}
+      <div className="flex gap-1 text-center text-[9px] text-zinc-600">
+        {comDelta.map((d, i) => (
+          <span key={i} className="flex-1 truncate">{d.day.slice(8)}/{d.day.slice(5, 7)}</span>
+        ))}
+      </div>
     </div>
   );
 }

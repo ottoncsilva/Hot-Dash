@@ -197,6 +197,24 @@ function migrate(d: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_group_stats_profile ON telegram_group_stats(profile_id);
 
+    -- Histórico DIÁRIO da contagem de membros: uma linha por grupo por dia,
+    -- guardando a última medição daquele dia. A variação entre dois dias é o
+    -- crescimento líquido do grupo (entrou menos saiu).
+    -- Vem da mesma consulta do monitor, então é alimentado mesmo quando outro
+    -- sistema opera o bot. Quando o Hot-Dash assumir a operação, os eventos de
+    -- entrada/saída passam a existir e o gráfico pode separar um do outro.
+    CREATE TABLE IF NOT EXISTS telegram_group_history (
+      id           TEXT PRIMARY KEY,   -- bot_id + ":" + kind + ":" + dia
+      bot_id       TEXT NOT NULL,
+      profile_id   TEXT NOT NULL,
+      kind         TEXT NOT NULL,
+      day          TEXT NOT NULL,      -- AAAA-MM-DD no fuso da operação
+      member_count INTEGER NOT NULL,
+      updated_at   INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_group_history_dia ON telegram_group_history(profile_id, day);
+
     CREATE TABLE IF NOT EXISTS push_subscriptions (
       id                TEXT PRIMARY KEY,
       subscription_json TEXT NOT NULL,

@@ -17,7 +17,7 @@ function pct(ratio: number) {
   return `${(ratio * 100).toFixed(1)}%`;
 }
 
-// ---- Painel do Bot de Vendas (estilo BobzBot/ApexVips) ----
+// ---- Painel do Bot de Vendas ----
 // A lista de períodos e o cálculo das datas ficam em lib/periods + PeriodPicker,
 // compartilhados com o Financeiro.
 
@@ -37,6 +37,8 @@ type BotOverviewData = {
   netProfitCents: number;
   /** Base de usuários do Telegram — foto do AGORA, não muda com o período. */
   users: { total: number; vips: number; expirados: number; leads: number; bloqueados: number };
+  /** Membros dos grupos, por consulta à API — existe mesmo com a operação do bot desligada. */
+  groups: { vip: number | null; previas: number | null; checkedAt: number | null };
   byWeekday: { key: number; label: string; cents: number; count: number }[];
   byHour: { key: number; label: string; cents: number; count: number }[];
 };
@@ -290,7 +292,7 @@ function Stat({ label, value }: { label: string; value: number | null }) {
 
 // ---------------------------------------------------------------------------
 // Painel do Bot de Vendas — cards, gráfico de faturamento, funil de conversão
-// e faturamento por modelo. Espelha o painel do bot de vendas (ex-ApexVips),
+// e faturamento por modelo. Espelha o painel do bot de vendas,
 // usando os dados reais de transactions/telegram_leads/telegram_subscriptions.
 // ---------------------------------------------------------------------------
 function BotSalesPanel({
@@ -438,6 +440,19 @@ function BotSalesPanel({
       {/* Base de usuários do Telegram. Fica no Dashboard porque é retrato da
           operação, não etapa de funil. Continua contando com a automação
           desligada: o bot só não dispara, mas segue captando. */}
+      <p className="eyebrow mt-8">
+        grupos do telegram
+        {data?.groups.checkedAt ? (
+          <span className="ml-2 normal-case tracking-normal text-zinc-600">
+            (verificado {new Date(data.groups.checkedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })})
+          </span>
+        ) : null}
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <UserStat label="Membros no VIP" value={data ? (data.groups.vip ?? 0) : undefined} tone="text-emerald-400" />
+        <UserStat label="Membros nas Prévias" value={data ? (data.groups.previas ?? 0) : undefined} tone="text-sky-400" />
+      </div>
+
       <p className="eyebrow mt-8">usuários do telegram</p>
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <UserStat label="Total" value={data?.users.total} />

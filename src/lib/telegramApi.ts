@@ -127,6 +127,33 @@ export async function getTelegramMe(
   }>;
 }
 
+/**
+ * Quantos membros o grupo tem AGORA. É uma CONSULTA: funciona só com o token,
+ * sem precisar do webhook — ou seja, continua respondendo enquanto a operação
+ * do bot está desligada e outro sistema é o dono do webhook. Basta o bot ainda
+ * ser membro (idealmente admin) do grupo.
+ */
+export async function getTelegramChatMemberCount(
+  botToken: string,
+  chatId: string,
+): Promise<number> {
+  const r = (await telegramFetch(botToken, "getChatMemberCount", { chat_id: chatId })) as number;
+  return typeof r === "number" ? r : 0;
+}
+
+/** Dados do chat (título, tipo). Mesma ideia: consulta, não depende do webhook. */
+export async function getTelegramChat(
+  botToken: string,
+  chatId: string,
+): Promise<{ id: number; title?: string; type?: string; username?: string }> {
+  return (await telegramFetch(botToken, "getChat", { chat_id: chatId })) as {
+    id: number;
+    title?: string;
+    type?: string;
+    username?: string;
+  };
+}
+
 export async function sendTelegramMessage(
   botToken: string,
   chatId: string,

@@ -177,6 +177,26 @@ function migrate(d: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_media_post_log_media ON media_post_log(media_id, audience);
     CREATE INDEX IF NOT EXISTS idx_media_post_log_profile ON media_post_log(profile_id, audience);
 
+    -- Retrato periódico do bot e dos GRUPOS (VIP e Prévias) tirado por consulta
+    -- à API do Telegram (getChat / getChatMemberCount). Existe porque essas
+    -- consultas só precisam do TOKEN: continuam funcionando com a operação do
+    -- bot desligada, quando o webhook pertence a outro sistema e nenhum update
+    -- chega aqui. É o que permite acompanhar o tamanho dos grupos antes do
+    -- cutover.
+    CREATE TABLE IF NOT EXISTS telegram_group_stats (
+      id           TEXT PRIMARY KEY,   -- bot_id + ":" + kind
+      bot_id       TEXT NOT NULL,
+      profile_id   TEXT NOT NULL,
+      kind         TEXT NOT NULL,      -- 'vip' | 'previas'
+      chat_id      TEXT NOT NULL,
+      title        TEXT,
+      member_count INTEGER,
+      checked_at   INTEGER NOT NULL,
+      error        TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_group_stats_profile ON telegram_group_stats(profile_id);
+
     CREATE TABLE IF NOT EXISTS push_subscriptions (
       id                TEXT PRIMARY KEY,
       subscription_json TEXT NOT NULL,
@@ -478,7 +498,7 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "telegram_bots", "downsell_funnel", "TEXT");
   ensureColumn(d, "telegram_bots", "upsell_funnel", "TEXT");
   // Liga/desliga da operação do BOT DE VENDAS (recebe /start, gera PIX, aprova
-  // no VIP/Prévias). 0 = desligado (o ApexVips segue no controle) — padrão até
+  // no VIP/Prévias). 0 = desligado (outro sistema segue no controle) — padrão até
   // o operador fazer o cutover. Não afeta a postagem automática, que usa o token
   // direto para enviar e não depende do webhook.
   ensureColumn(d, "telegram_bots", "operation_active", "INTEGER NOT NULL DEFAULT 0");

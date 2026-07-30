@@ -16,7 +16,7 @@ export type TelegramBotConfig = {
   upsellFunnel?: string;
   /** Mensagem enviada ao aprovar um lead no grupo de prévias (opcional). */
   previewsWelcomeMessage?: string;
-  /** Liga/desliga da operação do bot de vendas (cutover ApexVips → Hot-Dash). */
+  /** Liga/desliga da operação do bot de vendas (cutover para o Hot-Dash). */
   operationActive: boolean;
 };
 

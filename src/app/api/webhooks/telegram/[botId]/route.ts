@@ -24,7 +24,7 @@ export async function POST(
       return NextResponse.json({ error: "Bot não configurado." }, { status: 404 });
     }
 
-    // Operação desligada → o bot de vendas não age (o ApexVips segue no
+    // Operação desligada → o bot de vendas não age (quem opera o bot segue no
     // controle). Retorna 200 para o Telegram não reenviar em loop.
     if (!bot.operationActive) {
       return NextResponse.json({ ok: true, inactive: true });

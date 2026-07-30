@@ -30,6 +30,9 @@ export async function register() {
       runTelegramMailings,
       runTelegramEviction,
     } = await import("@/lib/telegramCron");
+    // Monitor dos grupos: consulta a API do Telegram e por isso funciona com a
+    // operação do bot desligada, quando nenhum update chega pelo webhook.
+    const { runTelegramGroupMonitor } = await import("@/lib/telegramMonitor");
 
     // Trava anti-sobreposição: se um ciclo demorar mais que o intervalo (muitas
     // mídias, IA/Telegram lentos), o próximo tick é ignorado até o atual terminar.
@@ -66,6 +69,11 @@ export async function register() {
           await runTelegramEviction();
         } catch (err) {
           console.error("[hotdash] Erro no cron (expiração Telegram):", err);
+        }
+        try {
+          await runTelegramGroupMonitor();
+        } catch (err) {
+          console.error("[hotdash] Erro no cron (monitor de grupos):", err);
         }
       } finally {
         running = false;

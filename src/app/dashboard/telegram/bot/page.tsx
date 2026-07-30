@@ -265,7 +265,7 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
     <div className="card p-4">
       <h2 className="font-display text-lg font-semibold">Operação do bot</h2>
 
-      {/* Liga/desliga da operação (cutover ApexVips → Hot-Dash) */}
+      {/* Liga/desliga da operação (cutover do sistema atual → Hot-Dash) */}
       <div
         className={`mt-3 flex items-center justify-between gap-3 rounded-xl border p-3.5 ${
           active ? "border-emerald-500/30 bg-emerald-500/[0.06]" : "border-white/10 bg-ink-900"
@@ -273,7 +273,7 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
       >
         <div className="min-w-0">
           <p className="text-sm font-semibold text-white">
-            {active ? "Ligada — o Hot-Dash controla o bot" : "Desligada — o ApexVips controla o bot"}
+            {active ? "Ligada — o Hot-Dash controla o bot" : "Desligada — outro sistema controla o bot"}
           </p>
           <p className="mt-0.5 text-xs text-zinc-500">
             {active

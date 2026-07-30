@@ -319,7 +319,7 @@ export async function POST(req: NextRequest) {
       const active = Boolean(body.active);
       if (active) {
         // Ligar → registra o webhook (assume o controle do bot, substituindo o
-        // ApexVips na hora, já que um bot só tem um webhook).
+        // sistema anterior na hora, já que um bot só tem um webhook).
         const webhook = await registerBotWebhook(req, bot.id, bot.botToken);
         if (!webhook.ok) {
           return NextResponse.json({ ok: false, message: webhook.message || "Falha ao registrar webhook." });

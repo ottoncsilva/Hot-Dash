@@ -3,7 +3,7 @@ import { getDb } from "./db";
 
 /**
  * Métricas do funil de vendas do Bot do Telegram (equivalente ao painel do
- * ApexVips/BobzBot): quantos leads deram /start, quantos PIX foram gerados e
+ * do bot de vendas): quantos leads deram /start, quantos PIX foram gerados e
  * pagos, e o faturamento por plano/modelo. Tudo lido das mesmas tabelas do
  * bot de vendas (telegram_leads, transactions, telegram_subscriptions,
  * telegram_plans) — nenhuma tabela nova.

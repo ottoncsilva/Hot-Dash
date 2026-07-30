@@ -6,6 +6,7 @@ import {
   revenueByWeekdayAndHour,
 } from "@/lib/transactions";
 import { userStatsAll } from "@/lib/telegramUsers";
+import { groupTotals } from "@/lib/telegramMonitor";
 import { salesFunnel, revenueByProfile } from "@/lib/salesFunnel";
 import { getFinanceSettings, getAppTimeZone } from "@/lib/settings";
 import { resolvePeriod } from "@/lib/periodRange";
@@ -43,6 +44,9 @@ export async function GET(req: NextRequest) {
     // VIPs eu tenho" não é uma pergunta sobre a semana passada.
     const quando = revenueByWeekdayAndHour(since, until, tz, profileId);
     const users = userStatsAll(profileId);
+    // Membros dos grupos: vêm de consulta periódica à API, então existem mesmo
+    // com a operação do bot desligada.
+    const groups = groupTotals(profileId);
     const finance = getFinanceSettings();
     // Faturamento LÍQUIDO = soma do valor que o gateway repassa (já sem a taxa).
     // Antes este card era "lucro líquido" = faturamento - anúncios, o que
@@ -59,6 +63,7 @@ export async function GET(req: NextRequest) {
       netRevenueCents,
       netProfitCents,
       users,
+      groups,
       byWeekday: quando.weekday,
       byHour: quando.hour,
     });

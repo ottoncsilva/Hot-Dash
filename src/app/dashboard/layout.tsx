@@ -75,13 +75,6 @@ const TELEGRAM_SUBSECTIONS: { label: string; href: string }[] = [
   { label: "Usuários", href: "/dashboard/telegram/usuarios" },
 ];
 
-const MEDIA_SUBSECTIONS: { label: string; href: string }[] = [
-  { label: "Galeria", href: "/dashboard/media" },
-  { label: "Censura com IA", href: "/dashboard/censura" },
-];
-
-
-
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, signOut } = useAuth();
   const router = useRouter();
@@ -92,7 +85,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [whatsappOpen, setWhatsappOpen] = useState(false);
   const [telegramOpen, setTelegramOpen] = useState(false);
-  const [mediaOpen, setMediaOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -109,7 +101,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (pathname?.startsWith("/dashboard/settings")) setSettingsOpen(true);
     if (pathname?.startsWith("/dashboard/whatsapp")) setWhatsappOpen(true);
     if (pathname?.startsWith("/dashboard/telegram")) setTelegramOpen(true);
-    if (pathname?.startsWith("/dashboard/media") || pathname?.startsWith("/dashboard/censura")) setMediaOpen(true);
   }, [pathname]);
 
   useEffect(() => {
@@ -145,41 +136,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             const active = isActive(item.href);
 
 
-
-            if (key === "media") {
-              const isMediaActive = pathname?.startsWith("/dashboard/media") || pathname?.startsWith("/dashboard/censura");
-              return (
-                <div key={key}>
-                  <button
-                    onClick={() => setMediaOpen(!mediaOpen)}
-                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      isMediaActive ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Icon size={18} />
-                      {item.label}
-                    </div>
-                    {mediaOpen ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-                  </button>
-                  {mediaOpen && (
-                    <div className="mt-1 flex flex-col border-l border-white/10 pl-4">
-                      {MEDIA_SUBSECTIONS.map((sub) => (
-                        <Link
-                          key={sub.href}
-                          href={sub.href}
-                          className={`px-3 py-1.5 text-xs transition-colors ${
-                            pathname === sub.href ? "text-white" : "text-zinc-500 hover:text-white"
-                          }`}
-                        >
-                          {sub.label}
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            }
 
             if (key === "telegram") {
               const isTelegramActive = pathname?.startsWith("/dashboard/telegram");
@@ -346,42 +302,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               };
 
 
-
-              if (key === "media") {
-                const isMediaActive = pathname?.startsWith("/dashboard/media") || pathname?.startsWith("/dashboard/censura");
-                return (
-                  <div key={key}>
-                    <button
-                      onClick={() => setMediaOpen(!mediaOpen)}
-                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                        isMediaActive ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Icon size={18} />
-                        {item.label}
-                      </div>
-                      {mediaOpen ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-                    </button>
-                    {mediaOpen && (
-                      <div className="mt-1 flex flex-col border-l border-white/10 pl-4">
-                        {MEDIA_SUBSECTIONS.map((sub) => (
-                          <Link
-                            key={sub.href}
-                            href={sub.href}
-                            onClick={handleLinkClick}
-                            className={`px-3 py-2 text-xs transition-colors ${
-                              pathname === sub.href ? "text-white" : "text-zinc-500 hover:text-white"
-                            }`}
-                          >
-                            {sub.label}
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              }
 
               if (key === "telegram") {
                 const isTelegramActive = pathname?.startsWith("/dashboard/telegram");

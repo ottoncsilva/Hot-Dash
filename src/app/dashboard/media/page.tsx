@@ -572,7 +572,7 @@ export default function MediaPage() {
       )}
       <PageHeader
         eyebrow="biblioteca"
-        title="Mídia"
+        title="Galeria"
         description="Suba fotos e vídeos aqui: todos os metadados são removidos automaticamente e o arquivo é salvo já vinculado ao perfil."
         actions={
           profiles.length > 0 ? (

@@ -25,9 +25,9 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   payments: { key: "payments", label: "Financeiro", href: "/dashboard/payments" },
   funil: { key: "funil", label: "Funil de Vendas", href: "/dashboard/funil" },
   telegram: { key: "telegram", label: "Telegram", href: "/dashboard/telegram" },
-  whatsapp: { key: "whatsapp", label: "Whatsapp", href: "/dashboard/whatsapp" },
-  whatsapp_settings: { key: "whatsapp_settings", label: "Config. WhatsApp", href: "/dashboard/whatsapp/settings" },
-  whatsapp_chat: { key: "whatsapp_chat", label: "Chat ao vivo", href: "/dashboard/whatsapp/chat" },
+  whatsapp: { key: "whatsapp", label: "LTV Whatsapp", href: "/dashboard/whatsapp" },
+  whatsapp_settings: { key: "whatsapp_settings", label: "Configurações LTV", href: "/dashboard/whatsapp/settings" },
+  whatsapp_chat: { key: "whatsapp_chat", label: "Chat LTV", href: "/dashboard/whatsapp/chat" },
   schedule: { key: "schedule", label: "Cronograma de postagens", href: "/dashboard/schedule" },
   settings: { key: "settings", label: "Configurações", href: "/dashboard/settings" },
 };

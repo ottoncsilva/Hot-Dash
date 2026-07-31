@@ -78,6 +78,14 @@ export const HIT_PADDING = 10;
 export const QUESTION_TITLE = "Faça uma pergunta";
 export const QUESTION_PLACEHOLDER = "Digite algo...";
 
+// Cores do sticker (iguais às da caixinha de pergunta do Instagram): faixa
+// escura no topo com o título em branco, corpo branco com a pergunta escura.
+export const QUESTION_HEADER_BG = "#262626";
+export const QUESTION_TITLE_COLOR = "#ffffff";
+export const QUESTION_BODY_BG = "#ffffff";
+export const QUESTION_TEXT_COLOR = "#1a1a1a";
+export const QUESTION_PLACEHOLDER_COLOR = "#9ca3af";
+
 // ---------------------------------------------------------------------------
 // Emojis como imagem (Twemoji) — nítidos e idênticos em todo lugar.
 // ---------------------------------------------------------------------------
@@ -195,37 +203,35 @@ export function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: 
 }
 
 /**
- * Layout em duas camadas, como o sticker de pergunta do Instagram: título
- * fixo em negrito no topo, e abaixo uma pílula cinza separada com a
- * pergunta digitada (ou o placeholder, quando vazia).
+ * Layout em duas faixas, como o sticker de pergunta do Instagram: uma faixa
+ * escura no topo com o título centralizado em negrito, e abaixo o corpo
+ * branco com a pergunta digitada (ou o placeholder, quando vazia) alinhada
+ * à esquerda. Toda a medida é proporcional a `o.w`, então a caixinha mantém
+ * a mesma aparência em qualquer largura/resolução.
  */
 export function measureQuestionBox(ctx: CanvasRenderingContext2D, o: QuestionObject) {
-  const outerPad = o.w * 0.07;
-  const titleSize = Math.max(12, o.w * 0.052);
-  const titleHeight = titleSize * 1.3;
-  const gap = titleSize * 0.55;
-  const pillPadX = o.w * 0.05;
-  const pillPadY = o.w * 0.035;
-  const qSize = Math.max(11, o.w * 0.042);
-  const pillWidth = o.w - outerPad * 2;
+  const radius = Math.max(8, o.w * 0.034);
+  const titleSize = Math.max(12, o.w * 0.048);
+  const headerHeight = titleSize * 2.4;
+  const bodyPadX = o.w * 0.055;
+  const bodyPadY = o.w * 0.058;
+  const qSize = Math.max(11, o.w * 0.047);
+  const lineHeight = qSize * 1.38;
   const hasQuestion = Boolean(o.question && o.question.trim());
-  ctx.font = `600 ${qSize}px sans-serif`;
-  const lines = wrapText(ctx, hasQuestion ? o.question : QUESTION_PLACEHOLDER, pillWidth - pillPadX * 2);
-  const lineHeight = qSize * 1.3;
-  const pillHeight = pillPadY * 2 + lines.length * lineHeight;
-  const h = outerPad + titleHeight + gap + pillHeight + outerPad;
+  ctx.font = `500 ${qSize}px sans-serif`;
+  const lines = wrapText(ctx, hasQuestion ? o.question : QUESTION_PLACEHOLDER, o.w - bodyPadX * 2);
+  const bodyHeight = bodyPadY * 2 + lines.length * lineHeight;
+  const h = headerHeight + bodyHeight;
   return {
-    outerPad,
+    radius,
     titleSize,
-    titleHeight,
-    gap,
-    pillPadX,
-    pillPadY,
+    headerHeight,
+    bodyPadX,
+    bodyPadY,
     qSize,
-    pillWidth,
     lines,
     lineHeight,
-    pillHeight,
+    bodyHeight,
     hasQuestion,
     h,
   };
@@ -633,26 +639,33 @@ export function drawOverlayObjects(
         const lx = -o.w / 2;
         const ly = -m.h / 2;
 
-        drawRoundRect(ctx, lx, ly, o.w, m.h, Math.min(20, o.w * 0.05));
-        ctx.fillStyle = "#ffffff";
+        // Corpo branco (o arredondamento vale para a caixinha inteira).
+        drawRoundRect(ctx, lx, ly, o.w, m.h, m.radius);
+        ctx.fillStyle = QUESTION_BODY_BG;
         ctx.fill();
 
-        ctx.textBaseline = "top";
+        // Faixa escura do título: recortada pelo mesmo contorno arredondado,
+        // então só os cantos de cima saem curvos e a divisa com o corpo fica reta.
+        ctx.save();
+        drawRoundRect(ctx, lx, ly, o.w, m.h, m.radius);
+        ctx.clip();
+        ctx.fillStyle = QUESTION_HEADER_BG;
+        ctx.fillRect(lx, ly, o.w, m.headerHeight);
+        ctx.restore();
+
         ctx.textAlign = "center";
-        ctx.fillStyle = "#050505";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = QUESTION_TITLE_COLOR;
         ctx.font = `700 ${m.titleSize}px sans-serif`;
-        ctx.fillText(QUESTION_TITLE, 0, ly + m.outerPad);
+        ctx.fillText(QUESTION_TITLE, 0, ly + m.headerHeight / 2);
 
-        const pillY = ly + m.outerPad + m.titleHeight + m.gap;
-        drawRoundRect(ctx, lx + m.outerPad, pillY, m.pillWidth, m.pillHeight, Math.min(m.pillHeight / 2, o.w * 0.035));
-        ctx.fillStyle = "#e4e4e7";
-        ctx.fill();
-
-        ctx.fillStyle = m.hasQuestion ? "#18181b" : "#71717a";
-        ctx.font = `600 ${m.qSize}px sans-serif`;
-        let ty = pillY + m.pillPadY;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+        ctx.fillStyle = m.hasQuestion ? QUESTION_TEXT_COLOR : QUESTION_PLACEHOLDER_COLOR;
+        ctx.font = `500 ${m.qSize}px sans-serif`;
+        let ty = ly + m.headerHeight + m.bodyPadY;
         for (const line of m.lines) {
-          ctx.fillText(line, 0, ty);
+          ctx.fillText(line, lx + m.bodyPadX, ty);
           ty += m.lineHeight;
         }
       }

@@ -659,13 +659,15 @@ export function drawOverlayObjects(
         ctx.font = `700 ${m.titleSize}px sans-serif`;
         ctx.fillText(QUESTION_TITLE, 0, ly + m.headerHeight / 2);
 
-        ctx.textAlign = "left";
+        // A pergunta fica centralizada, igual ao título (o padding lateral
+        // continua valendo como limite da quebra de linha).
+        ctx.textAlign = "center";
         ctx.textBaseline = "top";
         ctx.fillStyle = m.hasQuestion ? QUESTION_TEXT_COLOR : QUESTION_PLACEHOLDER_COLOR;
         ctx.font = `500 ${m.qSize}px sans-serif`;
         let ty = ly + m.headerHeight + m.bodyPadY;
         for (const line of m.lines) {
-          ctx.fillText(line, lx + m.bodyPadX, ty);
+          ctx.fillText(line, 0, ty);
           ty += m.lineHeight;
         }
       }

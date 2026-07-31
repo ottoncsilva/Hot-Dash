@@ -20,7 +20,7 @@ export type NavItem = { key: NavKey; label: string; href: string };
 export const NAV_ITEMS: Record<NavKey, NavItem> = {
   dashboard: { key: "dashboard", label: "Dashboard", href: "/dashboard" },
   profiles: { key: "profiles", label: "Modelos", href: "/dashboard/profiles" },
-  media: { key: "media", label: "Mídia", href: "/dashboard/media" },
+  media: { key: "media", label: "Galeria", href: "/dashboard/media" },
   censura: { key: "censura", label: "Censura com IA", href: "/dashboard/censura" },
   payments: { key: "payments", label: "Financeiro", href: "/dashboard/payments" },
   funil: { key: "funil", label: "Funil de Vendas", href: "/dashboard/funil" },
@@ -32,12 +32,13 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   settings: { key: "settings", label: "Configurações", href: "/dashboard/settings" },
 };
 
-// "censura" não é mais um item de topo: virou submenu de "Mídia"
-// (Galeria + Censura com IA), derivado no layout como no WhatsApp/Telegram.
+// "Galeria" e "Censura com IA" são itens de topo independentes — não existe
+// mais um menu "Mídia" agrupando os dois.
 export const DEFAULT_MENU_ORDER: NavKey[] = [
   "dashboard",
   "profiles",
   "media",
+  "censura",
   "schedule",
   "payments",
   "funil",
@@ -50,7 +51,7 @@ export type MenuEntry = { key: NavKey; hidden: boolean };
 
 /** Normaliza uma config de menu salva, garantindo que todos os itens existam. */
 // Chaves que NÃO aparecem como item de topo (são submenus derivados no layout).
-const SUBSECTION_KEYS = new Set<NavKey>(["censura", "whatsapp_settings", "whatsapp_chat"]);
+const SUBSECTION_KEYS = new Set<NavKey>(["whatsapp_settings", "whatsapp_chat"]);
 
 export function normalizeMenu(saved?: MenuEntry[]): MenuEntry[] {
   const result: MenuEntry[] = [];
@@ -62,9 +63,21 @@ export function normalizeMenu(saved?: MenuEntry[]): MenuEntry[] {
       seen.add(entry.key);
     }
   }
-  // Acrescenta itens novos (que ainda não estavam salvos) no fim.
-  for (const key of DEFAULT_MENU_ORDER) {
-    if (!seen.has(key)) result.push({ key, hidden: false });
-  }
+  // Acrescenta os itens que ainda não estavam salvos na posição que ocupam na
+  // ordem padrão (logo depois do item anterior que já está na lista), e não no
+  // fim — assim um item novo, como a Censura, nasce ao lado da Galeria mesmo
+  // para quem já tinha um menu salvo.
+  DEFAULT_MENU_ORDER.forEach((key, i) => {
+    if (seen.has(key)) return;
+    const previousIndex = DEFAULT_MENU_ORDER.slice(0, i)
+      .reverse()
+      .map((k) => result.findIndex((e) => e.key === k))
+      .find((index) => index >= 0);
+    result.splice(previousIndex === undefined ? 0 : previousIndex + 1, 0, {
+      key,
+      hidden: false,
+    });
+    seen.add(key);
+  });
   return result;
 }

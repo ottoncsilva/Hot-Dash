@@ -148,7 +148,10 @@ export default function MediaViewer({
         </div>
 
         {/* Mídia */}
-        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black px-2 py-4">
+        {/* Área da mídia: `min-h-[45dvh]` garante uma fatia decente da tela
+            mesmo quando a lista de etiquetas do rodapé é longa — sem isso a
+            mídia (posicionada de forma absoluta) ficaria espremida a nada. */}
+        <div className="relative flex min-h-[45dvh] flex-1 items-center justify-center overflow-hidden bg-black">
           {index > 0 && (
             <button
               onClick={goPrev}
@@ -170,7 +173,7 @@ export default function MediaViewer({
             // Vídeo: mantém touch simples (sem zoom/pan) para não atrapalhar
             // os controles nativos (play, barra de progresso).
             <div
-              className="flex h-full w-full items-center justify-center"
+              className="absolute inset-0 flex items-center justify-center"
               onTouchStart={onTouchStart}
               onTouchEnd={onTouchEnd}
             >
@@ -182,7 +185,7 @@ export default function MediaViewer({
                 controls
                 playsInline
                 autoPlay
-                className="max-h-[60dvh] max-w-full"
+                className="h-full w-full object-contain"
               />
             </div>
           )}
@@ -198,7 +201,9 @@ export default function MediaViewer({
         </div>
 
         {/* Rodapé */}
-        <div className="space-y-2 border-t border-white/[0.06] px-4 py-3">
+        {/* Rodapé rolável: com muitas etiquetas ele cresceria sem limite e
+            comeria a área da mídia. Agora ele rola dentro do próprio espaço. */}
+        <div className="min-h-0 space-y-2 overflow-y-auto border-t border-white/[0.06] px-4 py-3">
           <p className="truncate text-center font-mono text-[11px] text-zinc-600">
             {item.filename}
           </p>

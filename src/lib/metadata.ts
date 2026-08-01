@@ -76,6 +76,50 @@ export function run(cmd: string, args: string[], timeoutMs = 60000): Promise<voi
 }
 
 /**
+ * Como `run`, mas devolve o stdout do comando — para CONSULTAS (ex.: o
+ * ffprobe lendo a resolução de um vídeo), em que a saída é a resposta.
+ */
+export function runCapture(cmd: string, args: string[], timeoutMs = 30000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let killed = false;
+
+    const timer = setTimeout(() => {
+      killed = true;
+      child.kill("SIGKILL");
+      reject(new Error(`Execução de ${cmd} excedeu o limite de tempo de ${timeoutMs / 1000}s.`));
+    }, timeoutMs);
+
+    child.stdout.on("data", (d) => {
+      stdout += d.toString();
+    });
+    child.stderr.on("data", (d) => {
+      stderr += d.toString();
+    });
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      if (killed) return;
+      const enoent = (err as NodeJS.ErrnoException).code === "ENOENT";
+      reject(
+        new Error(
+          enoent
+            ? `Ferramenta "${cmd}" não encontrada no servidor (já vem na imagem Docker).`
+            : `Falha ao executar ${cmd}: ${err.message}`,
+        ),
+      );
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (killed) return;
+      if (code === 0) resolve(stdout);
+      else reject(new Error(`${cmd} saiu com código ${code}: ${stderr.slice(-500)}`));
+    });
+  });
+}
+
+/**
  * Remove TODOS os metadados de uma imagem (exiftool, sem perda) ou vídeo
  * (ffmpeg, sem recodificar). Trabalha sobre um buffer e devolve o buffer limpo.
  */

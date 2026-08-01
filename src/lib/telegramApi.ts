@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
-import { readBuffer } from "./storage";
+import { absolutePath, readBuffer } from "./storage";
+import { getVideoInfo } from "./videoDimensions";
 
 /**
  * Secret determinístico por bot para o header X-Telegram-Bot-Api-Secret-Token.
@@ -25,6 +26,20 @@ async function telegramFetch(botToken: string, method: string, body: unknown) {
   return data.result;
 }
 
+// MIME por extensão. Precisa ser o tipo REAL (não "image/jpg" nem
+// "video/mov", que não existem): o Telegram usa o content-type para decidir
+// como tratar o arquivo, e um tipo desconhecido cai em anexo genérico.
+const MIME_BY_EXT: Record<string, string> = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".mp4": "video/mp4",
+  ".mov": "video/quicktime",
+  ".mkv": "video/x-matroska",
+  ".webm": "video/webm",
+};
+
 async function telegramFormFetch(
   botToken: string,
   method: string,
@@ -36,12 +51,7 @@ async function telegramFormFetch(
 ) {
   const buffer = await readBuffer(relPath);
   const ext = relPath.slice(relPath.lastIndexOf(".")).toLowerCase();
-  let mime = "application/octet-stream";
-  if ([".jpg", ".jpeg", ".png", ".webp"].includes(ext)) {
-    mime = `image/${ext.replace(".", "")}`;
-  } else if ([".mp4", ".mov", ".mkv", ".webm"].includes(ext)) {
-    mime = `video/${ext.replace(".", "")}`;
-  }
+  const mime = MIME_BY_EXT[ext] || "application/octet-stream";
 
   const formData = new FormData();
   formData.append("chat_id", chatId);
@@ -53,8 +63,15 @@ async function telegramFormFetch(
   const blob = new Blob([buffer as any], { type: mime });
   formData.append(fileField, blob, `file${ext}`);
 
-  if (options.reply_markup) {
-    formData.append("reply_markup", JSON.stringify(options.reply_markup));
+  // Repassa o resto das opções (width/height do vídeo, supports_streaming,
+  // reply_markup...). Objetos vão como JSON, que é o formato que a API do
+  // Telegram espera em multipart.
+  for (const [key, value] of Object.entries(options)) {
+    if (value === undefined || value === null) continue;
+    formData.append(
+      key,
+      typeof value === "object" ? JSON.stringify(value) : String(value),
+    );
   }
 
   const res = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
@@ -178,7 +195,23 @@ export async function sendTelegramMedia(
   const ext = relPath.slice(relPath.lastIndexOf(".")).toLowerCase();
   const isVideo = [".mp4", ".mov", ".mkv", ".webm"].includes(ext);
   if (isVideo) {
-    return telegramFormFetch(botToken, "sendVideo", chatId, caption, relPath, "video", options);
+    // Sem width/height o Telegram não sabe a forma do vídeo e monta a bolha
+    // por conta própria — é o que deixava vídeo em pé sendo exibido achatado
+    // nos grupos. O ffprobe lê a resolução JÁ ROTACIONADA do arquivo, então
+    // vale para o vídeo do celular gravado deitado. Se a leitura falhar,
+    // envia como antes em vez de derrubar a postagem.
+    const info = await getVideoInfo(absolutePath(relPath));
+    return telegramFormFetch(botToken, "sendVideo", chatId, caption, relPath, "video", {
+      ...(info
+        ? {
+            width: info.width,
+            height: info.height,
+            ...(info.duration ? { duration: info.duration } : {}),
+            supports_streaming: true,
+          }
+        : {}),
+      ...options, // o que o chamador passou explicitamente tem prioridade
+    });
   } else {
     return telegramFormFetch(botToken, "sendPhoto", chatId, caption, relPath, "photo", options);
   }

@@ -12,8 +12,9 @@ import {
   listUsedMediaIds,
   newMediaPath,
 } from "@/lib/media";
-import { saveFile } from "@/lib/storage";
+import { absolutePath, saveFile } from "@/lib/storage";
 import { getImageDimensions } from "@/lib/imageDimensions";
+import { getVideoInfo } from "@/lib/videoDimensions";
 import { addTagsByNameToMedia, copyMediaTags, getTagsForMedia } from "@/lib/tags";
 
 export const runtime = "nodejs";
@@ -114,7 +115,12 @@ export async function POST(
     const fileCreatedAt =
       typeof fileCreatedAtRaw === "string" && fileCreatedAtRaw ? parseInt(fileCreatedAtRaw, 10) : undefined;
 
-    const dimensions = kind === "image" ? getImageDimensions(cleaned, ext) : null;
+    // Resolução: imagem sai dos próprios bytes; vídeo vem do ffprobe, já com a
+    // rotação aplicada. Antes o vídeo era gravado sem resolução nenhuma.
+    const dimensions =
+      kind === "image"
+        ? getImageDimensions(cleaned, ext)
+        : await getVideoInfo(absolutePath(relPath));
 
     const item = insertMedia({
       id,

@@ -230,9 +230,14 @@ export default function MediaStage({
   const zoomed = scale > 1;
 
   return (
+    /* absolute inset-0: o palco cola na área de mídia do visualizador (que é
+       `relative`). Com `h-full` a altura não resolvia — a área vive de
+       `flex-1`, que não conta como altura definida para resolver porcentagem,
+       então o 100% virava `auto` e o palco crescia até o tamanho natural da
+       foto, que o overflow-hidden então cortava em cima e embaixo. */
     <div
       ref={containerRef}
-      className="relative flex h-full w-full touch-none select-none items-center justify-center overflow-hidden"
+      className="absolute inset-0 flex touch-none select-none items-center justify-center overflow-hidden"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -240,12 +245,14 @@ export default function MediaStage({
       onDoubleClick={toggleZoom}
       style={{ cursor: zoomed ? "grab" : "default" }}
     >
+      {/* Agora que o palco tem altura própria, h-full/w-full + object-contain
+          encaixam a foto INTEIRA nele, sem corte e sem distorção. */}
       <AuthImage
         key={item.id}
         src={mediaFileUrl(item)}
         alt={item.filename}
         draggable={false}
-        className="max-h-[60dvh] max-w-full object-contain"
+        className="h-full w-full object-contain"
         style={{
           transform: `translate(${pos.x + dragX}px, ${pos.y}px) scale(${scale})`,
           transition: animate ? "transform 220ms ease-out" : "none",

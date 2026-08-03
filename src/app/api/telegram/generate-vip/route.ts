@@ -13,12 +13,6 @@ import { extractVideoThumbnail, extname } from "@/lib/metadata";
 import { getAiCredentials, getAppTimeZone, type AiProvider } from "@/lib/settings";
 import { readBuffer } from "@/lib/storage";
 import { createPost } from "@/lib/posts";
-import {
-  DEFAULT_VIP_CTA_BUTTONS,
-  WHATSAPP_CTA_FALLBACK,
-  appendCtaLines,
-  pickCtaLinkTexts,
-} from "@/lib/postTypes";
 import type { MediaItem } from "@/lib/types";
 import { mkSlotToUtcMs, mkDayFromToday, fallbackPoll } from "@/lib/previasAi";
 import { planDayVip, captionThemeVip, fallbackTextVip } from "@/lib/vipAi";
@@ -41,10 +35,11 @@ const VARIATION_ANGLES = [
 ];
 
 /**
- * Método MK — versão do GRUPO VIP (pós-venda / LTV). O SERVIDOR planeja o dia
- * (20–25 posts, relacionamento + CTA de WhatsApp nos picos); a IA ESCREVE a
- * legenda de cada post ANALISANDO A FOTO. Só os posts de LTV levam o botão do
- * WhatsApp particular (cta=true) — o link vem do cadastro da modelo.
+ * Método MK — versão do GRUPO VIP (pós-venda). O SERVIDOR planeja o dia (20–25
+ * posts de relacionamento e engajamento); a IA ESCREVE a legenda de cada post
+ * ANALISANDO A FOTO. O dia sai inteiro SEM CTA: o convite pro WhatsApp
+ * particular saiu do método (virou produto à parte), então nenhum post gerado
+ * aqui leva o botão. O operador ainda pode ligar o link à mão no calendário.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -61,18 +56,16 @@ export async function POST(req: NextRequest) {
     if (!bot || !bot.botToken) return NextResponse.json({ error: "Bot não configurado." }, { status: 400 });
 
     const db = getDb();
+    // "Botões da copy (VIP)" não entram mais aqui: o método gera o dia sem
+    // CTA. A lista continua valendo no motor de envio, para o post que o
+    // operador marca à mão com o link do WhatsApp.
     const settings = db
-      .prepare(
-        "SELECT vip_tags, vip_cta_buttons FROM telegram_autopost_settings WHERE profile_id = ?",
-      )
-      .get(profile.id) as { vip_tags?: string; vip_cta_buttons?: string } | undefined;
+      .prepare("SELECT vip_tags FROM telegram_autopost_settings WHERE profile_id = ?")
+      .get(profile.id) as { vip_tags?: string } | undefined;
     const allowedTagNames = (settings?.vip_tags || "")
       .split(",")
       .map((t) => t.trim().toLowerCase())
       .filter(Boolean);
-    // Frases dos "Botões da copy (VIP)" — as mesmas que viram os hiperlinks do
-    // fim da legenda (o motor de envio usa esta lista para o botão inline).
-    const ctaList = (settings?.vip_cta_buttons ?? "").trim() || DEFAULT_VIP_CTA_BUTTONS;
 
     // Cadeia de provedores (grok primeiro — costuma aceitar conteúdo adulto).
     const providerChain: AiProvider[] = (["grok", "openai", "gemini"] as AiProvider[]).filter(
@@ -255,20 +248,7 @@ export async function POST(req: NextRequest) {
           const img = await mediaImageBase64(media);
           if (img) images.push(img);
         }
-        const written = await writeCaption(slot.type, images, angleIdx++);
-        // Só os slots de convite (WHATSAPP_INVITE / WHATSAPP_PHOTO) levam o
-        // convite ao WhatsApp particular — o resto do VIP segue limpo, como o
-        // método prevê. Nesses, as 3 linhas já saem GRAVADAS na legenda, para
-        // aparecerem no editor do calendário e poderem ser revisadas.
-        const caption =
-          slot.cta && profile.bioWhatsappLink
-            ? appendCtaLines(
-                written,
-                profile.bioWhatsappLink,
-                pickCtaLinkTexts(ctaList, 3),
-                WHATSAPP_CTA_FALLBACK,
-              )
-            : written;
+        const caption = await writeCaption(slot.type, images, angleIdx++);
 
         createPost({
           profileId: profile.id,
@@ -276,7 +256,10 @@ export async function POST(req: NextRequest) {
           scheduledAt: at,
           caption,
           mediaIds: media ? [media.id] : undefined,
-          cta: slot.cta, // true nos posts de WhatsApp (LTV) → botão no envio
+          // O método não entrega mais o WhatsApp: o dia sai inteiro sem o
+          // botão. Quem quiser um post específico com ele ainda pode ligar o
+          // link à mão no calendário (é o que lê este campo no envio).
+          cta: false,
         });
         taken.add(at);
         created++;

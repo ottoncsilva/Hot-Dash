@@ -174,8 +174,8 @@ export default function TelegramUnifiedPage() {
     }
   };
 
-  // Método MK do VIP: planeja o dia (relacionamento + CTA de WhatsApp nos picos)
-  // e agenda os posts. O link do WhatsApp vem do cadastro da modelo.
+  // Método MK do VIP: planeja o dia (só relacionamento e engajamento, sem CTA)
+  // e agenda os posts.
   const generateVipMk = async (daysOverride?: number) => {
     setGeneratingVip(true);
     try {
@@ -421,24 +421,21 @@ export default function TelegramUnifiedPage() {
                     </button>
                   </div>
 
-                  {/* Método MK do VIP: relacionamento + LTV pro WhatsApp. */}
+                  {/* Método MK do VIP: só relacionamento, sem venda nenhuma. */}
                   {settings.vipScheduleType === "mk" && (
                     <div className="space-y-3 pt-2">
                       <p className="text-[11px] text-zinc-400">
                         Planeja o dia do VIP para quem <b>já comprou</b>: <b>20 a 25 posts/dia</b>
-                        (resto de hoje + dias seguintes), a maioria de <b>relacionamento</b>
+                        (resto de hoje + dias seguintes), de <b>relacionamento</b>
                         (bom dia, intimidade, bastidores, exclusivas) e engajamento
-                        (reação/enquete). A venda é bem leve: ~5-6 posts/dia levam o
-                        <b> botão do seu WhatsApp particular</b> (LTV), concentrados nos
-                        <b> horários de pico</b> (meio-dia, noite e madrugada), fuso de São Paulo.
-                        A IA <b>analisa cada foto</b> e escreve a legenda.
+                        (reação/enquete), no fuso de São Paulo. A IA <b>analisa cada foto</b> e
+                        escreve a legenda.
                       </p>
-                      {!(profiles.find((p) => p.id === selectedProfileId)?.bioWhatsappLink) && (
-                        <p className="text-[11px] text-amber-400">
-                          ⚠️ Configure o <b>Link do WhatsApp</b> no cadastro da modelo — sem ele,
-                          os posts de LTV saem sem o botão.
-                        </p>
-                      )}
+                      <p className="text-[11px] text-zinc-400">
+                        O dia sai <b>sem venda nenhuma</b> — nem assinatura, nem convite pro
+                        WhatsApp particular. Para mandar o botão do WhatsApp num post
+                        específico, ligue o link à mão nele, pelo calendário.
+                      </p>
                       <p className="text-[11px] text-emerald-300/80">
                         Escolha os <b>dias</b> e clique em <b>“Gerar dias (Método MK)”</b> ali em cima.
                       </p>

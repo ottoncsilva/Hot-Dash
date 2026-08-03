@@ -4,19 +4,20 @@ import "server-only";
  * Método MK — versão do GRUPO VIP (pós-venda / LTV).
  *
  * Diferença de filosofia em relação às Prévias: aqui o lead JÁ COMPROU. O
- * objetivo não é mais vender a assinatura — é MANTER o relacionamento e, com
- * uma venda bem mais leve, puxar o cara pro WhatsApp particular (LTV). Então:
+ * objetivo não é mais vender a assinatura — é MANTER o relacionamento. Então:
  *
  * - 20 a 25 posts/dia (menos que as Prévias), número e sequência aleatórios.
- * - A maioria é humanização/relacionamento e engajamento (o VIP tem que parecer
- *   um cantinho íntimo, não um catálogo de vendas).
- * - O CTA do dia é o botão do WhatsApp particular (cta=true) — concentrado nos
- *   HORÁRIOS DE PICO do MK (meio-dia, noite e madrugada). ~5-6 por dia.
- * - Nada de "vem pro VIP" (ele já está dentro). Alguns posts de foto/vídeo
- *   exclusivos valorizam o conteúdo, sem link de venda.
+ * - Tudo é humanização/relacionamento e engajamento: o VIP é um cantinho
+ *   íntimo, não um catálogo de vendas.
+ * - O dia sai SEM VENDA NENHUMA. Nada de "vem pro VIP" (ele já está dentro) e
+ *   nada de convite pro WhatsApp particular — o WhatsApp virou produto à
+ *   parte, então o Método MK não o entrega mais de graça. Quem quiser mandar
+ *   um post específico com o botão ainda pode ligar o link à mão no
+ *   calendário; o que mudou é o que o método gera sozinho.
+ * - Posts de foto/vídeo exclusivos valorizam o conteúdo, sem link.
  *
- * O SERVIDOR planeja (horários/tipos/CTA); a IA só ESCREVE a legenda de cada
- * post (na rota generate-vip, analisando a foto).
+ * O SERVIDOR planeja (horários/tipos); a IA só ESCREVE a legenda de cada post
+ * (na rota generate-vip, analisando a foto).
  */
 
 // "Kind físico" = o que o motor de envio realmente posta.
@@ -37,38 +38,33 @@ export type VipType =
   | "REACTION"
   | "POLL"
   | "EXCLUSIVE_PHOTO"
-  | "EXCLUSIVE_VIDEO"
-  | "WHATSAPP_INVITE"
-  | "WHATSAPP_PHOTO";
+  | "EXCLUSIVE_VIDEO";
 
-// humaniza = relacionamento; engaja = interação; whatsapp = CTA de LTV (leva o botão).
-export type VipIntent = "humaniza" | "engaja" | "whatsapp";
+// humaniza = relacionamento; engaja = interação. Não existe intenção de venda
+// no VIP: o convite pro WhatsApp saiu do método (virou produto à parte).
+export type VipIntent = "humaniza" | "engaja";
 
 type TypeDef = {
   kind: VipKind;
   intent: VipIntent;
-  /** true = leva o BOTÃO do WhatsApp particular no envio (posts de LTV). */
-  cta: boolean;
   media?: "photo" | "video";
 };
 
 export const VIP_TYPE_DEFS: Record<VipType, TypeDef> = {
-  GOOD_MORNING: { kind: "texto", intent: "humaniza", cta: false },
-  HUMANIZATION: { kind: "texto", intent: "humaniza", cta: false },
-  BREAKFAST: { kind: "texto", intent: "humaniza", cta: false },
-  SELFIE: { kind: "foto", intent: "humaniza", cta: false, media: "photo" },
-  WORK: { kind: "texto", intent: "humaniza", cta: false },
-  BEHIND_SCENES: { kind: "texto", intent: "humaniza", cta: false },
-  VIP_THANKS: { kind: "texto", intent: "humaniza", cta: false },
-  GOOD_NIGHT: { kind: "texto", intent: "humaniza", cta: false },
-  CURIOSITY: { kind: "texto", intent: "engaja", cta: false },
-  QUESTION: { kind: "texto", intent: "engaja", cta: false },
-  REACTION: { kind: "reacao", intent: "engaja", cta: false },
-  POLL: { kind: "enquete", intent: "engaja", cta: false },
-  EXCLUSIVE_PHOTO: { kind: "foto", intent: "engaja", cta: false, media: "photo" },
-  EXCLUSIVE_VIDEO: { kind: "video", intent: "engaja", cta: false, media: "video" },
-  WHATSAPP_INVITE: { kind: "texto", intent: "whatsapp", cta: true },
-  WHATSAPP_PHOTO: { kind: "foto", intent: "whatsapp", cta: true, media: "photo" },
+  GOOD_MORNING: { kind: "texto", intent: "humaniza" },
+  HUMANIZATION: { kind: "texto", intent: "humaniza" },
+  BREAKFAST: { kind: "texto", intent: "humaniza" },
+  SELFIE: { kind: "foto", intent: "humaniza", media: "photo" },
+  WORK: { kind: "texto", intent: "humaniza" },
+  BEHIND_SCENES: { kind: "texto", intent: "humaniza" },
+  VIP_THANKS: { kind: "texto", intent: "humaniza" },
+  GOOD_NIGHT: { kind: "texto", intent: "humaniza" },
+  CURIOSITY: { kind: "texto", intent: "engaja" },
+  QUESTION: { kind: "texto", intent: "engaja" },
+  REACTION: { kind: "reacao", intent: "engaja" },
+  POLL: { kind: "enquete", intent: "engaja" },
+  EXCLUSIVE_PHOTO: { kind: "foto", intent: "engaja", media: "photo" },
+  EXCLUSIVE_VIDEO: { kind: "video", intent: "engaja", media: "video" },
 };
 
 // Janela de horário: [início, fim) em BRT, com os tipos priorizados e o peso
@@ -78,18 +74,18 @@ type Window = { start: number; end: number; weight: number; types: VipType[] };
 const WINDOWS: Window[] = [
   // 05–08 manhã leve (só carinho, zero venda)
   { start: 5, end: 8, weight: 2, types: ["GOOD_MORNING", "HUMANIZATION", "BREAKFAST", "SELFIE"] },
-  // 08–11 dia (relacionamento + engajamento, whats bem eventual)
-  { start: 8, end: 11, weight: 3, types: ["HUMANIZATION", "CURIOSITY", "QUESTION", "SELFIE", "REACTION", "VIP_THANKS", "WHATSAPP_INVITE"] },
-  // 11–14 PICO do meio-dia (aqui entra mais o WhatsApp)
-  { start: 11, end: 14, weight: 3, types: ["WHATSAPP_INVITE", "WHATSAPP_PHOTO", "EXCLUSIVE_PHOTO", "HUMANIZATION", "SELFIE", "QUESTION"] },
+  // 08–11 dia (relacionamento + engajamento)
+  { start: 8, end: 11, weight: 3, types: ["HUMANIZATION", "CURIOSITY", "QUESTION", "SELFIE", "REACTION", "VIP_THANKS"] },
+  // 11–14 PICO do meio-dia (exclusivas valorizam o conteúdo)
+  { start: 11, end: 14, weight: 3, types: ["EXCLUSIVE_PHOTO", "HUMANIZATION", "SELFIE", "QUESTION", "CURIOSITY"] },
   // 14–17 tarde (baixar a bola)
   { start: 14, end: 17, weight: 2, types: ["HUMANIZATION", "BEHIND_SCENES", "CURIOSITY", "SELFIE", "POLL"] },
   // 17–20 fim de tarde (aquece o engajamento)
-  { start: 17, end: 20, weight: 3, types: ["SELFIE", "CURIOSITY", "POLL", "HUMANIZATION", "REACTION", "WHATSAPP_INVITE"] },
-  // 20–23:30 PICO da noite (maior janela de LTV)
-  { start: 20, end: 24, weight: 4, types: ["WHATSAPP_INVITE", "WHATSAPP_PHOTO", "EXCLUSIVE_PHOTO", "EXCLUSIVE_VIDEO", "HUMANIZATION", "SELFIE", "POLL"] },
+  { start: 17, end: 20, weight: 3, types: ["SELFIE", "CURIOSITY", "POLL", "HUMANIZATION", "REACTION"] },
+  // 20–23:30 PICO da noite (maior janela de atenção)
+  { start: 20, end: 24, weight: 4, types: ["EXCLUSIVE_PHOTO", "EXCLUSIVE_VIDEO", "HUMANIZATION", "SELFIE", "POLL", "VIP_THANKS"] },
   // 00–03 PICO da madrugada (alta intenção)
-  { start: 0, end: 3, weight: 3, types: ["WHATSAPP_INVITE", "WHATSAPP_PHOTO", "EXCLUSIVE_PHOTO", "HUMANIZATION", "GOOD_NIGHT", "REACTION"] },
+  { start: 0, end: 3, weight: 3, types: ["EXCLUSIVE_PHOTO", "HUMANIZATION", "GOOD_NIGHT", "REACTION", "CURIOSITY"] },
   // 03–05 baixa atividade
   { start: 3, end: 5, weight: 1, types: ["HUMANIZATION", "GOOD_NIGHT", "SELFIE"] },
 ];
@@ -99,7 +95,6 @@ export type VipPost = {
   type: VipType;
   kind: VipKind;
   intent: VipIntent;
-  cta: boolean;
   media?: "photo" | "video";
 };
 
@@ -134,8 +129,8 @@ export function planDayVip(): VipPost[] {
     }
   }
 
-  // 2) Sorteia horários únicos por janela + escolhe os tipos, com alternância de
-  //    kind físico e a fração-alvo de WhatsApp da janela.
+  // 2) Sorteia horários únicos por janela + escolhe os tipos, alternando o kind
+  //    físico para não sair foto atrás de foto.
   const planned: VipPost[] = [];
   let lastKind: VipKind | null = null;
 
@@ -143,18 +138,14 @@ export function planDayVip(): VipPost[] {
     const count = perWindow[wi];
     const spanMin = (w.end - w.start) * 60;
     const times = uniqueMinutes(count, spanMin).map((m) => w.start * 60 + m);
-    const waTarget = windowWhatsappTarget(w);
 
-    let waDone = 0;
     times.forEach((totalMin) => {
       const h = Math.floor(totalMin / 60) % 24;
       const min = totalMin % 60;
       const timeStr = `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
 
-      const wantWa = waDone / count < waTarget;
-      const type = chooseType(w, { wantWa, avoidKind: lastKind });
+      const type = chooseType(w, lastKind);
       const def = VIP_TYPE_DEFS[type];
-      if (def.intent === "whatsapp") waDone++;
       lastKind = def.kind;
 
       planned.push({
@@ -162,7 +153,6 @@ export function planDayVip(): VipPost[] {
         type,
         kind: def.kind,
         intent: def.intent,
-        cta: def.cta,
         media: def.media,
       });
     });
@@ -177,7 +167,7 @@ export function planDayVip(): VipPost[] {
 }
 
 /** Converte posts de engajamento em POLL até o alvo, espalhados (nunca duas
- *  enquetes seguidas). Nunca mexe em posts de WhatsApp (o CTA é intocável). */
+ *  enquetes seguidas). */
 function ensureMinPolls(planned: VipPost[], target: number): void {
   const pollDef = VIP_TYPE_DEFS.POLL;
   const isPoll = (i: number) => planned[i]?.type === "POLL";
@@ -197,41 +187,20 @@ function ensureMinPolls(planned: VipPost[], target: number): void {
       type: "POLL",
       kind: pollDef.kind,
       intent: pollDef.intent,
-      cta: pollDef.cta,
       media: pollDef.media,
     };
     current++;
   }
 }
 
-/** Fração-alvo de posts de WHATSAPP (LTV) da janela. Concentrada nos PICOS do
- *  MK (meio-dia, noite, madrugada); quase nada fora deles. Global ~23% → ~5-6
- *  posts com o link do WhatsApp por dia, venda bem leve. */
-function windowWhatsappTarget(w: Window): number {
-  if (w.start === 20 || w.start === 0) return 0.4; // noite e madrugada (picos)
-  if (w.start === 11) return 0.4; // meio-dia (pico)
-  if (w.start === 17) return 0.15; // fim de tarde (aquece)
-  if (w.start === 8) return 0.1; // manhã (eventual)
-  return 0; // 05–08, 14–17, 03–05 (só relacionamento)
-}
-
-/** Escolhe um tipo da janela: prioriza WhatsApp quando `wantWa`; senão pende
- *  para HUMANIZAÇÃO (relacionamento) sobre engajamento. Evita repetir kind. */
-function chooseType(w: Window, opts: { wantWa: boolean; avoidKind: VipKind | null }): VipType {
-  const wa = w.types.filter((t) => VIP_TYPE_DEFS[t].intent === "whatsapp");
-  const nonWa = w.types.filter((t) => VIP_TYPE_DEFS[t].intent !== "whatsapp");
-  let pool: VipType[];
-  if (opts.wantWa && wa.length > 0) {
-    pool = wa;
-  } else if (nonWa.length > 0) {
-    const hum = nonWa.filter((t) => VIP_TYPE_DEFS[t].intent === "humaniza");
-    const eng = nonWa.filter((t) => VIP_TYPE_DEFS[t].intent === "engaja");
-    if (hum.length && eng.length) pool = Math.random() < 0.6 ? hum : eng;
-    else pool = nonWa;
-  } else {
-    pool = w.types;
-  }
-  const alt = pool.filter((t) => VIP_TYPE_DEFS[t].kind !== opts.avoidKind);
+/** Escolhe um tipo da janela, pendendo para HUMANIZAÇÃO (relacionamento) sobre
+ *  engajamento. Evita repetir o kind físico do post anterior. */
+function chooseType(w: Window, avoidKind: VipKind | null): VipType {
+  const hum = w.types.filter((t) => VIP_TYPE_DEFS[t].intent === "humaniza");
+  const eng = w.types.filter((t) => VIP_TYPE_DEFS[t].intent === "engaja");
+  let pool: VipType[] =
+    hum.length && eng.length ? (Math.random() < 0.6 ? hum : eng) : w.types;
+  const alt = pool.filter((t) => VIP_TYPE_DEFS[t].kind !== avoidKind);
   if (alt.length > 0) pool = alt;
   return pick(pool);
 }
@@ -266,18 +235,15 @@ function wallOrder(time: string): number {
 // --------------------------------------------------------------------------
 
 /** Tema/instrução que a rota passa a generateCaption como `theme`. Tom de quem
- *  já tem intimidade com o cara (ele é VIP). O CTA de WhatsApp NUNCA escreve o
- *  link/número — o botão é anexado automaticamente no envio. */
+ *  já tem intimidade com o cara (ele é VIP). Nenhum tipo vende nada — nem
+ *  assinatura, nem WhatsApp. */
 export function captionThemeVip(type: VipType): string {
   const base =
     "Fale como brasileira DE VERDADE, informal, do dia a dia (tá, pra, cê, tô). " +
     "Curta (1–2 linhas). Tom íntimo de quem já conhece o cara — ele já é do seu VIP, " +
-    "então NADA de vender assinatura nem 'vem pro VIP'. Sem hashtags. Varie a abertura.";
-  const wa =
-    "Convide de um jeito leve e carinhoso pra ele te chamar no seu WhatsApp particular " +
-    "(mais pessoal, resposta mais rápida, você responde de verdade lá). " +
-    "NÃO escreva link, número nem 'clica aqui' — o botão do WhatsApp é anexado automaticamente. " +
-    "Faça soar como um convite íntimo, não como anúncio.";
+    "então NADA de vender assinatura nem 'vem pro VIP'. Nunca convide pro WhatsApp " +
+    "nem para nenhum outro canal, e nunca escreva link ou número. " +
+    "Sem hashtags. Varie a abertura.";
   switch (type) {
     case "GOOD_MORNING": return `Bom dia carinhoso pro seu VIP, sem vender. ${base}`;
     case "HUMANIZATION": return `Conte um pedaço da sua rotina (café, banho, treino, sofá), íntimo, sem vender. ${base}`;
@@ -293,8 +259,6 @@ export function captionThemeVip(type: VipType): string {
     case "POLL": return `Enquete safada e leve, sem vender. ${base}`;
     case "EXCLUSIVE_PHOTO": return `Legenda pra esta FOTO exclusiva do VIP, valorizando ('isso é só aqui pra vocês'), sem vender assinatura nem WhatsApp. ${base}`;
     case "EXCLUSIVE_VIDEO": return `Legenda pra um VÍDEO exclusivo do VIP (use o frame como referência), valorizando, sem vender. ${base}`;
-    case "WHATSAPP_INVITE": return `Chama o cara pro seu WhatsApp particular. ${wa} ${base}`;
-    case "WHATSAPP_PHOTO": return `Legenda desta FOTO + convite pro seu WhatsApp particular. ${wa} ${base}`;
   }
 }
 
@@ -312,8 +276,6 @@ const FALLBACK: Partial<Record<VipType, string[]>> = {
   REACTION: ["Reage com 🔥 se tá pensando em mim 😈", "Manda um 💦 se você me quer agora"],
   EXCLUSIVE_PHOTO: ["Essa é só aqui pra vocês do VIP 🔥", "Isso ninguém mais vê 😈 só meu VIP"],
   EXCLUSIVE_VIDEO: ["Gravei um vídeo só pro VIP 💦 aproveita", "Esse vídeo é exclusivo daqui 😈🔥"],
-  WHATSAPP_INVITE: ["Me chama no meu zap 😏 lá eu respondo de verdade", "No WhatsApp eu sou mais sua 💕 vem", "Queria te responder no particular 😈 me chama no zap"],
-  WHATSAPP_PHOTO: ["Gostou? no meu zap tem mais e é mais pessoal 😏", "Vem falar comigo no particular 💦 te respondo lá"],
 };
 export function fallbackTextVip(type: VipType): string {
   const arr = FALLBACK[type];

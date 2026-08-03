@@ -35,6 +35,9 @@ export type Transaction = {
   /** Instante em que virou paga (diferente de createdAt = geração do Pix). */
   paidAt?: number;
   updatedAt: number;
+  /** Contato do Telegram que fez a compra, quando o webhook amarrou a venda a
+   *  uma inscrição. É o que permite abrir a conversa com o lead pelo painel. */
+  telegram?: { userId: number; username?: string };
 };
 
 type Row = {

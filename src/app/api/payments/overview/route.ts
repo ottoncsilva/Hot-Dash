@@ -3,6 +3,7 @@ import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { getAppTimeZone, getFinanceSettings, getPaymentSettingsPublic } from "@/lib/settings";
 import { listTransactionsInRange, periodStatsInRange } from "@/lib/transactions";
 import { activeProvider } from "@/lib/payments";
+import { getTelegramContactsByTransactions } from "@/lib/telegramDb";
 import { resolvePeriod } from "@/lib/periodRange";
 
 export const runtime = "nodejs";
@@ -32,11 +33,19 @@ export async function GET(req: NextRequest) {
       balanceCents = bal?.availableCents ?? null;
     }
 
+    // Contato do Telegram de cada venda (quando o webhook amarrou a cobrança a
+    // uma inscrição): é o que a tela usa para abrir a conversa com o lead.
+    const transactions = listTransactionsInRange(range.since, range.until, 500, profileId);
+    const contatos = getTelegramContactsByTransactions(transactions.map((t) => t.id));
+
     return NextResponse.json({
       providers: getPaymentSettingsPublic(),
       period,
       periodStats: periodStatsInRange(range.since, range.until, profileId),
-      transactions: listTransactionsInRange(range.since, range.until, 500, profileId),
+      transactions: transactions.map((t) => {
+        const telegram = contatos.get(t.id);
+        return telegram ? { ...t, telegram } : t;
+      }),
       balanceCents,
       finance: getFinanceSettings(),
     });

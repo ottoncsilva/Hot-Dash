@@ -56,6 +56,10 @@ export default function TelegramUnifiedPage() {
   const [daysToGenerateVip, setDaysToGenerateVip] = useState(7);
   const [daysToGenerateWarmup, setDaysToGenerateWarmup] = useState(7);
   const [generatingVip, setGeneratingVip] = useState(false);
+  // Convite pro WhatsApp na PRÓXIMA geração do Método MK do VIP. Escolha da
+  // geração, não configuração salva: volta desligado a cada visita, porque o
+  // padrão é não entregar o WhatsApp (ele é produto à parte).
+  const [vipWhatsappCta, setVipWhatsappCta] = useState(false);
   const [generatingWarmup, setGeneratingWarmup] = useState(false);
 
   const [settings, setSettings] = useState<TelegramSettings>({
@@ -174,15 +178,20 @@ export default function TelegramUnifiedPage() {
     }
   };
 
-  // Método MK do VIP: planeja o dia (só relacionamento e engajamento, sem CTA)
-  // e agenda os posts.
+  // Método MK do VIP: planeja o dia (relacionamento e engajamento) e agenda os
+  // posts. O convite pro WhatsApp entra só quando `vipWhatsappCta` está ligado
+  // — é uma escolha DESTA geração, não uma configuração salva.
   const generateVipMk = async (daysOverride?: number) => {
     setGeneratingVip(true);
     try {
       const res = await fetch("/api/telegram/generate-vip", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileId: selectedProfileId, days: daysOverride ?? 1 }),
+        body: JSON.stringify({
+          profileId: selectedProfileId,
+          days: daysOverride ?? 1,
+          whatsappCta: vipWhatsappCta,
+        }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Erro ao gerar VIP.");
@@ -421,7 +430,8 @@ export default function TelegramUnifiedPage() {
                     </button>
                   </div>
 
-                  {/* Método MK do VIP: só relacionamento, sem venda nenhuma. */}
+                  {/* Método MK do VIP: relacionamento + convite pro WhatsApp
+                      opcional, decidido a cada geração. */}
                   {settings.vipScheduleType === "mk" && (
                     <div className="space-y-3 pt-2">
                       <p className="text-[11px] text-zinc-400">
@@ -431,11 +441,32 @@ export default function TelegramUnifiedPage() {
                         (reação/enquete), no fuso de São Paulo. A IA <b>analisa cada foto</b> e
                         escreve a legenda.
                       </p>
-                      <p className="text-[11px] text-zinc-400">
-                        O dia sai <b>sem venda nenhuma</b> — nem assinatura, nem convite pro
-                        WhatsApp particular. Para mandar o botão do WhatsApp num post
-                        específico, ligue o link à mão nele, pelo calendário.
-                      </p>
+                      {/* Escolha DESTA geração: o WhatsApp é produto à parte,
+                          então nasce desligado e você liga quando quiser. */}
+                      <div className="flex items-start justify-between gap-3 rounded-lg border border-white/[0.06] bg-zinc-900/40 px-3 py-2.5">
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-bold text-zinc-200">
+                            Convidar pro WhatsApp nesta geração
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-zinc-500">
+                            {vipWhatsappCta
+                              ? "~8 posts/dia vão com o botão do seu WhatsApp particular, nos horários de pico."
+                              : "O dia sai sem venda nenhuma — nenhum post leva o botão do WhatsApp."}
+                          </p>
+                        </div>
+                        <Switch
+                          checked={vipWhatsappCta}
+                          onChange={setVipWhatsappCta}
+                          ariaLabel="Convidar pro WhatsApp nesta geração"
+                        />
+                      </div>
+                      {vipWhatsappCta &&
+                        !(profiles.find((p) => p.id === selectedProfileId)?.bioWhatsappLink) && (
+                          <p className="text-[11px] text-amber-400">
+                            ⚠️ Configure o <b>Link do WhatsApp</b> no cadastro da modelo — sem ele,
+                            esses posts saem sem o botão.
+                          </p>
+                        )}
                       <p className="text-[11px] text-emerald-300/80">
                         Escolha os <b>dias</b> e clique em <b>“Gerar dias (Método MK)”</b> ali em cima.
                       </p>

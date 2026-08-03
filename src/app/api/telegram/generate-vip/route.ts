@@ -13,6 +13,12 @@ import { extractVideoThumbnail, extname } from "@/lib/metadata";
 import { getAiCredentials, getAppTimeZone, type AiProvider } from "@/lib/settings";
 import { readBuffer } from "@/lib/storage";
 import { createPost } from "@/lib/posts";
+import {
+  DEFAULT_VIP_CTA_BUTTONS,
+  WHATSAPP_CTA_FALLBACK,
+  appendCtaLines,
+  pickCtaLinkTexts,
+} from "@/lib/postTypes";
 import type { MediaItem } from "@/lib/types";
 import { mkSlotToUtcMs, mkDayFromToday, fallbackPoll } from "@/lib/previasAi";
 import { planDayVip, captionThemeVip, fallbackTextVip } from "@/lib/vipAi";
@@ -37,15 +43,21 @@ const VARIATION_ANGLES = [
 /**
  * Método MK — versão do GRUPO VIP (pós-venda). O SERVIDOR planeja o dia (20–25
  * posts de relacionamento e engajamento); a IA ESCREVE a legenda de cada post
- * ANALISANDO A FOTO. O dia sai inteiro SEM CTA: o convite pro WhatsApp
- * particular saiu do método (virou produto à parte), então nenhum post gerado
- * aqui leva o botão. O operador ainda pode ligar o link à mão no calendário.
+ * ANALISANDO A FOTO.
+ *
+ * O convite pro WhatsApp particular é decidido A CADA GERAÇÃO, pelo corpo da
+ * requisição (`whatsappCta`). O WhatsApp virou produto à parte, então o padrão
+ * é NÃO entregar: sem o pedido explícito, o dia sai inteiro sem CTA. Ligado,
+ * ~8 posts do dia levam o botão (o link vem do cadastro da modelo).
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const profileId = body.profileId as string;
     const days = Math.max(1, Math.min(14, parseInt(body.days, 10) || 1));
+    // Convite pro WhatsApp nesta geração. Só entra quando pedido explicitamente
+    // — o padrão é o dia sem CTA nenhum.
+    const whatsappCta = body.whatsappCta === true;
     if (!profileId) return NextResponse.json({ error: "Informe o profileId." }, { status: 400 });
 
     const profileMaybe = await getProfile(profileId);
@@ -56,16 +68,18 @@ export async function POST(req: NextRequest) {
     if (!bot || !bot.botToken) return NextResponse.json({ error: "Bot não configurado." }, { status: 400 });
 
     const db = getDb();
-    // "Botões da copy (VIP)" não entram mais aqui: o método gera o dia sem
-    // CTA. A lista continua valendo no motor de envio, para o post que o
-    // operador marca à mão com o link do WhatsApp.
     const settings = db
-      .prepare("SELECT vip_tags FROM telegram_autopost_settings WHERE profile_id = ?")
-      .get(profile.id) as { vip_tags?: string } | undefined;
+      .prepare(
+        "SELECT vip_tags, vip_cta_buttons FROM telegram_autopost_settings WHERE profile_id = ?",
+      )
+      .get(profile.id) as { vip_tags?: string; vip_cta_buttons?: string } | undefined;
     const allowedTagNames = (settings?.vip_tags || "")
       .split(",")
       .map((t) => t.trim().toLowerCase())
       .filter(Boolean);
+    // Frases dos "Botões da copy (VIP)" — as mesmas que viram os hiperlinks do
+    // fim da legenda (o motor de envio usa esta lista para o botão inline).
+    const ctaList = (settings?.vip_cta_buttons ?? "").trim() || DEFAULT_VIP_CTA_BUTTONS;
 
     // Cadeia de provedores (grok primeiro — costuma aceitar conteúdo adulto).
     const providerChain: AiProvider[] = (["grok", "openai", "gemini"] as AiProvider[]).filter(
@@ -212,7 +226,7 @@ export async function POST(req: NextRequest) {
     const tz = getAppTimeZone();
     for (let dayOffset = 0; dayOffset <= days; dayOffset++) {
       const base = mkDayFromToday(dayOffset, tz);
-      const plan = planDayVip();
+      const plan = planDayVip({ whatsappCta });
 
       for (const slot of plan) {
         const at = mkSlotToUtcMs(base, slot.time, tz, true);
@@ -248,7 +262,19 @@ export async function POST(req: NextRequest) {
           const img = await mediaImageBase64(media);
           if (img) images.push(img);
         }
-        const caption = await writeCaption(slot.type, images, angleIdx++);
+        const written = await writeCaption(slot.type, images, angleIdx++);
+        // Só os slots de convite levam o WhatsApp — e eles só existem quando a
+        // geração pediu. Neles as 3 linhas já saem GRAVADAS na legenda, para
+        // aparecerem no editor do calendário e poderem ser revisadas.
+        const caption =
+          slot.cta && profile.bioWhatsappLink
+            ? appendCtaLines(
+                written,
+                profile.bioWhatsappLink,
+                pickCtaLinkTexts(ctaList, 3),
+                WHATSAPP_CTA_FALLBACK,
+              )
+            : written;
 
         createPost({
           profileId: profile.id,
@@ -256,10 +282,7 @@ export async function POST(req: NextRequest) {
           scheduledAt: at,
           caption,
           mediaIds: media ? [media.id] : undefined,
-          // O método não entrega mais o WhatsApp: o dia sai inteiro sem o
-          // botão. Quem quiser um post específico com ele ainda pode ligar o
-          // link à mão no calendário (é o que lê este campo no envio).
-          cta: false,
+          cta: slot.cta, // true só nos posts de WhatsApp → botão no envio
         });
         taken.add(at);
         created++;

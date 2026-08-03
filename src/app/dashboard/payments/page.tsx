@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { apiGet, apiSend } from "@/lib/api";
 import Modal from "@/components/Modal";
-import { IconPlus, IconSettings, IconPayments, IconCopy, IconTrash, IconEdit } from "@/components/icons";
+import { IconPlus, IconSettings, IconPayments, IconCopy, IconTrash, IconEdit, IconTelegram } from "@/components/icons";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import type { Transaction, PeriodStats } from "@/lib/transactions";
 import type { Profile } from "@/lib/types";
@@ -12,6 +12,24 @@ import { DEFAULT_TIME_ZONE } from "@/lib/timezone";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import { DEFAULT_PERIOD, PERIOD_OPTIONS } from "@/lib/periods";
 import { showToast } from "@/lib/toast";
+
+/**
+ * Link para abrir a conversa com o lead que fez a compra. O contato vem do
+ * webhook, amarrado à inscrição do Telegram.
+ *
+ * Com @usuário o link é o normal do Telegram e abre a conversa direto. Sem
+ * ele, só resta o id numérico (`tg://user?id=`), que os apps só conseguem
+ * abrir quando já conhecem a pessoa — quem nunca falou com você pelo seu
+ * usuário pessoal pode não abrir. Por isso o botão avisa no title.
+ */
+function telegramChatLink(contato: { userId: number; username?: string }): {
+  href: string;
+  certo: boolean;
+} {
+  const user = (contato.username || "").replace(/^@/, "").trim();
+  if (user) return { href: `https://t.me/${user}`, certo: true };
+  return { href: `tg://user?id=${contato.userId}`, certo: false };
+}
 
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", {
@@ -330,6 +348,30 @@ export default function PaymentsPage() {
                         movimento que não é venda (saque, por exemplo). */}
                     <td className="p-3">
                       <div className="flex items-center justify-end gap-2">
+                        {/* Falar com o lead: só aparece quando o webhook
+                            amarrou esta venda a um contato do Telegram. */}
+                        {t.telegram && (() => {
+                          const { href, certo } = telegramChatLink(t.telegram);
+                          return (
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={
+                                certo
+                                  ? `Conversar com @${t.telegram.username} no Telegram`
+                                  : "Conversar no Telegram — este lead não tem @usuário público, então o app pode não abrir a conversa"
+                              }
+                              className={`transition-colors ${
+                                certo
+                                  ? "text-zinc-700 hover:text-sky-400"
+                                  : "text-zinc-800 hover:text-sky-500/70"
+                              }`}
+                            >
+                              <IconTelegram size={14} />
+                            </a>
+                          );
+                        })()}
                         <button
                           type="button"
                           title="Corrigir valores"

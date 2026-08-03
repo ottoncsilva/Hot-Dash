@@ -345,6 +345,42 @@ export function getTelegramLead(id: string): TelegramLead | null {
   };
 }
 
+/** Contato do Telegram por trás de cada venda: é o que o webhook do gateway
+ *  amarra na inscrição, e o que deixa o painel de pagamentos abrir a conversa
+ *  com o lead. Consulta em lote — a tela lista centenas de cobranças. */
+export function getTelegramContactsByTransactions(
+  transactionIds: string[],
+): Map<string, { userId: number; username?: string }> {
+  const out = new Map<string, { userId: number; username?: string }>();
+  if (transactionIds.length === 0) return out;
+
+  // SQLite tem teto de parâmetros por consulta (999 no padrão antigo), então
+  // vai em blocos em vez de um IN gigante.
+  const CHUNK = 500;
+  for (let i = 0; i < transactionIds.length; i += CHUNK) {
+    const chunk = transactionIds.slice(i, i + CHUNK);
+    const rows = getDb()
+      .prepare(
+        `SELECT transaction_id, telegram_user_id, telegram_username
+           FROM telegram_subscriptions
+          WHERE transaction_id IN (${chunk.map(() => "?").join(",")})`,
+      )
+      .all(...chunk) as {
+      transaction_id: string;
+      telegram_user_id: number;
+      telegram_username: string | null;
+    }[];
+    for (const r of rows) {
+      if (!r.transaction_id) continue;
+      out.set(r.transaction_id, {
+        userId: r.telegram_user_id,
+        username: r.telegram_username || undefined,
+      });
+    }
+  }
+  return out;
+}
+
 export function listLeadsForDownsell(): TelegramLead[] {
   const rows = getDb().prepare("SELECT * FROM telegram_leads").all() as any[];
   return rows.map((r) => ({

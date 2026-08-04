@@ -297,9 +297,39 @@ export default function PaymentsPage() {
                           <p className="truncate text-zinc-200">
                             {t.customer || t.description || "Venda SyncPay"}
                           </p>
-                          <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-                            {t.provider}
-                          </p>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                              {t.provider}
+                            </span>
+                            {/* Falar com o lead. Fica AQUI, na primeira coluna,
+                                porque a tabela é larga e rola na horizontal: na
+                                coluna de ações o atalho nasceria fora da tela no
+                                celular. Só aparece quando o webhook amarrou esta
+                                venda a um contato do Telegram. */}
+                            {t.telegram && (() => {
+                              const { href, certo } = telegramChatLink(t.telegram);
+                              return (
+                                <a
+                                  href={href}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={
+                                    certo
+                                      ? `Conversar com @${t.telegram.username} no Telegram`
+                                      : "Este lead não tem @usuário público — o Telegram pode não conseguir abrir a conversa"
+                                  }
+                                  className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold transition-colors ${
+                                    certo
+                                      ? "border-sky-500/30 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20"
+                                      : "border-white/10 bg-white/[0.03] text-zinc-400 hover:bg-white/10"
+                                  }`}
+                                >
+                                  <IconTelegram size={11} />
+                                  Conversar
+                                </a>
+                              );
+                            })()}
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -348,30 +378,6 @@ export default function PaymentsPage() {
                         movimento que não é venda (saque, por exemplo). */}
                     <td className="p-3">
                       <div className="flex items-center justify-end gap-2">
-                        {/* Falar com o lead: só aparece quando o webhook
-                            amarrou esta venda a um contato do Telegram. */}
-                        {t.telegram && (() => {
-                          const { href, certo } = telegramChatLink(t.telegram);
-                          return (
-                            <a
-                              href={href}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              title={
-                                certo
-                                  ? `Conversar com @${t.telegram.username} no Telegram`
-                                  : "Conversar no Telegram — este lead não tem @usuário público, então o app pode não abrir a conversa"
-                              }
-                              className={`transition-colors ${
-                                certo
-                                  ? "text-zinc-700 hover:text-sky-400"
-                                  : "text-zinc-800 hover:text-sky-500/70"
-                              }`}
-                            >
-                              <IconTelegram size={14} />
-                            </a>
-                          );
-                        })()}
                         <button
                           type="button"
                           title="Corrigir valores"

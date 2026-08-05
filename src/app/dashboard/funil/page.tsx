@@ -29,6 +29,40 @@ function pct(r: number | null) {
   return r === null ? "—" : `${(r * 100).toFixed(1)}%`;
 }
 
+/**
+ * Taxa de passagem do funil. Acima de 100% não existe como conversão — quer
+ * dizer que a janela tem venda de gente que deu /start antes dela. Nesse caso
+ * some com o número: o detalhe ("7 de 4") já conta o que aconteceu, e um
+ * "175%" só faria o operador desconfiar do painel inteiro.
+ */
+function pctFunil(r: number | null) {
+  return r === null || r > 1 ? "—" : `${(r * 100).toFixed(1)}%`;
+}
+
+/** Duração legível e curta, para caber na coluna estreita do celular. */
+function duracao(ms: number): string {
+  if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1000))}s`;
+  const min = Math.round(ms / 60_000);
+  if (min < 60) return `${min}min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return min % 60 === 0 ? `${h}h` : `${h}h${min % 60}`;
+  const d = Math.floor(h / 24);
+  return h % 24 === 0 ? `${d}d` : `${d}d${h % 24}h`;
+}
+
+/**
+ * "1 venda a cada X". Devolve null quando não dá para dividir — a tela escreve
+ * o motivo em vez de mostrar 0 ou infinito.
+ *
+ * Atenção ao ler: numerador e denominador são da MESMA janela, mas não da
+ * mesma gente — quem deu /start hoje pode comprar amanhã. Numa janela curta é
+ * normal haver venda de lead antigo, e por isso o rótulo diz "no período".
+ */
+function porVenda(de: number, vendas: number): number | null {
+  if (vendas <= 0 || de <= 0) return null;
+  return de / vendas;
+}
+
 type Metricas = {
   totalStarts: number;
   pixGenerated: number;
@@ -44,11 +78,32 @@ type Metricas = {
 };
 type Linha = Metricas & { profileId: string | null; profileName: string; botActive: boolean | null };
 type Fonte = { code: string; starts: number; pixGenerated: number; pixPaid: number; paidCents: number };
+/** Tempo entre o primeiro /start e o pagamento. `base` são as PRIMEIRAS
+ *  compras (renovação mediria meses de relacionamento, não decisão de compra);
+ *  `semStart` são as pagas que vieram por fora do bot e não dá para
+ *  cronometrar. Os dois aparecem na tela para o número não enganar. */
+type Tempo = {
+  mediaMs: number;
+  medianaMs: number;
+  base: number;
+  semStart: number;
+  renovacoes: number;
+};
+type Janela = Metricas & {
+  tempo: Tempo;
+  valorMaisComprado: { cents: number; vezes: number } | null;
+};
+/** A mesma métrica em três janelas. Não segue o período escolhido: o sentido
+ *  dela é comparar o curto com o longo. */
+type Comparativo = { hoje: Janela; mes: Janela; total: Janela };
+
 type Dados = {
   metricas: Metricas;
   linhas: Linha[];
   planos: { planId: string; name: string; cents: number; count: number }[];
   fontes: Fonte[];
+  comparativo: Comparativo;
+  metaMensalCents: number;
 };
 
 export default function FunilPage() {
@@ -131,22 +186,65 @@ export default function FunilPage() {
       {/* Funil: as três etapas com a taxa de passagem entre elas */}
       <div className="mt-6 card p-5">
         <p className="eyebrow">jornada do usuário até a compra</p>
-        <div className="mt-4 grid gap-4 sm:grid-cols-3">
-          <Etapa titulo="/start" valor={m?.totalStarts} sub="iniciaram conversa" />
-          <Etapa titulo="PIX gerado" valor={m?.pixGenerated} sub="checkout iniciado" taxa={m?.startToPix} taxaLabel="do /start" />
-          <Etapa titulo="Pago" valor={m?.pixPaid} sub="pagamentos aprovados" taxa={m?.pixToPaid} taxaLabel="do PIX" accent />
-        </div>
+        <FunilVisual m={m} />
         <div className="mt-4 grid gap-3 border-t border-white/[0.06] pt-4 sm:grid-cols-3">
-          <Conversao label="Start → PIX" valor={m ? pct(m.startToPix) : null} detalhe={m ? `${m.pixGenerated} de ${m.totalStarts}` : ""} />
-          <Conversao label="PIX → Pago" valor={m ? pct(m.pixToPaid) : null} detalhe={m ? `${m.pixPaid} de ${m.pixGenerated}` : ""} accent />
-          <Conversao label="Start → Pago" valor={m ? pct(m.startToPaid) : null} detalhe={m ? `${m.pixPaid} de ${m.totalStarts}` : ""} />
+          <Conversao label="Start → PIX" valor={m ? pctFunil(m.startToPix) : null} detalhe={m ? `${m.pixGenerated} de ${m.totalStarts}` : ""} />
+          <Conversao label="PIX → Pago" valor={m ? pctFunil(m.pixToPaid) : null} detalhe={m ? `${m.pixPaid} de ${m.pixGenerated}` : ""} accent />
+          <Conversao label="Start → Pago" valor={m ? pctFunil(m.startToPaid) : null} detalhe={m ? `${m.pixPaid} de ${m.totalStarts}` : ""} />
         </div>
-        {m && m.totalStarts === 0 && m.pixGenerated > 0 && (
+        {m && m.pixGenerated > m.totalStarts && (
           <p className="mt-3 text-[11px] text-amber-400/80">
-            Sem /start no período: as vendas vieram por fora do bot do Hot-Dash, então a etapa de
-            topo do funil não tem como ser medida.
+            {m.totalStarts === 0
+              ? "Sem /start no período: as vendas vieram por fora do bot do Hot-Dash, então a etapa de topo do funil não tem como ser medida."
+              : "Há mais PIX do que /start no período — parte das vendas é de gente que entrou antes. As taxas de passagem ficam sem número porque não seria conversão, e sim o encontro de duas gerações de lead."}
           </p>
         )}
+      </div>
+
+      {/* Meta do mês. Só aparece quando existe meta configurada — barra de
+          progresso contra zero não diz nada. */}
+      {data && data.metaMensalCents > 0 && (
+        <BarraMeta feitoCents={data.comparativo.mes.paidCents} metaCents={data.metaMensalCents} />
+      )}
+
+      {/* Comparativo de três janelas. NÃO segue o seletor de período de
+          propósito: 11% hoje só significa alguma coisa ao lado do histórico. */}
+      <p className="eyebrow mt-8">hoje, no mês e desde sempre</p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <CartaoComparativo
+          titulo="Conversão de usuário"
+          subtitulo="% de quem deu /start e comprou"
+          comp={data?.comparativo}
+          valor={(j) => pct(j.startToPaid)}
+          rodape={(j) => {
+            const r = porVenda(j.totalStarts, j.pixPaid);
+            if (j.pixPaid > j.totalStarts && j.totalStarts > 0)
+              return "vendas de leads de outros dias";
+            return r === null ? "ainda sem venda" : `1 venda a cada ${Math.round(r)} starts`;
+          }}
+        />
+        <CartaoComparativo
+          titulo="Conversão de pagamento"
+          subtitulo="% dos PIX gerados que foram pagos"
+          comp={data?.comparativo}
+          valor={(j) => pct(j.pixToPaid)}
+          rodape={(j) => {
+            const r = porVenda(j.pixGenerated, j.pixPaid);
+            return r === null ? "ainda sem venda" : `1 venda a cada ${Math.round(r)} PIX`;
+          }}
+        />
+        <CartaoTempo comp={data?.comparativo} />
+        <CartaoComparativo
+          titulo="Ticket médio"
+          subtitulo="valor médio por venda"
+          comp={data?.comparativo}
+          valor={(j) => brl(j.avgTicketCents)}
+          rodape={(j) =>
+            j.valorMaisComprado && j.pixPaid >= 5
+              ? `mais comprado: ${brl(j.valorMaisComprado.cents)} (${j.valorMaisComprado.vezes}×)`
+              : "poucas vendas para dizer qual valor mais vende"
+          }
+        />
       </div>
 
       {/* Números do período — só o que é ETAPA da jornada. Receita, receita
@@ -330,33 +428,89 @@ export default function FunilPage() {
 }
 
 
-function Etapa({
-  titulo,
-  valor,
-  sub,
-  taxa,
-  taxaLabel,
-  accent,
-}: {
-  titulo: string;
-  valor?: number;
-  sub: string;
-  taxa?: number | null;
-  taxaLabel?: string;
-  accent?: boolean;
-}) {
+/**
+ * A jornada desenhada como funil: três faixas que estreitam da esquerda para a
+ * direita, na proporção de quanta gente sobrou em cada etapa.
+ *
+ * A largura tem um PISO (20%): uma etapa com uma venda só continua sendo um
+ * trapézio legível em vez de um fio invisível. O piso deforma a proporção de
+ * propósito — por isso o número absoluto vai escrito embaixo de cada etapa, e
+ * é ele que manda.
+ *
+ * Vertical seria mais fácil, mas o funil horizontal cabe em 430px sem rolagem
+ * e é a leitura que o operador já conhece.
+ */
+function FunilVisual({ m }: { m?: Metricas }) {
+  if (!m) return <div className="mt-4 h-40 animate-pulse rounded-lg bg-white/5" />;
+
+  // A base é a MAIOR etapa, não o /start. Numa janela curta é comum haver mais
+  // venda que start (gente que entrou antes e comprou agora): com o /start de
+  // base, as faixas seguintes estourariam a largura e o funil viraria três
+  // retângulos iguais, deixando de ser funil.
+  const base = Math.max(m.totalStarts, m.pixGenerated, m.pixPaid, 1);
+  // Taxa acima de 100% não é conversão: é venda de lead de outro dia. Melhor
+  // não mostrar número nenhum do que anunciar "175% do /start".
+  const taxaOuNada = (r: number | null) => (r !== null && r <= 1 ? r : null);
+  const etapas = [
+    { rotulo: "/start", valor: m.totalStarts, taxa: null as number | null, topo: true },
+    { rotulo: "PIX gerado", valor: m.pixGenerated, taxa: taxaOuNada(m.startToPix), topo: false },
+    { rotulo: "Pago", valor: m.pixPaid, taxa: taxaOuNada(m.startToPaid), topo: false },
+  ];
+
+  const W = 100;
+  const H = 44;
+  const meia = (v: number) => (H / 2) * Math.min(1, Math.max(0.2, v / base));
+  const x = (i: number) => (W / 3) * i;
+
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
-      <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">{titulo}</p>
-      <p className={`mt-1 font-display text-3xl font-semibold ${accent ? "text-emerald-400" : "text-white"}`}>
-        {valor === undefined ? <span className="inline-block h-8 w-16 animate-pulse rounded bg-white/5" /> : valor}
-      </p>
-      <p className="mt-0.5 text-[11px] text-zinc-600">{sub}</p>
-      {taxa !== undefined && (
-        <p className="mt-1.5 font-mono text-[11px] text-zinc-500">
-          {pct(taxa)} <span className="text-zinc-600">{taxaLabel}</span>
-        </p>
-      )}
+    <div className="mt-4">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        className="h-32 w-full"
+        role="img"
+        aria-label={`Funil: ${m.totalStarts} starts, ${m.pixGenerated} PIX gerados, ${m.pixPaid} pagos`}
+      >
+        {etapas.map((e, i) => {
+          const proximo = etapas[i + 1];
+          const aEsq = meia(e.valor);
+          const aDir = meia(proximo ? proximo.valor : e.valor * 0.9);
+          const x1 = x(i);
+          const x2 = x(i + 1);
+          return (
+            <polygon
+              key={e.rotulo}
+              points={`${x1},${H / 2 - aEsq} ${x2},${H / 2 - aDir} ${x2},${H / 2 + aDir} ${x1},${H / 2 + aEsq}`}
+              fill="#34d399"
+              opacity={0.25 + i * 0.2}
+            />
+          );
+        })}
+      </svg>
+
+      {/* Os números por baixo do desenho: é aqui que está a verdade exata, já
+          que a largura das faixas tem piso. */}
+      <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+        {etapas.map((e, i) => (
+          <div key={e.rotulo} className="min-w-0">
+            <p className="truncate font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+              {e.rotulo}
+            </p>
+            <p
+              className={`font-display text-2xl font-semibold ${i === 2 ? "text-emerald-400" : "text-white"}`}
+            >
+              {e.valor}
+            </p>
+            <p className="font-mono text-[10px] text-zinc-600">
+              {e.topo
+                ? "topo do funil"
+                : e.taxa === null
+                  ? "leads de outros dias"
+                  : `${pct(e.taxa)} do /start`}
+            </p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -610,6 +764,142 @@ function Card({
         {valor ?? <span className="inline-block h-6 w-20 animate-pulse rounded bg-white/5" />}
       </p>
       {hint && <p className="mt-1 text-[11px] text-zinc-600">{hint}</p>}
+    </div>
+  );
+}
+
+/**
+ * Um número em três janelas — hoje, mês e desde sempre — com uma leitura
+ * derivada embaixo. É o formato que deixa a tendência à vista sem obrigar a
+ * trocar o período no seletor.
+ */
+function CartaoComparativo({
+  titulo,
+  subtitulo,
+  comp,
+  valor,
+  rodape,
+}: {
+  titulo: string;
+  subtitulo: string;
+  comp?: Comparativo;
+  valor: (j: Janela) => string;
+  rodape: (j: Janela) => string;
+}) {
+  const janelas: { rotulo: string; chave: keyof Comparativo }[] = [
+    { rotulo: "Hoje", chave: "hoje" },
+    { rotulo: "Mês", chave: "mes" },
+    { rotulo: "Total", chave: "total" },
+  ];
+  return (
+    <div className="card p-4">
+      <p className="text-sm font-semibold text-zinc-200">{titulo}</p>
+      <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+        {subtitulo}
+      </p>
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        {janelas.map((j) => (
+          <div key={j.chave} className="min-w-0">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+              {j.rotulo}
+            </p>
+            <p className="truncate font-display text-base font-semibold tabular-nums text-white">
+              {comp ? valor(comp[j.chave]) : "—"}
+            </p>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 border-t border-white/[0.06] pt-2 text-[11px] text-zinc-500">
+        {comp ? rodape(comp.mes) : "—"} <span className="text-zinc-700">no mês</span>
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Tempo entre o primeiro /start e o pagamento.
+ *
+ * A MEDIANA é a manchete, não a média: quem deu /start há meses e só agora
+ * comprou puxa a média sozinho. E a base aparece sempre — venda que não passou
+ * pelo bot não tem como ser cronometrada, e omitir isso faria o número mentir.
+ */
+function CartaoTempo({ comp }: { comp?: Comparativo }) {
+  const janelas: { rotulo: string; chave: keyof Comparativo }[] = [
+    { rotulo: "Hoje", chave: "hoje" },
+    { rotulo: "Mês", chave: "mes" },
+    { rotulo: "Total", chave: "total" },
+  ];
+  const mes = comp?.mes.tempo;
+  return (
+    <div className="card p-4">
+      <p className="text-sm font-semibold text-zinc-200">Tempo até a compra</p>
+      <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+        metade das vendas em até
+      </p>
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        {janelas.map((j) => {
+          const t = comp?.[j.chave].tempo;
+          return (
+            <div key={j.chave} className="min-w-0">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                {j.rotulo}
+              </p>
+              <p
+                className={`truncate font-display text-base font-semibold tabular-nums ${
+                  t && t.base >= 5 ? "text-white" : "text-zinc-500"
+                }`}
+              >
+                {t && t.base > 0 ? duracao(t.medianaMs) : "—"}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-3 border-t border-white/[0.06] pt-2 text-[11px] text-zinc-500">
+        {!mes ? (
+          "—"
+        ) : mes.base === 0 ? (
+          "Nenhuma venda do mês passou pelo /start do bot — não dá para medir."
+        ) : (
+          <>
+            base: {mes.base} primeira{mes.base > 1 ? "s" : ""} compra{mes.base > 1 ? "s" : ""} no mês
+            {mes.semStart > 0 && ` · ${mes.semStart} sem /start`}
+            {mes.renovacoes > 0 &&
+              ` · ${mes.renovacoes} ${mes.renovacoes > 1 ? "renovações" : "renovação"}`}
+            {mes.base < 5 && <span className="text-amber-400/80"> · poucos casos</span>}
+          </>
+        )}
+      </p>
+    </div>
+  );
+}
+
+/** Faturamento do mês contra a meta. A conta é sobre o PAGO do mês corrente,
+ *  somando todos os modelos — a meta é da operação, não de um perfil. */
+function BarraMeta({ feitoCents, metaCents }: { feitoCents: number; metaCents: number }) {
+  const pctFeito = Math.round((feitoCents / metaCents) * 100);
+  const bateu = feitoCents >= metaCents;
+  return (
+    <div className="mt-6 card p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="eyebrow">meta do mês</p>
+        <p className={`font-display text-sm font-semibold ${bateu ? "text-emerald-400" : "text-zinc-300"}`}>
+          {pctFeito}%
+        </p>
+      </div>
+      <p className="mt-1 font-display text-xl font-semibold text-white">
+        {brl(feitoCents)} <span className="text-sm font-normal text-zinc-500">de {brl(metaCents)}</span>
+      </p>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/5">
+        <div
+          className={`h-full ${bateu ? "bg-emerald-400" : "bg-emerald-500/70"}`}
+          style={{ width: `${Math.min(100, Math.max(0, pctFeito))}%` }}
+        />
+      </div>
+      <p className="mt-1.5 text-[11px] text-zinc-600">
+        {bateu ? "meta batida 🎉" : `faltam ${brl(metaCents - feitoCents)}`}
+        <span className="text-zinc-700"> · conta o pago do mês, todos os modelos</span>
+      </p>
     </div>
   );
 }

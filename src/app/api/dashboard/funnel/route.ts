@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
-import { funnelByProfile, funnelMetrics, topPlans, trafficSources } from "@/lib/salesFunnel";
-import { getAppTimeZone } from "@/lib/settings";
+import {
+  funnelByProfile,
+  funnelMetrics,
+  metricasComparadas,
+  topPlans,
+  trafficSources,
+} from "@/lib/salesFunnel";
+import { getAppTimeZone, getFinanceSettings } from "@/lib/settings";
 import { resolvePeriod } from "@/lib/periodRange";
 
 export const runtime = "nodejs";
@@ -33,6 +39,12 @@ export async function GET(req: NextRequest) {
       linhas,
       planos: topPlans(range.since, range.until, profileId, 5),
       fontes: trafficSources(range.since, range.until, profileId),
+      // Hoje/mês/total NÃO seguem o período escolhido de propósito: o valor
+      // deles é justamente comparar a janela curta com a longa.
+      comparativo: metricasComparadas(tz, profileId),
+      // Vai junto para a barra de meta não precisar de um segundo request — o
+      // faturamento do mês já está no `comparativo.mes`.
+      metaMensalCents: getFinanceSettings().monthlyGoalCents,
     });
   } catch (err) {
     return errorResponse(err);

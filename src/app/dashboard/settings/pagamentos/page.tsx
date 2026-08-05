@@ -23,6 +23,9 @@ export default function PaymentSettingsPage() {
   const [origin, setOrigin] = useState("");
   const [copied, setCopied] = useState(false);
   const [lastPaid, setLastPaid] = useState<LastPaid>(null);
+  // Meta do mês em REAIS na tela; vira centavos só na hora de salvar.
+  const [metaReais, setMetaReais] = useState("");
+  const [salvandoMeta, setSalvandoMeta] = useState(false);
   // Diário dos webhooks: o corpo cru do que a SyncPay manda, para distinguir
   // venda de saque (a documentação só descreve o de venda).
   const [eventos, setEventos] = useState<
@@ -56,7 +59,28 @@ export default function PaymentSettingsPage() {
   useEffect(() => {
     if (typeof window !== "undefined") setOrigin(window.location.origin);
     loadDiagnostics();
+    apiGet<{ finance: { monthlyGoalCents: number } }>("/api/payments/finance-settings")
+      .then((d) => {
+        const cents = d.finance?.monthlyGoalCents || 0;
+        setMetaReais(cents > 0 ? String(cents / 100) : "");
+      })
+      .catch(() => {});
   }, []);
+
+  async function salvarMeta() {
+    setSalvandoMeta(true);
+    try {
+      const reais = Number(metaReais.replace(",", "."));
+      await apiSend("/api/payments/finance-settings", "PATCH", {
+        monthlyGoalCents: Number.isFinite(reais) && reais > 0 ? Math.round(reais * 100) : 0,
+      });
+      showToast("Meta salva!");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Falha ao salvar a meta.");
+    } finally {
+      setSalvandoMeta(false);
+    }
+  }
 
   const webhookUrl = cfg?.syncpay.webhookShort ? `${origin}/w/${cfg.syncpay.webhookShort}` : "";
 
@@ -181,6 +205,40 @@ export default function PaymentSettingsPage() {
       <p className="mt-2 text-sm text-zinc-500">
         As chaves são guardadas criptografadas (AES-256) no servidor.
       </p>
+
+      {/* Meta do mês. Mora aqui porque é número financeiro, mas quem a usa é o
+          Funil — lá ela vira a barra de progresso do faturamento. */}
+      <div className="mt-4 card p-4">
+        <p className="eyebrow">meta de faturamento</p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Quanto você quer faturar por mês. Aparece como barra de progresso no Funil de Vendas.
+          Deixe em branco (ou zero) para não usar meta.
+        </p>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+              meta mensal (R$)
+            </span>
+            <input
+              className="input w-40 py-1.5 text-sm"
+              type="number"
+              min={0}
+              step={100}
+              placeholder="10000"
+              value={metaReais}
+              onChange={(e) => setMetaReais(e.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={salvarMeta}
+            disabled={salvandoMeta}
+            className="btn-ghost py-2 text-xs disabled:opacity-40"
+          >
+            {salvandoMeta ? "Salvando..." : "Salvar meta"}
+          </button>
+        </div>
+      </div>
 
       {/* SyncPay */}
       <div className="mt-4 card p-4">

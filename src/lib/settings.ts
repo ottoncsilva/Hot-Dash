@@ -214,10 +214,17 @@ export type FinanceSettings = {
   adSpendCents: number;
   /** Alíquota de imposto estimada (%), aplicada sobre o faturamento líquido. */
   taxRatePercent: number;
+  /** Meta de faturamento do mês. Zero = sem meta, e a barra some da tela em
+   *  vez de mostrar um progresso contra nada. */
+  monthlyGoalCents: number;
 };
 
 export function getFinanceSettings(): FinanceSettings {
-  return getJson<FinanceSettings>("finance", { adSpendCents: 0, taxRatePercent: 0 });
+  return getJson<FinanceSettings>("finance", {
+    adSpendCents: 0,
+    taxRatePercent: 0,
+    monthlyGoalCents: 0,
+  });
 }
 
 export function updateFinanceSettings(
@@ -233,6 +240,10 @@ export function updateFinanceSettings(
       patch.taxRatePercent !== undefined
         ? Math.max(0, patch.taxRatePercent)
         : cur.taxRatePercent,
+    monthlyGoalCents:
+      patch.monthlyGoalCents !== undefined
+        ? Math.max(0, Math.round(patch.monthlyGoalCents))
+        : cur.monthlyGoalCents,
   };
   setJson("finance", next);
   return next;

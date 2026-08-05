@@ -1,5 +1,6 @@
 import "server-only";
 import { getDb } from "./db";
+import { resolvePeriod } from "./periodRange";
 
 /**
  * Métricas do funil de vendas do Bot do Telegram (equivalente ao painel do
@@ -368,4 +369,178 @@ export function revenueByProfile(sinceMs: number | null, untilMs: number | null 
       paidCents: r.cents,
       paidCount: r.cnt,
     }));
+}
+
+// ---------------------------------------------------------------------------
+// Tempo até a compra, valor mais comprado e o comparativo Hoje/Mês/Total
+// ---------------------------------------------------------------------------
+
+export type TempoAteCompra = {
+  /** Média das durações, em ms. */
+  mediaMs: number;
+  /** Mediana — "metade das vendas em até X". É a manchete, não a média: quem
+   *  deu /start há meses e só agora comprou puxa a média sozinho. */
+  medianaMs: number;
+  /** PRIMEIRAS compras com /start ligado — a base real do cálculo. */
+  base: number;
+  /** Vendas pagas SEM /start ligado — entraram por fora do bot, então não dá
+   *  para cronometrar. Vai para a tela junto: sem esse número a média engana
+   *  por omissão do denominador. */
+  semStart: number;
+  /** Compras que NÃO são a primeira daquele lead (renovação/upsell). Ficam de
+   *  fora: para quem já comprou em março, "tempo até a compra" mediria cinco
+   *  meses de relacionamento, não a decisão de compra. */
+  renovacoes: number;
+};
+
+/**
+ * Quanto tempo o lead leva do primeiro /start até pagar.
+ *
+ * O caminho é venda → inscrição → lead. A chave do lead é montada no webhook
+ * como `${botId}_${telegramUserId}`, então a junção por ela é exata e não
+ * confunde a mesma pessoa em bots diferentes.
+ *
+ * Usa `telegram_leads.created_at`, que é o PRIMEIRO /start: o upsert do lead
+ * atualiza `last_interaction_at`, nunca o `created_at`.
+ *
+ * Ressalva no dado antigo: a migração preencheu `paid_at = created_at` nas
+ * vendas pagas que não tinham a coluna (ver `db.ts`). Nessas linhas o que se
+ * mede é /start → PIX gerado, não → pagamento, então o histórico longo sai um
+ * pouco mais otimista que a realidade.
+ */
+export function tempoAteCompra(
+  sinceMs: number | null,
+  untilMs: number | null,
+  profileId?: string,
+): TempoAteCompra {
+  const db = getDb();
+  // Recorte da JANELA (e do modelo). Fica separado do filtro de "paga", que
+  // precisa valer dentro do CTE para a numeração por lead ver o histórico todo.
+  const clauses: string[] = [];
+  const params: (string | number)[] = [];
+  if (sinceMs !== null) {
+    clauses.push("created_at >= ?");
+    params.push(sinceMs);
+  }
+  if (untilMs !== null) {
+    clauses.push("created_at < ?");
+    params.push(untilMs);
+  }
+  if (profileId) {
+    clauses.push("profile_id = ?");
+    params.push(profileId);
+  }
+  const recorte = clauses.length ? clauses.join(" AND ") : "1 = 1";
+  const onde = `status = 'paid' AND paid_at IS NOT NULL AND ${recorte}`;
+
+  const pagas = (
+    db.prepare(`SELECT COUNT(*) c FROM transactions WHERE ${onde}`).get(...params) as { c: number }
+  ).c;
+
+  // `ordem` numera as compras DE CADA LEAD ao longo de TODO o histórico, não
+  // dentro da janela — senão a renovação de hoje passaria por "primeira compra
+  // de hoje". Por isso o recorte da janela só entra no SELECT de fora.
+  const linhas = db
+    .prepare(
+      `WITH pagas AS (
+         SELECT t.id, t.created_at, t.profile_id, t.paid_at,
+                (t.paid_at - l.created_at) AS ms,
+                ROW_NUMBER() OVER (PARTITION BY l.id ORDER BY t.paid_at, t.id) AS ordem
+           FROM transactions t
+           JOIN telegram_subscriptions s ON s.transaction_id = t.id
+           JOIN telegram_leads l ON l.id = s.bot_id || '_' || CAST(s.telegram_user_id AS TEXT)
+          WHERE t.status = 'paid' AND t.paid_at IS NOT NULL
+       )
+       SELECT ms, ordem FROM pagas WHERE ${recorte}`,
+    )
+    .all(...params) as { ms: number; ordem: number }[];
+
+  const renovacoes = linhas.filter((r) => r.ordem > 1).length;
+  // Duração negativa = pagamento antes do /start, o que é impossível (lead
+  // recriado, relógio torto). Não vira zero: é medida inválida e sai da conta.
+  const duracoes = linhas
+    .filter((r) => r.ordem === 1 && Number.isFinite(r.ms) && r.ms >= 0)
+    .map((r) => r.ms)
+    .sort((a, b) => a - b);
+
+  const base = duracoes.length;
+  const semStart = Math.max(0, pagas - linhas.length);
+  if (base === 0) return { mediaMs: 0, medianaMs: 0, base: 0, semStart, renovacoes };
+
+  const soma = duracoes.reduce((s, ms) => s + ms, 0);
+  const meio = Math.floor(base / 2);
+  const medianaMs =
+    base % 2 === 1 ? duracoes[meio] : Math.round((duracoes[meio - 1] + duracoes[meio]) / 2);
+
+  return { mediaMs: Math.round(soma / base), medianaMs, base, semStart, renovacoes };
+}
+
+export type ValorMaisComprado = { cents: number; vezes: number };
+
+/** Valor que MAIS SE REPETE nas vendas pagas. Complementa o ticket médio: a
+ *  média de R$ 19,90 com R$ 99,00 não é o preço de nada que alguém comprou. */
+export function valorMaisComprado(
+  sinceMs: number | null,
+  untilMs: number | null,
+  profileId?: string,
+): ValorMaisComprado | null {
+  const db = getDb();
+  const clauses: string[] = ["status = 'paid'"];
+  const params: (string | number)[] = [];
+  if (sinceMs !== null) {
+    clauses.push("created_at >= ?");
+    params.push(sinceMs);
+  }
+  if (untilMs !== null) {
+    clauses.push("created_at < ?");
+    params.push(untilMs);
+  }
+  if (profileId) {
+    clauses.push("profile_id = ?");
+    params.push(profileId);
+  }
+  const row = db
+    .prepare(
+      `SELECT amount_cents cents, COUNT(*) vezes
+         FROM transactions
+        WHERE ${clauses.join(" AND ")}
+        GROUP BY amount_cents
+        ORDER BY vezes DESC, cents DESC
+        LIMIT 1`,
+    )
+    .get(...params) as { cents: number; vezes: number } | undefined;
+  return row ?? null;
+}
+
+export type JanelaComparativa = FunilMetricas & {
+  tempo: TempoAteCompra;
+  valorMaisComprado: ValorMaisComprado | null;
+};
+
+export type Comparativo = {
+  hoje: JanelaComparativa;
+  mes: JanelaComparativa;
+  total: JanelaComparativa;
+};
+
+/**
+ * A MESMA métrica em três janelas — hoje, este mês e desde sempre.
+ *
+ * É o que deixa a tendência visível sem obrigar a trocar o período: 11% hoje
+ * só quer dizer alguma coisa ao lado dos 6% de sempre. Reaproveita `metricas`
+ * e o `resolvePeriod`, que já resolvem "hoje" e "este mês" no fuso da operação
+ * (o servidor roda em UTC — sem isso "hoje" começaria às 21h de ontem).
+ */
+export function metricasComparadas(tz: string, profileId?: string): Comparativo {
+  const janela = (chave: "today" | "thisMonth" | null): JanelaComparativa => {
+    const { since, until } = chave
+      ? resolvePeriod(chave, null, null, tz).range
+      : { since: null, until: null };
+    return {
+      ...funnelMetrics(since, until, profileId),
+      tempo: tempoAteCompra(since, until, profileId),
+      valorMaisComprado: valorMaisComprado(since, until, profileId),
+    };
+  };
+  return { hoje: janela("today"), mes: janela("thisMonth"), total: janela(null) };
 }

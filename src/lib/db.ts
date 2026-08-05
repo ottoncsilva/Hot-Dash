@@ -232,6 +232,12 @@ function migrate(d: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_group_events_dia ON telegram_group_events(profile_id, day);
 
+    -- Índices do funil. O primeiro é o que faz a junção venda → inscrição do
+    -- "tempo até a compra" ser um seek em vez de varredura (e também acelera o
+    -- topPlans, que já varria telegram_subscriptions).
+    CREATE INDEX IF NOT EXISTS idx_tg_subs_tx ON telegram_subscriptions(transaction_id);
+    CREATE INDEX IF NOT EXISTS idx_tx_status_created ON transactions(status, created_at);
+
     CREATE TABLE IF NOT EXISTS push_subscriptions (
       id                TEXT PRIMARY KEY,
       subscription_json TEXT NOT NULL,

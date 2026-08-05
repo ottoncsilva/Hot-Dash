@@ -23,6 +23,8 @@ export async function PATCH(req: NextRequest) {
         typeof body.adSpendCents === "number" ? body.adSpendCents : undefined,
       taxRatePercent:
         typeof body.taxRatePercent === "number" ? body.taxRatePercent : undefined,
+      monthlyGoalCents:
+        typeof body.monthlyGoalCents === "number" ? body.monthlyGoalCents : undefined,
     });
     return NextResponse.json({ finance });
   } catch (err) {

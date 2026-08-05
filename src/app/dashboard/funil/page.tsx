@@ -7,6 +7,21 @@ import type { Profile } from "@/lib/types";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import { DEFAULT_PERIOD } from "@/lib/periods";
 
+/** Um dia da série de crescimento dos grupos. Espelha o que a rota devolve —
+ *  declarado aqui porque o módulo que a produz é `server-only`. */
+type GroupGrowthPoint = {
+  day: string;
+  /** Total de membros no fim do dia. Null = sem medição naquele dia. */
+  vip: number | null;
+  previas: number | null;
+  /** Entradas e saídas contadas pelos eventos do bot. Null = não medido
+   *  naquele dia (diferente de zero, que é "medido e ninguém se mexeu"). */
+  vipJoined: number | null;
+  vipLeft: number | null;
+  previasJoined: number | null;
+  previasLeft: number | null;
+};
+
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -41,9 +56,7 @@ export default function FunilPage() {
   const [profileId, setProfileId] = useState("");
   // Crescimento dos grupos: vem de consulta à API do Telegram, não das vendas
   // — por isso tem rota própria e não depende do período escolhido.
-  const [grupos, setGrupos] = useState<
-    { day: string; vip: number | null; previas: number | null; vipDelta: number | null; previasDelta: number | null }[] | null
-  >(null);
+  const [grupos, setGrupos] = useState<GroupGrowthPoint[] | null>(null);
 
   useEffect(() => {
     const qs = new URLSearchParams({ days: "14" });
@@ -228,9 +241,10 @@ export default function FunilPage() {
       <p className="eyebrow mt-8">crescimento dos grupos</p>
       <div className="mt-3 card p-4">
         <p className="text-xs text-zinc-500">
-          Variação do número de membros por dia — entradas menos saídas. Medido por consulta
-          ao Telegram, então funciona mesmo sem o Hot-Dash operar o bot. Quando ele assumir a
-          operação, dá para separar quem entrou de quem saiu.
+          As <b>barras</b> são o total de membros de cada dia, medido por consulta ao Telegram
+          (funciona mesmo sem o Hot-Dash operar o bot). As <b>linhas</b> são quantos entraram e
+          quantos saíram, contados pelos eventos do bot — só existem nos dias em que o Hot-Dash
+          estava operando. Toque num dia para ver os números dele.
         </p>
         <CrescimentoGrupos series={grupos} />
       </div>
@@ -282,7 +296,6 @@ export default function FunilPage() {
           </tbody>
         </table>
       </div>
-      <GeradorDeLink profiles={profiles} profileId={profileId} />
 
       {/* Planos */}
       <p className="eyebrow mt-8">planos que mais convertem</p>
@@ -316,78 +329,6 @@ export default function FunilPage() {
   );
 }
 
-/**
- * Monta o link de divulgação. O código vai no deep-link do Telegram
- * (t.me/<bot>?start=CODIGO) e é o que aparece na tabela de fontes acima —
- * um link por canal (bio do Insta, story, grupo…) mostra qual traz dinheiro.
- */
-function GeradorDeLink({
-  profiles,
-  profileId,
-}: {
-  profiles: Profile[];
-  profileId: string;
-}) {
-  const [codigo, setCodigo] = useState("");
-  const [username, setUsername] = useState<string | null>(null);
-  const [copiado, setCopiado] = useState(false);
-
-  // O @username sai da configuração do bot do modelo escolhido.
-  const alvo = profileId || profiles[0]?.id || "";
-  useEffect(() => {
-    if (!alvo) return;
-    setUsername(null);
-    apiGet<{ bot?: { botUsername?: string } | null }>(`/api/telegram?profileId=${alvo}`)
-      .then((d) => setUsername(d.bot?.botUsername || null))
-      .catch(() => setUsername(null));
-  }, [alvo]);
-  const limpo = codigo.trim().replace(/[^\w-]/g, "").slice(0, 40);
-  const link = username ? `https://t.me/${username}?start=${limpo || "CODIGO"}` : "";
-
-  return (
-    <div className="mt-3 card p-4">
-      <p className="eyebrow">gerar link de divulgação</p>
-      <p className="mt-1 text-xs text-zinc-500">
-        Um código por canal (bio, story, grupo, anúncio). Quem entrar por ele fica marcado, e a
-        venda aparece na linha do código aqui em cima.
-      </p>
-      {!username ? (
-        <p className="mt-3 text-xs text-amber-400/80">
-          {profiles.length === 0
-            ? "Cadastre um modelo primeiro."
-            : "O bot deste modelo ainda não tem @username salvo — preencha em Telegram → Bot de vendas."}
-        </p>
-      ) : (
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">código</span>
-            <input
-              className="input w-auto py-1.5 text-xs"
-              placeholder="ex.: bio-insta"
-              value={codigo}
-              onChange={(e) => setCodigo(e.target.value)}
-            />
-          </label>
-          <span className="min-w-0 flex-1 truncate rounded-lg border border-white/10 bg-black/20 px-3 py-2 font-mono text-[11px] text-zinc-400">
-            {link}
-          </span>
-          <button
-            type="button"
-            disabled={!limpo}
-            onClick={async () => {
-              await navigator.clipboard.writeText(link);
-              setCopiado(true);
-              setTimeout(() => setCopiado(false), 1500);
-            }}
-            className="btn-ghost py-2 text-xs disabled:opacity-40"
-          >
-            {copiado ? "Copiado ✓" : "Copiar"}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function Etapa({
   titulo,
@@ -421,70 +362,203 @@ function Etapa({
 }
 
 /** Barras de variação diária: verde cresceu, vermelho encolheu. */
-function CrescimentoGrupos({
-  series,
-}: {
-  series:
-    | { day: string; vip: number | null; previas: number | null; vipDelta: number | null; previasDelta: number | null }[]
-    | null;
-}) {
+function CrescimentoGrupos({ series }: { series: GroupGrowthPoint[] | null }) {
   if (series === null) {
-    return <div className="mt-4 h-24 animate-pulse rounded-lg bg-white/5" />;
+    return <div className="mt-4 h-40 animate-pulse rounded-lg bg-white/5" />;
   }
-  const comDelta = series.filter((d) => d.vipDelta !== null || d.previasDelta !== null);
-  if (comDelta.length === 0) {
+  if (series.length === 0) {
     return (
       <p className="mt-4 text-xs text-zinc-600">
-        Ainda sem histórico. O primeiro dia serve de base — a variação aparece a partir do
-        segundo dia de medição.
+        Ainda sem histórico. A medição do tamanho dos grupos começa no primeiro dia.
       </p>
     );
   }
-  // Escala comum aos dois grupos para as barras serem comparáveis entre si.
-  const maior = Math.max(
-    1,
-    ...comDelta.map((d) => Math.max(Math.abs(d.vipDelta || 0), Math.abs(d.previasDelta || 0))),
-  );
-  const barra = (delta: number | null, cor: string) => {
-    if (delta === null) return <div className="h-6 flex-1" />;
-    const altura = Math.max(2, (Math.abs(delta) / maior) * 24);
-    return (
-      <div className="flex h-6 flex-1 items-end justify-center" title={`${delta > 0 ? "+" : ""}${delta}`}>
-        <div
-          className={`w-full rounded-sm ${delta < 0 ? "bg-rose-500/70" : cor}`}
-          style={{ height: `${altura}px` }}
-        />
-      </div>
-    );
-  };
   return (
-    <div className="mt-4 space-y-3">
-      {(
-        [
-          { rotulo: "VIP", campo: "vipDelta" as const, cor: "bg-emerald-500/80" },
-          { rotulo: "Prévias", campo: "previasDelta" as const, cor: "bg-sky-500/80" },
-        ]
-      ).map((g) => {
-        const total = comDelta.reduce((n, d) => n + (d[g.campo] || 0), 0);
-        return (
-          <div key={g.rotulo}>
-            <div className="flex items-baseline justify-between text-xs">
-              <span className="text-zinc-300">{g.rotulo}</span>
-              <span className={total < 0 ? "text-rose-400" : "text-emerald-400"}>
-                {total > 0 ? "+" : ""}
-                {total} no período
-              </span>
-            </div>
-            <div className="mt-1 flex gap-1">{comDelta.map((d, i) => (
-              <div key={i} className="flex-1">{barra(d[g.campo], g.cor)}</div>
-            ))}</div>
-          </div>
-        );
-      })}
-      <div className="flex gap-1 text-center text-[9px] text-zinc-600">
-        {comDelta.map((d, i) => (
-          <span key={i} className="flex-1 truncate">{d.day.slice(8)}/{d.day.slice(5, 7)}</span>
+    <div className="mt-4 space-y-6">
+      <GrupoChart
+        rotulo="VIP"
+        cor="#34d399"
+        series={series}
+        total={(d) => d.vip}
+        entraram={(d) => d.vipJoined}
+        sairam={(d) => d.vipLeft}
+      />
+      <GrupoChart
+        rotulo="Prévias"
+        cor="#38bdf8"
+        series={series}
+        total={(d) => d.previas}
+        entraram={(d) => d.previasJoined}
+        sairam={(d) => d.previasLeft}
+      />
+    </div>
+  );
+}
+
+/**
+ * Um grupo: barras com o TOTAL de membros de cada dia e duas linhas por cima
+ * com quantos entraram e quantos saíram. Clicar num dia fixa os números dele.
+ *
+ * As duas escalas são independentes de propósito — o total anda na casa dos
+ * milhares e o movimento diário nas dezenas; numa escala só as linhas ficariam
+ * coladas no chão e não dariam para ler.
+ */
+function GrupoChart({
+  rotulo,
+  cor,
+  series,
+  total,
+  entraram,
+  sairam,
+}: {
+  rotulo: string;
+  cor: string;
+  series: GroupGrowthPoint[];
+  total: (d: GroupGrowthPoint) => number | null;
+  entraram: (d: GroupGrowthPoint) => number | null;
+  sairam: (d: GroupGrowthPoint) => number | null;
+}) {
+  const [selecionado, setSelecionado] = useState<number | null>(null);
+
+  const W = 100; // viewBox em unidades relativas; o SVG estica na largura do card
+  const H = 46;
+  const n = series.length;
+  const passo = W / n;
+  const maxTotal = Math.max(1, ...series.map((d) => total(d) ?? 0));
+  const maxMov = Math.max(1, ...series.map((d) => Math.max(entraram(d) ?? 0, sairam(d) ?? 0)));
+
+  const xCentro = (i: number) => passo * (i + 0.5);
+  const yBarra = (v: number) => H - (v / maxTotal) * H;
+  const yLinha = (v: number) => H - (v / maxMov) * (H * 0.75) - H * 0.06;
+
+  // A linha só liga dias MEDIDOS em sequência: dia sem registro (null) vira
+  // buraco no traço, e não um ponto no zero — senão o gráfico afirmaria que
+  // ninguém entrou num dia em que, na verdade, ninguém contou.
+  const caminho = (valor: (d: GroupGrowthPoint) => number | null) => {
+    let d = "";
+    let desenhando = false;
+    series.forEach((ponto, i) => {
+      const v = valor(ponto);
+      if (v === null) {
+        desenhando = false;
+        return;
+      }
+      d += `${desenhando ? "L" : "M"} ${xCentro(i).toFixed(2)} ${yLinha(v).toFixed(2)} `;
+      desenhando = true;
+    });
+    return d.trim();
+  };
+
+  const dia = selecionado !== null ? series[selecionado] : series[n - 1];
+  const somaEntraram = series.reduce((s, d) => s + (entraram(d) ?? 0), 0);
+  const somaSairam = series.reduce((s, d) => s + (sairam(d) ?? 0), 0);
+  const semMovimento = series.every((d) => entraram(d) === null && sairam(d) === null);
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <span className="text-xs font-semibold text-zinc-200">{rotulo}</span>
+        <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+          <span className="text-emerald-400">+{somaEntraram}</span>
+          {" · "}
+          <span className="text-rose-400">-{somaSairam}</span>
+          {" no período"}
+        </span>
+      </div>
+
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        className="mt-2 h-36 w-full touch-manipulation"
+        role="img"
+        aria-label={`Crescimento do grupo ${rotulo}`}
+      >
+        {series.map((d, i) => {
+          const v = total(d);
+          const ativo = selecionado === i;
+          return (
+            <g key={d.day}>
+              {v !== null && (
+                <rect
+                  x={passo * i + passo * 0.15}
+                  y={yBarra(v)}
+                  width={passo * 0.7}
+                  height={Math.max(0.4, H - yBarra(v))}
+                  fill={cor}
+                  opacity={ativo ? 0.55 : 0.2}
+                />
+              )}
+              {/* Faixa invisível de toque: cobre a coluna inteira, para o dedo
+                  acertar o dia sem precisar mirar na barra. */}
+              <rect
+                x={passo * i}
+                y={0}
+                width={passo}
+                height={H}
+                fill="transparent"
+                className="cursor-pointer"
+                onClick={() => setSelecionado(ativo ? null : i)}
+              />
+            </g>
+          );
+        })}
+
+        {!semMovimento && (
+          <>
+            <path d={caminho(entraram)} fill="none" stroke="#34d399" strokeWidth={0.7} vectorEffect="non-scaling-stroke" />
+            <path d={caminho(sairam)} fill="none" stroke="#fb7185" strokeWidth={0.7} vectorEffect="non-scaling-stroke" />
+          </>
+        )}
+
+        {selecionado !== null && (
+          <line
+            x1={xCentro(selecionado)}
+            x2={xCentro(selecionado)}
+            y1={0}
+            y2={H}
+            stroke="#ffffff"
+            strokeWidth={0.5}
+            opacity={0.35}
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
+      </svg>
+
+      <div className="mt-1 flex gap-1 text-center text-[9px] text-zinc-600">
+        {series.map((d, i) => (
+          <button
+            key={d.day}
+            type="button"
+            onClick={() => setSelecionado(selecionado === i ? null : i)}
+            className={`min-w-0 flex-1 truncate transition-colors ${
+              selecionado === i ? "font-bold text-white" : "hover:text-zinc-300"
+            }`}
+          >
+            {d.day.slice(8)}/{d.day.slice(5, 7)}
+          </button>
         ))}
+      </div>
+
+      {/* Números do dia: o clicado, ou o último quando nada está selecionado. */}
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-white/[0.03] px-3 py-2 text-[11px]">
+        <span className="font-mono uppercase tracking-wider text-zinc-500">
+          {selecionado === null ? "último dia" : "dia"} {dia.day.slice(8)}/{dia.day.slice(5, 7)}
+        </span>
+        <span className="text-zinc-300">
+          total <b className="text-white">{total(dia) ?? "—"}</b>
+        </span>
+        {/* "—" quando o dia não foi medido: não é zero, é sem registro. */}
+        <span className="text-emerald-400">entraram <b>{entraram(dia) ?? "—"}</b></span>
+        <span className="text-rose-400">saíram <b>{sairam(dia) ?? "—"}</b></span>
+        {selecionado !== null && (
+          <button
+            type="button"
+            onClick={() => setSelecionado(null)}
+            className="ml-auto text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
+          >
+            limpar
+          </button>
+        )}
       </div>
     </div>
   );

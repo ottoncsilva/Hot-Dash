@@ -143,10 +143,68 @@ function upsert(
  * não existe método para listar membros. Quando o Hot-Dash assumir a operação,
  * a mesma tela pode passar a separar entradas de saídas.
  */
-export function groupGrowthSeries(
-  dias = 14,
-  profileId?: string,
-): { day: string; vip: number | null; previas: number | null; vipDelta: number | null; previasDelta: number | null }[] {
+/** Dia corrente no fuso da operação, no mesmo formato usado pelo histórico. */
+function diaAtual(): string {
+  const p = partsInTimeZone(Date.now(), getAppTimeZone());
+  return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
+
+/**
+ * Conta UMA entrada ou saída de grupo no dia de hoje.
+ *
+ * Quem chama é o webhook, e só quando a pessoa REALMENTE mudou de estado — o
+ * mesmo evento pode chegar duas vezes (mensagem de serviço + chat_member), e
+ * contar os dois inflaria o gráfico. Nunca lança: um erro aqui não pode
+ * derrubar o processamento do update.
+ */
+export function recordGroupMembershipChange(
+  botId: string,
+  profileId: string,
+  kind: "vip" | "previas",
+  entrou: boolean,
+): void {
+  try {
+    const dia = diaAtual();
+    const coluna = entrou ? "joined" : "left_count";
+    getDb()
+      .prepare(
+        `INSERT INTO telegram_group_events (id, bot_id, profile_id, kind, day, joined, left_count, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           ${coluna} = telegram_group_events.${coluna} + 1,
+           updated_at = excluded.updated_at`,
+      )
+      .run(
+        `${botId}:${kind}:${dia}`,
+        botId,
+        profileId,
+        kind,
+        dia,
+        entrou ? 1 : 0,
+        entrou ? 0 : 1,
+        Date.now(),
+      );
+  } catch (err) {
+    console.error("Erro ao contar entrada/saída de grupo:", err);
+  }
+}
+
+export type GroupGrowthPoint = {
+  day: string;
+  /** Total de membros no fim do dia (consulta periódica). */
+  vip: number | null;
+  previas: number | null;
+  /** Entradas e saídas do dia (eventos do webhook). `null` = não medido (o
+   *  Hot-Dash não estava operando o bot naquele dia); `0` = medido e ninguém
+   *  entrou/saiu. Os dois são coisas diferentes e o gráfico os desenha
+   *  diferente — zero vira ponto na linha, null vira buraco. */
+  vipJoined: number | null;
+  vipLeft: number | null;
+  previasJoined: number | null;
+  previasLeft: number | null;
+};
+
+export function groupGrowthSeries(dias = 14, profileId?: string): GroupGrowthPoint[] {
   const filtro = profileId ? " AND profile_id = ?" : "";
   const params = profileId ? [profileId] : [];
   const rows = getDb()
@@ -158,6 +216,15 @@ export function groupGrowthSeries(
     )
     .all(...params) as { day: string; kind: string; total: number }[];
 
+  const eventos = getDb()
+    .prepare(
+      `SELECT day, kind, SUM(joined) AS joined, SUM(left_count) AS left_count
+         FROM telegram_group_events
+        WHERE 1 = 1${filtro}
+        GROUP BY day, kind`,
+    )
+    .all(...params) as { day: string; kind: string; joined: number; left_count: number }[];
+
   const porDia = new Map<string, { vip: number | null; previas: number | null }>();
   for (const r of rows) {
     const cur = porDia.get(r.day) || { vip: null, previas: null };
@@ -165,20 +232,26 @@ export function groupGrowthSeries(
     else cur.previas = r.total;
     porDia.set(r.day, cur);
   }
+  // Um dia pode ter evento sem consulta (ou o contrário): a série é a UNIÃO
+  // dos dois, senão uma entrada registrada sumiria do gráfico.
+  for (const e of eventos) {
+    if (!porDia.has(e.day)) porDia.set(e.day, { vip: null, previas: null });
+  }
+
+  const chave = (day: string, kind: string) => `${day}|${kind}`;
+  const porEvento = new Map(eventos.map((e) => [chave(e.day, e.kind), e]));
 
   const ordenados = [...porDia.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  const recorte = ordenados.slice(-dias);
-  return recorte.map(([day, v], i) => {
-    // O delta do primeiro ponto do RECORTE usa o dia anterior da série
-    // completa quando ele existe — senão o gráfico começaria sempre com zero.
-    const anteriorIdx = ordenados.length - recorte.length + i - 1;
-    const ant = anteriorIdx >= 0 ? ordenados[anteriorIdx][1] : null;
+  return ordenados.slice(-dias).map(([day, v]) => {
+    const ev = (kind: string) => porEvento.get(chave(day, kind));
     return {
       day,
       vip: v.vip,
       previas: v.previas,
-      vipDelta: ant && ant.vip !== null && v.vip !== null ? v.vip - ant.vip : null,
-      previasDelta: ant && ant.previas !== null && v.previas !== null ? v.previas - ant.previas : null,
+      vipJoined: ev("vip")?.joined ?? null,
+      vipLeft: ev("vip")?.left_count ?? null,
+      previasJoined: ev("previas")?.joined ?? null,
+      previasLeft: ev("previas")?.left_count ?? null,
     };
   });
 }

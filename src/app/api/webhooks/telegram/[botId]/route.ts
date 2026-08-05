@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBotConfig, listPlans, listCustomButtons, saveSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead } from "@/lib/telegramDb";
-import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup } from "@/lib/telegramUsers";
+import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser } from "@/lib/telegramUsers";
+import { recordGroupMembershipChange } from "@/lib/telegramMonitor";
 import { getMailingOffer } from "@/lib/telegramMailing";
 import { sendTelegramMessage, sendTelegramMedia, sendTelegramPhotoBuffer, approveTelegramJoinRequest, declineTelegramJoinRequest, telegramWebhookSecret } from "@/lib/telegramApi";
 import QRCode from "qrcode";
@@ -13,6 +14,29 @@ import { randomUUID } from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * Contabiliza a entrada/saída de um grupo para o gráfico de crescimento.
+ *
+ * Conta a TRANSIÇÃO, não o evento: o Telegram manda a mesma entrada por dois
+ * caminhos (a mensagem de serviço `new_chat_members` e o update `chat_member`),
+ * e contar os dois dobraria o número. Comparando com o estado que já está
+ * guardado, o segundo aviso não muda nada e por isso não conta de novo.
+ *
+ * Precisa rodar ANTES do upsert que grava o novo estado — depois dele os dois
+ * valores já seriam iguais e nenhuma transição seria detectada.
+ */
+function registraMudancaDeGrupo(
+  bot: { id: string; profileId: string },
+  telegramUserId: number,
+  kind: "vip" | "previas",
+  entrou: boolean,
+): void {
+  const atual = getTelegramUser(`${bot.id}_${telegramUserId}`);
+  const estavaDentro = kind === "vip" ? atual?.inVip === true : atual?.inPrevias === true;
+  if (estavaDentro === entrou) return; // nada mudou: aviso repetido
+  recordGroupMembershipChange(bot.id, bot.profileId, kind, entrou);
+}
 
 export async function POST(
   req: NextRequest,
@@ -76,6 +100,7 @@ export async function POST(
       if (joinedGroup && Array.isArray(update.message.new_chat_members)) {
         for (const member of update.message.new_chat_members) {
           if (member?.is_bot) continue;
+          registraMudancaDeGrupo(bot, member.id, joinedGroup, true);
           upsertTelegramUser({
             botId: bot.id,
             profileId: bot.profileId,
@@ -90,6 +115,7 @@ export async function POST(
         }
       }
       if (joinedGroup && update.message.left_chat_member && !update.message.left_chat_member.is_bot) {
+        registraMudancaDeGrupo(bot, update.message.left_chat_member.id, joinedGroup, false);
         setTelegramUserGroup(bot.id, update.message.left_chat_member.id, joinedGroup, false);
       }
 
@@ -406,6 +432,7 @@ export async function POST(
       const user = member?.user;
       if (group && user && !user.is_bot) {
         const isMember = ["member", "administrator", "creator", "restricted"].includes(member.status);
+        registraMudancaDeGrupo(bot, user.id, group, isMember);
         upsertTelegramUser({
           botId: bot.id,
           profileId: bot.profileId,

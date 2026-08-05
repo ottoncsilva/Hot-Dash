@@ -250,9 +250,10 @@ export default function PaymentsPage() {
         </div>
       </div>
 
-      {/* Tabela: cada informação numa coluna própria. Os dois horários
-          (geração do Pix e pagamento) ficam com data sobre hora, e o desconto
-          aparece separado em Taxa e Split — como no painel da SyncPay. */}
+      {/* Tabela. "Pago" e "gerado" dividem uma coluna só (pago em cima), o que
+          devolveu uma coluna inteira de largura — daí o min-w cair de 900 para
+          780px e a tabela rolar menos no celular. O desconto continua separado
+          em Taxa e Split, como no painel da SyncPay. */}
       <div className="mt-3 card overflow-x-auto">
         {!data ? (
           <div className="h-32 animate-pulse" />
@@ -264,13 +265,15 @@ export default function PaymentsPage() {
             <p className="text-sm text-zinc-500">Nenhum PIX encontrado.</p>
           </div>
         ) : (
-          <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+          <table className="w-full min-w-[780px] border-collapse text-left text-sm">
             <thead>
               <tr className="border-b border-white/[0.06] bg-white/[0.02] font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                 <th className="p-3">Nome</th>
-                <th className="p-3 w-32">Gerado</th>
+                {/* Pago e gerado dividem uma coluna só: são a mesma informação
+                    (quando), e separadas gastavam largura numa tabela que já
+                    rola na horizontal. Pago em cima, gerado embaixo. */}
+                <th className="w-36 whitespace-nowrap p-3">Pago / gerado</th>
                 <th className="p-3 w-24 text-center">Status</th>
-                <th className="p-3 w-32">Pago</th>
                 <th className="p-3 w-28 text-right">Venda</th>
                 <th className="p-3 w-24 text-right">Taxa</th>
                 <th className="p-3 w-24 text-right">Split</th>
@@ -333,8 +336,23 @@ export default function PaymentsPage() {
                         </div>
                       </div>
                     </td>
+                    {/* Pago em cima, gerado embaixo. Uma linha cada (em vez do
+                        par data/hora empilhado de antes), senão a célula viraria
+                        quatro linhas de altura. */}
                     <td className="p-3">
-                      <DataHora ms={t.createdAt} tz={tz} />
+                      {/* nowrap: sem isso a data e a hora quebram em duas
+                          linhas cada e a célula vira quatro linhas de altura —
+                          justo o que a fusão das colunas veio evitar. */}
+                      {t.paidAt ? (
+                        <p className="whitespace-nowrap font-mono text-[11px] text-emerald-400">
+                          {dataHoraCurta(t.paidAt, tz)}
+                        </p>
+                      ) : (
+                        <p className="font-mono text-[11px] text-zinc-700">—</p>
+                      )}
+                      <p className="whitespace-nowrap font-mono text-[10px] text-zinc-600">
+                        {dataHoraCurta(t.createdAt, tz)}
+                      </p>
                     </td>
                     <td className="p-3 text-center">
                       <span
@@ -348,13 +366,6 @@ export default function PaymentsPage() {
                       >
                         {STATUS_LABEL[t.status] || t.status}
                       </span>
-                    </td>
-                    <td className="p-3">
-                      {t.paidAt ? (
-                        <DataHora ms={t.paidAt} tz={tz} accent />
-                      ) : (
-                        <span className="font-mono text-[11px] text-zinc-700">—</span>
-                      )}
                     </td>
                     <td className={`p-3 text-right font-display font-semibold ${pago ? "text-white" : "text-zinc-500"}`}>
                       {brl(t.amountCents)}
@@ -547,8 +558,9 @@ function EditarCobranca({
   );
 }
 
-/** Data em cima, hora embaixo — no fuso da operação. */
-function DataHora({ ms, tz, accent }: { ms: number; tz: string; accent?: boolean }) {
+/** "04/08/26 19:18" no fuso da operação — data e hora na MESMA linha, para as
+ *  duas datas caberem empilhadas numa célula só. */
+function dataHoraCurta(ms: number, tz: string): string {
   const d = new Date(ms);
   const data = d.toLocaleDateString("pt-BR", {
     day: "2-digit", month: "2-digit", year: "2-digit", timeZone: tz,
@@ -556,12 +568,7 @@ function DataHora({ ms, tz, accent }: { ms: number; tz: string; accent?: boolean
   const hora = d.toLocaleTimeString("pt-BR", {
     hour: "2-digit", minute: "2-digit", timeZone: tz,
   });
-  return (
-    <div className="font-mono text-[11px] leading-tight">
-      <p className={accent ? "text-emerald-400/90" : "text-zinc-300"}>{data}</p>
-      <p className="text-zinc-600">{hora}</p>
-    </div>
-  );
+  return `${data} ${hora}`;
 }
 
 function SummaryChip({ label, value, accent }: { label: string; value: string | null; accent?: boolean }) {

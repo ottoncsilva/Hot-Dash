@@ -215,6 +215,23 @@ function migrate(d: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_group_history_dia ON telegram_group_history(profile_id, day);
 
+    -- Entradas e saídas dos grupos, contadas por dia. Separado do histórico
+    -- acima porque a fonte é outra: aquele é uma CONSULTA periódica que só
+    -- enxerga o total de membros (o saldo do dia, nunca o bruto), este é
+    -- alimentado pelos eventos do webhook, que sabem quem entrou e quem saiu.
+    CREATE TABLE IF NOT EXISTS telegram_group_events (
+      id         TEXT PRIMARY KEY,   -- bot_id + ":" + kind + ":" + dia
+      bot_id     TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      kind       TEXT NOT NULL,
+      day        TEXT NOT NULL,      -- AAAA-MM-DD no fuso da operação
+      joined     INTEGER NOT NULL DEFAULT 0,
+      left_count INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_group_events_dia ON telegram_group_events(profile_id, day);
+
     CREATE TABLE IF NOT EXISTS push_subscriptions (
       id                TEXT PRIMARY KEY,
       subscription_json TEXT NOT NULL,

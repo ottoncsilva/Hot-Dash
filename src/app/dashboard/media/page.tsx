@@ -562,7 +562,7 @@ export default function MediaPage() {
     >
       {dragging && (
         <div className="pointer-events-none fixed inset-0 z-[80] grid place-items-center bg-ink-950/70 backdrop-blur-sm">
-          <div className="rounded-2xl border-2 border-dashed border-white/40 bg-ink-900/60 px-10 py-8 text-center">
+          <div className="rounded-2xl border-2 border-dashed border-white/40 bg-ink-850/60 px-10 py-8 text-center">
             <div className="mx-auto grid h-11 w-11 place-items-center rounded-lg border border-white/15 text-zinc-200">
               <IconUpload size={22} />
             </div>
@@ -799,7 +799,7 @@ export default function MediaPage() {
           {uploads.map((u, i) => (
             <div
               key={i}
-              className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-xs"
+              className="flex items-center gap-3 card rounded-lg px-3 py-2 text-xs"
             >
               <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
               <span className="flex-1 truncate text-zinc-300">{u.name}</span>
@@ -813,7 +813,7 @@ export default function MediaPage() {
 
       {/* Barra de seleção */}
       {selecting && (
-        <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-white/15 bg-white/[0.04] px-4 py-3">
+        <div className="mt-5 flex flex-wrap items-center gap-3 card px-4 py-3">
           <span className="font-mono text-xs text-zinc-300">
             {selected.size} selecionada{selected.size > 1 ? "s" : ""}
           </span>

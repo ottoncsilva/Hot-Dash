@@ -280,7 +280,7 @@ export default function PaymentSettingsPage() {
         />
 
         {/* Webhook de recebimento — alimenta o Financeiro e o Dashboard */}
-        <div className="mt-4 rounded-lg border border-white/10 bg-ink-900 p-3">
+        <div className="mt-4 panel p-3">
           <p className="eyebrow">webhook de recebimento</p>
           <p className="mt-1.5 text-xs text-zinc-500">
             Cole esta URL na SyncPay em <b>Developer → API → Webhooks</b> (campo

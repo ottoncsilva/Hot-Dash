@@ -145,7 +145,7 @@ export default function DashboardHome() {
       )}
 
       {providers !== null && !anyProvider && (
-        <div className="mt-5 flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] p-4">
+        <div className="mt-5 flex items-center justify-between card p-4">
           <p className="text-sm text-zinc-400">Nenhum provedor conectado ainda.</p>
           <Link href="/dashboard/settings/pagamentos" className="btn-ghost text-xs">
             <IconSettings size={14} /> Configurar
@@ -235,7 +235,7 @@ function SetupChecklist({
   if (doneCount === steps.length) return null;
 
   return (
-    <div className="mt-5 rounded-xl border border-white/15 bg-white/[0.03] p-4">
+    <div className="mt-5 card p-4">
       <div className="flex items-center justify-between">
         <p className="font-display text-base font-semibold text-white">Primeiros passos</p>
         <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
@@ -697,7 +697,7 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
         const dx = active === 0 ? "0" : active === series.length - 1 ? "-100%" : "-50%";
         return (
         <div
-          className="pointer-events-none absolute z-10 whitespace-nowrap rounded-lg border border-emerald-500/30 bg-ink-900/95 px-2.5 py-1.5 text-center shadow-xl backdrop-blur-sm"
+          className="pointer-events-none absolute z-10 whitespace-nowrap rounded-lg border border-emerald-500/30 bg-ink-800/95 px-2.5 py-1.5 text-center shadow-xl backdrop-blur-sm"
           style={{
             left: `${((PAD + active * stepX) / W) * 100}%`,
             top: `${(points[active].y / H) * 100}%`,

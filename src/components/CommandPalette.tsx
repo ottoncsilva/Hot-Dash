@@ -129,7 +129,7 @@ export default function CommandPalette() {
         role="dialog"
         aria-modal="true"
         aria-label="Paleta de comandos"
-        className="card w-full max-w-lg overflow-hidden bg-ink-900"
+        className="card w-full max-w-lg overflow-hidden bg-ink-850"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-white/10 px-4">

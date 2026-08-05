@@ -748,7 +748,7 @@ function ListView({
               <div
                 key={p.id}
                 onClick={() => onDetail(p)}
-                className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-white/[0.02]"
+                className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-white/[0.04]"
               >
                 <button
                   onClick={(e) => {

@@ -239,7 +239,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
   if (!profileId) return null;
 
   return (
-    <div className="rounded-xl border border-white/[0.06] bg-zinc-900/30 p-3 shadow-xl sm:p-6">
+    <div className="card p-3 sm:p-6">
       <div className="mb-6 flex flex-col gap-4">
         {/* Barra superior estilo Schedule */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -371,7 +371,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                   <tr
                     key={post.id}
                     onClick={() => openPreview(post)}
-                    className={`hover:bg-white/[0.01] cursor-pointer transition-colors ${
+                    className={`hover:bg-white/[0.04] cursor-pointer transition-colors ${
                       isSelected ? "bg-sky-500/[0.02]" : ""
                     }`}
                   >

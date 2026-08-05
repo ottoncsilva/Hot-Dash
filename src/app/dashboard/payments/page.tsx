@@ -185,7 +185,7 @@ export default function PaymentsPage() {
       )}
 
       {!anyProvider && data && (
-        <div className="mt-5 flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] p-4">
+        <div className="mt-5 flex items-center justify-between card p-4">
           <p className="text-sm text-zinc-400">Nenhum provedor conectado ainda.</p>
           <Link href="/dashboard/settings/pagamentos" className="btn-ghost text-xs">
             <IconSettings size={14} /> Configurar
@@ -292,7 +292,7 @@ export default function PaymentsPage() {
                 const taxa = t.feeCents;
                 const split = t.splitCents;
                 return (
-                  <tr key={t.id} className="hover:bg-white/[0.01]">
+                  <tr key={t.id} className="hover:bg-white/[0.04]">
                     <td className="p-3">
                       <div className="flex items-center gap-2">
                         <PaidCheck paid={pago} />
@@ -573,7 +573,7 @@ function dataHoraCurta(ms: number, tz: string): string {
 
 function SummaryChip({ label, value, accent }: { label: string; value: string | null; accent?: boolean }) {
   return (
-    <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.02] px-4 py-2">
+    <div className="card flex items-center gap-2 rounded-full px-4 py-2">
       <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">{label}</span>
       <span className={`font-display text-sm font-semibold ${accent ? "text-emerald-400" : "text-white"}`}>
         {value ?? <span className="inline-block h-4 w-14 animate-pulse rounded bg-white/5" />}

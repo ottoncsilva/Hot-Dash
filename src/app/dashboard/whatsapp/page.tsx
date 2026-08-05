@@ -159,7 +159,7 @@ export default function WhatsAppVipPage() {
           <select 
             value={selectedProfileId} 
             onChange={(e) => setSelectedProfileId(e.target.value)} 
-            className="w-full md:w-auto min-w-[250px] rounded-lg border border-emerald-500/50 bg-ink-900 px-4 py-2.5 text-base font-semibold text-white shadow-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+            className="w-full md:w-auto min-w-[250px] rounded-lg border border-emerald-500/50 bg-ink-850 px-4 py-2.5 text-base font-semibold text-white shadow-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
           >
             {profiles.length === 0 && <option value="">Sem perfis...</option>}
             {profiles.map((p) => (
@@ -178,7 +178,7 @@ export default function WhatsAppVipPage() {
           
           {/* Coluna 1: Conexão */}
           <div className="flex flex-col gap-6">
-            <div className="rounded-xl border border-white/[0.06] bg-ink-900 p-5">
+            <div className="panel rounded-xl p-5">
               <div className="flex items-center gap-3 border-b border-white/[0.06] pb-4">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
                   <IconWhatsapp size={20} />
@@ -224,7 +224,7 @@ export default function WhatsAppVipPage() {
 
           {/* Coluna 2: Agente Grok */}
           <div className="flex flex-col gap-6">
-            <div className="rounded-xl border border-white/[0.06] bg-ink-900 p-5">
+            <div className="panel rounded-xl p-5">
               <div className="flex items-center gap-3 border-b border-white/[0.06] pb-4">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-800 text-zinc-300">
                   <IconSettings size={20} />
@@ -272,7 +272,7 @@ export default function WhatsAppVipPage() {
                   <select
                     value={agent.ai_provider}
                     onChange={(e) => setAgent({ ...agent, ai_provider: e.target.value })}
-                    className="w-full rounded-lg border border-emerald-500/50 bg-ink-900 px-4 py-2.5 text-base font-semibold text-white shadow-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full rounded-lg border border-emerald-500/50 bg-ink-850 px-4 py-2.5 text-base font-semibold text-white shadow-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
                     <option value="gemini">Gemini</option>
                     <option value="openai">OpenAI</option>
@@ -286,7 +286,7 @@ export default function WhatsAppVipPage() {
                     placeholder="ex: +5511999999999"
                     value={agent.pix_key}
                     onChange={(e) => setAgent({ ...agent, pix_key: e.target.value })}
-                    className="w-full rounded-lg border border-emerald-500/50 bg-ink-900 px-4 py-2.5 text-base font-semibold text-white shadow-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full rounded-lg border border-emerald-500/50 bg-ink-850 px-4 py-2.5 text-base font-semibold text-white shadow-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
 

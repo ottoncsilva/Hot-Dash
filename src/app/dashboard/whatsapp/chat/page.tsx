@@ -138,9 +138,9 @@ export default function LiveChatPage() {
   const selectedChat = chats.find(c => c.id === selectedChatId);
 
   return (
-    <div className="flex h-dvh flex-col bg-[#0F0F13] text-zinc-100 overflow-hidden font-sans">
+    <div className="flex h-dvh flex-col bg-ink-950 text-zinc-100 overflow-hidden font-sans">
       {/* Top Navigation Bar */}
-      <div className="flex items-center gap-4 border-b border-white/[0.04] bg-[#141418]/80 backdrop-blur-md px-6 py-4 shadow-sm z-10">
+      <div className="flex items-center gap-4 border-b border-white/[0.04] bg-ink-900/80 backdrop-blur-md px-6 py-4 shadow-sm z-10">
         <Link href="/dashboard/whatsapp" className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors">
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/[0.03] hover:bg-white/[0.08] transition-colors">
             <IconArrowLeft size={16} />
@@ -151,7 +151,7 @@ export default function LiveChatPage() {
 
       <div className="flex flex-1 overflow-hidden relative">
         {/* Sidebar - Chats List */}
-        <div className="w-80 flex-shrink-0 border-r border-white/[0.04] bg-[#111115] flex flex-col overflow-y-auto">
+        <div className="w-80 flex-shrink-0 border-r border-white/[0.04] bg-ink-900 flex flex-col overflow-y-auto">
           {chats.length === 0 ? (
             <div className="p-8 text-center text-sm text-zinc-500 mt-10">Nenhum chat ativo no momento.</div>
           ) : (
@@ -185,7 +185,7 @@ export default function LiveChatPage() {
         </div>
 
         {/* Chat Window */}
-        <div className="flex flex-1 flex-col bg-[#0B0B0E] relative">
+        <div className="flex flex-1 flex-col bg-ink-950 relative">
           {/* Subtle Background Pattern */}
           <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.02] pointer-events-none"></div>
           
@@ -199,7 +199,7 @@ export default function LiveChatPage() {
           ) : (
             <>
               {/* Active Chat Header */}
-              <div className="flex items-center justify-between border-b border-white/[0.04] bg-[#141418]/90 backdrop-blur-md px-6 py-4 shadow-sm z-10">
+              <div className="flex items-center justify-between border-b border-white/[0.04] bg-ink-900/90 backdrop-blur-md px-6 py-4 shadow-sm z-10">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-zinc-700 to-zinc-900 border border-white/[0.1] text-zinc-300">
                     <IconUser size={18} />
@@ -230,7 +230,7 @@ export default function LiveChatPage() {
                       <div className={`relative max-w-[75%] md:max-w-[65%] px-5 py-3.5 text-[15px] shadow-sm backdrop-blur-sm 
                         ${isAssistant 
                           ? 'bg-gradient-to-br from-emerald-600 to-emerald-700 text-white rounded-2xl rounded-tr-sm' 
-                          : 'bg-[#1C1C22] text-zinc-200 border border-white/[0.04] rounded-2xl rounded-tl-sm'
+                          : 'bg-ink-850 text-zinc-200 border border-white/[0.04] rounded-2xl rounded-tl-sm'
                         }`}
                       >
                         {msg.type === "imagem" && (
@@ -248,9 +248,9 @@ export default function LiveChatPage() {
               </div>
 
               {/* Input Area */}
-              <div className="bg-[#141418] border-t border-white/[0.04] p-4 z-10">
+              <div className="bg-ink-900 border-t border-white/[0.04] p-4 z-10">
                 <form onSubmit={sendMessage} className="relative page-narrow">
-                  <div className="flex items-center gap-3 rounded-full bg-[#0B0B0E] border border-white/[0.08] p-1.5 pl-4 focus-within:border-emerald-500/50 focus-within:bg-[#111115] transition-all shadow-inner">
+                  <div className="flex items-center gap-3 rounded-full bg-ink-950 border border-white/[0.08] p-1.5 pl-4 focus-within:border-emerald-500/50 focus-within:bg-ink-900 transition-all shadow-inner">
                     <button 
                       type="button" 
                       onClick={() => setShowMediaPicker(!showMediaPicker)}
@@ -278,7 +278,7 @@ export default function LiveChatPage() {
 
                   {/* Media Picker Popup */}
                   {showMediaPicker && (
-                    <div className="absolute bottom-full left-0 mb-4 w-[320px] rounded-2xl border border-white/[0.08] bg-[#141418]/95 backdrop-blur-xl shadow-2xl p-4 max-h-80 overflow-y-auto z-20 animate-in fade-in slide-in-from-bottom-4 duration-200">
+                    <div className="absolute bottom-full left-0 mb-4 w-[320px] rounded-2xl border border-white/[0.08] bg-ink-900/95 backdrop-blur-xl shadow-2xl p-4 max-h-80 overflow-y-auto z-20 animate-in fade-in slide-in-from-bottom-4 duration-200">
                       <div className="flex items-center justify-between mb-3">
                         <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Mídias do Perfil</span>
                         <button type="button" onClick={() => setShowMediaPicker(false)} className="text-zinc-500 hover:text-white"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
@@ -295,7 +295,7 @@ export default function LiveChatPage() {
                               key={m.id} 
                               type="button" 
                               onClick={() => sendMedia(m.id)}
-                              className="group aspect-square relative rounded-xl bg-[#0B0B0E] overflow-hidden border border-white/[0.04] hover:border-emerald-500 hover:shadow-[0_0_12px_rgba(16,185,129,0.3)] transition-all"
+                              className="group aspect-square relative rounded-xl bg-ink-950 overflow-hidden border border-white/[0.04] hover:border-emerald-500 hover:shadow-[0_0_12px_rgba(16,185,129,0.3)] transition-all"
                             >
                               {m.kind === 'image' ? (
                                 <>

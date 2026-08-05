@@ -472,7 +472,7 @@ function MailingForm({
                 className={`rounded-xl border p-3 text-center transition-colors ${
                   on
                     ? "border-emerald-500/60 bg-emerald-500/[0.08]"
-                    : "border-white/10 bg-ink-900 hover:bg-white/5"
+                    : "border-white/10 bg-ink-850 hover:bg-ink-800"
                 }`}
               >
                 <p className={`text-xs ${on ? "text-emerald-400" : "text-zinc-400"}`}>
@@ -524,7 +524,7 @@ function MailingForm({
             </p>
           ) : (
             offers.map((o, i) => (
-              <div key={i} className="rounded-lg border border-white/10 bg-ink-900 p-2.5">
+              <div key={i} className="panel p-2.5">
                 <div className="flex flex-wrap items-center gap-2">
                   <input
                     className="input min-w-[120px] flex-1"
@@ -588,7 +588,7 @@ function MailingForm({
         <p className="text-sm font-semibold text-white">Botões personalizados</p>
         <div className="mt-2 space-y-2">
           {buttons.map((b, i) => (
-            <div key={i} className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-ink-900 p-2">
+            <div key={i} className="flex flex-wrap items-center gap-2 panel p-2">
               <input
                 className="input min-w-[120px] flex-1"
                 placeholder="Texto do botão"
@@ -663,7 +663,7 @@ function MailingForm({
                 className={`rounded-xl border px-3 py-2.5 text-sm transition-colors ${
                   scheduleType === value
                     ? "border-emerald-500/60 bg-emerald-500/[0.08] text-emerald-400"
-                    : "border-white/10 bg-ink-900 text-zinc-300 hover:bg-white/5"
+                    : "border-white/10 bg-ink-850 text-zinc-300 hover:bg-ink-800"
                 }`}
               >
                 {label}
@@ -843,7 +843,7 @@ function MailingList({
                 ? Math.round(((m.sentCount + m.failedCount + m.blockedCount) / m.totalRecipients) * 100)
                 : 0;
             return (
-              <div key={m.id} className="rounded-lg border border-white/10 bg-ink-900 p-3">
+              <div key={m.id} className="panel p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-zinc-100">{m.name}</p>

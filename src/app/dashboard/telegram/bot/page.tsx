@@ -268,7 +268,7 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
       {/* Liga/desliga da operação (cutover do sistema atual → Hot-Dash) */}
       <div
         className={`mt-3 flex items-center justify-between gap-3 rounded-xl border p-3.5 ${
-          active ? "border-emerald-500/30 bg-emerald-500/[0.06]" : "border-white/10 bg-ink-900"
+          active ? "border-emerald-500/30 bg-emerald-500/[0.06]" : "border-white/10 bg-ink-850"
         }`}
       >
         <div className="min-w-0">
@@ -316,7 +316,7 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
 
 function Info({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-white/10 bg-ink-900 px-3 py-2">
+    <div className="panel px-3 py-2">
       <p className="eyebrow">{label}</p>
       <p className="mt-0.5 truncate font-mono text-xs text-zinc-200">{value}</p>
     </div>
@@ -473,7 +473,7 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
       </p>
       <div className="mt-3 space-y-2">
         {rows.map((r, i) => (
-          <div key={i} className="rounded-lg border border-white/10 bg-ink-900 p-2.5">
+          <div key={i} className="panel p-2.5">
             <div className="flex flex-wrap items-center gap-2">
               <select
                 value={r.kind}
@@ -629,7 +629,7 @@ function FunnelEditor({
       <p className="eyebrow">{title}</p>
       <div className="mt-2 space-y-2">
         {steps.map((s, i) => (
-          <div key={i} className="rounded-lg border border-white/10 bg-ink-900 p-2.5">
+          <div key={i} className="panel p-2.5">
             <div className="mb-2 flex items-center gap-2">
               <span className="chip">Etapa {i + 1}</span>
               <div className="flex items-center gap-1">
@@ -735,7 +735,7 @@ function ButtonsCard({
       <p className="mt-1 text-xs text-zinc-500">Links extras que aparecem no /start (ex.: redes, prévias).</p>
       <div className="mt-3 space-y-2">
         {rows.map((r, i) => (
-          <div key={i} className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-ink-900 p-2">
+          <div key={i} className="flex flex-wrap items-center gap-2 panel p-2">
             <input
               className="input min-w-[120px] flex-1"
               placeholder="Texto do botão"
@@ -815,7 +815,7 @@ function SubscribersCard({
       ) : (
         <div className="mt-3 space-y-2">
           {subs.map((s) => (
-            <div key={s.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-ink-900 p-2.5">
+            <div key={s.id} className="flex flex-wrap items-center gap-2 panel p-2.5">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm text-zinc-200">
                   {s.telegramUsername ? `@${s.telegramUsername}` : `ID ${s.telegramUserId}`}

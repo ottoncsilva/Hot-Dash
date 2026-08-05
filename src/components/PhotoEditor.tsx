@@ -573,7 +573,7 @@ export default function PhotoEditor({
 
   return (
     <div
-      className="flex h-full w-full flex-col bg-ink-900 relative"
+      className="flex h-full w-full flex-col bg-ink-950 relative"
       onClick={(e) => e.stopPropagation()}
     >
       {/* Topo */}
@@ -673,7 +673,7 @@ export default function PhotoEditor({
           quando um objeto é selecionado/deselecionado (isso deslocava o
           mapeamento de toque→coordenada do canvas, parecendo que "a foto
           se reposicionava"). */}
-      <div className="flex h-[124px] flex-col justify-center gap-2.5 border-t border-white/10 bg-ink-900/80 px-4 py-3 safe-bottom">
+      <div className="flex h-[124px] flex-col justify-center gap-2.5 border-t border-white/10 bg-ink-850/80 px-4 py-3 safe-bottom">
         {!selected && (
           <p className="text-center font-mono text-[11px] uppercase tracking-wider text-zinc-600">
             Toque num elemento para editar
@@ -781,7 +781,7 @@ export default function PhotoEditor({
             {BODY_PARTS.map((part) => (
               <label
                 key={part}
-                className="flex items-center gap-2 rounded-lg border border-white/10 bg-ink-900 px-2.5 py-1.5"
+                className="flex items-center gap-2 panel px-2.5 py-1.5"
               >
                 <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">
                   {BODY_PART_LABELS[part]}
@@ -806,7 +806,7 @@ export default function PhotoEditor({
             <button
               type="button"
               onClick={() => autoCensor("blur")}
-              className="flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-ink-900 px-4 py-5 text-center hover:border-white/25 hover:bg-white/5"
+              className="flex flex-col items-center gap-2 panel rounded-xl px-4 py-5 text-center hover:border-white/25 hover:bg-ink-800"
             >
               <IconBlur size={24} />
               <span className="text-sm font-medium text-zinc-100">Borrar</span>
@@ -817,7 +817,7 @@ export default function PhotoEditor({
             <button
               type="button"
               onClick={() => autoCensor("emoji")}
-              className="flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-ink-900 px-4 py-5 text-center hover:border-white/25 hover:bg-white/5"
+              className="flex flex-col items-center gap-2 panel rounded-xl px-4 py-5 text-center hover:border-white/25 hover:bg-ink-800"
             >
               <span className="text-2xl leading-none">🔞</span>
               <span className="text-sm font-medium text-zinc-100">Emojis</span>

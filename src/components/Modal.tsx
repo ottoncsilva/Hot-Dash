@@ -88,7 +88,7 @@ export default function Modal({
         role="dialog"
         aria-modal="true"
         tabIndex={-1}
-        className={`card w-full ${maxWidth} animate-fade-in bg-ink-900 p-6 outline-none`}
+        className={`card w-full ${maxWidth} animate-fade-in bg-ink-850 p-6 outline-none`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

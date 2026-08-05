@@ -493,7 +493,7 @@ export default function VideoEditor({
 
   return (
     <div
-      className="flex h-full w-full flex-col bg-ink-900 relative"
+      className="flex h-full w-full flex-col bg-ink-950 relative"
       onClick={(e) => e.stopPropagation()}
     >
       {/* Topo */}
@@ -646,7 +646,7 @@ export default function VideoEditor({
 
       {/* Painel contextual do objeto selecionado — altura reservada para o
           wrapper acima não mudar de tamanho ao selecionar/deselecionar. */}
-      <div className="flex h-[124px] flex-col justify-center gap-2.5 border-t border-white/10 bg-ink-900/80 px-4 py-3 safe-bottom">
+      <div className="flex h-[124px] flex-col justify-center gap-2.5 border-t border-white/10 bg-ink-850/80 px-4 py-3 safe-bottom">
         {!selected && (
           <p className="text-center font-mono text-[11px] uppercase tracking-wider text-zinc-600">
             Toque num elemento para editar

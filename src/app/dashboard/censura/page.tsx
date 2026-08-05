@@ -323,7 +323,7 @@ export default function CensuraPage() {
             <div className="mt-3 space-y-1.5">
               <p className="eyebrow">{jobs.length} mídia(s)</p>
               {jobs.map((j) => (
-                <div key={j.id} className="flex items-center gap-2 rounded-lg border border-white/10 bg-ink-900 px-2.5 py-1.5">
+                <div key={j.id} className="flex items-center gap-2 panel px-2.5 py-1.5">
                   <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">{j.file.name}</span>
                   <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                     {j.status}
@@ -344,7 +344,7 @@ export default function CensuraPage() {
           <p className="eyebrow mt-5">Emoji por parte do corpo</p>
           <div className="mt-2 grid grid-cols-2 gap-2">
             {BODY_PARTS.map((part) => (
-              <label key={part} className="flex items-center gap-2 rounded-lg border border-white/10 bg-ink-900 px-2.5 py-1.5">
+              <label key={part} className="flex items-center gap-2 panel px-2.5 py-1.5">
                 <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">{BODY_PART_LABELS[part]}</span>
                 <select
                   value={partEmoji[part]}

@@ -291,7 +291,7 @@ export default function FunilPage() {
               </tr>
             ) : (
               data.linhas.map((l) => (
-                <tr key={l.profileId || "sem-modelo"} className="hover:bg-white/[0.01]">
+                <tr key={l.profileId || "sem-modelo"} className="hover:bg-white/[0.04]">
                   <td className="p-3">
                     <div className="flex items-center gap-2">
                       <span className={l.profileId ? "text-white" : "text-amber-400/90"}>
@@ -371,7 +371,7 @@ export default function FunilPage() {
               <tr><td colSpan={6} className="p-6 text-center text-xs text-zinc-600">Sem tráfego no período.</td></tr>
             ) : (
               data.fontes.map((f) => (
-                <tr key={f.code || "(sem)"} className="hover:bg-white/[0.01]">
+                <tr key={f.code || "(sem)"} className="hover:bg-white/[0.04]">
                   <td className="p-3">
                     {f.code ? (
                       <span className="font-mono text-xs text-zinc-200">{f.code}</span>

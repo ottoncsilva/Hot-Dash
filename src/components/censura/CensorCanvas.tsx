@@ -324,7 +324,7 @@ const CensorCanvas = forwardRef<CensorCanvasHandle, {
       </div>
 
       {emojiRowOpen && (
-        <div className="mb-2 flex flex-wrap gap-1 rounded-lg border border-white/10 bg-ink-900 p-2">
+        <div className="mb-2 flex flex-wrap gap-1 panel p-2">
           {CENSOR_EMOJIS.map((e) => (
             <button
               key={e}

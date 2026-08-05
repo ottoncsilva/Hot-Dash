@@ -269,7 +269,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <button
         onClick={() => setMobileMenuOpen(true)}
         style={{ top: "calc(env(safe-area-inset-top) + 0.5rem)" }}
-        className="fixed left-3 z-40 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-ink-950/70 text-zinc-100 shadow-lg backdrop-blur-md transition-colors hover:bg-ink-900 lg:hidden"
+        className="fixed left-3 z-40 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-ink-950/70 text-zinc-100 shadow-lg backdrop-blur-md transition-colors hover:bg-ink-850 lg:hidden"
         aria-label="Abrir menu"
       >
         <IconMenu size={22} />

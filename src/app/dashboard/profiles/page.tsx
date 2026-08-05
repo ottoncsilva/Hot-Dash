@@ -231,7 +231,7 @@ export default function ProfilesPage() {
                   {filtered.map((p) => {
                     const networks = Array.from(new Set(p.accounts.map((a) => a.network)));
                     return (
-                      <tr key={p.id} className="hover:bg-white/[0.02]">
+                      <tr key={p.id} className="hover:bg-white/[0.04]">
                         <td className="px-4 py-2.5">
                           <Link
                             href={`/dashboard/profiles/${p.id}`}

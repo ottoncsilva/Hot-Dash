@@ -325,7 +325,7 @@ export default function ProfileDetailPage() {
 
             {/* Link de SAÍDA do VIP (WhatsApp particular). Vai no botão dos posts
                 do grupo VIP que você marcar para levar o link (LTV no WhatsApp). */}
-            <div className="rounded-xl border border-white/[0.06] bg-ink-900/40 p-4 space-y-3">
+            <div className="panel rounded-xl p-4 space-y-3">
               <p className="eyebrow">WhatsApp particular (posts do VIP)</p>
               <p className="text-xs text-zinc-500 -mt-1">
                 Botão que puxa o lead do grupo VIP pro seu WhatsApp. Aparece só nos posts VIP que você marcar (no preview do post).
@@ -363,7 +363,7 @@ export default function ProfileDetailPage() {
 
             {/* Credenciais do bot do Telegram — ficam no cadastro da modelo
                 porque servem em vários lugares (postagens e bot de vendas). */}
-            <div className="rounded-xl border border-white/[0.06] bg-ink-900/40 p-4">
+            <div className="panel rounded-xl p-4">
               <p className="eyebrow">Bot do Telegram</p>
               <p className="mt-1 text-xs text-zinc-500">
                 Token do @BotFather + IDs dos grupos. Usado tanto na automação de postagens quanto
@@ -421,7 +421,7 @@ export default function ProfileDetailPage() {
       {/* Atalho para mídia */}
       <Link
         href={`/dashboard/media?profile=${id}`}
-        className="card group mt-3 flex items-center gap-3 p-4 transition-all hover:border-white/20 hover:bg-white/[0.04]"
+        className="card group mt-3 flex items-center gap-3 p-4 transition-all hover:border-white/20 hover:bg-ink-850"
       >
         <div className="grid h-10 w-10 place-items-center rounded-lg border border-white/10 text-zinc-300">
           <IconMedia size={18} />

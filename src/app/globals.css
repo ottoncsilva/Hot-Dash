@@ -25,12 +25,23 @@ body {
 }
 
 @layer components {
-  /* Superfícies */
+  /* Superfícies — ver a escala `ink` no tailwind.config.ts.
+     O fundo da tela é preto (ink-950) e TODO contêiner é grafite (ink-900),
+     com uma linha de luz no topo e uma sombra por baixo. É esse contraste
+     entre preto e grafite que separa os blocos; antes o card era branco a 2%
+     sobre preto e sumia no fundo. */
   .surface {
-    @apply border border-white/[0.08] bg-white/[0.02];
+    @apply border border-white/[0.07] bg-ink-900
+      shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05),0_10px_28px_-16px_rgba(0,0,0,0.95)];
   }
   .card {
     @apply surface rounded-xl;
+  }
+  /* Contêiner de nível 2: um bloco DENTRO de um card (uma linha da lista, um
+     resumo, um quadro de detalhe). Um degrau mais claro que o card, sem
+     sombra — quem dá a profundidade é o card que o contém. */
+  .panel {
+    @apply rounded-lg border border-white/[0.06] bg-ink-850;
   }
 
   /* Botões */
@@ -49,11 +60,14 @@ body {
     @apply btn border border-red-500/30 bg-transparent text-red-300 hover:bg-red-500/10;
   }
 
-  /* Campos */
+  /* Campos.
+     O fundo é branco translúcido (e não um tom fixo) porque o mesmo campo
+     aparece tanto solto no fundo preto quanto dentro de um card grafite: a
+     transparência faz ele ficar sempre um degrau acima de onde está. */
   .input {
-    @apply w-full rounded-lg border border-white/10 bg-ink-900 px-3.5 py-2.5
+    @apply w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5
       text-sm text-zinc-100 placeholder:text-zinc-600 outline-none
-      transition-all focus:border-white/30 focus:bg-ink-850;
+      transition-all focus:border-white/30 focus:bg-white/[0.07];
   }
   select.input option {
     @apply bg-ink-850 text-zinc-100;

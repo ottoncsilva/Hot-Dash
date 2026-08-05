@@ -315,7 +315,7 @@ export default function TelegramUsuariosPage() {
 
 function StatCard({ label, value, className }: { label: string; value: number; className: string }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-ink-900 p-3">
+    <div className="panel rounded-xl p-3">
       <p className={`font-display text-xl font-semibold ${className}`}>{value}</p>
       <p className="mt-0.5 text-[11px] text-zinc-500">{label}</p>
     </div>

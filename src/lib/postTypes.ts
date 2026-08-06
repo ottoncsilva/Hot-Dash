@@ -151,8 +151,32 @@ export function appendCtaLines(
  *  convite sair duplicado quando o gerador já gravou as linhas na legenda. */
 export function captionHasLink(caption: string, link: string): boolean {
   if (!caption || !link) return false;
-  const escaped = link.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  const escaped = escapeHref(link);
   return caption.includes(`href="${link}"`) || caption.includes(`href="${escaped}"`);
+}
+
+/** Escapa uma URL para caber dentro de `href="…"` no HTML do Telegram. */
+function escapeHref(link: string): string {
+  return link.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+/**
+ * Troca o destino dos hiperlinks já GRAVADOS na legenda.
+ *
+ * O gerador do Método MK grava as 3 linhas de convite dentro da própria legenda
+ * (para você poder revisá-las no calendário) e o motor de envio, vendo que a
+ * legenda já tem o link, não anexa outro. Sem esta troca, mudar o WhatsApp de um
+ * post já gerado deixaria o BOTÃO apontando para o número novo e as LINHAS da
+ * legenda para o antigo — o pior dos dois mundos.
+ */
+export function replaceCaptionLink(caption: string, oldLink: string, newLink: string): string {
+  if (!caption || !oldLink || oldLink === newLink) return caption;
+  const target = `href="${escapeHref(newLink)}"`;
+  return caption
+    .split(`href="${oldLink}"`)
+    .join(target)
+    .split(`href="${escapeHref(oldLink)}"`)
+    .join(target);
 }
 
 /** Escolhe uma frase de CTA aleatória da lista, respeitando o limite de
@@ -178,6 +202,9 @@ export type ScheduledPost = {
   poll?: PostPoll;
   /** true = leva o botão/link do VIP no envio; false = não; undefined = legado. */
   cta?: boolean;
+  /** Para qual WhatsApp este post do VIP convida (URL wa.me já resolvida).
+   *  Vazio = usa o "WhatsApp particular" do cadastro da modelo. */
+  waLink?: string;
   status: PostStatus;
   media: {
     id: string;

@@ -7,6 +7,7 @@ import { useConfirm } from "@/hooks/useConfirm";
 import Switch from "@/components/Switch";
 import type { Profile } from "@/lib/types";
 import { DEFAULT_CTA_BUTTONS, DEFAULT_VIP_CTA_BUTTONS, CTA_BUTTON_MAX } from "@/lib/postTypes";
+import { whatsappAccounts } from "@/lib/socialLinks";
 
 const toast = {
   success: (msg: string) => showToast(msg, "success"),
@@ -60,6 +61,10 @@ export default function TelegramUnifiedPage() {
   // geração, não configuração salva: volta desligado a cada visita, porque o
   // padrão é não entregar o WhatsApp (ele é produto à parte).
   const [vipWhatsappCta, setVipWhatsappCta] = useState(false);
+  // Qual WhatsApp da modelo o convite leva. "" = o WhatsApp particular do
+  // cadastro (o destino único de antes). Como o interruptor, é escolha DESTA
+  // geração — cada rodada pode sair com um número diferente.
+  const [vipWhatsappAccountId, setVipWhatsappAccountId] = useState("");
   const [generatingWarmup, setGeneratingWarmup] = useState(false);
 
   const [settings, setSettings] = useState<TelegramSettings>({
@@ -95,6 +100,9 @@ export default function TelegramUnifiedPage() {
 
   useEffect(() => {
     if (!selectedProfileId) return;
+    // Zera a escolha do WhatsApp ao trocar de modelo: as contas são de cada
+    // uma, e uma conta da modelo A não pode ficar selecionada na B.
+    setVipWhatsappAccountId("");
     setLoading(true);
     fetch(`/api/telegram?profileId=${selectedProfileId}`).then((r) => r.json()).then((d) => {
       if (d.availableTags) setAvailableTags(d.availableTags);
@@ -191,6 +199,7 @@ export default function TelegramUnifiedPage() {
           profileId: selectedProfileId,
           days: daysOverride ?? 1,
           whatsappCta: vipWhatsappCta,
+          whatsappAccountId: vipWhatsappAccountId,
         }),
       });
       const d = await res.json();
@@ -303,6 +312,16 @@ export default function TelegramUnifiedPage() {
   const hasTag = (target: "vipTags" | "warmupTags", tagName: string) => {
     return settings[target].split(",").map(t => t.trim().toLowerCase()).filter(Boolean).includes(tagName.toLowerCase());
   };
+
+  // WhatsApps que o convite do VIP pode usar: os números cadastrados em Contas
+  // da modelo, mais o "WhatsApp particular" do cadastro como padrão. `waTarget`
+  // é o destino que a próxima geração usaria de fato — é ele que diz se o aviso
+  // de "falta configurar" precisa aparecer.
+  const vipProfile = profiles.find((p) => p.id === selectedProfileId);
+  const vipWaAccounts = whatsappAccounts(vipProfile?.accounts);
+  const vipWaTarget = vipWhatsappAccountId
+    ? vipWaAccounts.find((a) => a.id === vipWhatsappAccountId)?.url || ""
+    : vipProfile?.bioWhatsappLink || "";
 
   return (
     <div className="page pb-20 text-white">
@@ -460,13 +479,45 @@ export default function TelegramUnifiedPage() {
                           ariaLabel="Convidar pro WhatsApp nesta geração"
                         />
                       </div>
-                      {vipWhatsappCta &&
-                        !(profiles.find((p) => p.id === selectedProfileId)?.bioWhatsappLink) && (
-                          <p className="text-[11px] text-amber-400">
-                            ⚠️ Configure o <b>Link do WhatsApp</b> no cadastro da modelo — sem ele,
-                            esses posts saem sem o botão.
+                      {/* Qual número o convite leva. Só aparece com o convite
+                          ligado — sem ele não há destino nenhum a escolher. */}
+                      {vipWhatsappCta && (
+                        <div className="rounded-lg border border-white/[0.06] bg-zinc-900/40 px-3 py-2.5">
+                          <label
+                            htmlFor="vip-wa-account"
+                            className="text-[11px] font-bold text-zinc-200"
+                          >
+                            Qual WhatsApp enviar
+                          </label>
+                          <select
+                            id="vip-wa-account"
+                            value={vipWhatsappAccountId}
+                            onChange={(e) => setVipWhatsappAccountId(e.target.value)}
+                            className="input mt-1.5 py-1.5 text-xs"
+                          >
+                            <option value="">
+                              WhatsApp particular (padrão do cadastro)
+                              {vipProfile?.bioWhatsappLink ? "" : " — não configurado"}
+                            </option>
+                            {vipWaAccounts.map((a) => (
+                              <option key={a.id} value={a.id}>
+                                {a.label}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="mt-1.5 text-[11px] text-zinc-500">
+                            Os números vêm das <b>Contas</b> da modelo. O texto do botão continua
+                            sendo o do cadastro — aqui você escolhe só o destino.
                           </p>
-                        )}
+                        </div>
+                      )}
+                      {vipWhatsappCta && !vipWaTarget && (
+                        <p className="text-[11px] text-amber-400">
+                          ⚠️ Cadastre um WhatsApp em <b>Contas</b> ou preencha o{" "}
+                          <b>Link do WhatsApp</b> no cadastro da modelo — sem isso, esses posts
+                          saem sem o botão.
+                        </p>
+                      )}
                       <p className="text-[11px] text-emerald-300/80">
                         Escolha os <b>dias</b> e clique em <b>“Gerar dias (Método MK)”</b> ali em cima.
                       </p>

@@ -232,10 +232,10 @@ function migrate(d: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_group_events_dia ON telegram_group_events(profile_id, day);
 
-    -- Índices do funil. O primeiro é o que faz a junção venda → inscrição do
-    -- "tempo até a compra" ser um seek em vez de varredura (e também acelera o
-    -- topPlans, que já varria telegram_subscriptions).
-    CREATE INDEX IF NOT EXISTS idx_tg_subs_tx ON telegram_subscriptions(transaction_id);
+    -- Índice do funil sobre transactions. O de telegram_subscriptions fica lá
+    -- embaixo, junto da tabela: um CREATE INDEX antes do CREATE TABLE quebra o
+    -- init inteiro num banco novo (em banco já existente passava despercebido,
+    -- porque a tabela já estava criada de uma versão anterior).
     CREATE INDEX IF NOT EXISTS idx_tx_status_created ON transactions(status, created_at);
 
     CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -326,6 +326,10 @@ function migrate(d: Database.Database) {
       FOREIGN KEY (bot_id) REFERENCES telegram_bots(id) ON DELETE CASCADE,
       FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE SET NULL
     );
+
+    -- Faz a junção venda → inscrição do "tempo até a compra" ser um seek em vez
+    -- de varredura (e também acelera o topPlans).
+    CREATE INDEX IF NOT EXISTS idx_tg_subs_tx ON telegram_subscriptions(transaction_id);
 
     CREATE TABLE IF NOT EXISTS telegram_autopost_settings (
       profile_id        TEXT PRIMARY KEY,
@@ -557,6 +561,12 @@ function migrate(d: Database.Database) {
   // CTA por post: 1 = anexa o botão do VIP no envio; 0 = não; NULL = legado
   // (mantém o comportamento antigo). Usado pelo Método MK (só posts de conversão).
   ensureColumn(d, "posts", "cta", "INTEGER");
+  // PARA QUAL WhatsApp o post do VIP convida. Guarda a URL RESOLVIDA (wa.me/…),
+  // não o id da conta: a legenda já sai com o link gravado dentro dela, então o
+  // post precisa ser um retrato — apagar ou editar a conta depois não pode
+  // mudar (nem quebrar) o que já foi agendado. NULL = usa o "WhatsApp particular"
+  // do cadastro da modelo, que é como funcionava antes deste campo existir.
+  ensureColumn(d, "posts", "wa_link", "TEXT");
   // Semear reação 🔥 automaticamente nos posts de Prévias (social proof).
   ensureColumn(d, "telegram_autopost_settings", "warmup_seed_reaction", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(d, "telegram_autopost_settings", "warmup_seed_emoji", "TEXT DEFAULT '🔥'");

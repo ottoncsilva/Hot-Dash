@@ -19,6 +19,7 @@ import {
   appendCtaLines,
   pickCtaLinkTexts,
 } from "@/lib/postTypes";
+import { whatsappAccounts } from "@/lib/socialLinks";
 import type { MediaItem } from "@/lib/types";
 import { mkSlotToUtcMs, mkDayFromToday, fallbackPoll } from "@/lib/previasAi";
 import { planDayVip, captionThemeVip, fallbackTextVip } from "@/lib/vipAi";
@@ -58,6 +59,10 @@ export async function POST(req: NextRequest) {
     // Convite pro WhatsApp nesta geração. Só entra quando pedido explicitamente
     // — o padrão é o dia sem CTA nenhum.
     const whatsappCta = body.whatsappCta === true;
+    // Qual WhatsApp da modelo o convite leva. Vazio = o "WhatsApp particular"
+    // do cadastro, que era o único destino possível antes deste campo.
+    const whatsappAccountId =
+      typeof body.whatsappAccountId === "string" ? body.whatsappAccountId.trim() : "";
     if (!profileId) return NextResponse.json({ error: "Informe o profileId." }, { status: 400 });
 
     const profileMaybe = await getProfile(profileId);
@@ -80,6 +85,15 @@ export async function POST(req: NextRequest) {
     // Frases dos "Botões da copy (VIP)" — as mesmas que viram os hiperlinks do
     // fim da legenda (o motor de envio usa esta lista para o botão inline).
     const ctaList = (settings?.vip_cta_buttons ?? "").trim() || DEFAULT_VIP_CTA_BUTTONS;
+
+    // Destino do convite desta geração. A conta escolhida vira URL aqui, uma vez
+    // só, e o link resolvido é gravado em cada post: assim o post continua
+    // apontando para o número certo mesmo que a conta seja editada ou apagada
+    // depois. Conta que não existe mais (ou de outra modelo) cai no padrão.
+    const chosenWa = whatsappAccountId
+      ? whatsappAccounts(profile.accounts).find((a) => a.id === whatsappAccountId)
+      : undefined;
+    const waLink = chosenWa?.url || profile.bioWhatsappLink || "";
 
     // Cadeia de provedores (grok primeiro — costuma aceitar conteúdo adulto).
     const providerChain: AiProvider[] = (["grok", "openai", "gemini"] as AiProvider[]).filter(
@@ -267,13 +281,8 @@ export async function POST(req: NextRequest) {
         // geração pediu. Neles as 3 linhas já saem GRAVADAS na legenda, para
         // aparecerem no editor do calendário e poderem ser revisadas.
         const caption =
-          slot.cta && profile.bioWhatsappLink
-            ? appendCtaLines(
-                written,
-                profile.bioWhatsappLink,
-                pickCtaLinkTexts(ctaList, 3),
-                WHATSAPP_CTA_FALLBACK,
-              )
+          slot.cta && waLink
+            ? appendCtaLines(written, waLink, pickCtaLinkTexts(ctaList, 3), WHATSAPP_CTA_FALLBACK)
             : written;
 
         createPost({
@@ -283,6 +292,9 @@ export async function POST(req: NextRequest) {
           caption,
           mediaIds: media ? [media.id] : undefined,
           cta: slot.cta, // true só nos posts de WhatsApp → botão no envio
+          // Só os posts de convite carregam o destino; nos outros ele não é
+          // usado e gravá-lo só faria ruído no banco.
+          waLink: slot.cta ? chosenWa?.url : undefined,
         });
         taken.add(at);
         created++;

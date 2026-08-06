@@ -135,7 +135,7 @@ export async function runTelegramAutopost(): Promise<number> {
     const pendingPosts = db
       .prepare(
         `
-        SELECT p.id, p.caption, p.poll, p.cta, pn.post_type, pm.media_id
+        SELECT p.id, p.caption, p.poll, p.cta, p.wa_link, pn.post_type, pm.media_id
         FROM posts p
         JOIN post_networks pn ON pn.post_id = p.id
         LEFT JOIN post_media pm ON pm.post_id = p.id AND pm.sort_order = 0
@@ -190,8 +190,11 @@ export async function runTelegramAutopost(): Promise<number> {
       //    — o padrão do VIP é SEM link (cta=NULL/0).
       const wantsVipCta =
         isWarmup && Boolean(profile.bioVipLink) && (isMediaPost || post.cta !== 0);
-      const wantsWaCta =
-        post.post_type === "VIP" && post.cta === 1 && Boolean(profile.bioWhatsappLink);
+      // Destino do convite do VIP: o WhatsApp escolhido no post (Método MK ou
+      // troca no calendário) e, quando ele não tem escolha própria, o "WhatsApp
+      // particular" do cadastro — que é como todo post funcionava antes.
+      const waLink = (post.wa_link as string | null) || profile.bioWhatsappLink || "";
+      const wantsWaCta = post.post_type === "VIP" && post.cta === 1 && Boolean(waLink);
 
       let replyMarkup: { inline_keyboard: { text: string; url: string }[][] } | undefined;
       let finalCaption = escapeHtmlAllowingLinks(post.caption || "");
@@ -214,18 +217,18 @@ export async function runTelegramAutopost(): Promise<number> {
             pickCtaLinkTexts(ctaList, 3),
           );
         }
-      } else if (wantsWaCta && profile.bioWhatsappLink) {
+      } else if (wantsWaCta && waLink) {
         // Mesmo esquema das Prévias, com o destino do VIP: botão do WhatsApp
         // particular MAIS as 3 linhas de hiperlink no fim da legenda. O botão
         // usa a frase do cadastro do modelo; as linhas, a lista do VIP.
         const waText =
           (profile.bioWhatsappButton || "meu whatsapp particular").slice(0, CTA_BUTTON_MAX) ||
           "meu whatsapp particular";
-        replyMarkup = { inline_keyboard: [[{ text: waText, url: profile.bioWhatsappLink }]] };
-        if (!captionHasLink(post.caption || "", profile.bioWhatsappLink)) {
+        replyMarkup = { inline_keyboard: [[{ text: waText, url: waLink }]] };
+        if (!captionHasLink(post.caption || "", waLink)) {
           finalCaption = appendCtaLines(
             escapeHtmlAllowingLinks(post.caption || ""),
-            profile.bioWhatsappLink,
+            waLink,
             pickCtaLinkTexts(vipCtaList, 3),
             WHATSAPP_CTA_FALLBACK,
           );

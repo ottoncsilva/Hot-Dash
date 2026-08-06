@@ -10,6 +10,7 @@ import TelegramPostForm from "@/components/telegram/TelegramPostForm";
 import CaptionEditor, { CaptionPreview, captionPlainText } from "@/components/telegram/CaptionEditor";
 import { IconCalendar, IconList, IconPlus, IconTrash, IconEdit, IconCheck, IconEye, IconEyeOff } from "@/components/icons";
 import { DEFAULT_TIME_ZONE } from "@/lib/timezone";
+import { whatsappAccounts } from "@/lib/socialLinks";
 
 /** Classifica o post pelo TIPO DE CONTEÚDO (enquete, vídeo, foto ou texto). */
 function contentKind(post: ScheduledPost): { label: string; cls: string } {
@@ -190,8 +191,33 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
     }
   }
 
+  // Troca PARA QUAL WhatsApp este post convida. O servidor reescreve os
+  // hiperlinks já gravados na legenda, então a legenda em edição precisa ser
+  // recarregada da resposta — senão "Salvar Legenda" devolveria o número velho.
+  async function changeWhatsappTarget(post: ScheduledPost, link: string) {
+    try {
+      const res = await apiSend<{ post: ScheduledPost }>(`/api/posts/${post.id}`, "PATCH", {
+        waLink: link || null,
+      });
+      setPosts((ps) => ps.map((p) => (p.id === res.post.id ? res.post : p)));
+      if (editingPost?.id === res.post.id) {
+        setEditingPost(res.post);
+        setEditCaption(res.post.caption || "");
+      }
+      showToast("WhatsApp deste post atualizado.", "success");
+    } catch (e) {
+      showToast("Falha ao trocar o WhatsApp.", "error");
+    }
+  }
+
   // Mapa perfil por id, para os selos de LINK refletirem a config real da modelo.
   const profileById = useMemo(() => new Map(profiles.map((p) => [p.id, p])), [profiles]);
+
+  /** Destino efetivo do convite de um post do VIP: o número escolhido nele e,
+   *  sem escolha, o "WhatsApp particular" do cadastro. */
+  function waTarget(post: ScheduledPost): string {
+    return post.waLink || profileById.get(post.profileId)?.bioWhatsappLink || "";
+  }
 
   function telegramType(post: ScheduledPost): string | undefined {
     return post.networks.find((n) => n.network === "telegram")?.postType;
@@ -204,7 +230,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
     if (post.poll) return { on: false, label: "" };
     const prof = profileById.get(post.profileId);
     if (telegramType(post) === "VIP") {
-      return { on: post.cta === true && Boolean(prof?.bioWhatsappLink), label: "WhatsApp" };
+      return { on: post.cta === true && Boolean(waTarget(post)), label: "WhatsApp" };
     }
     return { on: post.cta !== false && Boolean(prof?.bioVipLink), label: "VIP" };
   }
@@ -534,11 +560,20 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
               const prof = profileById.get(editingPost.profileId);
               if (telegramType(editingPost) === "VIP") {
                 const on = editingPost.cta === true;
-                const configured = Boolean(prof?.bioWhatsappLink);
+                const target = waTarget(editingPost);
+                const configured = Boolean(target);
                 const btnLabel = prof?.bioWhatsappButton || "meu whatsapp particular";
+                const accounts = whatsappAccounts(prof?.accounts);
+                // O post guarda a URL, não a conta: se o número tiver saído das
+                // Contas depois do agendamento, ele continua valendo e ganha uma
+                // opção própria — senão o select pularia sozinho para o padrão.
+                const orphan =
+                  editingPost.waLink && !accounts.some((a) => a.url === editingPost.waLink)
+                    ? editingPost.waLink
+                    : "";
                 return (
                   <div
-                    className={`flex shrink-0 items-center justify-between gap-2 px-4 py-2 text-xs font-semibold ${
+                    className={`flex shrink-0 flex-col gap-2 px-4 py-2 text-xs font-semibold ${
                       on && configured
                         ? "bg-emerald-500/10 text-emerald-300"
                         : on && !configured
@@ -546,24 +581,47 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                           : "bg-white/[0.03] text-zinc-400"
                     }`}
                   >
-                    <span className="min-w-0 truncate">
-                      {on && configured
-                        ? `🔗 Vai com o botão "${btnLabel}"`
-                        : on && !configured
-                          ? "⚠️ Marcado, mas falta o link no cadastro da modelo"
-                          : "— Sem link do WhatsApp"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => toggleWhatsappLink(editingPost)}
-                      className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold transition-colors ${
-                        on
-                          ? "border-white/15 text-zinc-300 hover:bg-white/5"
-                          : "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
-                      }`}
-                    >
-                      {on ? "Remover link" : "Levar meu WhatsApp"}
-                    </button>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 truncate">
+                        {on && configured
+                          ? `🔗 Vai com o botão "${btnLabel}"`
+                          : on && !configured
+                            ? "⚠️ Marcado, mas falta o link no cadastro da modelo"
+                            : "— Sem link do WhatsApp"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => toggleWhatsappLink(editingPost)}
+                        className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold transition-colors ${
+                          on
+                            ? "border-white/15 text-zinc-300 hover:bg-white/5"
+                            : "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                        }`}
+                      >
+                        {on ? "Remover link" : "Levar meu WhatsApp"}
+                      </button>
+                    </div>
+                    {on && (
+                      <select
+                        value={editingPost.waLink || ""}
+                        onChange={(e) => changeWhatsappTarget(editingPost, e.target.value)}
+                        aria-label="WhatsApp de destino deste post"
+                        className="w-full rounded-lg border border-white/10 bg-[#2b313b] px-2 py-1 text-[11px] font-normal text-zinc-100 focus:outline-none"
+                      >
+                        <option value="">
+                          WhatsApp particular (padrão do cadastro)
+                          {prof?.bioWhatsappLink ? "" : " — não configurado"}
+                        </option>
+                        {accounts.map((a) => (
+                          <option key={a.id} value={a.url}>
+                            {a.label}
+                          </option>
+                        ))}
+                        {orphan && (
+                          <option value={orphan}>Número fora das Contas ({orphan})</option>
+                        )}
+                      </select>
+                    )}
                   </div>
                 );
               }

@@ -1,4 +1,4 @@
-import type { SocialNetwork } from "./types";
+import type { SocialAccount, SocialNetwork } from "./types";
 
 /**
  * Máscaras de link por rede social: dado o usuário/identificador, monta a URL
@@ -95,6 +95,27 @@ const META: Record<SocialNetwork, NetworkMeta> = {
 
 export function networkMeta(network: SocialNetwork): NetworkMeta {
   return META[network] || META.outro;
+}
+
+/**
+ * As contas de WhatsApp da modelo, na ordem do cadastro e já com o link pronto.
+ *
+ * É esta a lista que alimenta o "qual WhatsApp enviar" dos posts do VIP: o
+ * número é cadastrado uma vez em Modelos → a modelo → Contas e serve para
+ * qualquer geração. Contas sem link montável ficam de fora — não teriam para
+ * onde apontar o botão.
+ */
+export function whatsappAccounts(
+  accounts: SocialAccount[] | undefined,
+): { id: string; label: string; url: string }[] {
+  return (accounts || [])
+    .filter((a) => a.network === "whatsapp")
+    .map((a) => ({
+      id: a.id,
+      label: a.notes?.trim() ? `${a.username} — ${a.notes.trim()}` : a.username,
+      url: (a.url || "").trim() || buildSocialUrl("whatsapp", a.username),
+    }))
+    .filter((a) => Boolean(a.url));
 }
 
 /** Monta a URL do perfil a partir da rede + identificador. Vazio se não der. */

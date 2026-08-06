@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
+import { replaceCaptionLink } from "./postTypes";
 import type { PostNetwork, PostPoll, PostStatus, ScheduledPost } from "./postTypes";
 import type { SocialNetwork } from "./types";
 
@@ -11,6 +12,7 @@ type PostRow = {
   caption: string | null;
   poll: string | null;
   cta: number | null;
+  wa_link: string | null;
   status: string;
   created_at: number;
   updated_at: number;
@@ -77,6 +79,7 @@ function toClient(r: PostRow): ScheduledPost {
     caption: r.caption || undefined,
     poll: parsePoll(r.poll),
     cta: r.cta === 1 ? true : r.cta === 0 ? false : undefined,
+    waLink: r.wa_link || undefined,
     status: r.status === "posted" ? "posted" : "scheduled",
     media: loadMedia(r.id),
     createdAt: r.created_at,
@@ -112,6 +115,9 @@ export function createPost(input: {
   poll?: PostPoll;
   /** 1 = anexa o botão do VIP no envio; 0 = não; undefined = legado (padrão). */
   cta?: boolean;
+  /** Para qual WhatsApp o post do VIP convida (URL já resolvida). Vazio = o
+   *  "WhatsApp particular" do cadastro da modelo. */
+  waLink?: string;
 }): ScheduledPost {
   if (input.networks.length === 0) throw new Error("Selecione ao menos uma rede social.");
   const id = randomUUID();
@@ -124,9 +130,19 @@ export function createPost(input: {
   const db = getDb();
   const run = db.transaction(() => {
     db.prepare(
-      `INSERT INTO posts (id, profile_id, scheduled_at, caption, poll, cta, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'scheduled', ?, ?)`,
-    ).run(id, input.profileId, input.scheduledAt, input.caption || null, pollJson, ctaVal, now, now);
+      `INSERT INTO posts (id, profile_id, scheduled_at, caption, poll, cta, wa_link, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?)`,
+    ).run(
+      id,
+      input.profileId,
+      input.scheduledAt,
+      input.caption || null,
+      pollJson,
+      ctaVal,
+      input.waLink || null,
+      now,
+      now,
+    );
     writeRelations(id, input.networks, input.mediaIds || []);
   });
   run();
@@ -197,6 +213,11 @@ export function updatePost(
     mediaIds?: string[];
     /** true = post leva o botão/link do seu grupo (VIP→WhatsApp, Prévias→VIP). */
     cta?: boolean;
+    /** Troca o WhatsApp de destino do post (URL já resolvida). `null` ou string
+     *  vazia volta para o "WhatsApp particular" do cadastro; `undefined`
+     *  preserva o que já estava — é o que faz os formulários que salvam sem
+     *  este campo (TelegramPostForm) não apagarem a escolha. */
+    waLink?: string | null;
   },
 ): ScheduledPost | null {
   const existing = getPost(id);
@@ -217,15 +238,38 @@ export function updatePost(
         ? 1
         : 0;
   const db = getDb();
+  const waVal = patch.waLink === undefined ? existing.waLink || null : patch.waLink || null;
+
+  // Trocar o WhatsApp de destino tem de arrastar a legenda junto: o gerador
+  // grava os hiperlinks do convite DENTRO dela, então sem esta troca o botão
+  // apontaria para o número novo e as linhas da legenda para o antigo.
+  let caption = patch.caption !== undefined ? patch.caption || null : existing.caption || null;
+  if (patch.waLink !== undefined && caption) {
+    // Quando o post não tem número próprio, o destino é o do cadastro — é ele
+    // que está gravado na legenda e que precisa ser procurado/substituído.
+    const fallback =
+      (
+        db
+          .prepare("SELECT bio_whatsapp_link FROM profiles WHERE id = ?")
+          .get(patch.profileId ?? existing.profileId) as
+          | { bio_whatsapp_link?: string | null }
+          | undefined
+      )?.bio_whatsapp_link || "";
+    const before = existing.waLink || fallback;
+    const after = waVal || fallback;
+    if (before && after) caption = replaceCaptionLink(caption, before, after);
+  }
+
   const run = db.transaction(() => {
     db.prepare(
-      `UPDATE posts SET profile_id = ?, scheduled_at = ?, caption = ?, cta = ?, status = ?, updated_at = ?
+      `UPDATE posts SET profile_id = ?, scheduled_at = ?, caption = ?, cta = ?, wa_link = ?, status = ?, updated_at = ?
        WHERE id = ?`,
     ).run(
       patch.profileId ?? existing.profileId,
       patch.scheduledAt ?? existing.scheduledAt,
-      patch.caption !== undefined ? patch.caption || null : existing.caption || null,
+      caption,
       ctaVal,
+      waVal,
       patch.status ?? existing.status,
       Date.now(),
       id,

@@ -413,3 +413,12 @@ export const IconList = (p: IconProps) => (
     <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
   </Base>
 );
+
+/** Folha com barras — relatório. */
+export const IconReport = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M5 3h9l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" />
+    <path d="M14 3v5h5" />
+    <path d="M8 17v-3M12 17v-6M16 17v-2" />
+  </Base>
+);

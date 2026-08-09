@@ -513,23 +513,81 @@ export type PeriodStats = {
  *  para o painel do bot de vendas (períodos Hoje/Ontem/7 dias/30 dias/Máximo). */
 const DIAS_SEMANA = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
+/** Uma faixa de "quando o público compra" — um dia da semana ou uma hora. */
+export type QuandoRow = {
+  key: number;
+  label: string;
+  /** Faturamento somado da faixa no período. */
+  cents: number;
+  /** Vendas somadas da faixa no período. */
+  count: number;
+  /** Quantas vezes a faixa ocorreu no período (ex.: nº de terças). */
+  occurrences: number;
+  /** Média de VENDAS por ocorrência. `null` quando não há período apurável. */
+  avgCount: number | null;
+  /** Média de FATURAMENTO (centavos) por ocorrência. */
+  avgCents: number | null;
+  /** Ticket médio da faixa. `null` quando não houve venda. */
+  avgTicketCents: number | null;
+};
+
+/**
+ * Quantas vezes cada dia da semana e cada hora do dia ocorreram no intervalo,
+ * no fuso da operação. É o DENOMINADOR das médias "por dia": sem ele, um
+ * período com 5 terças e 4 quartas faz a terça parecer melhor só por ter
+ * acontecido mais vezes — comparar somas de amostras de tamanhos diferentes.
+ *
+ * Caminha dia a dia no calendário do fuso (aritmética de calendário pura, sem
+ * reconverter fuso a cada passo). O primeiro e o último dia entram só com as
+ * horas realmente cobertas — senão "Hoje" às 11h contaria as 24 horas do dia e
+ * as médias da noite sairiam pela metade.
+ */
+function contaOcorrencias(
+  startMs: number,
+  endMs: number,
+  tz: string,
+): { weekday: number[]; hour: number[] } {
+  const weekday = new Array<number>(7).fill(0);
+  const hour = new Array<number>(24).fill(0);
+  if (!(endMs > startMs)) return { weekday, hour };
+
+  const ini = partsInTimeZone(startMs, tz);
+  const fim = partsInTimeZone(endMs - 1, tz);
+  const primeiroDia = Date.UTC(ini.year, ini.month - 1, ini.day);
+  const ultimoDia = Date.UTC(fim.year, fim.month - 1, fim.day);
+
+  const cur = new Date(primeiroDia);
+  // Guarda contra intervalo absurdo (data corrompida no banco) segurar o request.
+  for (let i = 0; cur.getTime() <= ultimoDia && i < 4000; i++) {
+    const ehPrimeiro = cur.getTime() === primeiroDia;
+    const ehUltimo = cur.getTime() === ultimoDia;
+    weekday[cur.getUTCDay()] += 1;
+    for (let h = ehPrimeiro ? ini.hour : 0; h <= (ehUltimo ? fim.hour : 23); h++) {
+      hour[h] += 1;
+    }
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return { weekday, hour };
+}
+
 /**
  * Vendas pagas agrupadas por DIA DA SEMANA e por HORA — "quando o público
  * compra". Serve para escolher os horários de pico do bot e do disparo.
  *
  * Os baldes saem do FUSO DA OPERAÇÃO, não do relógio do servidor: em produção
  * ele roda em UTC e uma venda das 22h de Brasília cairia no dia seguinte.
- * Devolve as faixas ORDENADAS por faturamento (maior primeiro), sem as vazias.
+ *
+ * Devolve SEMPRE os 7 dias e as 24 horas, em ordem cronológica, incluindo as
+ * faixas sem venda: a resposta procurada muitas vezes é o ZERO de uma faixa
+ * (a madrugada vende ou não?), e uma lista que omite as vazias não consegue
+ * dizer isso. Cada faixa vem com as médias por ocorrência.
  */
 export function revenueByWeekdayAndHour(
   sinceMs: number | null,
   untilMs: number | null,
   tz: string,
   profileId?: string,
-): {
-  weekday: { key: number; label: string; cents: number; count: number }[];
-  hour: { key: number; label: string; cents: number; count: number }[];
-} {
+): { weekday: QuandoRow[]; hour: QuandoRow[] } {
   const clauses = ["status = 'paid'"];
   const params: (string | number)[] = [];
   // COALESCE: transação antiga pode não ter paid_at — cai no created_at.
@@ -552,8 +610,13 @@ export function revenueByWeekdayAndHour(
     )
     .all(...params) as { at: number; amount_cents: number }[];
 
+  // Semeia TODAS as faixas com zero. Sem isso, uma hora sem venda simplesmente
+  // não vira linha e some da tela — justo o caso que se quer enxergar.
   const porDia = new Map<number, { cents: number; count: number }>();
+  for (let d = 0; d < 7; d++) porDia.set(d, { cents: 0, count: 0 });
   const porHora = new Map<number, { cents: number; count: number }>();
+  for (let h = 0; h < 24; h++) porHora.set(h, { cents: 0, count: 0 });
+
   for (const r of rows) {
     const p = partsInTimeZone(r.at, tz);
     const dia = new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay();
@@ -567,18 +630,46 @@ export function revenueByWeekdayAndHour(
     soma(porHora, p.hour);
   }
 
-  const ordena = <T extends { cents: number }>(l: T[]) => l.sort((a, b) => b.cents - a.cents);
+  // Denominador das médias. No período "Máximo" não há limites explícitos —
+  // usa então o intervalo real das próprias transações. Sem nenhuma venda não
+  // há período apurável, e as médias saem `null` (a tela mostra "—") em vez de
+  // um "R$ 0,00/dia" que finge precisão que não existe.
+  let minAt = Infinity;
+  let maxAt = -Infinity;
+  for (const r of rows) {
+    if (r.at < minAt) minAt = r.at;
+    if (r.at > maxAt) maxAt = r.at;
+  }
+  const inicio = sinceMs ?? (rows.length > 0 ? minAt : null);
+  const fim = untilMs ?? (rows.length > 0 ? maxAt + 1 : null);
+  const occ = inicio !== null && fim !== null ? contaOcorrencias(inicio, fim, tz) : null;
+
+  const monta = (
+    entradas: Map<number, { cents: number; count: number }>,
+    label: (k: number) => string,
+    ocorrencias: number[] | undefined,
+  ): QuandoRow[] =>
+    [...entradas.entries()]
+      // Cronológica, não por faturamento: a pergunta aqui é a FORMA da curva do
+      // dia/da semana, e um ranking a embaralha.
+      .sort((a, b) => a[0] - b[0])
+      .map(([key, v]) => {
+        const occurrences = ocorrencias?.[key] ?? 0;
+        return {
+          key,
+          label: label(key),
+          cents: v.cents,
+          count: v.count,
+          occurrences,
+          avgCount: occurrences > 0 ? v.count / occurrences : null,
+          avgCents: occurrences > 0 ? Math.round(v.cents / occurrences) : null,
+          avgTicketCents: v.count > 0 ? Math.round(v.cents / v.count) : null,
+        };
+      });
+
   return {
-    weekday: ordena(
-      [...porDia.entries()].map(([key, v]) => ({ key, label: DIAS_SEMANA[key], ...v })),
-    ),
-    hour: ordena(
-      [...porHora.entries()].map(([key, v]) => ({
-        key,
-        label: `${String(key).padStart(2, "0")}h`,
-        ...v,
-      })),
-    ),
+    weekday: monta(porDia, (k) => DIAS_SEMANA[k], occ?.weekday),
+    hour: monta(porHora, (k) => `${String(k).padStart(2, "0")}h`, occ?.hour),
   };
 }
 

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { apiGet } from "@/lib/api";
 import type { Profile } from "@/lib/types";
 import type { PaymentSettingsPublic } from "@/lib/settings";
-import type { PeriodStats } from "@/lib/transactions";
+import type { PeriodStats, QuandoRow } from "@/lib/transactions";
 import { IconSettings } from "@/components/icons";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import { DEFAULT_PERIOD, type PeriodKey } from "@/lib/periods";
@@ -39,8 +39,8 @@ type BotOverviewData = {
   users: { total: number; vips: number; expirados: number; leads: number; bloqueados: number };
   /** Membros dos grupos, por consulta à API — existe mesmo com a operação do bot desligada. */
   groups: { vip: number | null; previas: number | null; checkedAt: number | null };
-  byWeekday: { key: number; label: string; cents: number; count: number }[];
-  byHour: { key: number; label: string; cents: number; count: number }[];
+  byWeekday: QuandoRow[];
+  byHour: QuandoRow[];
 };
 
 export default function DashboardHome() {
@@ -465,14 +465,8 @@ function BotSalesPanel({
       {/* Quando o público compra — dia da semana e hora. */}
       <p className="eyebrow mt-8">quando o público compra</p>
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
-        <RankingCard
-          title="Dias com mais vendas"
-          rows={data?.byWeekday.slice(0, 5).map((d) => ({ label: d.label, count: d.count, cents: d.cents }))}
-        />
-        <RankingCard
-          title="Horários com mais vendas"
-          rows={data?.byHour.slice(0, 5).map((h) => ({ label: h.label, count: h.count, cents: h.cents }))}
-        />
+        <RankingCard title="Vendas por dia da semana" rows={data?.byWeekday} />
+        <RankingCard title="Vendas por horário" rows={data?.byHour} />
       </div>
 
       {/* Faturamento por Modelo */}
@@ -560,14 +554,20 @@ function UserStat({ label, value, tone }: { label: string; value?: number; tone?
   );
 }
 
-/** Ranking simples (dia/hora) com quantidade e faturamento. */
-function RankingCard({
-  title,
-  rows,
-}: {
-  title: string;
-  rows?: { label: string; count: number; cents: number }[];
-}) {
+/**
+ * Curva de vendas por faixa (dia da semana ou hora do dia).
+ *
+ * Mostra TODAS as faixas, inclusive as zeradas, em ordem cronológica: a
+ * pergunta que este card responde é a forma da curva — de que horas o público
+ * compra, e de que horas ele NÃO compra. Um top-5 por faturamento escondia as
+ * duas pontas (a madrugada some, e domingo/segunda também).
+ *
+ * A barra é proporcional ao faturamento da maior faixa; é ela que faz 24 linhas
+ * de número virarem curva legível de relance.
+ */
+function RankingCard({ title, rows }: { title: string; rows?: QuandoRow[] }) {
+  const max = rows ? Math.max(0, ...rows.map((r) => r.cents)) : 0;
+  const semVenda = rows ? rows.every((r) => r.count === 0) : false;
   return (
     <div className="card p-4">
       <p className="eyebrow">{title}</p>
@@ -577,19 +577,52 @@ function RankingCard({
             <div key={i} className="h-6 animate-pulse rounded bg-white/5" />
           ))}
         </div>
-      ) : rows.length === 0 ? (
+      ) : semVenda ? (
         <p className="mt-3 text-xs text-zinc-600">Nenhuma venda no período.</p>
       ) : (
-        <div className="mt-3 space-y-1.5">
+        <div className="mt-3 space-y-1">
           {rows.map((r) => (
-            <div key={r.label} className="flex items-baseline justify-between gap-3 text-sm">
-              <span className="text-zinc-200">{r.label}</span>
-              <span className="flex items-baseline gap-2">
-                <span className="font-mono text-[11px] text-zinc-600">
-                  {r.count} {r.count === 1 ? "venda" : "vendas"}
+            <div key={r.key} className="relative overflow-hidden rounded-md px-2 py-1">
+              {/* Barra ao fundo: some por completo na faixa sem venda, para o
+                  vazio ficar visualmente óbvio. */}
+              <span
+                aria-hidden
+                className="absolute inset-y-0 left-0 rounded-md bg-emerald-500/[0.12]"
+                style={{ width: max > 0 ? `${(r.cents / max) * 100}%` : "0%" }}
+              />
+              <div className="relative flex items-baseline justify-between gap-3 text-sm">
+                <span className={r.count > 0 ? "text-zinc-200" : "text-zinc-600"}>{r.label}</span>
+                <span className="flex items-baseline gap-2">
+                  <span className="font-mono text-[11px] text-zinc-500">
+                    {r.count} {r.count === 1 ? "venda" : "vendas"}
+                  </span>
+                  <span
+                    className={`font-display font-semibold ${
+                      r.count > 0 ? "text-emerald-400" : "text-zinc-700"
+                    }`}
+                  >
+                    {brl(r.cents)}
+                  </span>
                 </span>
-                <span className="font-display font-semibold text-emerald-400">{brl(r.cents)}</span>
-              </span>
+              </div>
+              {r.count > 0 && (
+                <p className="relative mt-0.5 font-mono text-[10px] text-zinc-600">
+                  média{" "}
+                  {r.avgCount !== null
+                    ? `${r.avgCount.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ${
+                        r.avgCount === 1 ? "venda" : "vendas"
+                      }/dia`
+                    : "—"}
+                  {" · "}
+                  {r.avgCents !== null ? `${brl(r.avgCents)}/dia` : "—"}
+                  {/* O ticket é informação secundária: no celular a linha não
+                      comporta os três números e quebrava feio. */}
+                  <span className="hidden sm:inline">
+                    {" · ticket "}
+                    {r.avgTicketCents !== null ? brl(r.avgTicketCents) : "—"}
+                  </span>
+                </p>
+              )}
             </div>
           ))}
         </div>

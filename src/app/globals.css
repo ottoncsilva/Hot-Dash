@@ -150,8 +150,21 @@ h3 {
   body {
     background: #fff !important;
   }
+  /* Solta a rolagem do LAYOUT.
+     No desktop o <main> é o contêiner de rolagem (`lg:h-dvh lg:overflow-y-auto`),
+     então o documento inteiro mede uma tela para o navegador: imprimir saía com
+     UMA página só, o primeiro quadro, jogando fora todo o resto do relatório.
+     Em papel não existe "área que rola" — tudo tem de virar fluxo normal. */
+  html,
+  body,
+  main,
+  main > * {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
   body {
-    min-height: auto;
+    min-height: auto !important;
   }
   main {
     padding: 0 !important;

@@ -24,6 +24,25 @@ const PISO_MS = 15 * 1000;
 // Teto de espera de uma consulta pedida pela tela.
 const TIMEOUT_PADRAO_MS = 4000;
 
+/**
+ * Quem ocupa vaga em TODO grupo sem ser público: você (dono/admin) e o bot.
+ *
+ * A API do Telegram (`getChatMemberCount`) conta os dois, então o número cru
+ * vem sempre 2 acima da audiência real — num grupo recém-criado ele mostra "2"
+ * com zero inscritos. Como o valor é guardado CRU no banco (é o que a API
+ * respondeu), o desconto acontece na LEITURA, aqui, nos dois lugares que
+ * exibem total de membros.
+ *
+ * Se um dia entrar outro admin no grupo, é este número que muda.
+ */
+export const MEMBROS_FIXOS_POR_GRUPO = 2;
+
+/** Desconta os ocupantes fixos, sem deixar o total ir a negativo — um grupo
+ *  em montagem pode responder 1 antes de o bot entrar. */
+function semOcupantesFixos(total: number, grupos: number): number {
+  return Math.max(0, total - grupos * MEMBROS_FIXOS_POR_GRUPO);
+}
+
 export type GroupStat = {
   profileId: string;
   kind: "vip" | "previas";
@@ -66,7 +85,8 @@ export function listGroupStats(profileId?: string): GroupStat[] {
   return rows.map(toClient);
 }
 
-/** Soma dos membros por grupo — o número que o Dashboard mostra. */
+/** Soma dos membros por grupo, já SEM os ocupantes fixos (você e o bot) — é o
+ *  número de inscritos de verdade, que o Funil mostra. */
 export function groupTotals(profileId?: string): {
   vip: number | null;
   previas: number | null;
@@ -75,7 +95,10 @@ export function groupTotals(profileId?: string): {
   const stats = listGroupStats(profileId);
   const soma = (kind: "vip" | "previas") => {
     const validos = stats.filter((s) => s.kind === kind && s.memberCount !== null);
-    return validos.length === 0 ? null : validos.reduce((n, s) => n + (s.memberCount || 0), 0);
+    if (validos.length === 0) return null;
+    const bruto = validos.reduce((n, s) => n + (s.memberCount || 0), 0);
+    // Desconta POR GRUPO: cada grupo tem o seu par (você + bot).
+    return semOcupantesFixos(bruto, validos.length);
   };
   const datas = stats.map((s) => s.checkedAt).filter(Boolean);
   return {
@@ -207,15 +230,23 @@ export type GroupGrowthPoint = {
 export function groupGrowthSeries(dias = 14, profileId?: string): GroupGrowthPoint[] {
   const filtro = profileId ? " AND profile_id = ?" : "";
   const params = profileId ? [profileId] : [];
+  // `grupos` conta quantos grupos entraram na soma daquele dia — é o
+  // multiplicador do desconto dos ocupantes fixos (cada grupo tem o seu par
+  // você + bot). Sem isso, um perfil com dois grupos do mesmo tipo ficaria com
+  // o desconto pela metade.
   const rows = getDb()
     .prepare(
-      `SELECT day, kind, SUM(member_count) AS total
+      `SELECT day, kind, SUM(member_count) AS total, COUNT(*) AS grupos
          FROM telegram_group_history
         WHERE 1 = 1${filtro}
         GROUP BY day, kind ORDER BY day`,
     )
-    .all(...params) as { day: string; kind: string; total: number }[];
+    .all(...params) as { day: string; kind: string; total: number; grupos: number }[];
 
+  // Entradas e saídas NÃO levam o desconto dos ocupantes fixos, de propósito:
+  // são eventos, não saldo. Você e o bot entraram uma vez, no dia em que o
+  // grupo nasceu, e aquilo aconteceu de verdade — descontar aqui inventaria
+  // uma saída que nunca houve.
   const eventos = getDb()
     .prepare(
       `SELECT day, kind, SUM(joined) AS joined, SUM(left_count) AS left_count
@@ -228,8 +259,9 @@ export function groupGrowthSeries(dias = 14, profileId?: string): GroupGrowthPoi
   const porDia = new Map<string, { vip: number | null; previas: number | null }>();
   for (const r of rows) {
     const cur = porDia.get(r.day) || { vip: null, previas: null };
-    if (r.kind === "vip") cur.vip = r.total;
-    else cur.previas = r.total;
+    const liquido = semOcupantesFixos(r.total, r.grupos);
+    if (r.kind === "vip") cur.vip = liquido;
+    else cur.previas = liquido;
     porDia.set(r.day, cur);
   }
   // Um dia pode ter evento sem consulta (ou o contrário): a série é a UNIÃO

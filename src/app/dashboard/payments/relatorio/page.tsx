@@ -11,6 +11,7 @@ import { useProfile } from "@/context/ProfileContext";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import CurvaSort, {
   ALTURA_TABELA,
+  FAIXAS_VISIVEIS,
   ordenarFaixas,
   type CurvaOrdem,
 } from "@/components/CurvaSort";
@@ -284,6 +285,8 @@ function Curva({
   // Ordena pelo RECEBIDO — é o número que a barra representa e o que decide
   // horário. "Pagos gerados" seria a coorte, uma pergunta diferente.
   const ordenadas = faixas ? ordenarFaixas(faixas, ordem, (f) => f.pagos) : undefined;
+  // Só a curva de horas (24 faixas) precisa rolar; a de dias tem 7 e cabe.
+  const precisaRolar = (faixas?.length ?? 0) > FAIXAS_VISIVEIS;
   return (
     <>
       <div className="mt-3 flex items-center justify-end print:hidden">
@@ -291,9 +294,20 @@ function Curva({
       </div>
       {/* A rolagem fica no WRAPPER, não no tbody: `display:block` no tbody
           quebraria o alinhamento das colunas com o cabeçalho. O thead gruda no
-          topo para o rótulo não sumir ao rolar. Na impressão a altura é
-          liberada, senão sairia só o pedaço visível no papel. */}
-      <div className="mt-2 card overflow-auto p-0 print:max-h-none print:overflow-visible" style={{ maxHeight: ALTURA_TABELA }}>
+          topo para o rótulo não sumir ao rolar.
+          Só limita quem TEM o que rolar: a tabela de dias já cabe em 7 linhas,
+          e limitá-la a uma altura calculada em pixels a cortava por alguns
+          pixels de sobra.
+          O limite vem por variável CSS, não por `style` inline: inline vence
+          classe, e o `print:max-h-none` não conseguia liberar a altura no
+          papel — a tabela saía cortada e ainda vazava por cima da seção
+          seguinte, deixando o relatório impresso ilegível. */}
+      <div
+        className={`mt-2 card p-0 print:max-h-none print:overflow-visible ${
+          precisaRolar ? "max-h-[var(--alt-curva)] overflow-auto" : "overflow-x-auto"
+        }`}
+        style={precisaRolar ? ({ "--alt-curva": `${ALTURA_TABELA}px` } as React.CSSProperties) : undefined}
+      >
       <table className="w-full text-left text-sm">
         <thead className="sticky top-0 z-10 bg-ink-900 print:static">
           <tr className="border-b border-white/[0.06] bg-white/[0.02] font-mono text-[10px] uppercase tracking-wider text-zinc-500">

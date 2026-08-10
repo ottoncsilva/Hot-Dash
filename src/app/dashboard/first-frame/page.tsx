@@ -143,8 +143,10 @@ export default function FirstFramePage() {
     return handle.capture(format, quality);
   }
 
+  /** Mesmo nome do vídeo de origem + "-ff" (ex.: "clipe.mp4" → "clipe-ff.jpg"),
+   *  para o frame ficar sempre ao lado do vídeo na hora de ordenar a pasta. */
   function frameFileName(job: Job): string {
-    return `${baseName(job.file.name)}${FRAME_EXT[format]}`;
+    return `${baseName(job.file.name)}-ff${FRAME_EXT[format]}`;
   }
 
   async function downloadOne(job: Job) {
@@ -403,6 +405,11 @@ export default function FirstFramePage() {
             <IconDownload size={16} />{" "}
             {zipping ? "Montando ZIP..." : `Baixar todos em ZIP${stats.prontos ? ` (${stats.prontos})` : ""}`}
           </button>
+          <p className="mt-1.5 text-[11px] text-zinc-500">
+            Cada imagem sai com o nome do vídeo + <b className="text-zinc-400">-ff</b> (ex.:{" "}
+            <span className="font-mono">clipe.mp4</span> →{" "}
+            <span className="font-mono">clipe-ff{FRAME_EXT[format]}</span>).
+          </p>
           <button onClick={resetAll} disabled={stats.ajustados === 0} className="btn-ghost mt-2 w-full">
             Voltar todos ao primeiro frame
           </button>

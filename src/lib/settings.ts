@@ -197,6 +197,41 @@ export function setAppTimeZone(tz: string): string {
   return next;
 }
 
+// ---- Grupos do Telegram ----
+
+/**
+ * Quantos membros de cada grupo NÃO são audiência: você, o bot e outros admins.
+ *
+ * O `getChatMemberCount` do Telegram conta todo mundo, então o número cru vem
+ * sempre alguns acima dos inscritos de verdade — num grupo recém-criado ele
+ * mostra "2" com zero público. O desconto é aplicado na LEITURA (ver
+ * `telegramMonitor.ts`), nunca na gravação: o banco continua guardando o que a
+ * API respondeu, então mudar este número reajusta o histórico inteiro na hora,
+ * sem migração.
+ *
+ * Padrão 2 (você + bot). Quem tem um segundo admin num grupo sobe para 3.
+ */
+export const MEMBROS_FIXOS_PADRAO = 2;
+/** Teto de sanidade: acima disto é erro de digitação, não configuração. */
+const MEMBROS_FIXOS_MAX = 50;
+
+export function getFixedGroupMembers(): number {
+  const n = getJson<number>("telegram_fixed_members", MEMBROS_FIXOS_PADRAO);
+  return normalizeFixedGroupMembers(n);
+}
+
+export function setFixedGroupMembers(n: unknown): number {
+  const next = normalizeFixedGroupMembers(n);
+  setJson("telegram_fixed_members", next);
+  return next;
+}
+
+function normalizeFixedGroupMembers(n: unknown): number {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v)) return MEMBROS_FIXOS_PADRAO;
+  return Math.min(MEMBROS_FIXOS_MAX, Math.max(0, v));
+}
+
 // ---- Tipos de alerta (push) que o operador quer receber ----
 export function getNotificationPrefs(): NotificationPrefs {
   return normalizeNotificationPrefs(getJson<unknown>("notification_prefs", {}));

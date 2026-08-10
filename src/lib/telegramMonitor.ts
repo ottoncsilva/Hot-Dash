@@ -1,7 +1,7 @@
 import "server-only";
 import { getDb } from "./db";
 import { getTelegramChat, getTelegramChatMemberCount, getTelegramMe } from "./telegramApi";
-import { getAppTimeZone } from "./settings";
+import { getAppTimeZone, getFixedGroupMembers } from "./settings";
 import { partsInTimeZone } from "./timezone";
 
 /**
@@ -25,22 +25,18 @@ const PISO_MS = 15 * 1000;
 const TIMEOUT_PADRAO_MS = 4000;
 
 /**
- * Quem ocupa vaga em TODO grupo sem ser público: você (dono/admin) e o bot.
+ * Desconta os ocupantes fixos de cada grupo (você, o bot, outros admins) do
+ * total que a API do Telegram devolveu.
  *
- * A API do Telegram (`getChatMemberCount`) conta os dois, então o número cru
- * vem sempre 2 acima da audiência real — num grupo recém-criado ele mostra "2"
- * com zero inscritos. Como o valor é guardado CRU no banco (é o que a API
- * respondeu), o desconto acontece na LEITURA, aqui, nos dois lugares que
- * exibem total de membros.
+ * Quantos são vem de Configurações → Geral (`getFixedGroupMembers`), lido a
+ * cada chamada: como o banco guarda o número CRU, mudar a configuração
+ * reajusta na hora até o histórico, sem migração.
  *
- * Se um dia entrar outro admin no grupo, é este número que muda.
+ * Sem deixar o total ir a negativo — um grupo em montagem pode responder 1
+ * antes de o bot entrar, e o painel não pode mostrar "−1 membro".
  */
-export const MEMBROS_FIXOS_POR_GRUPO = 2;
-
-/** Desconta os ocupantes fixos, sem deixar o total ir a negativo — um grupo
- *  em montagem pode responder 1 antes de o bot entrar. */
 function semOcupantesFixos(total: number, grupos: number): number {
-  return Math.max(0, total - grupos * MEMBROS_FIXOS_POR_GRUPO);
+  return Math.max(0, total - grupos * getFixedGroupMembers());
 }
 
 export type GroupStat = {

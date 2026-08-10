@@ -11,7 +11,7 @@ import type { Profile } from "@/lib/types";
 type Item = { id: string; label: string; group: string; hint?: string; run: () => void };
 
 const NAV_ORDER: NavKey[] = [
-  "dashboard", "profiles", "media", "censura", "schedule", "payments", "telegram", "whatsapp", "settings",
+  "dashboard", "profiles", "media", "censura", "firstframe", "schedule", "payments", "telegram", "whatsapp", "settings",
 ];
 
 /**
@@ -74,6 +74,7 @@ export default function CommandPalette() {
       { id: "act-new-model", label: "Novo modelo", hint: "criar", group: "Ações", run: () => router.push("/dashboard/profiles?new=1") },
       { id: "act-upload", label: "Enviar mídia", hint: "upload", group: "Ações", run: () => router.push("/dashboard/media") },
       { id: "act-censura", label: "Censurar imagem com IA", hint: "IA", group: "Ações", run: () => router.push("/dashboard/censura") },
+      { id: "act-firstframe", label: "Pegar frame de vídeos", hint: "video", group: "Ações", run: () => router.push("/dashboard/first-frame") },
     ];
     const nav: Item[] = NAV_ORDER.filter((k) => NAV_ITEMS[k]).map((k) => ({
       id: `nav-${k}`, label: NAV_ITEMS[k].label, group: "Ir para", run: () => router.push(NAV_ITEMS[k].href),

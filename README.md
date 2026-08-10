@@ -26,6 +26,7 @@ no seu servidor.
 | **Pagamentos** | ✅ Ativo | Dashboard de vendas/receita + cobrança PIX. Provedor SyncPay (chaves nas Configurações). |
 | **Limpar Metadados** | ✅ Ativo | Remove EXIF, GPS e rastros de IA de fotos (`exiftool`) e vídeos (`ffmpeg`) avulsos. |
 | **Censura com IA** | ✅ Ativo | Detecta partes explícitas (NudeNet **embutido**, sem serviço externo) e cobre com emoji/borrão. Também no editor de fotos. Envia as censuradas para a galeria da modelo. |
+| **First Frame** | ✅ Ativo | Sobe vários vídeos, mostra o primeiro frame de cada um (ou outro quadro, escolhido na linha do tempo) e baixa todos num ZIP. Roda 100% no navegador — o vídeo não sobe para o servidor. |
 | **Configurações** | ✅ Ativo | Ordem/visibilidade do menu e chaves dos provedores de pagamento. |
 
 Visual **monocromático high-tech** (preto/branco/cinza), tipografia Space

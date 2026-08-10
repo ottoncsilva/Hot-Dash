@@ -5,10 +5,15 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { apiGet } from "@/lib/api";
 import type { FinanceReport } from "@/lib/financeReport";
-import type { Profile } from "@/lib/types";
 import type { PeriodKey } from "@/lib/periods";
 import { DEFAULT_PERIOD, isPeriodKey } from "@/lib/periods";
+import { useProfile } from "@/context/ProfileContext";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
+import CurvaSort, {
+  ALTURA_TABELA,
+  ordenarFaixas,
+  type CurvaOrdem,
+} from "@/components/CurvaSort";
 import { IconArrowLeft, IconDownload } from "@/components/icons";
 import { DEFAULT_TIME_ZONE } from "@/lib/timezone";
 
@@ -63,16 +68,19 @@ function RelatorioFinanceiro() {
       to: sp.get("to") || "",
     };
   });
-  const [profileId, setProfileId] = useState(sp.get("profileId") || "");
-  const [profiles, setProfiles] = useState<Profile[]>([]);
+  // Modelo vem do menu. O ?profileId= da URL ainda é aceito na entrada,
+  // para links antigos continuarem levando ao mesmo recorte.
+  const { profileId, setProfileId } = useProfile();
+  useEffect(() => {
+    const daUrl = sp.get("profileId");
+    if (daUrl) setProfileId(daUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [data, setData] = useState<Data | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [tz, setTz] = useState(DEFAULT_TIME_ZONE);
 
   useEffect(() => {
-    apiGet<{ profiles: Profile[] }>("/api/profiles")
-      .then((d) => setProfiles(d.profiles))
-      .catch(() => setProfiles([]));
     apiGet<{ timeZone: string }>("/api/settings/general")
       .then((d) => d.timeZone && setTz(d.timeZone))
       .catch(() => {});
@@ -120,17 +128,6 @@ function RelatorioFinanceiro() {
 
       <div className="mt-5 flex flex-wrap items-end gap-4 print:hidden">
         <PeriodPicker value={period} onChange={setPeriod} />
-        <div className="w-full max-w-xs">
-          <label className="eyebrow mb-1.5 block">Modelo</label>
-          <select className="input" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
-            <option value="">Todos</option>
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </div>
       </div>
 
       {erro && (
@@ -282,11 +279,23 @@ function Curva({
   faixas?: { key: number; label: string; gerados: { count: number; cents: number }; geradosPagos: { count: number; cents: number }; pagos: { count: number; cents: number }; conversao: number | null }[];
   rotulo: string;
 }) {
+  const [ordem, setOrdem] = useState<CurvaOrdem>("cron");
   const maxPago = faixas ? Math.max(0, ...faixas.map((f) => f.pagos.cents)) : 0;
+  // Ordena pelo RECEBIDO — é o número que a barra representa e o que decide
+  // horário. "Pagos gerados" seria a coorte, uma pergunta diferente.
+  const ordenadas = faixas ? ordenarFaixas(faixas, ordem, (f) => f.pagos) : undefined;
   return (
-    <div className="mt-3 card overflow-x-auto p-0">
+    <>
+      <div className="mt-3 flex items-center justify-end print:hidden">
+        <CurvaSort value={ordem} onChange={setOrdem} />
+      </div>
+      {/* A rolagem fica no WRAPPER, não no tbody: `display:block` no tbody
+          quebraria o alinhamento das colunas com o cabeçalho. O thead gruda no
+          topo para o rótulo não sumir ao rolar. Na impressão a altura é
+          liberada, senão sairia só o pedaço visível no papel. */}
+      <div className="mt-2 card overflow-auto p-0 print:max-h-none print:overflow-visible" style={{ maxHeight: ALTURA_TABELA }}>
       <table className="w-full text-left text-sm">
-        <thead>
+        <thead className="sticky top-0 z-10 bg-ink-900 print:static">
           <tr className="border-b border-white/[0.06] bg-white/[0.02] font-mono text-[10px] uppercase tracking-wider text-zinc-500">
             <th className="px-3 py-2.5 font-medium">{rotulo}</th>
             <th className="px-3 py-2.5 text-right font-medium">PIX gerados</th>
@@ -297,7 +306,7 @@ function Curva({
           </tr>
         </thead>
         <tbody className="divide-y divide-white/[0.04]">
-          {!faixas
+          {!ordenadas
             ? [0, 1, 2].map((i) => (
                 <tr key={i}>
                   <td colSpan={6} className="px-3 py-3">
@@ -305,7 +314,7 @@ function Curva({
                   </td>
                 </tr>
               ))
-            : faixas.map((f) => (
+            : ordenadas.map((f) => (
                 <tr key={f.key} className="relative">
                   <td className="relative px-3 py-2">
                     {/* Barra pelo RECEBIDO: é o número que decide horário. */}
@@ -343,6 +352,7 @@ function Curva({
               ))}
         </tbody>
       </table>
-    </div>
+      </div>
+    </>
   );
 }

@@ -6,6 +6,7 @@ import { apiGet } from "@/lib/api";
 import type { Profile } from "@/lib/types";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import { DEFAULT_PERIOD } from "@/lib/periods";
+import { useProfile } from "@/context/ProfileContext";
 
 /** Um dia da série de crescimento dos grupos. Espelha o que a rota devolve —
  *  declarado aqui porque o módulo que a produz é `server-only`. */
@@ -103,12 +104,16 @@ type Dados = {
   planos: { planId: string; name: string; cents: number; count: number }[];
   fontes: Fonte[];
   comparativo: Comparativo;
-  metaMensalCents: number;
+  /** Base do Telegram — foto do AGORA, não segue o período selecionado. */
+  users: { total: number; vips: number; expirados: number; leads: number; bloqueados: number };
+  /** Membros dos grupos, por consulta à API — existem mesmo com o bot desligado. */
+  groups: { vip: number | null; previas: number | null; checkedAt: number | null };
 };
 
 export default function FunilPage() {
   const [period, setPeriod] = useState<PeriodState>({ period: DEFAULT_PERIOD, from: "", to: "" });
-  const [profileId, setProfileId] = useState("");
+  // Modelo selecionada no menu — vale para o painel inteiro.
+  const { profileId } = useProfile();
   // Crescimento dos grupos: vem de consulta à API do Telegram, não das vendas
   // — por isso tem rota própria e não depende do período escolhido.
   const [grupos, setGrupos] = useState<GroupGrowthPoint[] | null>(null);
@@ -120,15 +125,8 @@ export default function FunilPage() {
       .then((d) => setGrupos(d.series || []))
       .catch(() => setGrupos([]));
   }, [profileId]);
-  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [data, setData] = useState<Dados | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-
-  useEffect(() => {
-    apiGet<{ profiles: Profile[] }>("/api/profiles")
-      .then((d) => setProfiles(d.profiles))
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     let cancelado = false;
@@ -165,18 +163,6 @@ export default function FunilPage() {
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 
-      <div className="mt-3 max-w-xs">
-        <label className="eyebrow mb-1.5 block">Modelo</label>
-        <select className="input" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
-          <option value="">Todos</option>
-          {profiles.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
       {erro && (
         <div className="mt-5 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-4 py-3 text-sm text-red-300">
           {erro}
@@ -200,12 +186,6 @@ export default function FunilPage() {
           </p>
         )}
       </div>
-
-      {/* Meta do mês. Só aparece quando existe meta configurada — barra de
-          progresso contra zero não diz nada. */}
-      {data && data.metaMensalCents > 0 && (
-        <BarraMeta feitoCents={data.comparativo.mes.paidCents} metaCents={data.metaMensalCents} />
-      )}
 
       {/* Comparativo de três janelas. NÃO segue o seletor de período de
           propósito: 11% hoje só significa alguma coisa ao lado do histórico. */}
@@ -261,6 +241,18 @@ export default function FunilPage() {
           hint={m ? `${m.pendingCount} gerado(s) e não pago(s)` : undefined}
           muted
         />
+      </div>
+
+      {/* Base de usuários do Telegram — a matéria-prima do topo do funil.
+          Continua contando com a automação desligada: o bot só não dispara,
+          mas segue captando. É foto do AGORA, não segue o período. */}
+      <p className="eyebrow mt-8">usuários do telegram</p>
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <UserStat label="Total" value={data?.users.total} />
+        <UserStat label="VIPs" value={data?.users.vips} tone="text-emerald-400" />
+        <UserStat label="Expirados" value={data?.users.expirados} tone="text-amber-400" />
+        <UserStat label="Leads" value={data?.users.leads} tone="text-sky-400" />
+        <UserStat label="Bloqueados" value={data?.users.bloqueados} tone="text-rose-400" />
       </div>
 
       {/* Por modelo */}
@@ -336,6 +328,34 @@ export default function FunilPage() {
       )}
 
       {/* Crescimento dos grupos do Telegram */}
+      {/* Quantos são AGORA, logo antes de "como chegaram até aqui" — o total
+          abaixo é literalmente o último ponto da série do gráfico seguinte. */}
+      <p className="eyebrow mt-8">
+        grupos do telegram
+        {data?.groups.checkedAt ? (
+          <span className="ml-2 normal-case tracking-normal text-zinc-600">
+            (verificado{" "}
+            {new Date(data.groups.checkedAt).toLocaleTimeString("pt-BR", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+            )
+          </span>
+        ) : null}
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <UserStat
+          label="Membros no VIP"
+          value={data ? (data.groups.vip ?? 0) : undefined}
+          tone="text-emerald-400"
+        />
+        <UserStat
+          label="Membros nas Prévias"
+          value={data ? (data.groups.previas ?? 0) : undefined}
+          tone="text-sky-400"
+        />
+      </div>
+
       <p className="eyebrow mt-8">crescimento dos grupos</p>
       <div className="mt-3 card p-4">
         <p className="text-xs text-zinc-500">
@@ -876,30 +896,17 @@ function CartaoTempo({ comp }: { comp?: Comparativo }) {
 
 /** Faturamento do mês contra a meta. A conta é sobre o PAGO do mês corrente,
  *  somando todos os modelos — a meta é da operação, não de um perfil. */
-function BarraMeta({ feitoCents, metaCents }: { feitoCents: number; metaCents: number }) {
-  const pctFeito = Math.round((feitoCents / metaCents) * 100);
-  const bateu = feitoCents >= metaCents;
+
+/** Número grande de uma base do Telegram (usuários ou membros de grupo). */
+function UserStat({ label, value, tone }: { label: string; value?: number; tone?: string }) {
   return (
-    <div className="mt-6 card p-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="eyebrow">meta do mês</p>
-        <p className={`font-display text-sm font-semibold ${bateu ? "text-emerald-400" : "text-zinc-300"}`}>
-          {pctFeito}%
-        </p>
-      </div>
-      <p className="mt-1 font-display text-xl font-semibold text-white">
-        {brl(feitoCents)} <span className="text-sm font-normal text-zinc-500">de {brl(metaCents)}</span>
-      </p>
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/5">
-        <div
-          className={`h-full ${bateu ? "bg-emerald-400" : "bg-emerald-500/70"}`}
-          style={{ width: `${Math.min(100, Math.max(0, pctFeito))}%` }}
-        />
-      </div>
-      <p className="mt-1.5 text-[11px] text-zinc-600">
-        {bateu ? "meta batida 🎉" : `faltam ${brl(metaCents - feitoCents)}`}
-        <span className="text-zinc-700"> · conta o pago do mês, todos os modelos</span>
-      </p>
+    <div className="card p-4">
+      <p className="eyebrow">{label}</p>
+      {value === undefined ? (
+        <div className="mt-2 h-7 w-16 animate-pulse rounded bg-white/5" />
+      ) : (
+        <p className={`mt-1 font-display text-2xl font-semibold ${tone || "text-white"}`}>{value}</p>
+      )}
     </div>
   );
 }

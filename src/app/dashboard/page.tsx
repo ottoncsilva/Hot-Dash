@@ -8,7 +8,14 @@ import type { PaymentSettingsPublic } from "@/lib/settings";
 import type { PeriodStats, QuandoRow } from "@/lib/transactions";
 import { IconSettings } from "@/components/icons";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
+import CurvaSort, {
+  ALTURA_LISTA,
+  FAIXA_ALTURA,
+  ordenarFaixas,
+  type CurvaOrdem,
+} from "@/components/CurvaSort";
 import { DEFAULT_PERIOD, type PeriodKey } from "@/lib/periods";
+import { useProfile } from "@/context/ProfileContext";
 
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -35,28 +42,25 @@ type BotOverviewData = {
   series: { day: string; cents: number }[];
   netRevenueCents: number;
   netProfitCents: number;
-  /** Base de usuários do Telegram — foto do AGORA, não muda com o período. */
-  users: { total: number; vips: number; expirados: number; leads: number; bloqueados: number };
-  /** Membros dos grupos, por consulta à API — existe mesmo com a operação do bot desligada. */
-  groups: { vip: number | null; previas: number | null; checkedAt: number | null };
+  /** Meta de faturamento do mês (Configurações → Pagamentos). Zero = sem meta. */
+  metaMensalCents: number;
+  /** Pago no mês corrente. Da operação INTEIRA — a meta não é por modelo. */
+  metaFeitoCents: number;
   byWeekday: QuandoRow[];
   byHour: QuandoRow[];
 };
 
 export default function DashboardHome() {
-  const [profiles, setProfiles] = useState<Profile[] | null>(null);
+  // A lista de modelos e a seleção vêm do menu (ProfileProvider).
+  const { profiles, profileId } = useProfile();
   const [providers, setProviders] = useState<PaymentSettingsPublic | null>(null);
   const [aiConnected, setAiConnected] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [profileId, setProfileId] = useState<string>("");
   const seenPaidRef = useRef<number | null>(null);
   const [newSale, setNewSale] = useState<{ amountCents: number; customer?: string } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    apiGet<{ profiles: Profile[] }>("/api/profiles")
-      .then((d) => setProfiles(d.profiles))
-      .catch(() => setProfiles([]));
     apiGet<{ settings: PaymentSettingsPublic }>("/api/payments/settings")
       .then((d) => {
         setProviders(d.settings);
@@ -98,8 +102,8 @@ export default function DashboardHome() {
     return () => clearInterval(t);
   }, []);
 
-  const profileCount = profiles?.length ?? null;
-  const accountCount = profiles?.reduce((n, p) => n + p.accounts.length, 0) ?? null;
+  const profileCount = profiles.length;
+  const accountCount = profiles.reduce((n, p) => n + p.accounts.length, 0);
   const anyProvider = providers?.syncpay.enabled;
 
   return (
@@ -110,7 +114,7 @@ export default function DashboardHome() {
         Resumo financeiro e operacional das suas personagens.
       </p>
 
-      {profiles !== null && aiConnected !== null && providers !== null && (
+      {aiConnected !== null && providers !== null && (
         <SetupChecklist
           profileDone={profiles.length > 0}
           aiDone={aiConnected}
@@ -152,19 +156,6 @@ export default function DashboardHome() {
           </Link>
         </div>
       )}
-
-      {/* Filtro de perfil, compartilhado com o painel abaixo */}
-      <div className="mt-5 max-w-xs">
-        <label className="eyebrow mb-1.5 block">Perfil</label>
-        <select className="input" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
-          <option value="">Todos</option>
-          {(profiles || []).map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </div>
 
       {/* Painel do Bot de Vendas — vendas, funil de conversão e faturamento por modelo */}
       <BotSalesPanel profileId={profileId} profiles={profiles} reloadKey={reloadKey} />
@@ -329,7 +320,7 @@ function BotSalesPanel({
     setError(null);
     const qs = new URLSearchParams(periodQuery(period));
     if (profileId) qs.set("profileId", profileId);
-    apiGet<BotOverviewData>(`/api/dashboard/bot-overview?${qs.toString()}&refresh=1`)
+    apiGet<BotOverviewData>(`/api/dashboard/bot-overview?${qs.toString()}`)
       .then((d) => {
         if (!cancelled) {
           setData(d);
@@ -406,6 +397,14 @@ function BotSalesPanel({
         />
       </div>
 
+      {/* Meta do mês, logo abaixo dos números de faturamento — é o que ela
+          mede. Só aparece quando existe meta configurada: barra de progresso
+          contra zero não diz nada. NÃO segue o seletor de modelo (a meta é uma
+          só da operação); por isso o rodapé diz "todos os modelos". */}
+      {data && data.metaMensalCents > 0 && (
+        <BarraMeta feitoCents={data.metaFeitoCents} metaCents={data.metaMensalCents} />
+      )}
+
       {/* Faturamento por período */}
       <div className="mt-3 card p-4">
         <p className="eyebrow">faturamento por período</p>
@@ -435,31 +434,6 @@ function BotSalesPanel({
           value={data ? brl(data.stats.avgTicketCents) : "—"}
           rows={data ? [["Vendas", String(data.stats.paidCount)], ["Receita", brl(data.stats.paidCents)]] : []}
         />
-      </div>
-
-      {/* Base de usuários do Telegram. Fica no Dashboard porque é retrato da
-          operação, não etapa de funil. Continua contando com a automação
-          desligada: o bot só não dispara, mas segue captando. */}
-      <p className="eyebrow mt-8">
-        grupos do telegram
-        {data?.groups.checkedAt ? (
-          <span className="ml-2 normal-case tracking-normal text-zinc-600">
-            (verificado {new Date(data.groups.checkedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })})
-          </span>
-        ) : null}
-      </p>
-      <div className="mt-3 grid grid-cols-2 gap-3">
-        <UserStat label="Membros no VIP" value={data ? (data.groups.vip ?? 0) : undefined} tone="text-emerald-400" />
-        <UserStat label="Membros nas Prévias" value={data ? (data.groups.previas ?? 0) : undefined} tone="text-sky-400" />
-      </div>
-
-      <p className="eyebrow mt-8">usuários do telegram</p>
-      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <UserStat label="Total" value={data?.users.total} />
-        <UserStat label="VIPs" value={data?.users.vips} tone="text-emerald-400" />
-        <UserStat label="Expirados" value={data?.users.expirados} tone="text-amber-400" />
-        <UserStat label="Leads" value={data?.users.leads} tone="text-sky-400" />
-        <UserStat label="Bloqueados" value={data?.users.bloqueados} tone="text-rose-400" />
       </div>
 
       {/* Quando o público compra — dia da semana e hora. */}
@@ -541,15 +515,37 @@ function ChartSkeleton() {
 
 /** Gráfico de linha simples (SVG), sem dependências externas. */
 /** Número da base de usuários. `undefined` = ainda carregando. */
-function UserStat({ label, value, tone }: { label: string; value?: number; tone?: string }) {
+/**
+ * Barra de progresso da meta do mês.
+ *
+ * O valor da meta vem de Configurações → Pagamentos e é UM só da operação —
+ * não existe meta por modelo. Por isso o realizado que ela compara também é da
+ * operação inteira, e a barra não muda ao filtrar por modelo.
+ */
+function BarraMeta({ feitoCents, metaCents }: { feitoCents: number; metaCents: number }) {
+  const pctFeito = Math.round((feitoCents / metaCents) * 100);
+  const bateu = feitoCents >= metaCents;
   return (
-    <div className="card p-4">
-      <p className="eyebrow">{label}</p>
-      {value === undefined ? (
-        <div className="mt-2 h-7 w-16 animate-pulse rounded bg-white/5" />
-      ) : (
-        <p className={`mt-1 font-display text-2xl font-semibold ${tone || "text-white"}`}>{value}</p>
-      )}
+    <div className="mt-3 card p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="eyebrow">meta do mês</p>
+        <p className={`font-display text-sm font-semibold ${bateu ? "text-emerald-400" : "text-zinc-300"}`}>
+          {pctFeito}%
+        </p>
+      </div>
+      <p className="mt-1 font-display text-xl font-semibold text-white">
+        {brl(feitoCents)} <span className="text-sm font-normal text-zinc-500">de {brl(metaCents)}</span>
+      </p>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/5">
+        <div
+          className={`h-full ${bateu ? "bg-emerald-400" : "bg-emerald-500/70"}`}
+          style={{ width: `${Math.min(100, Math.max(0, pctFeito))}%` }}
+        />
+      </div>
+      <p className="mt-1.5 text-[11px] text-zinc-600">
+        {bateu ? "meta batida 🎉" : `faltam ${brl(metaCents - feitoCents)}`}
+        <span className="text-zinc-700"> · conta o pago do mês, todos os modelos</span>
+      </p>
     </div>
   );
 }
@@ -566,12 +562,19 @@ function UserStat({ label, value, tone }: { label: string; value?: number; tone?
  * de número virarem curva legível de relance.
  */
 function RankingCard({ title, rows }: { title: string; rows?: QuandoRow[] }) {
+  const [ordem, setOrdem] = useState<CurvaOrdem>("cron");
   const max = rows ? Math.max(0, ...rows.map((r) => r.cents)) : 0;
   const semVenda = rows ? rows.every((r) => r.count === 0) : false;
+  // A barra continua proporcional ao MAIOR valor do conjunto, não à ordem —
+  // reordenar não pode mudar o tamanho das barras.
+  const ordenadas = rows ? ordenarFaixas(rows, ordem, (r) => r) : undefined;
   return (
     <div className="card p-4">
-      <p className="eyebrow">{title}</p>
-      {!rows ? (
+      <div className="flex items-center justify-between gap-3">
+        <p className="eyebrow">{title}</p>
+        {rows && <CurvaSort value={ordem} onChange={setOrdem} />}
+      </div>
+      {!ordenadas ? (
         <div className="mt-3 space-y-2">
           {[0, 1, 2].map((i) => (
             <div key={i} className="h-6 animate-pulse rounded bg-white/5" />
@@ -580,9 +583,16 @@ function RankingCard({ title, rows }: { title: string; rows?: QuandoRow[] }) {
       ) : semVenda ? (
         <p className="mt-3 text-xs text-zinc-600">Nenhuma venda no período.</p>
       ) : (
-        <div className="mt-3 space-y-1">
-          {rows.map((r) => (
-            <div key={r.key} className="relative overflow-hidden rounded-md px-2 py-1">
+        <div
+          className="mt-3 space-y-1 overflow-y-auto pr-1"
+          style={{ height: ALTURA_LISTA }}
+        >
+          {ordenadas.map((r) => (
+            <div
+              key={r.key}
+              className="relative flex flex-col justify-center overflow-hidden rounded-md px-2"
+              style={{ height: FAIXA_ALTURA }}
+            >
               {/* Barra ao fundo: some por completo na faixa sem venda, para o
                   vazio ficar visualmente óbvio. */}
               <span

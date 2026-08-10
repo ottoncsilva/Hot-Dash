@@ -7,7 +7,9 @@ import {
   topPlans,
   trafficSources,
 } from "@/lib/salesFunnel";
-import { getAppTimeZone, getFinanceSettings } from "@/lib/settings";
+import { userStatsAll } from "@/lib/telegramUsers";
+import { groupTotals } from "@/lib/telegramMonitor";
+import { getAppTimeZone } from "@/lib/settings";
 import { resolvePeriod } from "@/lib/periodRange";
 
 export const runtime = "nodejs";
@@ -42,9 +44,15 @@ export async function GET(req: NextRequest) {
       // Hoje/mês/total NÃO seguem o período escolhido de propósito: o valor
       // deles é justamente comparar a janela curta com a longa.
       comparativo: metricasComparadas(tz, profileId),
-      // Vai junto para a barra de meta não precisar de um segundo request — o
-      // faturamento do mês já está no `comparativo.mes`.
-      metaMensalCents: getFinanceSettings().monthlyGoalCents,
+      // Base do Telegram: quantos usuários e quantos membros nos grupos. São
+      // FOTO DO AGORA — não seguem o período, porque "quantos VIPs eu tenho"
+      // não é pergunta sobre a semana passada.
+      //
+      // Não força `runTelegramGroupMonitor` aqui de propósito: a mesma tela já
+      // chama /api/dashboard/group-growth, que força. Forçar nas duas faria
+      // duas consultas à API do Telegram por carga de página.
+      users: userStatsAll(profileId),
+      groups: groupTotals(profileId),
     });
   } catch (err) {
     return errorResponse(err);

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useProfile } from "@/context/ProfileContext";
+import { PrecisaDeModelo } from "@/components/ProfilePicker";
 import { apiGet, apiSend } from "@/lib/api";
 import { showToast } from "@/lib/toast";
 import { useConfirm } from "@/hooks/useConfirm";
@@ -92,8 +94,8 @@ const money = (cents: number) =>
 
 export default function MailingPage() {
   const { confirm, ConfirmDialog } = useConfirm();
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [profileId, setProfileId] = useState("");
+  // Modelo escolhida no menu — vale para o painel inteiro.
+  const { profileId } = useProfile();
   const [loading, setLoading] = useState(false);
 
   const [bot, setBot] = useState<{ id: string; botUsername?: string; operationActive: boolean } | null>(null);
@@ -104,12 +106,6 @@ export default function MailingPage() {
   const [editing, setEditing] = useState<Mailing | null>(null);
 
   useEffect(() => {
-    apiGet<{ profiles: Profile[] }>("/api/profiles")
-      .then((d) => {
-        setProfiles(d.profiles || []);
-        if (d.profiles?.[0]) setProfileId(d.profiles[0].id);
-      })
-      .catch(() => {});
   }, []);
 
   const load = useCallback(async () => {
@@ -147,6 +143,18 @@ export default function MailingPage() {
     return () => clearInterval(t);
   }, [hasSending, load]);
 
+  // Sem modelo escolhida no menu ("Todas"), esta tela não tem o que
+  // mostrar: bot, mailing e usuários são sempre de UMA modelo. Antes a tela
+  // escolhia a primeira sozinha; com o seletor no menu isso viraria mentira.
+  if (!profileId) {
+    return (
+      <div className="page">
+        <h1 className="font-display text-2xl font-semibold tracking-tight">Mailing</h1>
+        <PrecisaDeModelo oQue="disparar o mailing" />
+      </div>
+    );
+  }
+
   return (
     <div className="page px-1 py-2">
       {ConfirmDialog}
@@ -158,17 +166,6 @@ export default function MailingPage() {
         <p className="mt-1 text-sm text-zinc-400">
           Dispara uma mensagem para os leads do VIP, das prévias e para quem deu /start no bot.
         </p>
-      </div>
-
-      <div className="card mb-5 p-4">
-        <p className="eyebrow">Modelo</p>
-        <select value={profileId} onChange={(e) => setProfileId(e.target.value)} className="input mt-2">
-          {profiles.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
       </div>
 
       {loading && (

@@ -10,6 +10,7 @@ import GenerateScheduleModal from "@/components/schedule/GenerateScheduleModal";
 import CalendarGrid from "@/components/schedule/CalendarGrid";
 import { PushNotificationButton } from "./PushNotificationButton";
 import { useConfirm } from "@/hooks/useConfirm";
+import { useProfile } from "@/context/ProfileContext";
 import {
   IconArrowLeft,
   IconChevronRight,
@@ -156,12 +157,17 @@ function ReadyBadge({ post }: { post: ScheduledPost }) {
 }
 
 export default function SchedulePage() {
-  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [posts, setPosts] = useState<ScheduledPost[] | null>(null);
   const [nowTick, setNowTick] = useState(Date.now());
   const [view, setView] = useState<"calendar" | "list" | "queue">("calendar");
-  const [profileId, setProfileId] = useState("");
+  // Modelo vem do menu (vale para o painel inteiro).
+  const { profileId, profiles } = useProfile();
   const [networkFilter, setNetworkFilter] = useState("");
+  // Trocar de modelo invalida o filtro de rede: as contas são de cada uma.
+  // Antes isto morava no onChange do select, que agora vive no menu.
+  useEffect(() => {
+    setNetworkFilter("");
+  }, [profileId]);
   const [statusFilter, setStatusFilter] = useState("");
   const [hidePosted, setHidePosted] = useState(false);
   const [month, setMonth] = useState(() => {
@@ -191,12 +197,6 @@ export default function SchedulePage() {
   useEffect(() => {
     const t = setInterval(() => setNowTick(Date.now()), 60000);
     return () => clearInterval(t);
-  }, []);
-
-  useEffect(() => {
-    apiGet<{ profiles: Profile[] }>("/api/profiles")
-      .then((d) => setProfiles(d.profiles))
-      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -361,22 +361,7 @@ export default function SchedulePage() {
               </button>
             ))}
           </div>
-          <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-3 sm:justify-end">
-            <select
-              className="input py-2 text-sm"
-              value={profileId}
-              onChange={(e) => {
-                setProfileId(e.target.value);
-                setNetworkFilter(""); // as contas mudam de modelo p/ modelo
-              }}
-            >
-              <option value="">Todos os modelos</option>
-              {profiles.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+          <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2 sm:justify-end">
             <select
               className="input py-2 text-sm"
               value={networkFilter}

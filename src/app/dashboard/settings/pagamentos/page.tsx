@@ -207,11 +207,11 @@ export default function PaymentSettingsPage() {
       </p>
 
       {/* Meta do mês. Mora aqui porque é número financeiro, mas quem a usa é o
-          Funil — lá ela vira a barra de progresso do faturamento. */}
+          Dashboard — lá ela vira a barra de progresso do faturamento. */}
       <div className="mt-4 card p-4">
         <p className="eyebrow">meta de faturamento</p>
         <p className="mt-1 text-xs text-zinc-500">
-          Quanto você quer faturar por mês. Aparece como barra de progresso no Funil de Vendas.
+          Quanto você quer faturar por mês. Aparece como barra de progresso no Dashboard.
           Deixe em branco (ou zero) para não usar meta.
         </p>
         <div className="mt-3 flex flex-wrap items-end gap-2">

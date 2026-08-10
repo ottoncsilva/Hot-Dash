@@ -8,6 +8,8 @@ import Switch from "@/components/Switch";
 import type { Profile } from "@/lib/types";
 import { DEFAULT_CTA_BUTTONS, DEFAULT_VIP_CTA_BUTTONS, CTA_BUTTON_MAX } from "@/lib/postTypes";
 import { whatsappAccounts } from "@/lib/socialLinks";
+import { useProfile } from "@/context/ProfileContext";
+import { PrecisaDeModelo } from "@/components/ProfilePicker";
 
 const toast = {
   success: (msg: string) => showToast(msg, "success"),
@@ -42,9 +44,9 @@ type TelegramSettings = {
 
 export default function TelegramUnifiedPage() {
   const { confirm, ConfirmDialog } = useConfirm();
-  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
-  const [selectedProfileId, setSelectedProfileId] = useState("");
+  // Modelo escolhida no menu — vale para o painel inteiro.
+  const { profileId: selectedProfileId, profiles } = useProfile();
   const [loading, setLoading] = useState(false);
   
   // Estados para inserção de novo horário fixo
@@ -88,15 +90,6 @@ export default function TelegramUnifiedPage() {
     warmupMkPrompt: "",
     warmupCtaButtons: DEFAULT_CTA_BUTTONS,
   });
-
-  useEffect(() => {
-    fetch("/api/profiles").then((r) => r.json()).then((d) => {
-      if (d.profiles && d.profiles.length > 0) {
-        setProfiles(d.profiles);
-        setSelectedProfileId(d.profiles[0].id);
-      }
-    }).catch(console.error);
-  }, []);
 
   useEffect(() => {
     if (!selectedProfileId) return;
@@ -323,18 +316,27 @@ export default function TelegramUnifiedPage() {
     ? vipWaAccounts.find((a) => a.id === vipWhatsappAccountId)?.url || ""
     : vipProfile?.bioWhatsappLink || "";
 
+  // Configuração de automação é sempre de UMA modelo — com "Todas" no menu
+  // não há o que editar.
+  if (!selectedProfileId) {
+    return (
+      <div className="page">
+        <h1 className="font-display text-2xl font-semibold tracking-tight">Automação do Telegram</h1>
+        <PrecisaDeModelo oQue="configurar a automação do Telegram" />
+      </div>
+    );
+  }
+
   return (
     <div className="page pb-20 text-white">
-      <div className="mb-6 rounded-xl border border-sky-500/30 bg-sky-500/5 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
-        <div>
-          <h2 className="text-sm font-bold text-sky-400 uppercase tracking-wider">Modelo em Edição</h2>
-          <p className="text-xs text-zinc-400">Todas as configurações desta página serão aplicadas ao perfil selecionado.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <select value={selectedProfileId} onChange={(e) => setSelectedProfileId(e.target.value)} className="w-full md:w-auto min-w-[250px] rounded-lg border border-sky-500/50 bg-ink-850 px-4 py-2.5 text-base font-semibold text-white shadow-xl focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer">
-            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </div>
+      {/* A modelo é escolhida no menu; aqui só se confirma QUAL está sendo
+          editada — esta tela grava configuração, então errar de modelo é caro. */}
+      <div className="mb-6 rounded-xl border border-sky-500/30 bg-sky-500/5 p-4 shadow-lg">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-sky-400">Modelo em edição</h2>
+        <p className="mt-0.5 font-display text-lg font-semibold text-white">{vipProfile?.name}</p>
+        <p className="text-xs text-zinc-400">
+          Tudo nesta página vale para ela. Troque no seletor do menu.
+        </p>
       </div>
 
       <div className="flex flex-col gap-4 border-b border-white/[0.06] pb-6 md:flex-row md:items-center md:justify-between">

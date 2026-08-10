@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiGet, apiUpload } from "@/lib/api";
+import { apiUpload } from "@/lib/api";
 import { showToast } from "@/lib/toast";
+import { useProfile } from "@/context/ProfileContext";
 import CensorCanvas, { type CensorCanvasHandle } from "@/components/censura/CensorCanvas";
 import { CENSOR_EMOJIS } from "@/lib/censorEmojis";
 import { BODY_PARTS, BODY_PART_LABELS, DEFAULT_PART_EMOJI, type BodyPart } from "@/lib/bodyParts";
 import { type EditorObject, type EmojiObject } from "@/lib/editorObjects";
-import { type Profile } from "@/lib/types";
 import {
   IconUpload,
   IconClose,
@@ -63,15 +63,9 @@ export default function CensuraPage() {
   const [padding, setPadding] = useState(0.2);
   const [emojiScale, setEmojiScale] = useState(0.45);
 
-  // Perfis (para salvar na galeria — opcional)
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [saveProfileId, setSaveProfileId] = useState<string>("");
-
-  useEffect(() => {
-    apiGet<{ profiles: Profile[] }>("/api/profiles")
-      .then((d) => setProfiles(d.profiles || []))
-      .catch(() => setProfiles([]));
-  }, []);
+  // Modelo do menu — aqui ela é o DESTINO opcional do salvamento, não o
+  // contexto da tela: censurar e baixar funcionam sem escolher nenhuma.
+  const { profileId: saveProfileId, profile, profiles } = useProfile();
 
   // Libera os object URLs ao desmontar.
   useEffect(() => {
@@ -227,7 +221,7 @@ export default function CensuraPage() {
   /** Envia TODAS as fotos prontas para a galeria da modelo selecionada. */
   async function sendAllToGallery() {
     if (!saveProfileId) {
-      showToast("Escolha a modelo antes de enviar para a galeria.", "warning");
+      showToast("Escolha uma modelo no menu antes de enviar para a galeria.", "warning");
       return;
     }
     const targets = jobs.filter((j) => j.img && j.status === "pronto" && j.save !== "salvo");
@@ -241,7 +235,7 @@ export default function CensuraPage() {
       if (await saveJobToGallery(job)) ok++;
     }
     setSavingAll(false);
-    const modelo = profiles.find((p) => p.id === saveProfileId)?.name || "a galeria";
+    const modelo = profile?.name || "a galeria";
     if (ok === targets.length) {
       showToast(`${ok} foto(s) censurada(s) enviada(s) para ${modelo}.`, "success");
     } else {
@@ -383,21 +377,21 @@ export default function CensuraPage() {
           {profiles.length > 0 && (
             <div className="mt-4 border-t border-white/10 pt-3">
               <p className="eyebrow">Galeria da modelo</p>
-              <p className="mt-1 text-xs text-zinc-500">
-                Ao concluir, envie as fotos censuradas direto para a galeria da modelo.
-              </p>
-              <select
-                value={saveProfileId}
-                onChange={(e) => setSaveProfileId(e.target.value)}
-                className="input mt-2"
-              >
-                <option value="">— escolher modelo —</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+              {/* A modelo vem do seletor do menu. Aqui só se confirma PARA ONDE
+                  as fotos vão — errar o destino espalha material na galeria
+                  errada. Sem modelo escolhida o envio fica desabilitado, mas o
+                  resto da tela (censurar e baixar) continua funcionando. */}
+              {saveProfileId ? (
+                <p className="mt-1 text-xs text-zinc-500">
+                  Ao concluir, as fotos censuradas vão para a galeria de{" "}
+                  <b className="text-zinc-300">{profile?.name}</b>.
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-amber-400/90">
+                  Escolha uma modelo no seletor do menu para poder enviar as fotos para a
+                  galeria dela. Baixar funciona sem escolher.
+                </p>
+              )}
               <button
                 onClick={sendAllToGallery}
                 disabled={savingAll || !saveProfileId || stats.prontas === 0}

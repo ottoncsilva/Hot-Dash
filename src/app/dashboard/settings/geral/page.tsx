@@ -6,19 +6,29 @@ import { TIME_ZONES, DEFAULT_TIME_ZONE } from "@/lib/timezone";
 import { BackToSettings } from "../_shared";
 import { showToast } from "@/lib/toast";
 
-type GeneralSettings = { timeZone: string; now: string; serverUtc?: string };
+type GeneralSettings = {
+  timeZone: string;
+  now: string;
+  serverUtc?: string;
+  fixedGroupMembers: number;
+};
 
 export default function GeneralSettingsPage() {
   const [timeZone, setTimeZone] = useState(DEFAULT_TIME_ZONE);
+  // Guardado como texto para o campo poder ficar vazio enquanto se digita.
+  const [membros, setMembros] = useState("2");
   const [saved, setSaved] = useState<GeneralSettings | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savingMembros, setSavingMembros] = useState(false);
   const [ok, setOk] = useState(false);
+  const [okMembros, setOkMembros] = useState(false);
 
   useEffect(() => {
     apiGet<GeneralSettings>("/api/settings/general")
       .then((d) => {
         setSaved(d);
         setTimeZone(d.timeZone);
+        setMembros(String(d.fixedGroupMembers));
       })
       .catch(() => {});
   }, []);
@@ -36,6 +46,25 @@ export default function GeneralSettingsPage() {
     }
   }
 
+  async function saveMembros() {
+    setSavingMembros(true);
+    setOkMembros(false);
+    try {
+      const d = await apiSend<GeneralSettings>("/api/settings/general", "PATCH", {
+        fixedGroupMembers: membrosNum,
+      });
+      setSaved(d);
+      setMembros(String(d.fixedGroupMembers));
+      setOkMembros(true);
+      showToast("Salvo!");
+    } finally {
+      setSavingMembros(false);
+    }
+  }
+
+  const membrosNum = Math.round(Number(membros));
+  const membrosValido = membros.trim() !== "" && Number.isFinite(membrosNum) && membrosNum >= 0;
+  const membrosChanged = saved ? membrosValido && membrosNum !== saved.fixedGroupMembers : false;
   const changed = saved ? timeZone !== saved.timeZone : false;
   // Se o fuso escolhido não estiver na lista (veio de outro lugar), mostra junto.
   const options = TIME_ZONES.some((t) => t.id === timeZone)
@@ -46,15 +75,21 @@ export default function GeneralSettingsPage() {
     <div className="page-narrow">
       <BackToSettings />
       <p className="eyebrow mt-4">geral</p>
-      <h1 className="mt-1.5 font-display text-2xl font-semibold tracking-tight">Fuso horário</h1>
+      <h1 className="mt-1.5 font-display text-2xl font-semibold tracking-tight">Geral</h1>
       <p className="mt-2 text-sm text-zinc-500">
+        Ajustes que valem para o sistema inteiro: o fuso da operação e a contagem de
+        integrantes dos grupos do Telegram.
+      </p>
+
+      <h2 className="mt-6 font-display text-lg font-semibold tracking-tight">Fuso horário</h2>
+      <p className="mt-1.5 text-sm text-zinc-500">
         Define o que é “hoje” em todo o sistema: os totais e o gráfico de vendas do
         Dashboard, e o planejamento de horários dos posts do Telegram. O servidor roda
         em UTC — sem este ajuste, o dia virava às 21h de Brasília e as vendas da noite
         apareciam no dia seguinte.
       </p>
 
-      <div className="mt-4 card p-4">
+      <div className="mt-3 card p-4">
         <label className="eyebrow mb-1.5 block">Fuso da operação</label>
         <select
           className="input"
@@ -100,6 +135,63 @@ export default function GeneralSettingsPage() {
             {saving ? "Salvando..." : "Salvar fuso"}
           </button>
           {ok && (
+            <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
+              salvo ✓
+            </span>
+          )}
+        </div>
+      </div>
+
+      <h2 className="mt-8 font-display text-lg font-semibold tracking-tight">
+        Integrantes fixos dos grupos
+      </h2>
+      <p className="mt-1.5 text-sm text-zinc-500">
+        O Telegram conta você, o bot e os demais administradores junto com o público
+        quando informa o tamanho de um grupo. Este número é descontado de cada grupo nos
+        painéis, para os totais e os gráficos mostrarem só a audiência de verdade. O
+        padrão é 2 (você + o bot); se você tem outro administrador em todos os grupos,
+        use 3.
+      </p>
+
+      <div className="mt-3 card p-4">
+        <label className="eyebrow mb-1.5 block" htmlFor="membros-fixos">
+          Descontar por grupo
+        </label>
+        <input
+          id="membros-fixos"
+          type="number"
+          min={0}
+          max={50}
+          step={1}
+          inputMode="numeric"
+          className="input"
+          value={membros}
+          onChange={(e) => {
+            setMembros(e.target.value);
+            setOkMembros(false);
+          }}
+        />
+
+        {!membrosValido && membros.trim() !== "" && (
+          <p className="mt-2 text-[11px] text-red-400">Use um número inteiro de 0 para cima.</p>
+        )}
+
+        {membrosChanged && (
+          <p className="mt-3 text-[11px] text-amber-400">
+            O banco guarda o número cru que o Telegram respondeu — o desconto é aplicado na
+            leitura. Mudar aqui reajusta também o histórico já registrado, na hora.
+          </p>
+        )}
+
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            onClick={saveMembros}
+            disabled={savingMembros || !membrosValido}
+            className="btn-primary"
+          >
+            {savingMembros ? "Salvando..." : "Salvar desconto"}
+          </button>
+          {okMembros && (
             <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
               salvo ✓
             </span>

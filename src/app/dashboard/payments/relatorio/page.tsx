@@ -12,13 +12,21 @@ import PeriodPicker, { periodQuery, type PeriodState } from "@/components/Period
 import CurvaSort, {
   ALTURA_TABELA,
   FAIXAS_VISIVEIS,
+  ORDEM_OPCOES,
   ordenarFaixas,
   type CurvaOrdem,
 } from "@/components/CurvaSort";
 import { IconArrowLeft, IconDownload } from "@/components/icons";
 import { DEFAULT_TIME_ZONE } from "@/lib/timezone";
 
-type Data = FinanceReport & { period: PeriodKey };
+type Data = FinanceReport & {
+  period: PeriodKey;
+  /** Recorte por extenso, com as datas — o mesmo texto que vai no CSV. */
+  periodoLabel: string;
+  modelo: string;
+  timeZone: string;
+  geradoEm: number;
+};
 
 function brl(cents: number | null | undefined) {
   if (cents === null || cents === undefined) return "—";
@@ -112,7 +120,7 @@ function RelatorioFinanceiro() {
           <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight">
             Relatório financeiro
           </h1>
-          <p className="mt-2 max-w-2xl text-sm text-zinc-500">
+          <p className="mt-2 max-w-2xl text-sm text-zinc-500 print:hidden">
             PIX gerados e pagamentos recebidos no período, com as curvas por horário e por dia da
             semana.
           </p>
@@ -127,6 +135,22 @@ function RelatorioFinanceiro() {
         </div>
       </div>
 
+      {/* Identificação do documento — só no papel.
+          Na tela o período está no seletor logo abaixo e a modelo está no menu.
+          Impressa, a folha não tem nem um nem outro: sem este bloco ela não diz
+          de que recorte é, e um relatório financeiro arquivado que não se
+          identifica não serve para conferência nenhuma. */}
+      <div className="hidden print:block print-bloco mt-3 border-y border-zinc-400 py-2">
+        <dl className="grid grid-cols-3 gap-x-6 text-[9pt]">
+          <Identificacao rotulo="Modelo" valor={data?.modelo ?? "—"} />
+          <Identificacao rotulo="Período" valor={data?.periodoLabel ?? "—"} />
+          <Identificacao
+            rotulo="Emitido em"
+            valor={data ? `${dataHora(data.geradoEm, tz)} (${tz})` : "—"}
+          />
+        </dl>
+      </div>
+
       <div className="mt-5 flex flex-wrap items-end gap-4 print:hidden">
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
@@ -139,8 +163,11 @@ function RelatorioFinanceiro() {
 
       {/* Totais. Os dois blocos são recortes DIFERENTES do tempo — a nota
           explica, porque a soma de um não bate com a do outro de propósito. */}
-      <p className="eyebrow mt-8">totais do período</p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <p className="eyebrow secao mt-8">totais do período</p>
+      {/* `lg:` nunca vale no papel: a folha A4 tem ~717px úteis contra os
+          1024px do breakpoint, então os 8 totais imprimiam em 2 colunas e
+          comiam quase uma página inteira. */}
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 print:grid-cols-4 print:gap-2">
         <Total label="PIX gerados" valor={t ? String(t.gerados.count) : null} sub={t ? brl(t.gerados.cents) : ""} />
         <Total
           label="Destes, pagos"
@@ -160,22 +187,35 @@ function RelatorioFinanceiro() {
         <Total label="Ticket médio" valor={t ? brl(t.ticketMedioCents) : null} sub="por pagamento recebido" />
       </div>
 
-      <p className="mt-3 text-[11px] leading-relaxed text-zinc-600">
+      <p className="mt-3 text-[11px] leading-relaxed text-zinc-600 print:text-[8pt]">
         <b>Gerados</b> conta pelo instante da geração do PIX; <b>recebido</b>, pelo instante do
         pagamento. Um PIX gerado num dia e pago em outro aparece em dias diferentes — por isso a
         conversão é calculada só dentro da coorte dos gerados no período, e não dividindo um
         número pelo outro.
       </p>
 
-      <p className="eyebrow mt-8">por horário</p>
+      <p className="eyebrow secao mt-8">por horário</p>
       <Curva faixas={data?.byHour} rotulo="Hora" />
 
-      <p className="eyebrow mt-8">por dia da semana</p>
+      <p className="eyebrow secao mt-8">por dia da semana</p>
       <Curva faixas={data?.byWeekday} rotulo="Dia" />
 
-      <p className="eyebrow mt-8">transações ({data?.transactions.length ?? "…"})</p>
+      <p className="eyebrow secao mt-8">transações ({data?.transactions.length ?? "…"})</p>
       <div className="mt-3 card overflow-x-auto p-0">
         <table className="w-full text-left text-sm">
+          {/* Larguras fixas: sem elas o "Cliente" estica conforme o nome mais
+              longo da página e as colunas dançam de uma folha para a outra. */}
+          <colgroup>
+            <col className="w-[12%]" />
+            <col className="w-[12%]" />
+            <col className="w-[8%]" />
+            <col className="w-[24%]" />
+            <col className="w-[11%]" />
+            <col className="w-[11%]" />
+            {/* A origem ("previas-bot") não pode quebrar em duas linhas: cada
+                quebra dobra a altura da linha e estica o relatório inteiro. */}
+            <col className="w-[22%]" />
+          </colgroup>
           <thead>
             <tr className="border-b border-white/[0.06] bg-white/[0.02] font-mono text-[10px] uppercase tracking-wider text-zinc-500">
               <th className="px-3 py-2.5 font-medium">Gerado</th>
@@ -218,7 +258,9 @@ function RelatorioFinanceiro() {
                       {STATUS_LABEL[r.status] || r.status}
                     </span>
                   </td>
-                  <td className="max-w-[180px] truncate px-3 py-2 text-zinc-300">
+                  {/* No papel não há hover para ver o resto do nome: o corte
+                      vira perda de informação, então lá ele quebra a linha. */}
+                  <td className="max-w-[180px] truncate px-3 py-2 text-zinc-300 print:max-w-none print:overflow-visible print:whitespace-normal print:break-words">
                     {r.customer || "—"}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 text-right font-display font-semibold text-zinc-100">
@@ -240,6 +282,16 @@ function RelatorioFinanceiro() {
   );
 }
 
+/** Uma linha do cabeçalho impresso: rótulo em cima, valor embaixo. */
+function Identificacao({ rotulo, valor }: { rotulo: string; valor: string }) {
+  return (
+    <div>
+      <dt className="eyebrow">{rotulo}</dt>
+      <dd className="mt-0.5 font-medium">{valor}</dd>
+    </div>
+  );
+}
+
 function Total({
   label,
   valor,
@@ -254,20 +306,20 @@ function Total({
   negativo?: boolean;
 }) {
   return (
-    <div className="card p-4">
-      <p className="eyebrow">{label}</p>
+    <div className="card print-bloco p-4 print:p-2">
+      <p className="eyebrow print:text-[7pt]">{label}</p>
       {valor === null ? (
         <div className="mt-2 h-7 w-24 animate-pulse rounded bg-white/5" />
       ) : (
         <p
-          className={`mt-1.5 font-display text-2xl font-semibold ${
+          className={`mt-1.5 font-display text-2xl font-semibold print:mt-0.5 print:text-[14pt] ${
             accent ? "text-emerald-400" : negativo ? "text-amber-400/90" : "text-white"
           }`}
         >
           {valor}
         </p>
       )}
-      {sub && <p className="mt-1 text-[11px] text-zinc-600">{sub}</p>}
+      {sub && <p className="mt-1 text-[11px] text-zinc-600 print:text-[7pt]">{sub}</p>}
     </div>
   );
 }
@@ -292,6 +344,11 @@ function Curva({
       <div className="mt-3 flex items-center justify-end print:hidden">
         <CurvaSort value={ordem} onChange={setOrdem} />
       </div>
+      {/* O papel não mostra o seletor, então precisa dizer em que ordem a
+          tabela saiu — impressa fora da ordem do dia e sem aviso, ela engana. */}
+      <p className="hidden print:block text-[8pt] text-zinc-600">
+        Ordenação: {ORDEM_OPCOES.find((o) => o.value === ordem)?.label}
+      </p>
       {/* A rolagem fica no WRAPPER, não no tbody: `display:block` no tbody
           quebraria o alinhamento das colunas com o cabeçalho. O thead gruda no
           topo para o rótulo não sumir ao rolar.
@@ -331,10 +388,13 @@ function Curva({
             : ordenadas.map((f) => (
                 <tr key={f.key} className="relative">
                   <td className="relative px-3 py-2">
-                    {/* Barra pelo RECEBIDO: é o número que decide horário. */}
+                    {/* Barra pelo RECEBIDO: é o número que decide horário.
+                        No papel ela some se ficar `print:hidden` — e some junto
+                        a leitura de relance de qual faixa vende. Vira cinza
+                        claro, que é o que uma impressora reproduz bem. */}
                     <span
                       aria-hidden
-                      className="absolute inset-y-0 left-0 bg-emerald-500/[0.10] print:hidden"
+                      className="barra-curva absolute inset-y-0 left-0 bg-emerald-500/[0.10]"
                       style={{ width: maxPago > 0 ? `${(f.pagos.cents / maxPago) * 100}%` : "0%" }}
                     />
                     <span

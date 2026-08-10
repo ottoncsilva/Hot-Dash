@@ -283,11 +283,14 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Barra superior (Mobile) — hambúrguer no canto superior esquerdo +
-          A marca (logo) fica DENTRO do menu, não numa barra fixa. */}
+          A marca (logo) fica DENTRO do menu, não numa barra fixa.
+          `print:hidden` porque ao imprimir o navegador usa a largura do PAPEL
+          (~794px numa A4), abaixo do `lg`: quem vai para o papel é o layout de
+          celular, e o hambúrguer saía carimbado por cima do título. */}
       <button
         onClick={() => setMobileMenuOpen(true)}
         style={{ top: "calc(env(safe-area-inset-top) + 0.5rem)" }}
-        className="fixed left-3 z-40 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-ink-950/70 text-zinc-100 shadow-lg backdrop-blur-md transition-colors hover:bg-ink-850 lg:hidden"
+        className="fixed left-3 z-40 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-ink-950/70 text-zinc-100 shadow-lg backdrop-blur-md transition-colors hover:bg-ink-850 lg:hidden print:hidden"
         aria-label="Abrir menu"
       >
         <IconMenu size={22} />

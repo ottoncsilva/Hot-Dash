@@ -141,10 +141,24 @@ h3 {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* Folha do relatório.
+   Sem esta regra as margens são as que o navegador escolhe na hora — mudavam
+   de máquina para máquina e o relatório não tinha largura previsível.
+   12mm é enxuto de propósito: as tabelas têm 6 e 7 colunas e cada milímetro
+   de margem sai da largura útil delas. */
+@page {
+  size: A4 portrait;
+  margin: 12mm;
+}
+
 /* Impressão (o "Imprimir" do relatório do Financeiro).
    Em papel a interface some e sobra o conteúdo: nada de menu lateral, nada de
    fundo preto — que gastaria tinta e sairia ilegível na maioria das
-   impressoras. Texto vira preto no branco e as tabelas ganham grade. */
+   impressoras.
+   O que NÃO se faz aqui é achatar tudo em preto: o relatório vive de
+   hierarquia (rótulo, número, valor recebido), e sem ela as páginas viram um
+   muro cinzento de dígitos. As cores do tema escuro não servem no branco, então
+   abaixo elas são REMAPEADAS, não apagadas. */
 @media print {
   aside,
   nav,
@@ -153,14 +167,16 @@ h3 {
   }
   /* Zera TODO fundo antes de pintar de branco. O contêiner do layout tem
      `bg-ink-950` próprio — sem isto o papel sai preto e o texto (que vira
-     preto) some junto. */
+     preto) some junto. O que a impressão quiser pintar volta mais abaixo,
+     com seletor de classe, que vence o `*`. */
   *,
   *::before,
   *::after {
     background-color: transparent !important;
     background-image: none !important;
     box-shadow: none !important;
-    color: #000 !important;
+    text-shadow: none !important;
+    color: #14141a !important;
   }
   html,
   body {
@@ -170,11 +186,17 @@ h3 {
      No desktop o <main> é o contêiner de rolagem (`lg:h-dvh lg:overflow-y-auto`),
      então o documento inteiro mede uma tela para o navegador: imprimir saía com
      UMA página só, o primeiro quadro, jogando fora todo o resto do relatório.
-     Em papel não existe "área que rola" — tudo tem de virar fluxo normal. */
+     Em papel não existe "área que rola" — tudo tem de virar fluxo normal.
+     Os contêineres entram junto: o card das transações tem `overflow-x-auto`, e
+     um contêiner de rolagem impede o navegador de repetir o cabeçalho da tabela
+     nas páginas seguintes. */
   html,
   body,
   main,
-  main > * {
+  main > *,
+  .card,
+  .surface,
+  .panel {
     height: auto !important;
     max-height: none !important;
     overflow: visible !important;
@@ -185,22 +207,128 @@ h3 {
   main {
     padding: 0 !important;
   }
-  .card,
-  .surface,
-  .panel {
-    border-color: #bbb !important;
+
+  /* ---- Cores no papel ----
+     Mapa do tema escuro para o branco. O `*` acima já deixou tudo quase preto;
+     estas regras devolvem os degraus que importam. Seletor de classe (0,1,0)
+     vence o universal (0,0,0), então basta existir. */
+  .text-zinc-400 {
+    color: #3f3f46 !important; /* números: escuro, mas um passo abaixo do texto */
+  }
+  .text-zinc-500,
+  .text-zinc-600,
+  .eyebrow {
+    color: #6b7280 !important; /* rótulos, notas, legendas */
+  }
+  .text-zinc-700 {
+    color: #a1a1aa !important; /* zero/ausente: some de propósito */
+  }
+  .text-emerald-400 {
+    color: #0b6b3f !important; /* recebido */
+  }
+  .text-amber-400\/90 {
+    color: #8a5300 !important; /* taxa e split: saem da conta */
+  }
+
+  /* ---- Tipografia ----
+     Papel se mede em pontos. Na tela o corpo das tabelas está em 10–11px, que
+     vira ~7,5pt impresso: miúdo demais para uma folha de conferência. */
+  body {
+    font-size: 10pt;
+  }
+  h1 {
+    font-size: 20pt !important;
+    line-height: 1.15;
   }
   table {
     border-collapse: collapse;
     width: 100%;
+    font-size: 9pt;
   }
+  thead th {
+    font-size: 7.5pt !important;
+    letter-spacing: 0.06em;
+    padding: 4pt 5pt !important;
+  }
+  tbody td {
+    font-size: 9pt !important;
+    padding: 3.5pt 5pt !important;
+  }
+  .eyebrow {
+    font-size: 8pt !important;
+  }
+
+  /* ---- Grade e faixas ----
+     A faixa do cabeçalho e o zebrado são o que faz uma tabela longa ser
+     percorrível com o dedo. `print-color-adjust: exact` é obrigatório: sem
+     ele o navegador descarta todo preenchimento na impressão. */
   th,
   td {
-    border: 1px solid #ccc !important;
+    border: 1px solid #d4d4d8 !important;
   }
-  /* Não parte uma tabela no meio de uma linha. */
-  tr,
-  .card {
+  thead th {
+    background-color: #eff0f2 !important;
+    border-bottom-color: #a1a1aa !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  tbody tr:nth-child(even) td {
+    background-color: #f4f4f5 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .card,
+  .surface,
+  .panel {
+    border-color: #d4d4d8 !important;
+  }
+  /* Barra proporcional das curvas. Em verde translúcido ela desaparece no
+     papel; em cinza claro sobrevive até em impressora comum, e é ela que
+     deixa o perfil de horário legível de relance. */
+  .barra-curva {
+    background-color: #e4e4e7 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* ---- Quebras de página ----
+     `break-inside: avoid` no `.card` era um tiro no pé: o card das transações
+     tem várias páginas, e pedir para não quebrar um bloco desse tamanho abria
+     buracos no lugar de evitá-los. Fica só onde faz sentido — a linha da
+     tabela, que não pode partir no meio, e o card pequeno de total.
+     O cabeçalho da tabela repete em toda página (`table-header-group`), senão
+     da segunda folha em diante ninguém sabe qual coluna é qual. */
+  thead {
+    display: table-header-group;
+  }
+  tr {
     break-inside: avoid;
+  }
+  .print-bloco {
+    break-inside: avoid;
+  }
+  /* Título de seção não fica órfão no pé da folha. */
+  .eyebrow,
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
+  }
+
+  /* Título de seção.
+     Na tela `.eyebrow` serve tanto para o rótulo miúdo dentro de um card
+     quanto para separar as seções da página — o tamanho dá conta porque o
+     contexto (fundo grafite, card em volta) já separa. No papel não há
+     contexto nenhum, então a seção precisa pesar. `.secao` não existe fora
+     da impressão: na tela as duas continuam idênticas. */
+  .eyebrow.secao {
+    font-size: 11pt !important;
+    font-weight: 600;
+    color: #14141a !important;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid #a1a1aa;
+    padding-bottom: 3pt;
+    margin-top: 16pt !important;
+    margin-bottom: 6pt !important;
   }
 }

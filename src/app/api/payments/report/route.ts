@@ -4,7 +4,7 @@ import { getAppTimeZone } from "@/lib/settings";
 import { getProfile } from "@/lib/profiles";
 import { buildFinanceReport } from "@/lib/financeReport";
 import { financeReportToCsv } from "@/lib/financeReportCsv";
-import { resolvePeriod } from "@/lib/periodRange";
+import { resolvePeriod, type ResolvedRange } from "@/lib/periodRange";
 import { PERIOD_OPTIONS } from "@/lib/periods";
 import { partsInTimeZone } from "@/lib/timezone";
 
@@ -32,20 +32,25 @@ export async function GET(req: NextRequest) {
 
     const report = buildFinanceReport(range.since, range.until, tz, profileId);
 
+    // Identificação do recorte: quem é a modelo e que intervalo é este.
+    // Sai daqui para os DOIS formatos — o cabeçalho do relatório impresso e o
+    // da planilha têm de contar a mesma história.
+    const perfil = profileId ? await getProfile(profileId) : null;
+    const modelo = perfil?.name || "Todas as modelos";
+    const periodoLabel = intervaloLabel(period, range, tz);
+
     if (req.nextUrl.searchParams.get("format") !== "csv") {
-      return NextResponse.json({ period, ...report });
+      return NextResponse.json({
+        period,
+        periodoLabel,
+        modelo,
+        timeZone: tz,
+        geradoEm: Date.now(),
+        ...report,
+      });
     }
 
-    const perfil = profileId ? await getProfile(profileId) : null;
-    const periodoLabel =
-      period === "custom"
-        ? `${dia(range.since, tz)} a ${dia(range.until, tz, -1)}`
-        : PERIOD_OPTIONS.find((p) => p.key === period)?.label || period;
-
-    const csv = financeReportToCsv(report, tz, {
-      periodoLabel,
-      modelo: perfil?.name || "Todos os modelos",
-    });
+    const csv = financeReportToCsv(report, tz, { periodoLabel, modelo });
 
     const p = partsInTimeZone(Date.now(), tz);
     const carimbo = `${p.year}-${d2(p.month)}-${d2(p.day)}`;
@@ -63,6 +68,28 @@ export async function GET(req: NextRequest) {
 
 function d2(n: number): string {
   return String(n).padStart(2, "0");
+}
+
+/**
+ * Rótulo do recorte, com as datas por extenso.
+ *
+ * "Últimos 7 dias" sozinho não serve num papel arquivado: daqui a três meses
+ * ninguém sabe quais 7 dias eram. Por isso o intervalo aparece sempre, e o
+ * nome do período vem junto quando existe.
+ */
+function intervaloLabel(period: string, range: ResolvedRange, tz: string): string {
+  // `until` nulo = aberto (até agora); o fim exclusivo recua um dia para o
+  // rótulo mostrar o último dia INCLUÍDO.
+  const fim = range.until === null ? dia(Date.now(), tz) : dia(range.until, tz, -1);
+  const intervalo =
+    range.since === null
+      ? `todo o histórico até ${fim}`
+      : dia(range.since, tz) === fim
+        ? fim
+        : `${dia(range.since, tz)} a ${fim}`;
+  if (period === "custom") return intervalo;
+  const nome = PERIOD_OPTIONS.find((p) => p.key === period)?.label;
+  return nome ? `${nome} (${intervalo})` : intervalo;
 }
 
 /** Dia no fuso da operação. `shiftDays` ajusta o fim exclusivo do intervalo. */

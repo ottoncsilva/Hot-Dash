@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useProfile } from "@/context/ProfileContext";
+import { PrecisaDeModelo } from "@/components/ProfilePicker";
 import { apiGet, apiSend } from "@/lib/api";
 import { showToast } from "@/lib/toast";
 import { useConfirm } from "@/hooks/useConfirm";
@@ -57,8 +59,13 @@ const PAGE_SIZE = 50;
 
 export default function TelegramUsuariosPage() {
   const { confirm, ConfirmDialog } = useConfirm();
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [profileId, setProfileId] = useState("");
+  // Modelo escolhida no menu — vale para o painel inteiro.
+  const { profileId } = useProfile();
+  // Trocar de modelo volta para a primeira página — antes isto morava no
+  // onChange do select, que agora vive no menu.
+  useEffect(() => {
+    setPage(0);
+  }, [profileId]);
   const [loading, setLoading] = useState(false);
 
   const [bot, setBot] = useState<{ id: string; botUsername?: string; operationActive: boolean } | null>(null);
@@ -73,12 +80,6 @@ export default function TelegramUsuariosPage() {
   const [dmTarget, setDmTarget] = useState<TelegramUser | null>(null);
 
   useEffect(() => {
-    apiGet<{ profiles: Profile[] }>("/api/profiles")
-      .then((d) => {
-        setProfiles(d.profiles || []);
-        if (d.profiles?.[0]) setProfileId(d.profiles[0].id);
-      })
-      .catch(() => {});
   }, []);
 
   const load = useCallback(async () => {
@@ -130,6 +131,18 @@ export default function TelegramUsuariosPage() {
 
   const pages = Math.ceil(total / PAGE_SIZE);
 
+  // Sem modelo escolhida no menu ("Todas"), esta tela não tem o que
+  // mostrar: bot, mailing e usuários são sempre de UMA modelo. Antes a tela
+  // escolhia a primeira sozinha; com o seletor no menu isso viraria mentira.
+  if (!profileId) {
+    return (
+      <div className="page">
+        <h1 className="font-display text-2xl font-semibold tracking-tight">Usuários</h1>
+        <PrecisaDeModelo oQue="ver os usuários do bot" />
+      </div>
+    );
+  }
+
   return (
     <div className="page px-1 py-2">
       {ConfirmDialog}
@@ -141,24 +154,6 @@ export default function TelegramUsuariosPage() {
         <p className="mt-1 text-sm text-zinc-400">
           Todo mundo que o bot conhece: quem deu /start e quem entrou nos grupos VIP e de prévias.
         </p>
-      </div>
-
-      <div className="card mb-5 p-4">
-        <p className="eyebrow">Modelo</p>
-        <select
-          value={profileId}
-          onChange={(e) => {
-            setProfileId(e.target.value);
-            setPage(0);
-          }}
-          className="input mt-2"
-        >
-          {profiles.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
       </div>
 
       {!bot && !loading && (

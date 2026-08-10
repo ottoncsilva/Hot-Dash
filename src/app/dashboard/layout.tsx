@@ -34,6 +34,8 @@ import {
 import CommandPalette from "@/components/CommandPalette";
 import PullToRefresh from "@/components/PullToRefresh";
 import MobileDrawer from "@/components/MobileDrawer";
+import { ProfileProvider } from "@/context/ProfileContext";
+import ProfilePicker from "@/components/ProfilePicker";
 
 const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   dashboard: IconDashboard,
@@ -75,7 +77,20 @@ const TELEGRAM_SUBSECTIONS: { label: string; href: string }[] = [
   { label: "Usuários", href: "/dashboard/telegram/usuarios" },
 ];
 
+/**
+ * O ProfileProvider envolve o layout inteiro — inclusive a sidebar, que é onde
+ * o seletor de modelo vive. Fica aqui e não no layout raiz porque /login e a
+ * home não precisam da lista de perfis.
+ */
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <ProfileProvider>
+      <DashboardChrome>{children}</DashboardChrome>
+    </ProfileProvider>
+  );
+}
+
+function DashboardChrome({ children }: { children: React.ReactNode }) {
   const { user, loading, signOut } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -129,6 +144,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <IconSearch size={16} /> Buscar
           <span className="ml-auto font-mono text-[10px] tracking-wider text-zinc-600">⌘K</span>
         </button>
+        {/* Modelo selecionada — vale para o painel inteiro, não só para a tela
+            aberta. Fica aqui, junto do Buscar, porque acompanha a navegação. */}
+        <ProfilePicker id="modelo-desktop" />
         <nav className="mt-4 flex flex-col gap-1">
           {visible.map(({ key }) => {
             const item = NAV_ITEMS[key];
@@ -290,6 +308,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <IconX size={20} />
             </button>
           </div>
+
+          <ProfilePicker id="modelo-mobile" />
 
           <nav className="mt-6 flex flex-1 flex-col gap-1.5">
             {visible.map(({ key }) => {

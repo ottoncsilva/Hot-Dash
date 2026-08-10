@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useRef } from "react";
 import { IconWhatsapp, IconSettings, IconRefresh } from "@/components/icons";
+import { useProfile } from "@/context/ProfileContext";
+import { PrecisaDeModelo } from "@/components/ProfilePicker";
 import { apiGet, apiSend } from "@/lib/api";
 import Link from "next/link";
 import { showToast } from "@/lib/toast";
@@ -12,8 +14,8 @@ type AgentSettings = { prompt: string; enable_media: boolean; enable_billing: bo
 
 export default function WhatsAppVipPage() {
   const { confirm, ConfirmDialog } = useConfirm();
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [selectedProfileId, setSelectedProfileId] = useState("");
+  // Modelo escolhida no menu — vale para o painel inteiro.
+  const { profileId: selectedProfileId, profile } = useProfile();
   const [loading, setLoading] = useState(false);
   const [savingAgent, setSavingAgent] = useState(false);
 
@@ -33,15 +35,6 @@ export default function WhatsAppVipPage() {
   });
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  useEffect(() => {
-    fetch("/api/profiles").then((r) => r.json()).then((d) => {
-      if (d.profiles && d.profiles.length > 0) {
-        setProfiles(d.profiles);
-        setSelectedProfileId(d.profiles[0].id);
-      }
-    }).catch(console.error);
-  }, []);
 
   const loadInstance = async (profileId: string) => {
     try {
@@ -138,6 +131,17 @@ export default function WhatsAppVipPage() {
     }
   };
 
+  // Conexão e agente são sempre de UMA modelo — com "Todas" no menu não há o
+  // que conectar nem configurar.
+  if (!selectedProfileId) {
+    return (
+      <div className="page">
+        <h1 className="font-display text-2xl font-semibold tracking-tight">WhatsApp</h1>
+        <PrecisaDeModelo oQue="conectar o WhatsApp e configurar a IA" />
+      </div>
+    );
+  }
+
   return (
     <div className="page text-white">
       {/* Botão para o Live Chat Global */}
@@ -147,26 +151,16 @@ export default function WhatsAppVipPage() {
         </Link>
       </div>
 
-      {/* Seletor de Modelo */}
-      <div className="mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
-        <div>
-          <h2 className="text-sm font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-2">
-            <IconWhatsapp size={16} /> WhatsApp VIP
-          </h2>
-          <p className="text-xs text-zinc-400">Gerencie a conexão e a Inteligência Artificial (Grok) de cada modelo.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <select 
-            value={selectedProfileId} 
-            onChange={(e) => setSelectedProfileId(e.target.value)} 
-            className="w-full md:w-auto min-w-[250px] rounded-lg border border-emerald-500/50 bg-ink-850 px-4 py-2.5 text-base font-semibold text-white shadow-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-          >
-            {profiles.length === 0 && <option value="">Sem perfis...</option>}
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </div>
+      {/* A modelo vem do menu; aqui só se confirma QUAL está conectada — errar
+          de modelo aqui liga o WhatsApp errado ao bot. */}
+      <div className="mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 shadow-lg">
+        <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-emerald-400">
+          <IconWhatsapp size={16} /> WhatsApp VIP
+        </h2>
+        <p className="mt-0.5 font-display text-lg font-semibold text-white">{profile?.name}</p>
+        <p className="text-xs text-zinc-400">
+          Conexão e IA desta modelo. Troque no seletor do menu.
+        </p>
       </div>
 
       {loading ? (

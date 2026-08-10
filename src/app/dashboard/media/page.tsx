@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useProfile } from "@/context/ProfileContext";
+import { PrecisaDeModelo } from "@/components/ProfilePicker";
 import { apiGet, apiSend, apiUpload } from "@/lib/api";
 import AuthImage from "@/components/AuthImage";
 import SaveMediaButton from "@/components/SaveMediaButton";
@@ -55,8 +57,8 @@ const MEDIA_GRID_COLS =
   "grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 3xl:grid-cols-8";
 
 export default function MediaPage() {
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [profileId, setProfileId] = useState<string>("");
+  // Modelo escolhida no menu — vale para o painel inteiro.
+  const { profileId, profiles, setProfileId } = useProfile();
   const [media, setMedia] = useState<MediaItem[] | null>(null);
   const [tags, setTags] = useState<Tag[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -108,19 +110,14 @@ export default function MediaPage() {
     if (profileId) handleFiles(e.dataTransfer.files);
   }
 
-  // Carrega perfis e pré-seleciona pelo ?profile= da URL.
+  // `?profile=` na URL (links de outras telas) semeia a escolha global.
   useEffect(() => {
-    apiGet<{ profiles: Profile[] }>("/api/profiles")
-      .then((d) => {
-        setProfiles(d.profiles);
-        const param = new URLSearchParams(window.location.search).get("profile");
-        const initial =
-          param && d.profiles.some((p) => p.id === param)
-            ? param
-            : d.profiles[0]?.id || "";
-        setProfileId(initial);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : "Falha."));
+    const param = new URLSearchParams(window.location.search).get("profile");
+    if (param && profiles.some((p) => p.id === param)) setProfileId(param);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profiles]);
+
+  useEffect(() => {
     apiGet<{ tags: Tag[] }>("/api/tags")
       .then((d) => setTags(d.tags))
       .catch(() => {});
@@ -553,6 +550,17 @@ export default function MediaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId]);
 
+  // A galeria é sempre de UMA modelo (as mídias pertencem a ela). Com
+  // "Todas" no menu não há biblioteca para mostrar.
+  if (!profileId) {
+    return (
+      <div className="page">
+        <h1 className="font-display text-2xl font-semibold tracking-tight">Galeria</h1>
+        <PrecisaDeModelo oQue="ver e enviar mídias" />
+      </div>
+    );
+  }
+
   return (
     <div
       className="page pb-20"
@@ -621,21 +629,8 @@ export default function MediaPage() {
         }}
       />
 
-      {/* Seletor de perfil */}
       {profiles.length > 0 && (
         <div className="mt-5 flex flex-wrap items-center gap-2">
-          <label className="eyebrow">modelo</label>
-          <select
-            className="input max-w-xs"
-            value={profileId}
-            onChange={(e) => setProfileId(e.target.value)}
-          >
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
           <div className="ml-auto flex items-center gap-3">
             {tags.length > 0 && (
               <button

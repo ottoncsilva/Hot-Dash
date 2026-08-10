@@ -124,3 +124,54 @@ h3 {
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+/* Impressão (o "Imprimir" do relatório do Financeiro).
+   Em papel a interface some e sobra o conteúdo: nada de menu lateral, nada de
+   fundo preto — que gastaria tinta e sairia ilegível na maioria das
+   impressoras. Texto vira preto no branco e as tabelas ganham grade. */
+@media print {
+  aside,
+  nav,
+  .print\:hidden {
+    display: none !important;
+  }
+  /* Zera TODO fundo antes de pintar de branco. O contêiner do layout tem
+     `bg-ink-950` próprio — sem isto o papel sai preto e o texto (que vira
+     preto) some junto. */
+  *,
+  *::before,
+  *::after {
+    background-color: transparent !important;
+    background-image: none !important;
+    box-shadow: none !important;
+    color: #000 !important;
+  }
+  html,
+  body {
+    background: #fff !important;
+  }
+  body {
+    min-height: auto;
+  }
+  main {
+    padding: 0 !important;
+  }
+  .card,
+  .surface,
+  .panel {
+    border-color: #bbb !important;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  th,
+  td {
+    border: 1px solid #ccc !important;
+  }
+  /* Não parte uma tabela no meio de uma linha. */
+  tr,
+  .card {
+    break-inside: avoid;
+  }
+}

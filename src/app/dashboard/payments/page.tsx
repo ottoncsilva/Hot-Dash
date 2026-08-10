@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { apiGet, apiSend } from "@/lib/api";
 import Modal from "@/components/Modal";
-import { IconPlus, IconSettings, IconPayments, IconCopy, IconTrash, IconEdit, IconTelegram } from "@/components/icons";
+import { IconPlus, IconSettings, IconPayments, IconCopy, IconTrash, IconEdit, IconTelegram, IconReport } from "@/components/icons";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import type { Transaction, PeriodStats } from "@/lib/transactions";
 import type { Profile } from "@/lib/types";
@@ -168,14 +168,21 @@ export default function PaymentsPage() {
             Cobranças PIX geradas e status de pagamento.
           </p>
         </div>
-        <button
-          onClick={() => setCharging(true)}
-          disabled={!anyProvider}
-          className="btn-primary"
-          title={anyProvider ? "" : "Configure um provedor primeiro"}
-        >
-          <IconPlus size={16} /> Nova cobrança
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {/* O relatório abre já no período selecionado aqui — sem obrigar a
+              escolher de novo do outro lado. */}
+          <Link href={`/dashboard/payments/relatorio?${periodQuery(period)}`} className="btn-ghost">
+            <IconReport size={16} /> Relatório
+          </Link>
+          <button
+            onClick={() => setCharging(true)}
+            disabled={!anyProvider}
+            className="btn-primary"
+            title={anyProvider ? "" : "Configure um provedor primeiro"}
+          >
+            <IconPlus size={16} /> Nova cobrança
+          </button>
+        </div>
       </div>
 
       {error && (

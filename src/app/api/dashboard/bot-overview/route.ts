@@ -5,8 +5,6 @@ import {
   revenueSeriesForRange,
   revenueByWeekdayAndHour,
 } from "@/lib/transactions";
-import { userStatsAll } from "@/lib/telegramUsers";
-import { groupTotals, runTelegramGroupMonitor } from "@/lib/telegramMonitor";
 import { salesFunnel, revenueByProfile } from "@/lib/salesFunnel";
 import { getFinanceSettings, getAppTimeZone } from "@/lib/settings";
 import { resolvePeriod } from "@/lib/periodRange";
@@ -43,18 +41,15 @@ export async function GET(req: NextRequest) {
     // Telegram. A base é uma FOTO DO AGORA — não muda com o período: "quantos
     // VIPs eu tenho" não é uma pergunta sobre a semana passada.
     const quando = revenueByWeekdayAndHour(since, until, tz, profileId);
-    const users = userStatsAll(profileId);
-    // Ao ABRIR/ATUALIZAR a tela, consulta os grupos na hora em vez de esperar o
-    // ciclo de fundo. Nunca derruba o painel: erro ou demora caem no último
-    // retrato conhecido. O polling de 20s da tela não manda `refresh`, para não
-    // martelar a API do Telegram.
-    if (req.nextUrl.searchParams.get("refresh") === "1") {
-      await runTelegramGroupMonitor({ force: true, profileId }).catch(() => {});
-    }
-    // Membros dos grupos: vêm de consulta periódica à API, então existem mesmo
-    // com a operação do bot desligada.
-    const groups = groupTotals(profileId);
     const finance = getFinanceSettings();
+
+    // Meta do mês. Note o `undefined` no lugar do profileId: a meta é UMA da
+    // operação inteira (não existe meta por modelo), então o realizado que ela
+    // mede também tem de ser da operação inteira. Filtrar por modelo aqui
+    // compararia o faturamento de uma com a meta de todas — a barra ficaria
+    // baixa sem motivo. É de propósito; não "conserte" passando profileId.
+    const mes = resolvePeriod("thisMonth", null, null, tz).range;
+    const metaFeitoCents = periodStatsInRange(mes.since, mes.until).paidCents;
     // Faturamento LÍQUIDO = soma do valor que o gateway repassa (já sem a taxa).
     // Antes este card era "lucro líquido" = faturamento - anúncios, o que
     // misturava custo de mídia com a taxa do gateway.
@@ -69,8 +64,8 @@ export async function GET(req: NextRequest) {
       series,
       netRevenueCents,
       netProfitCents,
-      users,
-      groups,
+      metaMensalCents: finance.monthlyGoalCents,
+      metaFeitoCents,
       byWeekday: quando.weekday,
       byHour: quando.hour,
     });

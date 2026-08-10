@@ -69,9 +69,25 @@ body {
       text-sm text-zinc-100 placeholder:text-zinc-600 outline-none
       transition-all focus:border-white/30 focus:bg-white/[0.07];
   }
-  select.input option {
-    @apply bg-ink-850 text-zinc-100;
-  }
+}
+
+/* Lista aberta do <select>.
+   Fica FORA do @layer components e sem depender da classe `.input` porque a
+   regra tem de valer para TODO select do painel — vários (o seletor de modelo
+   do menu, os do Telegram) têm classe própria e ficavam com a lista branca do
+   sistema, com o texto claro herdado do campo por cima: ilegível.
+   O fundo precisa ser OPACO: o campo usa branco translúcido, e o navegador
+   pinta a lista com esse mesmo fundo sobre o branco da janela. */
+select option,
+select optgroup {
+  background-color: #1e1f25; /* ink-850 */
+  color: #f4f4f5; /* zinc-100 */
+}
+select option:checked {
+  background-color: #34353e; /* ink-700 */
+}
+
+@layer components {
 
   /* Contêiner padrão do conteúdo das telas.
      Antes cada tela escolhia a sua largura máxima (768 / 896 / 1024 / 1152px) e

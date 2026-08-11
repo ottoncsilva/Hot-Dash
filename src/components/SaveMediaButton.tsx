@@ -14,10 +14,15 @@ type Props = {
 };
 
 /**
- * Botão de salvar mídia. No iPhone/iPad, usa a Web Share API para abrir a
- * folha nativa de compartilhamento — que tem "Salvar Imagem"/"Salvar Vídeo",
- * indo direto para o app Fotos (não para Arquivos). Em navegadores sem
- * suporte, cai no download comum.
+ * Botão de salvar mídia.
+ *
+ * - Celular/tablet (iOS/Android): usa a Web Share API para abrir a folha nativa
+ *   de compartilhamento — que tem "Salvar Imagem"/"Salvar Vídeo", indo direto
+ *   para o app Fotos (não para Arquivos).
+ * - Desktop: download direto. O Chrome/Edge no Windows também expõem
+ *   `navigator.share`, mas ali a folha de compartilhamento do sistema não é o
+ *   que o usuário quer — a rota já responde com `Content-Disposition:
+ *   attachment`, então um clique em <a download> baixa o arquivo na hora.
  */
 export default function SaveMediaButton({
   url,
@@ -35,10 +40,13 @@ export default function SaveMediaButton({
       canShare?: (data?: ShareData) => boolean;
       share?: (data: ShareData) => Promise<void>;
     };
-    // Sem Web Share: deixa o <a target="_blank"> abrir o arquivo em NOVA aba
-    // (o app não é substituído). No iOS, navegar a própria página para um
-    // vídeo abre o preview "abrir com…" e TRAVA o app até fechar/reabrir.
-    if (!nav.share || !nav.canShare) return;
+
+    // Desktop: baixa direto, sem folha de compartilhamento e sem nova aba.
+    if (!isMobileDevice() || !nav.share || !nav.canShare) {
+      e.preventDefault();
+      downloadDirect(url, filename);
+      return;
+    }
 
     e.preventDefault();
     setBusy(true);
@@ -80,6 +88,30 @@ export default function SaveMediaButton({
       {!iconOnly && (busy ? "Preparando..." : label)}
     </a>
   );
+}
+
+/** iPhone/iPad/Android — únicos casos em que a folha de compartilhamento nativa
+ *  é o caminho certo (salvar direto no app Fotos/Galeria). O iPad moderno se
+ *  identifica como "Macintosh", daí o teste por toque. */
+function isMobileDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  if (/Android|iPhone|iPod|iPad/i.test(ua)) return true;
+  // iPadOS em modo desktop: Mac com tela sensível ao toque não existe.
+  return /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+}
+
+/** Dispara o download nativo do navegador: a rota manda
+ *  `Content-Disposition: attachment`, então o arquivo cai direto na pasta de
+ *  downloads, sem abrir aba nem trocar a página atual. */
+function downloadDirect(url: string, filename: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 /** Abre o arquivo numa nova aba/janela — NUNCA navega a página atual, para

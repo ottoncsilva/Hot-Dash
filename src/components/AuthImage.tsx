@@ -15,6 +15,7 @@ export default function AuthImage({
   style,
   draggable,
   loading,
+  fetchPriority,
 }: {
   src: string | null;
   alt: string;
@@ -23,6 +24,9 @@ export default function AuthImage({
   style?: React.CSSProperties;
   draggable?: boolean;
   loading?: "lazy" | "eager";
+  /** Dica de prioridade para o navegador. "high" nas primeiras miniaturas faz
+   *  a primeira tela da galeria aparecer antes; o resto fica em "auto". */
+  fetchPriority?: "high" | "low" | "auto";
 }) {
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -50,6 +54,7 @@ export default function AuthImage({
       src={src}
       alt={alt}
       loading={loading}
+      fetchPriority={fetchPriority}
       decoding="async"
       className={`${className || ""} transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
       style={style}

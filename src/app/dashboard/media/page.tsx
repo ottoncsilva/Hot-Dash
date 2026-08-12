@@ -1062,8 +1062,13 @@ function MediaGrid({
 }) {
   return (
     <div className={MEDIA_GRID_COLS}>
-      {items.map((item) => {
+      {items.map((item, index) => {
         const isSelected = selected.has(item.id);
+        // A primeira tela cabe em ~12 quadros (2 colunas no celular, até 8 no
+        // desktop largo). Essas o navegador busca com prioridade e sem lazy —
+        // `loading="lazy"` atrasa justamente o que já está visível. Da 13ª em
+        // diante volta o lazy, que é o que segura o acervo inteiro.
+        const acimaDaDobra = index < 12;
         return (
           <div
             key={item.id}
@@ -1080,7 +1085,8 @@ function MediaGrid({
                 <AuthImage
                   src={mediaThumbUrl(item)}
                   alt={item.filename}
-                  loading="lazy"
+                  loading={acimaDaDobra ? "eager" : "lazy"}
+                  fetchPriority={acimaDaDobra ? "high" : "auto"}
                   className={`h-full w-full object-contain transition-opacity ${
                     isSelected ? "opacity-70" : ""
                   }`}
@@ -1091,7 +1097,8 @@ function MediaGrid({
                   <AuthImage
                     src={mediaThumbUrl(item)}
                     alt={item.filename}
-                    loading="lazy"
+                    loading={acimaDaDobra ? "eager" : "lazy"}
+                    fetchPriority={acimaDaDobra ? "high" : "auto"}
                     className={`h-full w-full object-contain transition-opacity ${
                       isSelected ? "opacity-70" : ""
                     }`}

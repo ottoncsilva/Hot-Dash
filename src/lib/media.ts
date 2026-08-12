@@ -4,7 +4,7 @@ import { extname } from "node:path";
 import { getDb } from "./db";
 import { deleteFile, fileExists, readBuffer, saveFile } from "./storage";
 import { extractVideoThumbnail } from "./metadata";
-import { getTagsForMedia } from "./tags";
+import { getTagsForMedia, getTagsByMediaForProfile } from "./tags";
 import { getMediaPostCounts } from "./mediaUsage";
 import type { MediaItem, MediaPostCounts, Tag } from "./types";
 
@@ -228,9 +228,11 @@ export function listMedia(profileId: string): MediaItem[] {
       "SELECT * FROM media WHERE profile_id = ? ORDER BY created_at DESC",
     )
     .all(profileId) as MediaRow[];
-  // Contagem de publicações do perfil inteiro em UMA consulta (não uma por item).
+  // Contagem de publicações E etiquetas do perfil inteiro em UMA consulta cada
+  // (não uma por item): é o JSON desta rota que a galeria espera para renderizar.
   const counts = getMediaPostCounts(profileId);
-  return rows.map((r) => toClient(r, getTagsForMedia(r.id), counts.get(r.id)));
+  const tags = getTagsByMediaForProfile(profileId);
+  return rows.map((r) => toClient(r, tags.get(r.id) || [], counts.get(r.id)));
 }
 
 /** Ids de mídia já usados em QUALQUER post (agendado ou postado) deste perfil. */

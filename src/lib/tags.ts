@@ -166,3 +166,32 @@ export function getTagsForMedia(mediaId: string): Tag[] {
     .all(mediaId) as TagRow[];
   return rows.map(toClient);
 }
+
+/**
+ * Etiquetas de TODAS as mídias de um perfil, em UMA consulta.
+ *
+ * A galeria montava a lista chamando `getTagsForMedia` uma vez por foto — num
+ * acervo de algumas centenas de itens era esse N+1 que segurava o JSON, e a
+ * grade só começa a renderizar depois que ele chega. O contador de publicações
+ * (`getMediaPostCounts`) já era feito assim; as etiquetas ficaram para trás.
+ */
+export function getTagsByMediaForProfile(profileId: string): Map<string, Tag[]> {
+  const rows = getDb()
+    .prepare(
+      `SELECT mt.media_id AS media_id, t.*
+         FROM tags t
+         JOIN media_tags mt ON mt.tag_id = t.id
+         JOIN media m ON m.id = mt.media_id
+        WHERE m.profile_id = ?
+        ORDER BY t.name COLLATE NOCASE`,
+    )
+    .all(profileId) as (TagRow & { media_id: string })[];
+
+  const map = new Map<string, Tag[]>();
+  for (const r of rows) {
+    const lista = map.get(r.media_id);
+    if (lista) lista.push(toClient(r));
+    else map.set(r.media_id, [toClient(r)]);
+  }
+  return map;
+}

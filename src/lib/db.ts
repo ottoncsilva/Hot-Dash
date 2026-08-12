@@ -506,6 +506,31 @@ function migrate(d: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_chat ON whatsapp_messages(chat_id);
+
+    -- Fila da geração do Método MK das Prévias. A rota só ENFILEIRA e responde;
+    -- quem gera é o tick de 1 minuto (instrumentation.ts), em lotes pequenos.
+    -- Sem isso a geração rodava dentro da requisição e estourava o maxDuration
+    -- de 300s (são ~33 chamadas de IA COM IMAGEM por dia gerado), deixando o
+    -- cronograma pela metade e sem aviso.
+    CREATE TABLE IF NOT EXISTS previas_generation_jobs (
+      id          TEXT PRIMARY KEY,
+      profile_id  TEXT NOT NULL,
+      days        INTEGER NOT NULL,
+      status      TEXT NOT NULL,   -- 'pending' | 'processing' | 'done' | 'error'
+      slots       TEXT NOT NULL,   -- JSON com o plano inteiro (sem copy)
+      total       INTEGER NOT NULL,
+      done        INTEGER NOT NULL DEFAULT 0,
+      created     INTEGER NOT NULL DEFAULT 0,
+      today       INTEGER NOT NULL DEFAULT 0,
+      error       TEXT,
+      ai_error    TEXT,
+      created_at  INTEGER NOT NULL,
+      updated_at  INTEGER NOT NULL,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_previas_jobs_status
+      ON previas_generation_jobs(status, created_at);
   `);
 
   // Migrações incrementais (adiciona colunas que ainda não existem em bancos já criados).

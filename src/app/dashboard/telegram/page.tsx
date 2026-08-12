@@ -157,9 +157,64 @@ export default function TelegramUnifiedPage() {
     }
   };
 
+  // Método MK das Prévias. A rota só ENFILEIRA e responde na hora; quem escreve
+  // a copy é o agendador do servidor, em lotes de 8 posts por minuto (a copy de
+  // um dia inteiro não cabe no tempo de uma requisição). Por isso a tela
+  // acompanha por polling em vez de esperar a resposta.
   const [generatingPrevias, setGeneratingPrevias] = useState(false);
+  const [previasJob, setPreviasJob] = useState<{
+    status: string;
+    total: number;
+    done: number;
+    created: number;
+    today: number;
+    error?: string | null;
+    aiError?: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!selectedProfileId || !generatingPrevias) return;
+    let vivo = true;
+    const consultar = async () => {
+      try {
+        const res = await fetch(
+          `/api/telegram/generate-previas?profileId=${encodeURIComponent(selectedProfileId)}`,
+        );
+        const d = await res.json();
+        if (!vivo) return;
+        const job = d.job;
+        setPreviasJob(job);
+        if (!job || job.status === "done" || job.status === "error") {
+          setGeneratingPrevias(false);
+          window.dispatchEvent(new Event("reloadTelegramCalendar"));
+          if (job?.status === "error") {
+            toast.error(job.error || "Erro ao gerar prévias.");
+          } else if (job) {
+            const hoje = job.today
+              ? ` (${job.today} ainda hoje)`
+              : " (nenhum ainda hoje — o dia já acabou)";
+            if (job.aiError) toast.error(`Parcial: ${job.aiError}`);
+            else toast.success(`${job.created} post(s) de prévias gerados${hoje}. Veja no calendário.`);
+          }
+        } else {
+          // Cada lote agenda posts novos: o calendário atualiza junto.
+          window.dispatchEvent(new Event("reloadTelegramCalendar"));
+        }
+      } catch {
+        /* tenta de novo no próximo tick */
+      }
+    };
+    void consultar();
+    const t = setInterval(consultar, 5000);
+    return () => {
+      vivo = false;
+      clearInterval(t);
+    };
+  }, [selectedProfileId, generatingPrevias]);
+
   const generatePrevias = async (daysOverride?: number) => {
     setGeneratingPrevias(true);
+    setPreviasJob(null);
     try {
       const res = await fetch("/api/telegram/generate-previas", {
         method: "POST",
@@ -168,14 +223,16 @@ export default function TelegramUnifiedPage() {
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Erro ao gerar prévias.");
-      window.dispatchEvent(new Event("reloadTelegramCalendar"));
-      const hoje = d.generatedToday ? ` (${d.generatedToday} ainda hoje)` : " (nenhum ainda hoje — o dia já acabou)";
-      if (d.aiError) toast.error(`Parcial: ${d.aiError}`);
-      else toast.success(`${d.generated} post(s) de prévias gerados${hoje}. Veja no calendário.`);
+      if (d.job?.total === 0) {
+        setGeneratingPrevias(false);
+        toast.success(d.message || "Nenhum horário livre no período.");
+        return;
+      }
+      setPreviasJob(d.job);
+      toast.success(`Programação montada: ${d.job.total} posts. Escrevendo as legendas…`);
     } catch (err: any) {
-      toast.error(err.message);
-    } finally {
       setGeneratingPrevias(false);
+      toast.error(err.message);
     }
   };
 
@@ -663,15 +720,41 @@ export default function TelegramUnifiedPage() {
                            disabled={generatingWarmup || generatingPrevias}
                            className="rounded-lg bg-orange-500/20 text-orange-300 px-3 py-1.5 text-xs font-semibold hover:bg-orange-500/30 transition-colors disabled:opacity-50"
                          >
-                           {(generatingWarmup || generatingPrevias)
-                             ? "⏳ Gerando..."
-                             : settings.warmupScheduleType === "mk"
-                               ? "✨ Gerar dias (Método MK)"
-                               : "✨ Gerar postagens com IA em massa"}
+                           {generatingPrevias && previasJob?.total
+                             ? `⏳ ${previasJob.done} de ${previasJob.total}`
+                             : (generatingWarmup || generatingPrevias)
+                               ? "⏳ Gerando..."
+                               : settings.warmupScheduleType === "mk"
+                                 ? "✨ Gerar dias (Método MK)"
+                                 : "✨ Gerar postagens com IA em massa"}
                          </button>
                        </div>
                     </div>
                  </div>
+
+                {/* Progresso da geração do Método MK. A geração roda no servidor
+                    em lotes, então continua mesmo se esta tela for fechada. */}
+                {generatingPrevias && previasJob && previasJob.total > 0 && (
+                  <div className="rounded-xl border border-orange-500/20 bg-orange-950/20 px-4 py-3">
+                    <div className="flex items-center justify-between text-xs text-orange-200">
+                      <span>Escrevendo as legendas no servidor…</span>
+                      <span className="font-mono">
+                        {previasJob.done} / {previasJob.total}
+                      </span>
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-orange-500/15">
+                      <div
+                        className="h-full rounded-full bg-orange-400 transition-all duration-500"
+                        style={{
+                          width: `${Math.round((100 * previasJob.done) / previasJob.total)}%`,
+                        }}
+                      />
+                    </div>
+                    <p className="mt-2 text-[11px] text-zinc-500">
+                      Pode fechar esta tela — a geração continua rodando.
+                    </p>
+                  </div>
+                )}
                 
                 {/* Agendamento Prévias */}
                 <div className="space-y-4 rounded-xl border border-white/[0.06] bg-zinc-950/60 p-5">

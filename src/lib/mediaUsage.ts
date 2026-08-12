@@ -115,6 +115,33 @@ export function listScheduledMediaIds(profileId: string, audience: MkAudience): 
   return new Set(rows.map((r) => r.id));
 }
 
+/**
+ * Quantas vezes cada mídia já está AGENDADA (ainda não foi ao ar) no grupo.
+ *
+ * `listScheduledMediaIds` responde "quais", esta responde "quantas vezes" — é o
+ * que a geração em lotes precisa para continuar a fila de onde parou: o
+ * histórico real (`media_post_log`) só cresce no envio, então entre um lote e
+ * outro a única memória do que já foi consumido são os próprios posts agendados.
+ */
+export function getScheduledMediaUses(
+  profileId: string,
+  audience: MkAudience,
+): Map<string, number> {
+  const types = audience === "vip" ? ["VIP"] : ["Prévias", "Aquecimento"];
+  const rows = getDb()
+    .prepare(
+      `SELECT pm.media_id AS id, COUNT(*) AS n
+         FROM post_media pm
+         JOIN posts p ON p.id = pm.post_id
+         JOIN post_networks pn ON pn.post_id = p.id AND pn.network = 'telegram'
+        WHERE p.profile_id = ? AND p.status = 'scheduled'
+          AND pn.post_type IN (${types.map(() => "?").join(", ")})
+        GROUP BY pm.media_id`,
+    )
+    .all(profileId, ...types) as { id: string; n: number }[];
+  return new Map(rows.map((r) => [r.id, r.n]));
+}
+
 /** Contagem e último envio de uma mídia no grupo pedido. */
 function statsFor(counts: Map<string, MediaPostCounts>, id: string, audience: MkAudience) {
   const c = counts.get(id);
@@ -126,18 +153,32 @@ function statsFor(counts: Map<string, MediaPostCounts>, id: string, audience: Mk
 
 /**
  * Ordena as mídias candidatas na ordem em que o Método MK deve consumi-las.
+ *
+ * A RECÊNCIA subiu para 2º critério (antes era o 3º, atrás de "há mais tempo sem
+ * sair"). O objetivo é o conteúdo novo furar a fila: entre duas mídias já
+ * postadas o mesmo número de vezes, sai primeiro a que entrou na galeria mais
+ * recentemente. Material novo é o que reduz repetição e desperta interesse; a
+ * data do último envio vira só desempate.
+ *
+ * `extraUses` soma usos que ainda NÃO estão no banco — os que a própria geração
+ * acabou de agendar (ver createMediaQueue). Sem isso a segunda volta da fila
+ * repetia exatamente a ordem da primeira.
  */
 export function sortCandidates(
   pool: MediaItem[],
   counts: Map<string, MediaPostCounts>,
   audience: MkAudience,
+  extraUses?: Map<string, number>,
 ): MediaItem[] {
+  const usos = (id: string) => statsFor(counts, id, audience).times + (extraUses?.get(id) ?? 0);
   return [...pool].sort((a, b) => {
+    const ua = usos(a.id);
+    const ub = usos(b.id);
+    if (ua !== ub) return ua - ub; // menos postada primeiro
+    if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt; // mais nova primeiro
     const sa = statsFor(counts, a.id, audience);
     const sb = statsFor(counts, b.id, audience);
-    if (sa.times !== sb.times) return sa.times - sb.times; // menos postada primeiro
-    if (sa.times > 0 && sa.lastAt !== sb.lastAt) return sa.lastAt - sb.lastAt; // há mais tempo sem sair
-    return b.createdAt - a.createdAt; // inserida mais recentemente
+    return sa.lastAt - sb.lastAt; // desempate: há mais tempo sem sair
   });
 }
 
@@ -147,6 +188,12 @@ export function sortCandidates(
  * recomeça a rodada em vez de devolver nada — antes disso o post ia ao ar sem
  * foto assim que o material inédito terminava.
  *
+ * A cada VOLTA a ordem é recalculada contando os usos desta própria execução.
+ * Antes a fila reciclava com uma cópia da lista original, então a 2ª volta
+ * repetia a 1ª na mesma sequência: numa geração de vários dias (~14 fotos/dia)
+ * as repetições saíam agrupadas, sempre nas mesmas posições do dia. Agora quem
+ * já saiu nesta geração vai para o fim, e o conteúdo novo continua na frente.
+ *
  * Um pedido de vídeo cai para foto quando não há vídeo nenhum no acervo, que é
  * o comportamento que os geradores já tinham.
  */
@@ -154,22 +201,34 @@ export function createMediaQueue(
   pool: MediaItem[],
   counts: Map<string, MediaPostCounts>,
   audience: MkAudience,
+  seedUses?: Map<string, number>,
 ) {
-  const photos = sortCandidates(pool.filter((m) => m.kind === "image"), counts, audience);
-  const videos = sortCandidates(pool.filter((m) => m.kind === "video"), counts, audience);
-  let photoQueue = [...photos];
-  let videoQueue = [...videos];
+  const allPhotos = pool.filter((m) => m.kind === "image");
+  const allVideos = pool.filter((m) => m.kind === "video");
+  // Usos desta execução, ainda não gravados em media_post_log. `seedUses` traz
+  // os de lotes ANTERIORES da mesma geração — a geração roda em vários ticks do
+  // agendador, e sem isso cada lote recomeçaria a fila do zero e as primeiras
+  // mídias da ordem sairiam de novo a cada lote.
+  const uses = new Map<string, number>(seedUses);
+  let photoQueue = sortCandidates(allPhotos, counts, audience, uses);
+  let videoQueue = sortCandidates(allVideos, counts, audience, uses);
+
+  function consume(item: MediaItem | null): MediaItem | null {
+    if (item) uses.set(item.id, (uses.get(item.id) ?? 0) + 1);
+    return item;
+  }
 
   function takePhoto(): MediaItem | null {
-    if (photoQueue.length === 0) photoQueue = [...photos];
-    return photoQueue.shift() || null;
+    if (photoQueue.length === 0) photoQueue = sortCandidates(allPhotos, counts, audience, uses);
+    return consume(photoQueue.shift() || null);
   }
 
   return {
     take(kind: "photo" | "video"): MediaItem | null {
       if (kind === "video") {
-        if (videoQueue.length === 0) videoQueue = [...videos];
-        return videoQueue.shift() || takePhoto();
+        if (videoQueue.length === 0) videoQueue = sortCandidates(allVideos, counts, audience, uses);
+        const next = videoQueue.shift();
+        return next ? consume(next) : takePhoto();
       }
       return takePhoto();
     },

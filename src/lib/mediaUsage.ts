@@ -49,12 +49,20 @@ export function logMediaPosted(
   const now = Date.now();
   const run = db.transaction((list: string[]) => {
     for (const mediaId of list) {
-      // Id DETERMINÍSTICO por (post, mídia, grupo) — o mesmo que o backfill da
-      // migração calcula. É o que faz o backfill reconhecer este envio e não
-      // somar uma segunda linha a cada reinício do servidor; com id aleatório,
-      // a contagem da galeria dobrava a cada boot.
+      // Id por ENVIO: (post, mídia, grupo, instante). O instante é o que estava
+      // faltando — sem ele o id era só (post, mídia, grupo) e o `INSERT OR
+      // IGNORE` engolia em silêncio o SEGUNDO envio do mesmo post.
+      //
+      // Isso acontece de verdade: o calendário do Telegram tem o botão de
+      // marcar/desmarcar como postado (togglePostedStatus), e voltar um post
+      // publicado para "agendado" faz o autopost enviá-lo de novo. A foto saía
+      // duas vezes no grupo e a galeria continuava mostrando ×1.
+      //
+      // O backfill da migração continua enxergando este envio pela guarda de
+      // NOT EXISTS (post_id + media_id + audience), então ele não duplica nada
+      // — que era o motivo de o id ser determinístico em primeiro lugar.
       stmt.run(
-        postId ? `${postId}:${mediaId}:${audience}` : randomUUID(),
+        postId ? `${postId}:${mediaId}:${audience}:${now}` : randomUUID(),
         mediaId,
         profileId,
         audience,

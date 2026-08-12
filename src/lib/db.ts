@@ -788,21 +788,33 @@ function backfillTelegramUsers(d: Database.Database) {
  * inflar a contagem. "Aquecimento" é o rótulo legado de "Prévias".
  */
 function backfillMediaPostLog(d: Database.Database) {
-  // 1) Conserta o que a primeira versão desta migração duplicou. Lá o registro
-  //    do envio usava id aleatório e o do backfill, id determinístico: o
-  //    `INSERT OR IGNORE` não reconhecia que era o MESMO envio e somava uma
-  //    linha a cada reinício do servidor, inflando a contagem da galeria.
-  //    Uma linha por (post, mídia, grupo) é o certo — o mesmo post não sai
-  //    duas vezes no mesmo grupo. Mantém a mais antiga (a do envio real, com
-  //    o instante correto).
-  d.prepare(
-    `DELETE FROM media_post_log
-      WHERE post_id IS NOT NULL
-        AND rowid NOT IN (
-          SELECT MIN(rowid) FROM media_post_log
-           WHERE post_id IS NOT NULL
-           GROUP BY post_id, media_id, audience)`,
-  ).run();
+  // 1) Conserta, UMA ÚNICA VEZ, o que a primeira versão desta migração
+  //    duplicou. Lá o registro do envio usava id aleatório e o do backfill, id
+  //    determinístico: o `INSERT OR IGNORE` não reconhecia que era o MESMO
+  //    envio e somava uma linha a cada reinício do servidor.
+  //
+  //    A limpeza PRECISA ser única. Ela colapsa tudo em uma linha por (post,
+  //    mídia, grupo), o que era verdade quando um post só podia sair uma vez —
+  //    mas não é: o calendário permite voltar um post publicado para
+  //    "agendado" e o autopost o envia de novo. Rodando em todo boot, esta
+  //    limpeza apagava justamente esses re-envios legítimos e a galeria voltava
+  //    a mostrar ×1 para uma foto que já tinha saído várias vezes.
+  const jaLimpou = d
+    .prepare("SELECT value FROM settings WHERE key = 'media_post_log_dedup_v1'")
+    .get() as { value: string } | undefined;
+  if (!jaLimpou) {
+    d.prepare(
+      `DELETE FROM media_post_log
+        WHERE post_id IS NOT NULL
+          AND rowid NOT IN (
+            SELECT MIN(rowid) FROM media_post_log
+             WHERE post_id IS NOT NULL
+             GROUP BY post_id, media_id, audience)`,
+    ).run();
+    d.prepare(
+      "INSERT OR REPLACE INTO settings (key, value) VALUES ('media_post_log_dedup_v1', ?)",
+    ).run(String(Date.now()));
+  }
 
   // 2) Reconstrói o histórico dos posts já publicados. `sort_order = 0` porque
   //    é só a primeira mídia que o autopost envia — contar as outras inflaria

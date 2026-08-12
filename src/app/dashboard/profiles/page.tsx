@@ -126,9 +126,7 @@ export default function ProfilesPage() {
   return (
     <div className="page">
       <PageHeader
-        eyebrow="gestão"
         title="Modelos"
-        description="Suas personagens de IA e as contas de cada uma."
         actions={
           <button onClick={() => setCreating(true)} className="btn-primary">
             <IconPlus size={16} />
@@ -145,9 +143,11 @@ export default function ProfilesPage() {
 
       {profiles === null ? (
         <>
-          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="card h-[76px] animate-pulse" />
+          {/* Esqueleto na mesma forma dos tiles reais, senão a tela dá um salto
+              de altura quando os dados chegam. */}
+          <div className="mt-6 grid grid-cols-3 gap-2 lg:grid-cols-6 lg:gap-3">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="card h-[52px] animate-pulse" />
             ))}
           </div>
           <div className="mt-3 card h-64 animate-pulse" />
@@ -170,8 +170,11 @@ export default function ProfilesPage() {
         </div>
       ) : (
         <>
-          {/* Tiles de resumo */}
-          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {/* Tiles de resumo. Com "Total" + os status são 6 quadros: 3 colunas
+              no celular (2 linhas) e todos numa linha só a partir do desktop.
+              Antes eram 2 colunas no celular, o que dava 3 linhas altas e
+              empurrava a lista de modelos para fora da primeira tela. */}
+          <div className="mt-6 grid grid-cols-3 gap-2 lg:grid-cols-6 lg:gap-3">
             <StatTile label="Total" value={profiles.length} />
             {statuses.map((s) => (
               <StatTile key={s.id} label={s.name} value={statusCounts.get(s.id) || 0} />
@@ -357,11 +360,17 @@ export default function ProfilesPage() {
   );
 }
 
+/** Quadro de contagem. Compacto de propósito: são seis deles em cima da tela e
+ *  o que interessa é o número — o rótulo pode ser miúdo. `truncate` porque os
+ *  status são cadastrados pelo usuário e um nome longo ("LTV terceiros") não
+ *  pode quebrar o quadro em três linhas. */
 function StatTile({ label, value }: { label: string; value: number }) {
   return (
-    <div className="card p-4">
-      <p className="eyebrow">{label}</p>
-      <p className="mt-2 font-display text-xl font-semibold text-white">{value}</p>
+    <div className="card px-3 py-2.5">
+      <p className="eyebrow truncate text-[10px]" title={label}>
+        {label}
+      </p>
+      <p className="mt-1 font-display text-lg font-semibold leading-none text-white">{value}</p>
     </div>
   );
 }

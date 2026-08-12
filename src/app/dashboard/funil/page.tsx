@@ -5,6 +5,7 @@ import Link from "next/link";
 import { apiGet } from "@/lib/api";
 import type { Profile } from "@/lib/types";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
+import PageHeader from "@/components/PageHeader";
 import { DEFAULT_PERIOD } from "@/lib/periods";
 import { useProfile } from "@/context/ProfileContext";
 
@@ -152,12 +153,7 @@ export default function FunilPage() {
 
   return (
     <div className="page">
-      <p className="eyebrow">funil de vendas</p>
-      <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight">Funil de Vendas</h1>
-      <p className="mt-2 max-w-2xl text-sm text-zinc-500">
-        A jornada do lead até a compra, por modelo: quem deu /start no bot, quantos pediram o PIX e
-        quantos pagaram.
-      </p>
+      <PageHeader title="Funil de Vendas" />
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <PeriodPicker value={period} onChange={setPeriod} />

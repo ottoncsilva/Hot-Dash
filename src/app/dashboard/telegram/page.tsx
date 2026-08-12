@@ -10,6 +10,7 @@ import { DEFAULT_CTA_BUTTONS, DEFAULT_VIP_CTA_BUTTONS, CTA_BUTTON_MAX } from "@/
 import { whatsappAccounts } from "@/lib/socialLinks";
 import { useProfile } from "@/context/ProfileContext";
 import { PrecisaDeModelo } from "@/components/ProfilePicker";
+import PageHeader from "@/components/PageHeader";
 
 const toast = {
   success: (msg: string) => showToast(msg, "success"),
@@ -378,7 +379,7 @@ export default function TelegramUnifiedPage() {
   if (!selectedProfileId) {
     return (
       <div className="page">
-        <h1 className="font-display text-2xl font-semibold tracking-tight">Automação do Telegram</h1>
+        <PageHeader title="Automação do Telegram" />
         <PrecisaDeModelo oQue="configurar a automação do Telegram" />
       </div>
     );
@@ -386,21 +387,19 @@ export default function TelegramUnifiedPage() {
 
   return (
     <div className="page pb-20 text-white">
+      <PageHeader
+        title="Automação do Telegram"
+        description="Configure o Bot, as legendas geradas pela inteligência artificial (Grok) e o cronograma."
+      />
+
       {/* A modelo é escolhida no menu; aqui só se confirma QUAL está sendo
           editada — esta tela grava configuração, então errar de modelo é caro. */}
-      <div className="mb-6 rounded-xl border border-sky-500/30 bg-sky-500/5 p-4 shadow-lg">
+      <div className="mb-6 mt-6 rounded-xl border border-sky-500/30 bg-sky-500/5 p-4 shadow-lg">
         <h2 className="text-sm font-bold uppercase tracking-wider text-sky-400">Modelo em edição</h2>
         <p className="mt-0.5 font-display text-lg font-semibold text-white">{vipProfile?.name}</p>
         <p className="text-xs text-zinc-400">
           Tudo nesta página vale para ela. Troque no seletor do menu.
         </p>
-      </div>
-
-      <div className="flex flex-col gap-4 border-b border-white/[0.06] pb-6 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white/90">Automação do Telegram</h1>
-          <p className="text-sm text-zinc-400">Configure o Bot, as legendas geradas pela inteligência artificial (Grok) e o cronograma.</p>
-        </div>
       </div>
 
       {loading ? (

@@ -139,8 +139,9 @@ export default function LiveChatPage() {
 
   return (
     <div className="flex h-dvh flex-col bg-ink-950 text-zinc-100 overflow-hidden font-sans">
-      {/* Top Navigation Bar */}
-      <div className="flex items-center gap-4 border-b border-white/[0.04] bg-ink-900/80 backdrop-blur-md px-6 py-4 shadow-sm z-10">
+      {/* Barra superior. `pl-20` no celular porque o botão de menu do painel é
+          flutuante e cairia bem em cima do voltar; no desktop não existe. */}
+      <div className="z-10 flex items-center gap-4 border-b border-white/[0.04] bg-ink-900/80 py-4 pl-20 pr-6 shadow-sm backdrop-blur-md lg:px-6">
         <Link href="/dashboard/whatsapp" className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors">
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/[0.03] hover:bg-white/[0.08] transition-colors">
             <IconArrowLeft size={16} />

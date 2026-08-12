@@ -10,6 +10,7 @@ import type { Transaction, PeriodStats } from "@/lib/transactions";
 import type { Profile } from "@/lib/types";
 import { DEFAULT_TIME_ZONE } from "@/lib/timezone";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
+import PageHeader from "@/components/PageHeader";
 import { DEFAULT_PERIOD, PERIOD_OPTIONS } from "@/lib/periods";
 import { showToast } from "@/lib/toast";
 
@@ -160,30 +161,26 @@ export default function PaymentsPage() {
 
   return (
     <div className="page">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="eyebrow">financeiro</p>
-          <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight">Financeiro</h1>
-          <p className="mt-2 text-sm text-zinc-500">
-            Cobranças PIX geradas e status de pagamento.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {/* O relatório abre já no período selecionado aqui — sem obrigar a
-              escolher de novo do outro lado. */}
-          <Link href={`/dashboard/payments/relatorio?${periodQuery(period)}`} className="btn-ghost">
-            <IconReport size={16} /> Relatório
-          </Link>
-          <button
-            onClick={() => setCharging(true)}
-            disabled={!anyProvider}
-            className="btn-primary"
-            title={anyProvider ? "" : "Configure um provedor primeiro"}
-          >
-            <IconPlus size={16} /> Nova cobrança
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Financeiro"
+        actions={
+          <>
+            {/* O relatório abre já no período selecionado aqui — sem obrigar a
+                escolher de novo do outro lado. */}
+            <Link href={`/dashboard/payments/relatorio?${periodQuery(period)}`} className="btn-ghost">
+              <IconReport size={16} /> Relatório
+            </Link>
+            <button
+              onClick={() => setCharging(true)}
+              disabled={!anyProvider}
+              className="btn-primary"
+              title={anyProvider ? "" : "Configure um provedor primeiro"}
+            >
+              <IconPlus size={16} /> Nova cobrança
+            </button>
+          </>
+        }
+      />
 
       {error && (
         <div className="mt-5 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-4 py-3 text-sm text-red-300">

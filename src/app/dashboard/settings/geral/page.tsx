@@ -74,8 +74,7 @@ export default function GeneralSettingsPage() {
   return (
     <div className="page-narrow">
       <BackToSettings />
-      <p className="eyebrow mt-4">geral</p>
-      <h1 className="mt-1.5 font-display text-2xl font-semibold tracking-tight">Geral</h1>
+      <h1 className="mt-4 font-display text-2xl font-semibold tracking-tight">Geral</h1>
       <p className="mt-2 text-sm text-zinc-500">
         Ajustes que valem para o sistema inteiro: o fuso da operação e a contagem de
         integrantes dos grupos do Telegram.

@@ -8,6 +8,7 @@ import { apiGet, apiSend } from "@/lib/api";
 import Link from "next/link";
 import { showToast } from "@/lib/toast";
 import { useConfirm } from "@/hooks/useConfirm";
+import PageHeader from "@/components/PageHeader";
 
 type Profile = { id: string; name: string };
 type AgentSettings = { prompt: string; enable_media: boolean; enable_billing: boolean; ai_provider: string; pix_key: string };
@@ -136,7 +137,7 @@ export default function WhatsAppVipPage() {
   if (!selectedProfileId) {
     return (
       <div className="page">
-        <h1 className="font-display text-2xl font-semibold tracking-tight">WhatsApp</h1>
+        <PageHeader title="WhatsApp" />
         <PrecisaDeModelo oQue="conectar o WhatsApp e configurar a IA" />
       </div>
     );
@@ -144,12 +145,17 @@ export default function WhatsAppVipPage() {
 
   return (
     <div className="page text-white">
-      {/* Botão para o Live Chat Global */}
-      <div className="mb-6 flex justify-end">
-        <Link href="/dashboard/whatsapp/chat" className="flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-white shadow-lg hover:bg-emerald-400 transition-colors">
-          <IconWhatsapp size={18} /> Abrir Chat ao Vivo
-        </Link>
-      </div>
+      {/* A tela não tinha título nenhum: começava direto no botão do chat, e no
+          celular não dava para saber em que módulo se estava. */}
+      <PageHeader
+        title="WhatsApp"
+        actions={
+          <Link href="/dashboard/whatsapp/chat" className="flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-white shadow-lg transition-colors hover:bg-emerald-400">
+            <IconWhatsapp size={18} /> Abrir Chat ao Vivo
+          </Link>
+        }
+      />
+      <div className="mb-6" />
 
       {/* A modelo vem do menu; aqui só se confirma QUAL está conectada — errar
           de modelo aqui liga o WhatsApp errado ao bot. */}

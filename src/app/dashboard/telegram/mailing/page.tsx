@@ -8,6 +8,7 @@ import { showToast } from "@/lib/toast";
 import { useConfirm } from "@/hooks/useConfirm";
 import type { Profile } from "@/lib/types";
 import { IconSend, IconClose, IconPlus, IconTrash } from "@/components/icons";
+import PageHeader from "@/components/PageHeader";
 
 // ---- Tipos (espelham telegramMailing.ts / telegramUsers.ts) ----
 type Audience =
@@ -149,7 +150,7 @@ export default function MailingPage() {
   if (!profileId) {
     return (
       <div className="page">
-        <h1 className="font-display text-2xl font-semibold tracking-tight">Mailing</h1>
+        <PageHeader title="Mailing" />
         <PrecisaDeModelo oQue="disparar o mailing" />
       </div>
     );
@@ -158,15 +159,15 @@ export default function MailingPage() {
   return (
     <div className="page px-1 py-2">
       {ConfirmDialog}
-      <div className="mb-5">
-        <p className="eyebrow">telegram · mailing</p>
-        <h1 className="mt-1 flex items-center gap-2 font-display text-2xl font-semibold">
-          <IconSend size={22} /> Mailing
-        </h1>
-        <p className="mt-1 text-sm text-zinc-400">
-          Dispara uma mensagem para os leads do VIP, das prévias e para quem deu /start no bot.
-        </p>
-      </div>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2">
+            <IconSend size={22} /> Mailing
+          </span>
+        }
+        description="Dispara uma mensagem para os leads do VIP, das prévias e para quem deu /start no bot."
+      />
+      <div className="mb-5" />
 
       {loading && (
         <div className="grid place-items-center py-10">

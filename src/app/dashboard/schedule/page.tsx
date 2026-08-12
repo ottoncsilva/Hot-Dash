@@ -35,6 +35,7 @@ import {
   type PostNetwork,
   type ScheduledPost,
 } from "@/lib/postTypes";
+import PageHeader from "@/components/PageHeader";
 
 const WEEKDAYS = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 
@@ -308,35 +309,29 @@ export default function SchedulePage() {
 
   return (
     <div className="page">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="eyebrow">planejamento</p>
-          <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight">
-            Cronograma
-          </h1>
-          <p className="mt-2 text-sm text-zinc-500">
-            Planeje as postagens de cada personagem — a publicação é feita
-            manualmente no celular de cada perfil.
-          </p>
-          <div className="mt-3">
-            <PushNotificationButton />
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button onClick={() => setTemplateOpen(true)} className="btn-ghost">
-            <IconCalendar size={16} /> Programa
-          </button>
-          <button
-            onClick={() => setGenerateOpen(true)}
-            className="btn-ghost"
-            disabled={profiles.length === 0}
-          >
-            <IconSparkle size={16} /> Gerar com IA
-          </button>
-          <button onClick={() => openNew()} className="btn-primary" disabled={profiles.length === 0}>
-            <IconPlus size={16} /> Novo post
-          </button>
-        </div>
+      <PageHeader
+        title="Cronograma"
+        description="Planeje as postagens de cada personagem — a publicação é feita manualmente no celular de cada perfil."
+        actions={
+          <>
+            <button onClick={() => setTemplateOpen(true)} className="btn-ghost">
+              <IconCalendar size={16} /> Programa
+            </button>
+            <button
+              onClick={() => setGenerateOpen(true)}
+              className="btn-ghost"
+              disabled={profiles.length === 0}
+            >
+              <IconSparkle size={16} /> Gerar com IA
+            </button>
+            <button onClick={() => openNew()} className="btn-primary" disabled={profiles.length === 0}>
+              <IconPlus size={16} /> Novo post
+            </button>
+          </>
+        }
+      />
+      <div className="mt-3">
+        <PushNotificationButton />
       </div>
 
       {/* Filtros + abas */}

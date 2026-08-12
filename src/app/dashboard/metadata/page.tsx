@@ -7,6 +7,7 @@ import {
   IconClose,
   IconSparkle,
 } from "@/components/icons";
+import PageHeader from "@/components/PageHeader";
 
 type Status = "pendente" | "processando" | "pronto" | "erro";
 
@@ -136,15 +137,16 @@ export default function MetadataPage() {
 
   return (
     <div className="page-narrow">
-      <p className="eyebrow">ferramenta</p>
-      <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight">
-        Limpar Metadados
-      </h1>
-      <p className="mt-2 text-sm text-zinc-500">
-        Remove EXIF, GPS, data, câmera e rastros de software (IA) de fotos e
-        vídeos. Processado na hora —{" "}
-        <span className="text-zinc-300">nada é armazenado</span>.
-      </p>
+      <PageHeader
+        title="Limpar Metadados"
+        description={
+          <>
+            Remove EXIF, GPS, data, câmera e rastros de software (IA) de fotos e
+            vídeos. Processado na hora —{" "}
+            <span className="text-zinc-300">nada é armazenado</span>.
+          </>
+        }
+      />
 
       {/* Zona de upload */}
       <div

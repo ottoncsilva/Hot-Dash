@@ -94,8 +94,7 @@ export default function ProfileStatusSettingsPage() {
   return (
     <div className="page-narrow">
       <BackToSettings />
-      <p className="eyebrow mt-4">organização</p>
-      <h1 className="mt-1.5 flex items-center gap-2 font-display text-2xl font-semibold tracking-tight">
+      <h1 className="mt-4 flex items-center gap-2 font-display text-2xl font-semibold tracking-tight">
         <IconDot size={20} /> Status de modelos
       </h1>
       <p className="mt-2 text-sm text-zinc-500">

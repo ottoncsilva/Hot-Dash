@@ -17,6 +17,7 @@ import {
   IconLock,
   IconCheck,
 } from "@/components/icons";
+import PageHeader from "@/components/PageHeader";
 
 const MAX_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? "200");
 const MAX_DIM = 2000;
@@ -253,13 +254,14 @@ export default function CensuraPage() {
   return (
     <div className="page px-4 py-6">
       <div className="mb-5">
-        <p className="eyebrow">ferramentas · IA</p>
-        <h1 className="mt-1 flex items-center gap-2 font-display text-2xl font-semibold">
-          <IconBlur size={22} /> Censura de imagem com IA
-        </h1>
-        <p className="mt-1 text-sm text-zinc-400">
-          Detecta partes explícitas e cobre com emoji automaticamente. Ajuste à mão e baixe.
-        </p>
+        <PageHeader
+          title={
+            <span className="flex items-center gap-2">
+              <IconBlur size={22} /> Censura de imagem com IA
+            </span>
+          }
+          description="Detecta partes explícitas e cobre com emoji automaticamente. Ajuste à mão e baixe."
+        />
       </div>
 
       {/* Cards de status */}

@@ -71,8 +71,7 @@ export default function NotificationsSettingsPage() {
   return (
     <div className="page-narrow">
       <BackToSettings />
-      <p className="eyebrow mt-4">notificações</p>
-      <h1 className="mt-1.5 font-display text-2xl font-semibold tracking-tight">
+      <h1 className="mt-4 font-display text-2xl font-semibold tracking-tight">
         Alertas no celular
       </h1>
       <p className="mt-2 text-sm text-zinc-500">

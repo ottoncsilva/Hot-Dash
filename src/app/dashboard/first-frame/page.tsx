@@ -25,6 +25,7 @@ import {
   IconLock,
   IconCheck,
 } from "@/components/icons";
+import PageHeader from "@/components/PageHeader";
 
 /** Passos de navegação (não é o fps real do arquivo — só o tamanho do pulo). */
 const FPS_OPTIONS = [24, 25, 30, 60];
@@ -243,14 +244,14 @@ export default function FirstFramePage() {
   return (
     <div className="page px-4 py-6">
       <div className="mb-5">
-        <p className="eyebrow">ferramentas · vídeo</p>
-        <h1 className="mt-1 flex items-center gap-2 font-display text-2xl font-semibold">
-          <IconFilm size={22} /> First Frame
-        </h1>
-        <p className="mt-1 text-sm text-zinc-400">
-          Suba vários vídeos e pegue o primeiro frame de cada um. Dá para girar a linha do tempo e
-          escolher outro quadro. No fim, baixa tudo num ZIP só.
-        </p>
+        <PageHeader
+          title={
+            <span className="flex items-center gap-2">
+              <IconFilm size={22} /> First Frame
+            </span>
+          }
+          description="Suba vários vídeos e pegue o primeiro frame de cada um. Dá para girar a linha do tempo e escolher outro quadro. No fim, baixa tudo num ZIP só."
+        />
       </div>
 
       {/* Cards de status */}

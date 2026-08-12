@@ -48,6 +48,13 @@ export async function fileSize(relPath: string): Promise<number> {
   return s.size;
 }
 
+/** Tamanho + data de modificação numa consulta só — é o par que forma o ETag
+ *  do arquivo servido (ver serveFile), evitando um segundo `stat`. */
+export async function fileStat(relPath: string): Promise<{ size: number; mtimeMs: number }> {
+  const s = await stat(safeResolve(relPath));
+  return { size: s.size, mtimeMs: s.mtimeMs };
+}
+
 export function readStream(relPath: string): NodeJS.ReadableStream {
   return createReadStream(safeResolve(relPath));
 }

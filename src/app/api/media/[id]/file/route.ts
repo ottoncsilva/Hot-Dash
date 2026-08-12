@@ -16,7 +16,10 @@ export async function GET(
     if (!row) {
       return NextResponse.json({ error: "Mídia não encontrada." }, { status: 404 });
     }
-    return serveMediaFile(req, row);
+    // `mediaFileUrl` monta `?v=<updatedAt>`: a URL muda quando o arquivo muda,
+    // então o cache pode ser longo. Vale principalmente para o visualizador e
+    // para os vídeos, que são pesados e hoje voltavam do servidor a cada hora.
+    return serveMediaFile(req, row, { immutable: true });
   } catch (err) {
     return errorResponse(err);
   }

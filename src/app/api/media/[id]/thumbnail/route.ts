@@ -32,11 +32,18 @@ export async function GET(
 
     // Fallback: sem miniatura (ex.: formato não suportado) serve o original.
     const path = thumbPath || row.path;
-    return serveMediaFile(req, {
-      path,
-      mime: thumbPath ? "image/jpeg" : row.mime || "application/octet-stream",
-      filename: `${row.filename}.thumb.jpg`,
-    });
+    return serveMediaFile(
+      req,
+      {
+        path,
+        mime: thumbPath ? "image/jpeg" : row.mime || "application/octet-stream",
+        filename: `${row.filename}.thumb.jpg`,
+      },
+      // A URL da miniatura carrega `?v=<updatedAt>` (ver `mediaThumbUrl`), então
+      // trocar a foto troca a URL e o cache pode durar um ano. Sem isso a galeria
+      // rebaixava o acervo inteiro a cada hora, em toda visita.
+      { immutable: true },
+    );
   } catch (err) {
     return errorResponse(err);
   }

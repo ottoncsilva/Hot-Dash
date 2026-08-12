@@ -33,6 +33,9 @@ export async function register() {
     // Monitor dos grupos: consulta a API do Telegram e por isso funciona com a
     // operação do bot desligada, quando nenhum update chega pelo webhook.
     const { runTelegramGroupMonitor } = await import("@/lib/telegramMonitor");
+    // Geração do Método MK das Prévias, em lotes: a rota só enfileira (a copy
+    // de um dia inteiro não cabe no maxDuration de uma requisição).
+    const { runPreviasGeneration } = await import("@/lib/previasGenerator");
 
     // Trava anti-sobreposição: se um ciclo demorar mais que o intervalo (muitas
     // mídias, IA/Telegram lentos), o próximo tick é ignorado até o atual terminar.
@@ -74,6 +77,12 @@ export async function register() {
           await runTelegramGroupMonitor();
         } catch (err) {
           console.error("[hotdash] Erro no cron (monitor de grupos):", err);
+        }
+        try {
+          const gerados = await runPreviasGeneration();
+          if (gerados > 0) console.log(`[hotdash] Método MK: ${gerados} post(s) gerados.`);
+        } catch (err) {
+          console.error("[hotdash] Erro no cron (geração das Prévias):", err);
         }
       } finally {
         running = false;

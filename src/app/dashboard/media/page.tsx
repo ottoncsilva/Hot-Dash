@@ -20,7 +20,7 @@ import {
   IconDownload,
   IconTag,
 } from "@/components/icons";
-import { RATIO_BUCKETS, ratioBucket, mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type RatioBucket, type Tag } from "@/lib/types";
+import { mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type Tag } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 import PeriodPicker, { type PeriodState } from "@/components/PeriodPicker";
 import { resolvePeriodLocal } from "@/lib/periods";
@@ -33,6 +33,14 @@ type SortKey = "date_desc" | "date_asc" | "size_desc" | "size_asc" | "tag_asc" |
 
 /** Estado inicial do filtro de data: tudo, sem recorte de período. */
 const NO_PERIOD: PeriodState = { period: "all", from: "", to: "" };
+
+/** Recortes por tipo de mídia. Os rótulos são em português; a chave é o `kind`
+ *  do banco ("image"/"video"). */
+type MediaKind = MediaItem["kind"];
+const KIND_FILTERS: { key: MediaKind; label: string }[] = [
+  { key: "image", label: "foto" },
+  { key: "video", label: "vídeo" },
+];
 
 /** Recortes por histórico de publicação nos grupos do Telegram. */
 type PostedFilter = "never" | "previas" | "vip";
@@ -73,7 +81,9 @@ export default function MediaPage() {
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
   const [filterTagIds, setFilterTagIds] = useState<Set<string>>(new Set());
   const [filterNoTag, setFilterNoTag] = useState(false);
-  const [filterRatios, setFilterRatios] = useState<Set<RatioBucket>>(new Set());
+  // Filtro por tipo de mídia (vazio = tudo). Substituiu o filtro por proporção,
+  // que ninguém usava — o acervo é praticamente todo 3:4 e 9:16.
+  const [filterKinds, setFilterKinds] = useState<Set<MediaKind>>(new Set());
   // Filtro por data de INSERÇÃO na galeria (createdAt) — "Máximo" = sem filtro.
   const [filterPeriod, setFilterPeriod] = useState<PeriodState>(NO_PERIOD);
   // Filtro por histórico de publicação nos grupos do Telegram (vazio = tudo).
@@ -141,7 +151,7 @@ export default function MediaPage() {
     setSelected(new Set());
     setFilterTagIds(new Set());
     setFilterNoTag(false);
-    setFilterRatios(new Set());
+    setFilterKinds(new Set());
     setFilterPeriod(NO_PERIOD);
     setFilterPosted(new Set());
     loadMedia();
@@ -369,11 +379,11 @@ export default function MediaPage() {
     });
   }
 
-  function toggleFilterRatio(ratio: RatioBucket) {
-    setFilterRatios((prev) => {
+  function toggleFilterKind(kind: MediaKind) {
+    setFilterKinds((prev) => {
       const next = new Set(prev);
-      if (next.has(ratio)) next.delete(ratio);
-      else next.add(ratio);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
       return next;
     });
   }
@@ -391,8 +401,7 @@ export default function MediaPage() {
           ? true
           : (filterNoTag && m.tags.length === 0) ||
             m.tags.some((t) => filterTagIds.has(t.id));
-      const ratioOk =
-        filterRatios.size === 0 ? true : filterRatios.has(ratioBucket(m.width, m.height));
+      const kindOk = filterKinds.size === 0 ? true : filterKinds.has(m.kind);
       // Data de inserção: `until` é exclusivo (começo do dia seguinte ao "até").
       const dateOk =
         (since === null || m.createdAt >= since) && (until === null || m.createdAt < until);
@@ -403,9 +412,9 @@ export default function MediaPage() {
         (filterPosted.has("never") && previas === 0 && vip === 0) ||
         (filterPosted.has("previas") && previas > 0) ||
         (filterPosted.has("vip") && vip > 0);
-      return tagOk && ratioOk && dateOk && postedOk;
+      return tagOk && kindOk && dateOk && postedOk;
     });
-  }, [media, filterTagIds, filterNoTag, filterRatios, filterPeriod, filterPosted]);
+  }, [media, filterTagIds, filterNoTag, filterKinds, filterPeriod, filterPosted]);
 
   const sortedMedia = useMemo(() => {
     const list = [...filteredMedia];
@@ -736,16 +745,16 @@ export default function MediaPage() {
         </div>
       )}
 
-      {/* Filtro por formato (proporção) da imagem */}
+      {/* Filtro por tipo de mídia (foto / vídeo) */}
       {media && media.length > 0 && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span className="eyebrow">formato</span>
-          {[...RATIO_BUCKETS, "outra" as const].map((r) => {
-            const active = filterRatios.has(r);
+          <span className="eyebrow">tipo</span>
+          {KIND_FILTERS.map((k) => {
+            const active = filterKinds.has(k.key);
             return (
               <button
-                key={r}
-                onClick={() => toggleFilterRatio(r)}
+                key={k.key}
+                onClick={() => toggleFilterKind(k.key)}
                 className={`chip transition-all ${
                   active ? "border-white/40 bg-white/10 text-white" : ""
                 }`}
@@ -767,13 +776,13 @@ export default function MediaPage() {
                     </svg>
                   )}
                 </span>
-                {r}
+                {k.label}
               </button>
             );
           })}
-          {filterRatios.size > 0 && (
+          {filterKinds.size > 0 && (
             <button
-              onClick={() => setFilterRatios(new Set())}
+              onClick={() => setFilterKinds(new Set())}
               className="font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-white"
             >
               limpar

@@ -8,6 +8,7 @@ import type { PaymentSettingsPublic } from "@/lib/settings";
 import type { PeriodStats, QuandoRow } from "@/lib/transactions";
 import { IconSettings } from "@/components/icons";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
+import PageHeader from "@/components/PageHeader";
 import CurvaSort, {
   ALTURA_LISTA,
   FAIXA_ALTURA,
@@ -108,11 +109,11 @@ export default function DashboardHome() {
 
   return (
     <div className="page">
-      <p className="eyebrow">visão geral</p>
-      <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Dashboard</h1>
-      <p className="mt-2 max-w-xl text-sm text-zinc-500">
-        Resumo financeiro e operacional das suas personagens.
-      </p>
+      <PageHeader
+        size="lg"
+        title="Dashboard"
+        description="Resumo financeiro e operacional das suas personagens."
+      />
 
       {aiConnected !== null && providers !== null && (
         <SetupChecklist
@@ -339,8 +340,9 @@ function BotSalesPanel({
 
   return (
     <div className="mt-6">
+      {/* Sem título: os cartões abaixo já dizem o que são, e no celular esse
+          rótulo custava uma linha inteira antes do primeiro número. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="font-display text-base font-semibold text-white">Painel do Bot de Vendas</p>
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
 

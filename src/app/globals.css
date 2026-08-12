@@ -6,10 +6,17 @@
   color-scheme: dark;
 }
 
+/* `clip` e não `hidden`. Os dois cortam o transbordo horizontal do mesmo jeito,
+   mas `overflow-x: hidden` faz o outro eixo virar `auto` por especificação — o
+   body passa a ser um CONTÊINER DE ROLAGEM. Quem rola de verdade no celular é o
+   <html>, então todo `position: sticky` dentro do body passava a se ancorar num
+   scrollport que nunca rola: as barras fixas simplesmente subiam junto com a
+   página. `clip` corta sem criar contêiner de rolagem e o sticky volta a se
+   ancorar na viewport. */
 html,
 body {
   max-width: 100vw;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 body {

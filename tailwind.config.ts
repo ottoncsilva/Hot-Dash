@@ -59,7 +59,15 @@ const config: Config = {
         },
       },
       animation: {
-        "fade-in": "fade-in 0.4s ease both",
+        // `backwards` em vez de `both`: com `both` o fill-mode mantinha o
+        // `transform: translateY(0)` do último keyframe aplicado PARA SEMPRE.
+        // Transform em um ancestral cria um containing block e quebra
+        // `position: sticky`/`fixed` de tudo que estiver dentro — o wrapper
+        // `animate-fade-in` do layout envolve TODAS as telas, então nenhuma
+        // barra fixa funcionava no celular. Como o estado final da animação é
+        // igual ao estado natural do elemento, trocar para `backwards` não muda
+        // nada visualmente e some com o transform residual.
+        "fade-in": "fade-in 0.4s ease backwards",
       },
     },
   },

@@ -23,6 +23,7 @@ import {
 import { mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type Tag } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 import PeriodPicker, { type PeriodState } from "@/components/PeriodPicker";
+import FilterDropdown from "@/components/FilterDropdown";
 import { resolvePeriodLocal } from "@/lib/periods";
 import { showToast } from "@/lib/toast";
 import Link from "next/link";
@@ -587,42 +588,21 @@ export default function MediaPage() {
           </div>
         </div>
       )}
+      {/* Cabeçalho enxuto: só o título e o "Enviar mídia", na mesma linha. O
+          eyebrow "biblioteca" e o parágrafo de instruções saíram — no celular
+          eles sozinhos comiam meia tela antes da primeira foto aparecer. O
+          "Selecionar" desceu para a barra fixa, junto das ações de seleção. */}
       <PageHeader
-        eyebrow="biblioteca"
         title="Galeria"
-        description="Suba fotos e vídeos aqui: todos os metadados são removidos automaticamente e o arquivo é salvo já vinculado ao perfil."
         actions={
           profiles.length > 0 ? (
-            <>
-              <button
-                onClick={() => (selectMode ? clearSelection() : setSelectMode(true))}
-                className={selectMode ? "btn-ghost border-white/40 bg-white/10 text-white" : "btn-ghost"}
-              >
-                {/* O rótulo troca de "Selecionar" para "Cancelar seleção", que é
-                    bem mais largo. Como a área de ações é alinhada à direita, o
-                    botão mudava de tamanho e ARRASTAVA a si mesmo e ao "Enviar
-                    mídia" para o lado a cada clique — no iPad o dedo já estava
-                    fora do botão. Aqui os dois rótulos ficam empilhados na mesma
-                    célula da grade: o invisível reserva a largura do maior, e a
-                    caixa não muda mais. Reservar por medida (min-width fixo)
-                    quebraria com outra fonte ou tamanho de texto. */}
-                <span className="grid">
-                  <span aria-hidden className="col-start-1 row-start-1 invisible">
-                    Cancelar seleção
-                  </span>
-                  <span className="col-start-1 row-start-1">
-                    {selectMode ? "Cancelar seleção" : "Selecionar"}
-                  </span>
-                </span>
-              </button>
-              <button
-                onClick={() => fileRef.current?.click()}
-                disabled={!profileId}
-                className="btn-primary"
-              >
-                <IconUpload size={16} /> Enviar mídia
-              </button>
-            </>
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={!profileId}
+              className="btn-primary"
+            >
+              <IconUpload size={16} /> Enviar mídia
+            </button>
           ) : null
         }
       />
@@ -638,22 +618,59 @@ export default function MediaPage() {
         }}
       />
 
+      {/* Etiquetas + agrupamento + ordenação.
+          Desktop: tudo numa linha, com agrupar/ordenar empurrados para a
+          direita. Celular: o gatilho das etiquetas ocupa a linha inteira e o
+          par agrupar/ordenar cai para a linha de baixo (`w-full sm:w-auto`) —
+          espremidos os três não cabem sem virar texto de duas letras. */}
       {profiles.length > 0 && (
-        <div className="mt-5 flex flex-wrap items-center gap-2">
-          <div className="ml-auto flex items-center gap-3">
+        <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
+          {tags.length > 0 && (
+            <FilterDropdown label="etiquetas" count={filterTagIds.size + (filterNoTag ? 1 : 0)}>
+              <div className="flex flex-wrap gap-2">
+                {tags.map((t) => (
+                  <ToggleChip
+                    key={t.id}
+                    active={filterTagIds.has(t.id)}
+                    color={t.color}
+                    onClick={() => toggleFilterTag(t.id)}
+                  >
+                    {t.name}
+                  </ToggleChip>
+                ))}
+                <ToggleChip active={filterNoTag} onClick={() => setFilterNoTag((v) => !v)}>
+                  sem etiqueta
+                </ToggleChip>
+              </div>
+              {(filterTagIds.size > 0 || filterNoTag) && (
+                <button
+                  onClick={() => {
+                    setFilterTagIds(new Set());
+                    setFilterNoTag(false);
+                  }}
+                  className="mt-3 font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-white"
+                >
+                  limpar etiquetas
+                </button>
+              )}
+            </FilterDropdown>
+          )}
+
+          <div className="flex w-full items-center gap-3 sm:ml-auto sm:w-auto">
             {tags.length > 0 && (
               <button
                 onClick={() => setGrouping((g) => !g)}
-                className={`font-mono text-[11px] uppercase tracking-wider ${
+                className={`shrink-0 font-mono text-[11px] uppercase tracking-wider ${
                   grouping ? "text-white" : "text-zinc-500 hover:text-zinc-300"
                 }`}
               >
-                {grouping ? "◉ agrupado por etiqueta" : "○ agrupar por etiqueta"}
+                {grouping ? "◉ agrupado" : "○ agrupar"}
+                <span className="hidden sm:inline"> por etiqueta</span>
               </button>
             )}
             {media && media.length > 0 && (
               <select
-                className="input max-w-[180px] py-1.5 text-xs"
+                className="input ml-auto max-w-[180px] py-1.5 text-xs sm:ml-0"
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortKey)}
               >
@@ -670,37 +687,6 @@ export default function MediaPage() {
         </div>
       )}
 
-      {/* Filtro por etiqueta */}
-      {tags.length > 0 && (
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span className="eyebrow">filtrar</span>
-          {tags.map((t) => (
-            <ToggleChip
-              key={t.id}
-              active={filterTagIds.has(t.id)}
-              color={t.color}
-              onClick={() => toggleFilterTag(t.id)}
-            >
-              {t.name}
-            </ToggleChip>
-          ))}
-          <ToggleChip active={filterNoTag} onClick={() => setFilterNoTag((v) => !v)}>
-            sem etiqueta
-          </ToggleChip>
-          {(filterTagIds.size > 0 || filterNoTag) && (
-            <button
-              onClick={() => {
-                setFilterTagIds(new Set());
-                setFilterNoTag(false);
-              }}
-              className="font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-white"
-            >
-              limpar
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Filtro por data de inserção na galeria */}
       {media && media.length > 0 && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -714,80 +700,61 @@ export default function MediaPage() {
         </div>
       )}
 
-      {/* Filtro por histórico de publicação nos grupos do Telegram */}
+      {/* Publicação + Tipo.
+          Desktop: os dois grupos na MESMA linha, separados por um espaço maior
+          que o de dentro de cada grupo — é o espaçamento que faz a leitura,
+          sem precisar de divisória. Celular: viram duas linhas (`flex-col`),
+          porque juntos passam de sete chips e amontoariam. */}
       {media && media.length > 0 && (
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span className="eyebrow">publicação</span>
-          {POSTED_FILTERS.map((f) => (
-            <ToggleChip
-              key={f.key}
-              active={filterPosted.has(f.key)}
-              onClick={() =>
-                setFilterPosted((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(f.key)) next.delete(f.key);
-                  else next.add(f.key);
-                  return next;
-                })
-              }
-            >
-              {f.label}
-            </ToggleChip>
-          ))}
-          {filterPosted.size > 0 && (
-            <button
-              onClick={() => setFilterPosted(new Set())}
-              className="font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-white"
-            >
-              limpar
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Filtro por tipo de mídia (foto / vídeo) */}
-      {media && media.length > 0 && (
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span className="eyebrow">tipo</span>
-          {KIND_FILTERS.map((k) => {
-            const active = filterKinds.has(k.key);
-            return (
-              <button
-                key={k.key}
-                onClick={() => toggleFilterKind(k.key)}
-                className={`chip transition-all ${
-                  active ? "border-white/40 bg-white/10 text-white" : ""
-                }`}
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-8 sm:gap-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="eyebrow">publicação</span>
+            {POSTED_FILTERS.map((f) => (
+              <ToggleChip
+                key={f.key}
+                active={filterPosted.has(f.key)}
+                onClick={() =>
+                  setFilterPosted((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(f.key)) next.delete(f.key);
+                    else next.add(f.key);
+                    return next;
+                  })
+                }
               >
-                <span
-                  className={`grid h-3.5 w-3.5 shrink-0 place-items-center rounded-sm border transition-all ${
-                    active ? "border-white bg-white text-black" : "border-white/40"
-                  }`}
-                >
-                  {active && (
-                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none">
-                      <path
-                        d="M5 13l4 4 10-10"
-                        stroke="currentColor"
-                        strokeWidth={4}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  )}
-                </span>
-                {k.label}
+                {f.label}
+              </ToggleChip>
+            ))}
+            {filterPosted.size > 0 && (
+              <button
+                onClick={() => setFilterPosted(new Set())}
+                className="font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-white"
+              >
+                limpar
               </button>
-            );
-          })}
-          {filterKinds.size > 0 && (
-            <button
-              onClick={() => setFilterKinds(new Set())}
-              className="font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-white"
-            >
-              limpar
-            </button>
-          )}
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="eyebrow">tipo</span>
+            {KIND_FILTERS.map((k) => (
+              <ToggleChip
+                key={k.key}
+                active={filterKinds.has(k.key)}
+                onClick={() => toggleFilterKind(k.key)}
+              >
+                {k.label}
+              </ToggleChip>
+            ))}
+            {filterKinds.size > 0 && (
+              <button
+                onClick={() => setFilterKinds(new Set())}
+                className="font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-white"
+              >
+                limpar
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -815,56 +782,92 @@ export default function MediaPage() {
         </div>
       )}
 
-      {/* Barra de seleção */}
-      {selecting && (
-        <div className="mt-5 flex flex-wrap items-center gap-3 card px-4 py-3">
-          <span className="font-mono text-xs text-zinc-300">
-            {selected.size} selecionada{selected.size > 1 ? "s" : ""}
-          </span>
-          <button
-            onClick={selectAll}
-            className="font-mono text-xs uppercase tracking-wider text-zinc-500 hover:text-white"
-          >
-            selecionar tudo
-          </button>
-          <button
-            onClick={clearSelection}
-            className="font-mono text-xs uppercase tracking-wider text-zinc-500 hover:text-white"
-          >
-            cancelar
-          </button>
-          <div className="ml-auto flex flex-wrap gap-2">
-            {tags.length > 0 && (
+      {/* Barra de seleção — FIXA na rolagem.
+          O "Selecionar" morava lá em cima, ao lado do "Enviar mídia", longe das
+          ações que ele destrava; no celular era preciso rolar até o topo para
+          entrar no modo e rolar de novo até a foto. Agora ele e as ações de
+          seleção ocupam a MESMA barra, colada logo acima da grade e grudada no
+          topo enquanto se rola.
+
+          O `top` no celular desvia do botão de menu flutuante (fixo em
+          `env(safe-area-inset-top) + 0.5rem`, 2,75rem de altura); no desktop o
+          contêiner de rolagem é o próprio <main>, então `top-0` basta. Os `_`
+          no valor viram espaços no Tailwind, e são obrigatórios: `calc()` exige
+          espaço em volta do `+`. O Chrome perdoa a falta; o Safari do iPhone
+          descarta a regra inteira — e o alvo aqui é justamente o celular.
+
+          As margens negativas + padding fazem o fundo cobrir a largura toda,
+          senão as fotos apareceriam pelas beiradas ao passar por baixo. O
+          `before:` cobre a FAIXA ACIMA da barra: `sticky` mede o deslocamento a
+          partir da caixa de CONTEÚDO do contêiner de rolagem, então sobra o
+          padding do <main> (2,5rem no desktop) e o desvio do menu no celular —
+          e as fotos apareciam rolando nessa fresta. */}
+      {profiles.length > 0 && (
+        <div className="sticky top-[calc(env(safe-area-inset-top)_+_3.5rem)] z-30 -mx-4 mt-5 bg-ink-950 px-4 py-3 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-[calc(env(safe-area-inset-top)_+_3.5rem)] before:bg-ink-950 before:content-[''] lg:top-0 lg:-mx-10 lg:px-10 lg:before:h-10">
+          {selecting ? (
+            <div className="flex flex-wrap items-center gap-3 card px-4 py-3">
+              <span className="font-mono text-xs text-zinc-300">
+                {selected.size} selecionada{selected.size > 1 ? "s" : ""}
+              </span>
               <button
-                onClick={() => setTagPickerOpen(true)}
-                disabled={bulkBusy}
-                className="btn-ghost px-3 py-1.5 text-xs"
+                onClick={selectAll}
+                className="font-mono text-xs uppercase tracking-wider text-zinc-500 hover:text-white"
               >
-                <IconTag size={14} /> Etiquetar
+                selecionar tudo
               </button>
-            )}
-            <button
-              onClick={bulkSave}
-              disabled={bulkBusy}
-              className="btn-ghost px-3 py-1.5 text-xs"
-            >
-              <IconDownload size={14} /> Salvar no dispositivo
-            </button>
-            <button
-              onClick={bulkDownload}
-              disabled={bulkBusy}
-              className="btn-ghost px-3 py-1.5 text-xs"
-            >
-              <IconDownload size={14} /> Baixar (.zip)
-            </button>
-            <button
-              onClick={bulkDelete}
-              disabled={bulkBusy}
-              className="btn-danger px-3 py-1.5 text-xs"
-            >
-              <IconTrash size={14} /> Excluir
-            </button>
-          </div>
+              <button
+                onClick={clearSelection}
+                className="font-mono text-xs uppercase tracking-wider text-zinc-500 hover:text-white"
+              >
+                cancelar
+              </button>
+              <div className="ml-auto flex flex-wrap gap-2">
+                {tags.length > 0 && (
+                  <button
+                    onClick={() => setTagPickerOpen(true)}
+                    disabled={bulkBusy}
+                    className="btn-ghost px-3 py-1.5 text-xs"
+                  >
+                    <IconTag size={14} /> Etiquetar
+                  </button>
+                )}
+                <button
+                  onClick={bulkSave}
+                  disabled={bulkBusy}
+                  className="btn-ghost px-3 py-1.5 text-xs"
+                >
+                  <IconDownload size={14} /> Salvar no dispositivo
+                </button>
+                <button
+                  onClick={bulkDownload}
+                  disabled={bulkBusy}
+                  className="btn-ghost px-3 py-1.5 text-xs"
+                >
+                  <IconDownload size={14} /> Baixar (.zip)
+                </button>
+                <button
+                  onClick={bulkDelete}
+                  disabled={bulkBusy}
+                  className="btn-danger px-3 py-1.5 text-xs"
+                >
+                  <IconTrash size={14} /> Excluir
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3">
+              <button onClick={() => setSelectMode(true)} className="btn-ghost">
+                Selecionar
+              </button>
+              {media && media.length > 0 && (
+                <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
+                  {filteredMedia.length === media.length
+                    ? `${media.length} mídias`
+                    : `${filteredMedia.length} de ${media.length}`}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       )}
 

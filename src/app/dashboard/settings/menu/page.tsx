@@ -47,8 +47,7 @@ export default function MenuSettingsPage() {
   return (
     <div className="page-narrow">
       <BackToSettings />
-      <p className="eyebrow mt-4">menu</p>
-      <h1 className="mt-1.5 font-display text-2xl font-semibold tracking-tight">Ordem do menu</h1>
+      <h1 className="mt-4 font-display text-2xl font-semibold tracking-tight">Ordem do menu</h1>
       <p className="mt-2 text-sm text-zinc-500">
         Reordene ou oculte itens. O Dashboard não pode ser ocultado.
       </p>

@@ -68,13 +68,25 @@ export function ConnectionBadge({
 }
 
 /** Link de volta para a lista de Configurações, usado no topo de cada sub-rota. */
+/**
+ * Volta para o índice das Configurações. É sempre o PRIMEIRO elemento da tela,
+ * então é ele que leva o desvio do menu flutuante no celular: `-mt-11` desconta
+ * o padding que o <main> reserva para o menu e `pl-14` recua o link para depois
+ * dele. Sem isso o bloco inteiro (link + título + descrição) nascia uma linha
+ * abaixo, com a faixa ao lado do menu vazia. Mesmo tratamento do PageHeader.
+ */
 export function BackToSettings() {
+  // O desvio vai num contêiner de BLOCO, não no próprio link: margem vertical
+  // não desloca caixa inline (o link é `inline-flex`), então com o `-mt-11`
+  // direto nele o bloco continuava nascendo abaixo do menu.
   return (
-    <Link
-      href="/dashboard/settings"
-      className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-white"
-    >
-      <IconArrowLeft size={14} /> Configurações
-    </Link>
+    <div className="-mt-11 pl-14 lg:mt-0 lg:pl-0">
+      <Link
+        href="/dashboard/settings"
+        className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-white"
+      >
+        <IconArrowLeft size={14} /> Configurações
+      </Link>
+    </div>
   );
 }

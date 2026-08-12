@@ -211,8 +211,7 @@ export default function AiSettingsPage() {
   return (
     <div className="page-narrow">
       <BackToSettings />
-      <p className="eyebrow mt-4">inteligência artificial</p>
-      <h1 className="mt-1.5 font-display text-2xl font-semibold tracking-tight">Conexão com IA</h1>
+      <h1 className="mt-4 font-display text-2xl font-semibold tracking-tight">Conexão com IA</h1>
       <p className="mt-2 text-sm text-zinc-500">
         Usada para gerar legendas e para montar o Cronograma automaticamente.
         Ative um ou os dois provedores abaixo e cole a chave de API — ela fica

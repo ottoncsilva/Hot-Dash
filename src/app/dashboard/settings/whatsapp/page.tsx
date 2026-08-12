@@ -47,8 +47,7 @@ export default function WhatsAppSettingsPage() {
   return (
     <div className="page-narrow">
       <BackToSettings />
-      <p className="eyebrow mt-4">automação e ltv</p>
-      <h1 className="mt-1.5 font-display text-2xl font-semibold tracking-tight">Conexão WhatsApp (Evolution)</h1>
+      <h1 className="mt-4 font-display text-2xl font-semibold tracking-tight">Conexão WhatsApp (Evolution)</h1>
       <p className="mt-2 text-sm text-zinc-500">
         Conecte seu servidor da Evolution API para habilitar os Agentes de Venda IA 
         e o Funil de LTV no WhatsApp. Essas credenciais globais serão usadas para 

@@ -200,8 +200,7 @@ export default function PaymentSettingsPage() {
   return (
     <div className="page-narrow">
       <BackToSettings />
-      <p className="eyebrow mt-4">pagamentos</p>
-      <h1 className="mt-1.5 font-display text-2xl font-semibold tracking-tight">Provedores</h1>
+      <h1 className="mt-4 font-display text-2xl font-semibold tracking-tight">Provedores</h1>
       <p className="mt-2 text-sm text-zinc-500">
         As chaves são guardadas criptografadas (AES-256) no servidor.
       </p>

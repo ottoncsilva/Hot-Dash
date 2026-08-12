@@ -9,6 +9,7 @@ import { useConfirm } from "@/hooks/useConfirm";
 import Switch from "@/components/Switch";
 import type { Profile } from "@/lib/types";
 import { IconTelegram, IconClose, IconRefresh } from "@/components/icons";
+import PageHeader from "@/components/PageHeader";
 
 // ---- Tipos (espelham telegramDb.ts) ----
 type Bot = {
@@ -104,7 +105,7 @@ export default function BotVendasPage() {
   if (!profileId) {
     return (
       <div className="page">
-        <h1 className="font-display text-2xl font-semibold tracking-tight">Bot de vendas</h1>
+        <PageHeader title="Bot de vendas" />
         <PrecisaDeModelo oQue="configurar o bot de vendas" />
       </div>
     );
@@ -113,15 +114,15 @@ export default function BotVendasPage() {
   return (
     <div className="page px-1 py-2">
       {ConfirmDialog}
-      <div className="mb-5">
-        <p className="eyebrow">telegram · vendas</p>
-        <h1 className="mt-1 flex items-center gap-2 font-display text-2xl font-semibold">
-          <IconTelegram size={22} /> Bot de vendas
-        </h1>
-        <p className="mt-1 text-sm text-zinc-400">
-          Ofertas, funis, mensagens e assinantes do bot — o mesmo bot da automação de postagens.
-        </p>
-      </div>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2">
+            <IconTelegram size={22} /> Bot de vendas
+          </span>
+        }
+        description="Ofertas, funis, mensagens e assinantes do bot — o mesmo bot da automação de postagens."
+      />
+      <div className="mb-5" />
 
       {loading && (
         <div className="grid place-items-center py-10">

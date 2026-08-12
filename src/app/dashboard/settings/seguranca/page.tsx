@@ -5,8 +5,7 @@ export default function SecuritySettingsPage() {
   return (
     <div className="page-narrow">
       <BackToSettings />
-      <p className="eyebrow mt-4">segurança</p>
-      <h1 className="mt-1.5 font-display text-2xl font-semibold tracking-tight">Acesso</h1>
+      <h1 className="mt-4 font-display text-2xl font-semibold tracking-tight">Acesso</h1>
       <div className="mt-4 card flex items-start gap-3 p-4">
         <span className="mt-0.5 text-zinc-500">
           <IconLock size={18} />

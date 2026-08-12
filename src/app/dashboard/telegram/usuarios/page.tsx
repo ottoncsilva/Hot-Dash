@@ -9,6 +9,7 @@ import { useConfirm } from "@/hooks/useConfirm";
 import Modal from "@/components/Modal";
 import type { Profile } from "@/lib/types";
 import { IconProfiles, IconSend, IconClose, IconSearch } from "@/components/icons";
+import PageHeader from "@/components/PageHeader";
 
 type UserStatus = "bloqueado" | "vip" | "expirado" | "pendente" | "lead";
 
@@ -137,7 +138,7 @@ export default function TelegramUsuariosPage() {
   if (!profileId) {
     return (
       <div className="page">
-        <h1 className="font-display text-2xl font-semibold tracking-tight">Usuários</h1>
+        <PageHeader title="Usuários" />
         <PrecisaDeModelo oQue="ver os usuários do bot" />
       </div>
     );
@@ -146,15 +147,15 @@ export default function TelegramUsuariosPage() {
   return (
     <div className="page px-1 py-2">
       {ConfirmDialog}
-      <div className="mb-5">
-        <p className="eyebrow">telegram · usuários</p>
-        <h1 className="mt-1 flex items-center gap-2 font-display text-2xl font-semibold">
-          <IconProfiles size={22} /> Usuários
-        </h1>
-        <p className="mt-1 text-sm text-zinc-400">
-          Todo mundo que o bot conhece: quem deu /start e quem entrou nos grupos VIP e de prévias.
-        </p>
-      </div>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2">
+            <IconProfiles size={22} /> Usuários
+          </span>
+        }
+        description="Todo mundo que o bot conhece: quem deu /start e quem entrou nos grupos VIP e de prévias."
+      />
+      <div className="mb-5" />
 
       {!bot && !loading && (
         <div className="card p-6 text-center text-sm text-zinc-400">

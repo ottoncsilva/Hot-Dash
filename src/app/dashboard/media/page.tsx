@@ -790,20 +790,26 @@ export default function MediaPage() {
           topo enquanto se rola.
 
           O `top` no celular desvia do botão de menu flutuante (fixo em
-          `env(safe-area-inset-top) + 0.5rem`, 2,75rem de altura); no desktop o
-          contêiner de rolagem é o próprio <main>, então `top-0` basta. Os `_`
-          no valor viram espaços no Tailwind, e são obrigatórios: `calc()` exige
+          `env(safe-area-inset-top) + 0.5rem`, 2,75rem de altura). Os `_` no
+          valor viram espaços no Tailwind, e são obrigatórios: `calc()` exige
           espaço em volta do `+`. O Chrome perdoa a falta; o Safari do iPhone
           descarta a regra inteira — e o alvo aqui é justamente o celular.
 
+          No desktop o `top` é NEGATIVO de propósito. `sticky` mede o
+          deslocamento a partir da caixa de CONTEÚDO do contêiner de rolagem, e
+          o <main> tem `lg:py-10`: com `top-0` a barra grudava 2,5rem abaixo do
+          topo visível e as fotos rolavam nessa fresta. `-top-10` desconta
+          exatamente esse padding e a barra encosta no topo.
+
+          Não tente tapar essa fresta com um pseudo-elemento acima da barra: ele
+          existe também quando a barra NÃO está grudada, e aí pinta por cima dos
+          filtros logo acima. Com `env(safe-area-inset-top)` na altura, no
+          iPhone isso virava ~115px de preto engolindo Publicação e Tipo.
+
           As margens negativas + padding fazem o fundo cobrir a largura toda,
-          senão as fotos apareceriam pelas beiradas ao passar por baixo. O
-          `before:` cobre a FAIXA ACIMA da barra: `sticky` mede o deslocamento a
-          partir da caixa de CONTEÚDO do contêiner de rolagem, então sobra o
-          padding do <main> (2,5rem no desktop) e o desvio do menu no celular —
-          e as fotos apareciam rolando nessa fresta. */}
+          senão as fotos apareceriam pelas beiradas ao passar por baixo. */}
       {profiles.length > 0 && (
-        <div className="sticky top-[calc(env(safe-area-inset-top)_+_3.5rem)] z-30 -mx-4 mt-5 bg-ink-950 px-4 py-3 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-[calc(env(safe-area-inset-top)_+_3.5rem)] before:bg-ink-950 before:content-[''] lg:top-0 lg:-mx-10 lg:px-10 lg:before:h-10">
+        <div className="sticky top-[calc(env(safe-area-inset-top)_+_3.5rem)] z-30 -mx-4 mt-5 bg-ink-950 px-4 py-3 lg:-top-10 lg:-mx-10 lg:px-10">
           {selecting ? (
             <div className="flex flex-wrap items-center gap-3 card px-4 py-3">
               <span className="font-mono text-xs text-zinc-300">

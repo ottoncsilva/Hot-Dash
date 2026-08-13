@@ -119,10 +119,43 @@ export const DEFAULT_VIP_CTA_BUTTONS = [
   "VEM FALAR COMIGO A SÓS",
 ].join("\n");
 
+/** Frases-modelo dos "Botões da copy" quando o convite do VIP aponta para o
+ *  TELEGRAM particular em vez do WhatsApp. Mesmo papel do
+ *  DEFAULT_VIP_CTA_BUTTONS; muda só o destino citado, porque "chama no zap" num
+ *  botão que abre o Telegram faz o cara desistir no meio do caminho. */
+export const DEFAULT_TELEGRAM_CTA_BUTTONS = [
+  "CHAMA NO MEU PRIVADO",
+  "VEM FALAR COMIGO AQUI",
+  "MEU TELEGRAM PARTICULAR",
+  "VEM ME CHAMAR AGORA",
+  "TE ESPERO NO PRIVADO",
+  "VEM CONVERSAR COMIGO",
+  "ME CHAMA NO DIRECT",
+  "VEM FALAR COMIGO A SÓS",
+].join("\n");
+
+/** Texto usado quando a lista de frases do Telegram está vazia. */
+export const TELEGRAM_CTA_FALLBACK = "MEU TELEGRAM PARTICULAR";
+
+/**
+ * De que tipo é o link de contato direto de um post do VIP.
+ *
+ * O destino é decidido na GERAÇÃO e gravado no post como URL. No envio só
+ * resta a URL, mas ela basta: um link de contato do Telegram é sempre um
+ * `t.me`, e um do WhatsApp é sempre `wa.me`/`api.whatsapp.com`. É isso que
+ * decide o texto do botão e as frases do convite — mandar "chama no meu zap"
+ * num botão que abre o Telegram faz o cara parar no meio do caminho.
+ */
+export function contatoDoLink(link: string): "whatsapp" | "telegram" {
+  return /^https?:\/\/(www\.)?(t\.me|telegram\.(me|dog))\//i.test((link || "").trim())
+    ? "telegram"
+    : "whatsapp";
+}
+
 /**
  * Bloco de convite do fim da legenda: uma linha por frase, cada uma
- * hiperlinkada para o destino do grupo — o VIP nas Prévias, o WhatsApp
- * particular no VIP.
+ * hiperlinkada para o destino do grupo — o VIP nas Prévias, o contato direto
+ * (WhatsApp ou Telegram) no VIP.
  *
  * O texto da frase vai ESCAPADO: uma frase com `<` ou `&` quebraria o
  * `parse_mode: HTML` e o Telegram recusaria a mensagem inteira.

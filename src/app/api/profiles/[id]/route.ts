@@ -46,6 +46,8 @@ export async function PATCH(
       bioVipLink: body.bioVipLink,
       bioWhatsappLink: body.bioWhatsappLink,
       bioWhatsappButton: body.bioWhatsappButton,
+      bioTelegramLink: body.bioTelegramLink,
+      bioTelegramButton: body.bioTelegramButton,
     });
     if (!profile) {
       return NextResponse.json(

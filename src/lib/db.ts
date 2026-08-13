@@ -564,6 +564,11 @@ function migrate(d: Database.Database) {
   // do grupo VIP marcados para levar o link, para puxar o lead pro WhatsApp (LTV).
   ensureColumn(d, "profiles", "bio_whatsapp_link", "TEXT");
   ensureColumn(d, "profiles", "bio_whatsapp_button", "TEXT");
+  // Mesmo papel do WhatsApp acima, no Telegram: o post do VIP pode puxar o lead
+  // para a conversa privada da modelo no PRÓPRIO Telegram, sem tirar ele do app.
+  // Cada geração escolhe UM destino — WhatsApp ou Telegram, nunca os dois.
+  ensureColumn(d, "profiles", "bio_telegram_link", "TEXT");
+  ensureColumn(d, "profiles", "bio_telegram_button", "TEXT");
   ensureColumn(d, "telegram_bots", "welcome_media_tags", "TEXT");
   ensureColumn(d, "telegram_bots", "downsell_funnel", "TEXT");
   ensureColumn(d, "telegram_bots", "upsell_funnel", "TEXT");

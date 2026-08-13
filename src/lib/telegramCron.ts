@@ -44,7 +44,10 @@ import { getProfile } from "@/lib/profiles";
 import {
   DEFAULT_CTA_BUTTONS,
   DEFAULT_VIP_CTA_BUTTONS,
+  DEFAULT_TELEGRAM_CTA_BUTTONS,
   WHATSAPP_CTA_FALLBACK,
+  TELEGRAM_CTA_FALLBACK,
+  contatoDoLink,
   appendCtaLines,
   buildCtaLines,
   captionHasLink,
@@ -218,19 +221,29 @@ export async function runTelegramAutopost(): Promise<number> {
           );
         }
       } else if (wantsWaCta && waLink) {
-        // Mesmo esquema das Prévias, com o destino do VIP: botão do WhatsApp
-        // particular MAIS as 3 linhas de hiperlink no fim da legenda. O botão
-        // usa a frase do cadastro do modelo; as linhas, a lista do VIP.
-        const waText =
-          (profile.bioWhatsappButton || "meu whatsapp particular").slice(0, CTA_BUTTON_MAX) ||
-          "meu whatsapp particular";
+        // Mesmo esquema das Prévias, com o destino do VIP: botão do contato
+        // particular MAIS as 3 linhas de hiperlink no fim da legenda.
+        //
+        // O destino sai da própria URL (ver contatoDoLink): a geração grava o
+        // link resolvido no post, e é ele que manda no texto do botão e nas
+        // frases. Um post de Telegram com o botão "meu whatsapp particular"
+        // seria pior que não ter botão.
+        const contato = contatoDoLink(waLink);
+        const padraoBotao =
+          contato === "telegram" ? "meu telegram particular" : "meu whatsapp particular";
+        const botaoCadastro =
+          contato === "telegram" ? profile.bioTelegramButton : profile.bioWhatsappButton;
+        const waText = (botaoCadastro || padraoBotao).slice(0, CTA_BUTTON_MAX) || padraoBotao;
         replyMarkup = { inline_keyboard: [[{ text: waText, url: waLink }]] };
         if (!captionHasLink(post.caption || "", waLink)) {
           finalCaption = appendCtaLines(
             escapeHtmlAllowingLinks(post.caption || ""),
             waLink,
-            pickCtaLinkTexts(vipCtaList, 3),
-            WHATSAPP_CTA_FALLBACK,
+            pickCtaLinkTexts(
+              contato === "telegram" ? DEFAULT_TELEGRAM_CTA_BUTTONS : vipCtaList,
+              3,
+            ),
+            contato === "telegram" ? TELEGRAM_CTA_FALLBACK : WHATSAPP_CTA_FALLBACK,
           );
         }
       }

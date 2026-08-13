@@ -181,6 +181,14 @@ export async function sendTelegramMessage(
     chat_id: chatId,
     text,
     parse_mode: "HTML",
+    // SEM CARD DE PRÉ-VISUALIZAÇÃO. O Telegram monta sozinho um cartão do
+    // primeiro link da mensagem — nos posts das Prévias isso virava um bloco
+    // com a foto e a bio do bot e um botão "VER BOT" logo abaixo das 3 chamadas
+    // do VIP. Ou seja: uma quarta porta, com texto que não é o nosso, brigando
+    // justamente com o botão que deveria receber o clique.
+    // Vem antes do spread de propósito: quem precisar do card pode reativá-lo
+    // passando `link_preview_options` nas opções.
+    link_preview_options: { is_disabled: true },
     ...options,
   });
 }

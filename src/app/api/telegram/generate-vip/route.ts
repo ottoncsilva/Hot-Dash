@@ -15,14 +15,16 @@ import { readBuffer } from "@/lib/storage";
 import { createPost } from "@/lib/posts";
 import {
   DEFAULT_VIP_CTA_BUTTONS,
+  DEFAULT_TELEGRAM_CTA_BUTTONS,
   WHATSAPP_CTA_FALLBACK,
+  TELEGRAM_CTA_FALLBACK,
   appendCtaLines,
   pickCtaLinkTexts,
 } from "@/lib/postTypes";
-import { whatsappAccounts } from "@/lib/socialLinks";
+import { whatsappAccounts, telegramAccounts } from "@/lib/socialLinks";
 import type { MediaItem } from "@/lib/types";
 import { mkSlotToUtcMs, mkDayFromToday, fallbackPoll } from "@/lib/previasAi";
-import { planDayVip, captionThemeVip, fallbackTextVip } from "@/lib/vipAi";
+import { planDayVip, captionThemeVip, fallbackTextVip, type VipContato } from "@/lib/vipAi";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,23 +48,37 @@ const VARIATION_ANGLES = [
  * posts de relacionamento e engajamento); a IA ESCREVE a legenda de cada post
  * ANALISANDO A FOTO.
  *
- * O convite pro WhatsApp particular é decidido A CADA GERAÇÃO, pelo corpo da
- * requisição (`whatsappCta`). O WhatsApp virou produto à parte, então o padrão
- * é NÃO entregar: sem o pedido explícito, o dia sai inteiro sem CTA. Ligado,
- * ~8 posts do dia levam o botão (o link vem do cadastro da modelo).
+ * O convite pro contato particular é decidido A CADA GERAÇÃO, pelo corpo da
+ * requisição (`contato`): "whatsapp", "telegram" ou nada. O contato virou
+ * produto à parte, então o padrão é NÃO entregar: sem o pedido explícito, o dia
+ * sai inteiro sem CTA. Escolhido um destino, ~8 posts do dia levam o botão.
+ *
+ * É UM destino por geração, nunca os dois no mesmo dia: quem respondeu no zap
+ * ontem não vai procurar você no Telegram hoje, e dividir a atenção não deixa
+ * nenhum dos dois virar hábito.
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const profileId = body.profileId as string;
     const days = Math.max(1, Math.min(14, parseInt(body.days, 10) || 1));
-    // Convite pro WhatsApp nesta geração. Só entra quando pedido explicitamente
-    // — o padrão é o dia sem CTA nenhum.
-    const whatsappCta = body.whatsappCta === true;
-    // Qual WhatsApp da modelo o convite leva. Vazio = o "WhatsApp particular"
-    // do cadastro, que era o único destino possível antes deste campo.
-    const whatsappAccountId =
-      typeof body.whatsappAccountId === "string" ? body.whatsappAccountId.trim() : "";
+    // Destino do convite nesta geração. Só entra quando pedido explicitamente —
+    // o padrão é o dia sem CTA nenhum. `whatsappCta` é aceito por compatibilidade
+    // com telas antigas, que só sabiam ligar/desligar o WhatsApp.
+    const contato: VipContato | null =
+      body.contato === "whatsapp" || body.contato === "telegram"
+        ? body.contato
+        : body.whatsappCta === true
+          ? "whatsapp"
+          : null;
+    // Qual conta da modelo o convite leva. Vazio = o link particular do cadastro,
+    // que era o único destino possível antes deste campo.
+    const contatoAccountId =
+      typeof body.contatoAccountId === "string"
+        ? body.contatoAccountId.trim()
+        : typeof body.whatsappAccountId === "string"
+          ? body.whatsappAccountId.trim()
+          : "";
     if (!profileId) return NextResponse.json({ error: "Informe o profileId." }, { status: 400 });
 
     const profileMaybe = await getProfile(profileId);
@@ -82,18 +98,31 @@ export async function POST(req: NextRequest) {
       .split(",")
       .map((t) => t.trim().toLowerCase())
       .filter(Boolean);
-    // Frases dos "Botões da copy (VIP)" — as mesmas que viram os hiperlinks do
-    // fim da legenda (o motor de envio usa esta lista para o botão inline).
-    const ctaList = (settings?.vip_cta_buttons ?? "").trim() || DEFAULT_VIP_CTA_BUTTONS;
+    // Frases dos "Botões da copy (VIP)". A lista configurada é escrita pensando
+    // no WhatsApp ("chama no meu zap"); quando o destino é o Telegram ela não
+    // serve, e as frases próprias do Telegram entram no lugar.
+    const configurada = (settings?.vip_cta_buttons ?? "").trim();
+    const ctaList =
+      contato === "telegram"
+        ? DEFAULT_TELEGRAM_CTA_BUTTONS
+        : configurada || DEFAULT_VIP_CTA_BUTTONS;
+    const ctaFallback =
+      contato === "telegram" ? TELEGRAM_CTA_FALLBACK : WHATSAPP_CTA_FALLBACK;
 
     // Destino do convite desta geração. A conta escolhida vira URL aqui, uma vez
     // só, e o link resolvido é gravado em cada post: assim o post continua
-    // apontando para o número certo mesmo que a conta seja editada ou apagada
+    // apontando para o destino certo mesmo que a conta seja editada ou apagada
     // depois. Conta que não existe mais (ou de outra modelo) cai no padrão.
-    const chosenWa = whatsappAccountId
-      ? whatsappAccounts(profile.accounts).find((a) => a.id === whatsappAccountId)
+    const contas =
+      contato === "telegram"
+        ? telegramAccounts(profile.accounts)
+        : whatsappAccounts(profile.accounts);
+    const escolhida = contatoAccountId
+      ? contas.find((a) => a.id === contatoAccountId)
       : undefined;
-    const waLink = chosenWa?.url || profile.bioWhatsappLink || "";
+    const padraoDoCadastro =
+      contato === "telegram" ? profile.bioTelegramLink : profile.bioWhatsappLink;
+    const ctaLink = escolhida?.url || padraoDoCadastro || "";
 
     // Cadeia de provedores (grok primeiro — costuma aceitar conteúdo adulto).
     const providerChain: AiProvider[] = (["grok", "openai", "gemini"] as AiProvider[]).filter(
@@ -170,8 +199,8 @@ export async function POST(req: NextRequest) {
       images: { mime: string; base64: string }[],
       angleIdx: number,
     ): Promise<string> {
-      if (aiFailed) return fallbackTextVip(type);
-      const theme = `${captionThemeVip(type)}\n${VARIATION_ANGLES[angleIdx % VARIATION_ANGLES.length]}`;
+      if (aiFailed) return fallbackTextVip(type, contato ?? "whatsapp");
+      const theme = `${captionThemeVip(type, contato ?? "whatsapp")}\n${VARIATION_ANGLES[angleIdx % VARIATION_ANGLES.length]}`;
       const toTry = activeProvider ? [activeProvider] : providerChain;
       const errors: string[] = [];
       for (const p of toTry) {
@@ -200,7 +229,7 @@ export async function POST(req: NextRequest) {
       } else {
         activeProvider = null;
       }
-      return fallbackTextVip(type);
+      return fallbackTextVip(type, contato ?? "whatsapp");
     }
 
     async function writePoll(): Promise<{ question: string; options: string[] }> {
@@ -240,7 +269,7 @@ export async function POST(req: NextRequest) {
     const tz = getAppTimeZone();
     for (let dayOffset = 0; dayOffset <= days; dayOffset++) {
       const base = mkDayFromToday(dayOffset, tz);
-      const plan = planDayVip({ whatsappCta });
+      const plan = planDayVip({ contato });
 
       for (const slot of plan) {
         const at = mkSlotToUtcMs(base, slot.time, tz, true);
@@ -277,12 +306,12 @@ export async function POST(req: NextRequest) {
           if (img) images.push(img);
         }
         const written = await writeCaption(slot.type, images, angleIdx++);
-        // Só os slots de convite levam o WhatsApp — e eles só existem quando a
+        // Só os slots de convite levam o link — e eles só existem quando a
         // geração pediu. Neles as 3 linhas já saem GRAVADAS na legenda, para
         // aparecerem no editor do calendário e poderem ser revisadas.
         const caption =
-          slot.cta && waLink
-            ? appendCtaLines(written, waLink, pickCtaLinkTexts(ctaList, 3), WHATSAPP_CTA_FALLBACK)
+          slot.cta && ctaLink
+            ? appendCtaLines(written, ctaLink, pickCtaLinkTexts(ctaList, 3), ctaFallback)
             : written;
 
         createPost({
@@ -291,10 +320,12 @@ export async function POST(req: NextRequest) {
           scheduledAt: at,
           caption,
           mediaIds: media ? [media.id] : undefined,
-          cta: slot.cta, // true só nos posts de WhatsApp → botão no envio
+          cta: slot.cta, // true só nos posts de convite → botão no envio
           // Só os posts de convite carregam o destino; nos outros ele não é
-          // usado e gravá-lo só faria ruído no banco.
-          waLink: slot.cta ? chosenWa?.url : undefined,
+          // usado e gravá-lo só faria ruído no banco. Aqui o link vai SEMPRE
+          // resolvido (não só quando há conta escolhida): sem isso o envio cairia
+          // no WhatsApp do cadastro mesmo numa geração de Telegram.
+          waLink: slot.cta ? ctaLink : undefined,
         });
         taken.add(at);
         created++;

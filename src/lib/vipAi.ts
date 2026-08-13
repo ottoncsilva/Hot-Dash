@@ -11,11 +11,14 @@ import "server-only";
  *   íntimo, não um catálogo de vendas.
  * - Nada de "vem pro VIP" (ele já está dentro). Posts de foto/vídeo exclusivos
  *   valorizam o conteúdo, sem link.
- * - O convite pro WhatsApp particular é OPCIONAL e decidido A CADA GERAÇÃO
- *   (`whatsappCta`). O WhatsApp virou produto à parte, então o padrão é NÃO
- *   entregar: ligado, o dia ganha ~8 posts com o botão, concentrados nos
+ * - O convite pro CONTATO DIRETO é OPCIONAL e decidido A CADA GERAÇÃO
+ *   (`contato`). O contato particular virou produto à parte, então o padrão é
+ *   NÃO entregar: ligado, o dia ganha ~8 posts com o botão, concentrados nos
  *   HORÁRIOS DE PICO do MK (meio-dia, noite e madrugada); desligado, o dia sai
  *   inteiro sem venda nenhuma.
+ * - O destino é UM POR GERAÇÃO: WhatsApp OU Telegram particular. Misturar os
+ *   dois no mesmo dia divide a atenção e nenhum dos dois vira hábito — quem
+ *   respondeu no zap ontem não vai procurar você no Telegram hoje.
  *
  * O SERVIDOR planeja (horários/tipos/CTA); a IA só ESCREVE a legenda de cada
  * post (na rota generate-vip, analisando a foto).
@@ -40,17 +43,27 @@ export type VipType =
   | "POLL"
   | "EXCLUSIVE_PHOTO"
   | "EXCLUSIVE_VIDEO"
-  | "WHATSAPP_INVITE"
-  | "WHATSAPP_PHOTO";
+  | "DM_INVITE"
+  | "DM_PHOTO";
 
-// humaniza = relacionamento; engaja = interação; whatsapp = convite pro
-// WhatsApp particular (leva o botão) — só entra quando a geração pede.
-export type VipIntent = "humaniza" | "engaja" | "whatsapp";
+/** Para onde o convite do VIP aponta nesta geração. `null` = geração sem
+ *  convite nenhum (o padrão). */
+export type VipContato = "whatsapp" | "telegram";
+
+/** Como cada destino se chama na copy e no aviso da tela. */
+export const CONTATO_LABEL: Record<VipContato, string> = {
+  whatsapp: "WhatsApp",
+  telegram: "Telegram",
+};
+
+// humaniza = relacionamento; engaja = interação; direto = convite pro contato
+// particular (leva o botão) — só entra quando a geração pede.
+export type VipIntent = "humaniza" | "engaja" | "direto";
 
 type TypeDef = {
   kind: VipKind;
   intent: VipIntent;
-  /** true = leva o BOTÃO do WhatsApp particular no envio. */
+  /** true = leva o BOTÃO do contato particular no envio. */
   cta: boolean;
   media?: "photo" | "video";
 };
@@ -70,8 +83,8 @@ export const VIP_TYPE_DEFS: Record<VipType, TypeDef> = {
   POLL: { kind: "enquete", intent: "engaja", cta: false },
   EXCLUSIVE_PHOTO: { kind: "foto", intent: "engaja", cta: false, media: "photo" },
   EXCLUSIVE_VIDEO: { kind: "video", intent: "engaja", cta: false, media: "video" },
-  WHATSAPP_INVITE: { kind: "texto", intent: "whatsapp", cta: true },
-  WHATSAPP_PHOTO: { kind: "foto", intent: "whatsapp", cta: true, media: "photo" },
+  DM_INVITE: { kind: "texto", intent: "direto", cta: true },
+  DM_PHOTO: { kind: "foto", intent: "direto", cta: true, media: "photo" },
 };
 
 // Janela de horário: [início, fim) em BRT, com os tipos priorizados e o peso
@@ -82,17 +95,17 @@ const WINDOWS: Window[] = [
   // 05–08 manhã leve (só carinho, zero venda)
   { start: 5, end: 8, weight: 2, types: ["GOOD_MORNING", "HUMANIZATION", "BREAKFAST", "SELFIE"] },
   // 08–11 dia (relacionamento + engajamento, whats bem eventual)
-  { start: 8, end: 11, weight: 3, types: ["HUMANIZATION", "CURIOSITY", "QUESTION", "SELFIE", "REACTION", "VIP_THANKS", "WHATSAPP_INVITE"] },
+  { start: 8, end: 11, weight: 3, types: ["HUMANIZATION", "CURIOSITY", "QUESTION", "SELFIE", "REACTION", "VIP_THANKS", "DM_INVITE"] },
   // 11–14 PICO do meio-dia (aqui entra mais o WhatsApp)
-  { start: 11, end: 14, weight: 3, types: ["WHATSAPP_INVITE", "WHATSAPP_PHOTO", "EXCLUSIVE_PHOTO", "HUMANIZATION", "SELFIE", "QUESTION", "CURIOSITY"] },
+  { start: 11, end: 14, weight: 3, types: ["DM_INVITE", "DM_PHOTO", "EXCLUSIVE_PHOTO", "HUMANIZATION", "SELFIE", "QUESTION", "CURIOSITY"] },
   // 14–17 tarde (baixar a bola)
   { start: 14, end: 17, weight: 2, types: ["HUMANIZATION", "BEHIND_SCENES", "CURIOSITY", "SELFIE", "POLL"] },
   // 17–20 fim de tarde (aquece o engajamento)
-  { start: 17, end: 20, weight: 3, types: ["SELFIE", "CURIOSITY", "POLL", "HUMANIZATION", "REACTION", "WHATSAPP_INVITE"] },
+  { start: 17, end: 20, weight: 3, types: ["SELFIE", "CURIOSITY", "POLL", "HUMANIZATION", "REACTION", "DM_INVITE"] },
   // 20–23:30 PICO da noite (maior janela de LTV)
-  { start: 20, end: 24, weight: 4, types: ["WHATSAPP_INVITE", "WHATSAPP_PHOTO", "EXCLUSIVE_PHOTO", "EXCLUSIVE_VIDEO", "HUMANIZATION", "SELFIE", "POLL", "VIP_THANKS"] },
+  { start: 20, end: 24, weight: 4, types: ["DM_INVITE", "DM_PHOTO", "EXCLUSIVE_PHOTO", "EXCLUSIVE_VIDEO", "HUMANIZATION", "SELFIE", "POLL", "VIP_THANKS"] },
   // 00–03 PICO da madrugada (alta intenção)
-  { start: 0, end: 3, weight: 3, types: ["WHATSAPP_INVITE", "WHATSAPP_PHOTO", "EXCLUSIVE_PHOTO", "HUMANIZATION", "GOOD_NIGHT", "REACTION", "CURIOSITY"] },
+  { start: 0, end: 3, weight: 3, types: ["DM_INVITE", "DM_PHOTO", "EXCLUSIVE_PHOTO", "HUMANIZATION", "GOOD_NIGHT", "REACTION", "CURIOSITY"] },
   // 03–05 baixa atividade
   { start: 3, end: 5, weight: 1, types: ["HUMANIZATION", "GOOD_NIGHT", "SELFIE"] },
 ];
@@ -120,12 +133,13 @@ function pick<T>(arr: T[]): T {
 // Planejar o dia (100% servidor) — 20 a 25 posts.
 // --------------------------------------------------------------------------
 /**
- * @param opts.whatsappCta Ligar o convite pro WhatsApp particular NESTA
- *   geração. Padrão `false`: o WhatsApp é produto à parte, então só entra
- *   quando o operador pede na hora de gerar.
+ * @param opts.contato Destino do convite NESTA geração: "whatsapp",
+ *   "telegram" ou `null`/omitido para um dia sem convite nenhum (o padrão — o
+ *   contato particular é produto à parte). O plano é o mesmo nos dois destinos;
+ *   o que muda é só a copy e o botão, resolvidos na rota e no envio.
  */
-export function planDayVip(opts: { whatsappCta?: boolean } = {}): VipPost[] {
-  const whatsappCta = opts.whatsappCta === true;
+export function planDayVip(opts: { contato?: VipContato | null } = {}): VipPost[] {
+  const comConvite = opts.contato === "whatsapp" || opts.contato === "telegram";
   const total = randInt(20, 25);
 
   // 1) Distribui o total pelas janelas conforme o peso (≥1 nas de peso).
@@ -153,13 +167,13 @@ export function planDayVip(opts: { whatsappCta?: boolean } = {}): VipPost[] {
     const count = perWindow[wi];
     const spanMin = (w.end - w.start) * 60;
     const times = uniqueMinutes(count, spanMin).map((m) => w.start * 60 + m);
-    // Desligado, os tipos de WhatsApp somem do sorteio: não basta tirar o
-    // botão, porque a legenda desses posts é escrita convidando pro WhatsApp e
-    // sem o link ficaria chamando para um destino que não existe.
-    const types = whatsappCta
+    // Desligado, os tipos de convite somem do sorteio: não basta tirar o
+    // botão, porque a legenda desses posts é escrita convidando pro particular
+    // e sem o link ficaria chamando para um destino que não existe.
+    const types = comConvite
       ? w.types
-      : w.types.filter((t) => VIP_TYPE_DEFS[t].intent !== "whatsapp");
-    const waTarget = whatsappCta ? windowWhatsappTarget(w) : 0;
+      : w.types.filter((t) => VIP_TYPE_DEFS[t].intent !== "direto");
+    const waTarget = comConvite ? windowDiretoTarget(w) : 0;
 
     let waDone = 0;
     times.forEach((totalMin) => {
@@ -170,7 +184,7 @@ export function planDayVip(opts: { whatsappCta?: boolean } = {}): VipPost[] {
       const wantWa = waDone / count < waTarget;
       const type = chooseType(types, { wantWa, avoidKind: lastKind });
       const def = VIP_TYPE_DEFS[type];
-      if (def.intent === "whatsapp") waDone++;
+      if (def.intent === "direto") waDone++;
       lastKind = def.kind;
 
       planned.push({
@@ -193,7 +207,7 @@ export function planDayVip(opts: { whatsappCta?: boolean } = {}): VipPost[] {
 }
 
 /** Converte posts de engajamento em POLL até o alvo, espalhados (nunca duas
- *  enquetes seguidas). Nunca mexe em posts de WhatsApp (o CTA é intocável). */
+ *  enquetes seguidas). Nunca mexe em posts de convite (o CTA é intocável). */
 function ensureMinPolls(planned: VipPost[], target: number): void {
   const pollDef = VIP_TYPE_DEFS.POLL;
   const isPoll = (i: number) => planned[i]?.type === "POLL";
@@ -220,11 +234,11 @@ function ensureMinPolls(planned: VipPost[], target: number): void {
   }
 }
 
-/** Fração-alvo de posts de WHATSAPP da janela, quando o convite está ligado.
+/** Fração-alvo de posts de CONVITE da janela, quando o convite está ligado.
  *  Concentrada nos PICOS do MK (meio-dia, noite, madrugada); quase nada fora
  *  deles. Na prática dá ~8 posts com o link por dia: a cota é conferida ANTES
  *  de contar o post, então cada janela de pico arredonda para cima. */
-function windowWhatsappTarget(w: Window): number {
+function windowDiretoTarget(w: Window): number {
   if (w.start === 20 || w.start === 0) return 0.4; // noite e madrugada (picos)
   if (w.start === 11) return 0.4; // meio-dia (pico)
   if (w.start === 17) return 0.15; // fim de tarde (aquece)
@@ -232,15 +246,15 @@ function windowWhatsappTarget(w: Window): number {
   return 0; // 05–08, 14–17, 03–05 (só relacionamento)
 }
 
-/** Escolhe um tipo dos disponíveis na janela: prioriza WhatsApp quando
+/** Escolhe um tipo dos disponíveis na janela: prioriza o convite quando
  *  `wantWa`; senão pende para HUMANIZAÇÃO (relacionamento) sobre engajamento.
  *  Evita repetir o kind físico do post anterior. */
 function chooseType(
   types: VipType[],
   opts: { wantWa: boolean; avoidKind: VipKind | null },
 ): VipType {
-  const wa = types.filter((t) => VIP_TYPE_DEFS[t].intent === "whatsapp");
-  const nonWa = types.filter((t) => VIP_TYPE_DEFS[t].intent !== "whatsapp");
+  const wa = types.filter((t) => VIP_TYPE_DEFS[t].intent === "direto");
+  const nonWa = types.filter((t) => VIP_TYPE_DEFS[t].intent !== "direto");
   let pool: VipType[];
   if (opts.wantWa && wa.length > 0) {
     pool = wa;
@@ -288,18 +302,29 @@ function wallOrder(time: string): number {
 
 /** Tema/instrução que a rota passa a generateCaption como `theme`. Tom de quem
  *  já tem intimidade com o cara (ele é VIP). Nenhum tipo vende assinatura; só
- *  os dois de WhatsApp convidam, e mesmo eles NUNCA escrevem o link/número —
- *  o botão é anexado automaticamente no envio. */
-export function captionThemeVip(type: VipType): string {
+ *  os dois de convite chamam pro particular, e mesmo eles NUNCA escrevem o
+ *  link/número — o botão é anexado automaticamente no envio.
+ *
+ *  `contato` é o destino da geração. Ele muda a copy de verdade, não só o
+ *  botão: "me chama no zap" num post cujo botão abre o Telegram faz o cara
+ *  parar no meio do caminho. No Telegram ainda vale um argumento que o WhatsApp
+ *  não tem — ele não precisa sair do app nem entregar o número. */
+export function captionThemeVip(type: VipType, contato: VipContato = "whatsapp"): string {
   const base =
     "Fale como brasileira DE VERDADE, informal, do dia a dia (tá, pra, cê, tô). " +
     "Curta (1–2 linhas). Tom íntimo de quem já conhece o cara — ele já é do seu VIP, " +
     "então NADA de vender assinatura nem 'vem pro VIP'. Sem hashtags. Varie a abertura.";
   const wa =
-    "Convide de um jeito leve e carinhoso pra ele te chamar no seu WhatsApp particular " +
-    "(mais pessoal, resposta mais rápida, você responde de verdade lá). " +
-    "NÃO escreva link, número nem 'clica aqui' — o botão do WhatsApp é anexado automaticamente. " +
-    "Faça soar como um convite íntimo, não como anúncio.";
+    contato === "telegram"
+      ? "Convide de um jeito leve e carinhoso pra ele te chamar no seu TELEGRAM particular, " +
+        "na conversa privada (mais pessoal, você responde de verdade lá, e ele nem precisa " +
+        "sair do Telegram nem passar o número). " +
+        "NÃO escreva link, usuário nem 'clica aqui' — o botão é anexado automaticamente. " +
+        "Faça soar como um convite íntimo, não como anúncio."
+      : "Convide de um jeito leve e carinhoso pra ele te chamar no seu WhatsApp particular " +
+        "(mais pessoal, resposta mais rápida, você responde de verdade lá). " +
+        "NÃO escreva link, número nem 'clica aqui' — o botão do WhatsApp é anexado automaticamente. " +
+        "Faça soar como um convite íntimo, não como anúncio.";
   switch (type) {
     case "GOOD_MORNING": return `Bom dia carinhoso pro seu VIP, sem vender. ${base}`;
     case "HUMANIZATION": return `Conte um pedaço da sua rotina (café, banho, treino, sofá), íntimo, sem vender. ${base}`;
@@ -313,10 +338,10 @@ export function captionThemeVip(type: VipType): string {
     case "QUESTION": return `Pergunta simples e safada pra gerar comentário ('o que você faria…'), sem vender. ${base}`;
     case "REACTION": return `Post CURTO que PEDE reação com emoji ('reage com 🔥 se…'), sem vender. ${base}`;
     case "POLL": return `Enquete safada e leve, sem vender. ${base}`;
-    case "EXCLUSIVE_PHOTO": return `Legenda pra esta FOTO exclusiva do VIP, valorizando ('isso é só aqui pra vocês'), sem vender assinatura nem WhatsApp. ${base}`;
+    case "EXCLUSIVE_PHOTO": return `Legenda pra esta FOTO exclusiva do VIP, valorizando ('isso é só aqui pra vocês'), sem vender assinatura nem chamar pro particular. ${base}`;
     case "EXCLUSIVE_VIDEO": return `Legenda pra um VÍDEO exclusivo do VIP (use o frame como referência), valorizando, sem vender. ${base}`;
-    case "WHATSAPP_INVITE": return `Chama o cara pro seu WhatsApp particular. ${wa} ${base}`;
-    case "WHATSAPP_PHOTO": return `Legenda desta FOTO + convite pro seu WhatsApp particular. ${wa} ${base}`;
+    case "DM_INVITE": return `Chama o cara pro seu ${CONTATO_LABEL[contato]} particular. ${wa} ${base}`;
+    case "DM_PHOTO": return `Legenda desta FOTO + convite pro seu ${CONTATO_LABEL[contato]} particular. ${wa} ${base}`;
   }
 }
 
@@ -334,10 +359,26 @@ const FALLBACK: Partial<Record<VipType, string[]>> = {
   REACTION: ["Reage com 🔥 se tá pensando em mim 😈", "Manda um 💦 se você me quer agora"],
   EXCLUSIVE_PHOTO: ["Essa é só aqui pra vocês do VIP 🔥", "Isso ninguém mais vê 😈 só meu VIP"],
   EXCLUSIVE_VIDEO: ["Gravei um vídeo só pro VIP 💦 aproveita", "Esse vídeo é exclusivo daqui 😈🔥"],
-  WHATSAPP_INVITE: ["Me chama no meu zap 😏 lá eu respondo de verdade", "No WhatsApp eu sou mais sua 💕 vem", "Queria te responder no particular 😈 me chama no zap"],
-  WHATSAPP_PHOTO: ["Gostou? no meu zap tem mais e é mais pessoal 😏", "Vem falar comigo no particular 💦 te respondo lá"],
+  DM_INVITE: ["Me chama no meu zap 😏 lá eu respondo de verdade", "No WhatsApp eu sou mais sua 💕 vem", "Queria te responder no particular 😈 me chama no zap"],
+  DM_PHOTO: ["Gostou? no meu zap tem mais e é mais pessoal 😏", "Vem falar comigo no particular 💦 te respondo lá"],
 };
-export function fallbackTextVip(type: VipType): string {
-  const arr = FALLBACK[type];
+
+/** Reservas dos dois tipos de convite quando o destino é o TELEGRAM. Precisam
+ *  ser próprias: os fallbacks acima citam "zap" e sairiam contradizendo o botão. */
+const FALLBACK_TELEGRAM: Partial<Record<VipType, string[]>> = {
+  DM_INVITE: [
+    "Me chama aqui no meu privado 😏 lá eu respondo de verdade",
+    "No particular eu sou mais sua 💕 vem",
+    "Queria te responder a sós 😈 me chama no meu direct",
+  ],
+  DM_PHOTO: [
+    "Gostou? no meu privado tem mais e é mais pessoal 😏",
+    "Vem falar comigo a sós 💦 te respondo lá",
+  ],
+};
+
+export function fallbackTextVip(type: VipType, contato: VipContato = "whatsapp"): string {
+  const arr =
+    (contato === "telegram" ? FALLBACK_TELEGRAM[type] : undefined) || FALLBACK[type];
   return arr ? pick(arr) : "Reage com 🔥 😈";
 }

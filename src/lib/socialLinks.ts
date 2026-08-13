@@ -118,6 +118,22 @@ export function whatsappAccounts(
     .filter((a) => Boolean(a.url));
 }
 
+/** Contas de TELEGRAM da modelo, no mesmo formato do `whatsappAccounts`. São os
+ *  destinos possíveis do convite dos posts do VIP quando a geração escolhe o
+ *  Telegram em vez do WhatsApp. */
+export function telegramAccounts(
+  accounts: SocialAccount[] | undefined,
+): { id: string; label: string; url: string }[] {
+  return (accounts || [])
+    .filter((a) => a.network === "telegram")
+    .map((a) => ({
+      id: a.id,
+      label: a.notes?.trim() ? `${a.username} — ${a.notes.trim()}` : a.username,
+      url: (a.url || "").trim() || buildSocialUrl("telegram", a.username),
+    }))
+    .filter((a) => Boolean(a.url));
+}
+
 /** Monta a URL do perfil a partir da rede + identificador. Vazio se não der. */
 export function buildSocialUrl(network: SocialNetwork, handle: string): string {
   const h = handle.trim();

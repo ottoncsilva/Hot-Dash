@@ -43,6 +43,8 @@ export default function ProfileDetailPage() {
   const [bioVipLink, setBioVipLink] = useState("");
   const [bioWhatsappLink, setBioWhatsappLink] = useState("");
   const [bioWhatsappButton, setBioWhatsappButton] = useState("");
+  const [bioTelegramLink, setBioTelegramLink] = useState("");
+  const [bioTelegramButton, setBioTelegramButton] = useState("");
   // Credenciais do bot do Telegram (vivem em telegram_bots, por perfil).
   const [botToken, setBotToken] = useState("");
   const [botIdVip, setBotIdVip] = useState("");
@@ -69,6 +71,8 @@ export default function ProfileDetailPage() {
       setBioVipLink(data.profile.bioVipLink || "");
       setBioWhatsappLink(data.profile.bioWhatsappLink || "");
       setBioWhatsappButton(data.profile.bioWhatsappButton || "");
+      setBioTelegramLink(data.profile.bioTelegramLink || "");
+      setBioTelegramButton(data.profile.bioTelegramButton || "");
       // Credenciais do bot (não bloqueia a tela se falhar).
       try {
         const tg = await apiGet<{ bot: { botToken?: string; idVip?: string; idAquecimento?: string } | null }>(
@@ -109,6 +113,8 @@ export default function ProfileDetailPage() {
           bioVipLink,
           bioWhatsappLink,
           bioWhatsappButton,
+          bioTelegramLink,
+          bioTelegramButton,
         },
       );
       setProfile(p);
@@ -195,6 +201,8 @@ export default function ProfileDetailPage() {
     bioVipLink !== (profile.bioVipLink || "") ||
     bioWhatsappLink !== (profile.bioWhatsappLink || "") ||
     bioWhatsappButton !== (profile.bioWhatsappButton || "") ||
+    bioTelegramLink !== (profile.bioTelegramLink || "") ||
+    bioTelegramButton !== (profile.bioTelegramButton || "") ||
     botToken !== botOrig.token ||
     botIdVip !== botOrig.vip ||
     botIdPrevias !== botOrig.prev;
@@ -323,8 +331,9 @@ export default function ProfileDetailPage() {
               />
             </div>
 
-            {/* Link de SAÍDA do VIP (WhatsApp particular). Vai no botão dos posts
-                do grupo VIP que você marcar para levar o link (LTV no WhatsApp). */}
+            {/* Links de SAÍDA do VIP. São dois destinos possíveis para o mesmo
+                papel — puxar o lead do grupo para uma conversa 1 a 1 (LTV) — e
+                cada geração do Método MK escolhe UM deles. */}
             <div className="panel rounded-xl p-4 space-y-3">
               <p className="eyebrow">WhatsApp particular (posts do VIP)</p>
               <p className="text-xs text-zinc-500 -mt-1">
@@ -347,6 +356,36 @@ export default function ProfileDetailPage() {
                   placeholder="meu whatsapp particular"
                   value={bioWhatsappButton}
                   onChange={(e) => setBioWhatsappButton(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* O outro destino: a conversa privada no PRÓPRIO Telegram. Vantagem
+                sobre o WhatsApp — o lead não sai do app nem entrega o número,
+                então a barreira para o primeiro "oi" é bem menor. */}
+            <div className="panel rounded-xl p-4 space-y-3">
+              <p className="eyebrow">Telegram particular (posts do VIP)</p>
+              <p className="text-xs text-zinc-500 -mt-1">
+                A outra opção de destino. Cada geração do Método MK do VIP escolhe
+                <b> um dos dois</b> — WhatsApp ou Telegram, nunca os dois no mesmo dia.
+              </p>
+              <div>
+                <label className="eyebrow mb-1.5 block">Link do Telegram</label>
+                <input
+                  className="input"
+                  placeholder="Ex: https://t.me/seuusuario"
+                  value={bioTelegramLink}
+                  onChange={(e) => setBioTelegramLink(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="eyebrow mb-1.5 block">Texto do botão <span className="text-zinc-500 font-normal">(máx. 25 caracteres)</span></label>
+                <input
+                  className="input"
+                  maxLength={25}
+                  placeholder="meu telegram particular"
+                  value={bioTelegramButton}
+                  onChange={(e) => setBioTelegramButton(e.target.value)}
                 />
               </div>
             </div>

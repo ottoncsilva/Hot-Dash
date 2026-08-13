@@ -31,6 +31,8 @@ type ProfileRow = {
   bio_vip_link: string | null;
   bio_whatsapp_link: string | null;
   bio_whatsapp_button: string | null;
+  bio_telegram_link: string | null;
+  bio_telegram_button: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -70,6 +72,8 @@ function profileToClient(p: ProfileRow): Profile {
     bioVipLink: p.bio_vip_link || undefined,
     bioWhatsappLink: p.bio_whatsapp_link || undefined,
     bioWhatsappButton: p.bio_whatsapp_button || undefined,
+    bioTelegramLink: p.bio_telegram_link || undefined,
+    bioTelegramButton: p.bio_telegram_button || undefined,
     createdAt: p.created_at,
     updatedAt: p.updated_at,
   };
@@ -132,6 +136,8 @@ export async function updateProfile(
     bioVipLink?: string;
     bioWhatsappLink?: string;
     bioWhatsappButton?: string;
+    bioTelegramLink?: string;
+    bioTelegramButton?: string;
   },
 ): Promise<Profile | null> {
   const existing = getDb()
@@ -180,6 +186,14 @@ export async function updateProfile(
   if (patch.bioWhatsappButton !== undefined) {
     sets.push("bio_whatsapp_button = ?");
     vals.push(patch.bioWhatsappButton.trim());
+  }
+  if (patch.bioTelegramLink !== undefined) {
+    sets.push("bio_telegram_link = ?");
+    vals.push(patch.bioTelegramLink.trim());
+  }
+  if (patch.bioTelegramButton !== undefined) {
+    sets.push("bio_telegram_button = ?");
+    vals.push(patch.bioTelegramButton.trim());
   }
   sets.push("updated_at = ?");
   vals.push(Date.now());

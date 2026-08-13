@@ -8,14 +8,23 @@ import "server-only";
  *
  * - 20 a 25 posts/dia (menos que as Prévias), número e sequência aleatórios.
  * - A maioria é humanização/relacionamento e engajamento: o VIP é um cantinho
- *   íntimo, não um catálogo de vendas.
+ *   íntimo, não um catálogo de vendas. Hoje o dia sai ~35% humanização, ~32%
+ *   engajamento e ~34% convite (com o convite ligado).
  * - Nada de "vem pro VIP" (ele já está dentro). Posts de foto/vídeo exclusivos
  *   valorizam o conteúdo, sem link.
+ * - TETO DE ACERVO: no máximo 4 a 6 posts com foto ou vídeo por dia (~4,6 na
+ *   média, contra ~9 na versão anterior). O acervo não acompanhava esse ritmo e
+ *   o VIP passava a rever o que já tinha visto; o excedente virou conversa —
+ *   pergunta, enquete, reação. Menos mídia por dia = conteúdo mais fresco.
  * - O convite pro CONTATO DIRETO é OPCIONAL e decidido A CADA GERAÇÃO
  *   (`contato`). O contato particular virou produto à parte, então o padrão é
- *   NÃO entregar: ligado, o dia ganha ~8 posts com o botão, concentrados nos
- *   HORÁRIOS DE PICO do MK (meio-dia, noite e madrugada); desligado, o dia sai
- *   inteiro sem venda nenhuma.
+ *   NÃO entregar: ligado, o dia ganha ~7 a 8 posts com o botão; desligado, o
+ *   dia sai inteiro sem venda nenhuma.
+ * - AS JANELAS SEGUEM A CURVA DE VISUALIZAÇÃO do próprio grupo (gráfico do
+ *   Telegram, em BRT): picos às 07–09h, 13–15h e 20–22h; vales no almoço e
+ *   madrugada. A v2 tratava 00–02h como pico e mandava um quarto dos convites
+ *   para uma sala com 5 a 13 pessoas olhando. Hoje ~95% dos convites caem em
+ *   hora de pico.
  * - O destino é UM POR GERAÇÃO: WhatsApp OU Telegram particular. Misturar os
  *   dois no mesmo dia divide a atenção e nenhum dos dois vira hábito — quem
  *   respondeu no zap ontem não vai procurar você no Telegram hoje.
@@ -92,22 +101,31 @@ export const VIP_TYPE_DEFS: Record<VipType, TypeDef> = {
 type Window = { start: number; end: number; weight: number; types: VipType[] };
 
 const WINDOWS: Window[] = [
-  // 05–08 manhã leve (só carinho, zero venda)
-  { start: 5, end: 8, weight: 2, types: ["GOOD_MORNING", "HUMANIZATION", "BREAKFAST", "SELFIE"] },
-  // 08–11 dia (relacionamento + engajamento, whats bem eventual)
-  { start: 8, end: 11, weight: 3, types: ["HUMANIZATION", "CURIOSITY", "QUESTION", "SELFIE", "REACTION", "VIP_THANKS", "DM_INVITE"] },
-  // 11–14 PICO do meio-dia (aqui entra mais o WhatsApp)
-  { start: 11, end: 14, weight: 3, types: ["DM_INVITE", "DM_PHOTO", "EXCLUSIVE_PHOTO", "HUMANIZATION", "SELFIE", "QUESTION", "CURIOSITY"] },
-  // 14–17 tarde (baixar a bola)
-  { start: 14, end: 17, weight: 2, types: ["HUMANIZATION", "BEHIND_SCENES", "CURIOSITY", "SELFIE", "POLL"] },
-  // 17–20 fim de tarde (aquece o engajamento)
-  { start: 17, end: 20, weight: 3, types: ["SELFIE", "CURIOSITY", "POLL", "HUMANIZATION", "REACTION", "DM_INVITE"] },
-  // 20–23:30 PICO da noite (maior janela de LTV)
-  { start: 20, end: 24, weight: 4, types: ["DM_INVITE", "DM_PHOTO", "EXCLUSIVE_PHOTO", "EXCLUSIVE_VIDEO", "HUMANIZATION", "SELFIE", "POLL", "VIP_THANKS"] },
-  // 00–03 PICO da madrugada (alta intenção)
-  { start: 0, end: 3, weight: 3, types: ["DM_INVITE", "DM_PHOTO", "EXCLUSIVE_PHOTO", "HUMANIZATION", "GOOD_NIGHT", "REACTION", "CURIOSITY"] },
-  // 03–05 baixa atividade
-  { start: 3, end: 5, weight: 1, types: ["HUMANIZATION", "GOOD_NIGHT", "SELFIE"] },
+  // 05–07 acordando, grupo ainda vazio (~6 views). Só carinho, zero mídia.
+  { start: 5, end: 7, weight: 1, types: ["GOOD_MORNING", "HUMANIZATION", "BREAKFAST"] },
+  // 07–09 PICO DA MANHÃ (24 views às 7h, o 2º maior do dia) — e até aqui era
+  // uma janela SEM convite nenhum. É o melhor horário desperdiçado do VIP.
+  { start: 7, end: 9, weight: 3, types: ["DM_INVITE", "DM_PHOTO", "GOOD_MORNING", "HUMANIZATION", "BREAKFAST", "QUESTION", "SELFIE"] },
+  // 09–12 manhã cheia e estável (16–21 views): relacionamento e interação.
+  { start: 9, end: 12, weight: 3, types: ["DM_INVITE", "HUMANIZATION", "CURIOSITY", "QUESTION", "REACTION", "VIP_THANKS", "EXCLUSIVE_PHOTO"] },
+  // 12–13 buraco do almoço (12 views, o vale do meio do dia). Sem convite.
+  { start: 12, end: 13, weight: 1, types: ["HUMANIZATION", "CURIOSITY", "POLL"] },
+  // 13–15 PICO DA TARDE (24 e 23 views) — também sem convite até aqui.
+  { start: 13, end: 15, weight: 3, types: ["DM_INVITE", "DM_PHOTO", "EXCLUSIVE_PHOTO", "HUMANIZATION", "QUESTION", "REACTION"] },
+  // 15–17 respiro (15–16 views): interação leve, sem mídia.
+  { start: 15, end: 17, weight: 2, types: ["HUMANIZATION", "BEHIND_SCENES", "CURIOSITY", "POLL", "QUESTION"] },
+  // 17–20 fim de tarde subindo de novo (20–22 views).
+  { start: 17, end: 20, weight: 3, types: ["DM_INVITE", "CURIOSITY", "POLL", "REACTION", "HUMANIZATION", "SELFIE", "QUESTION"] },
+  // 20–22 O MÁXIMO DO DIA (23 e 26 views). Maior janela e maior cota de convite.
+  { start: 20, end: 22, weight: 4, types: ["DM_INVITE", "DM_PHOTO", "EXCLUSIVE_PHOTO", "EXCLUSIVE_VIDEO", "HUMANIZATION", "REACTION", "POLL", "VIP_THANKS"] },
+  // 22–00 já caindo (19 → 13 views): fecha o dia sem insistir.
+  { start: 22, end: 24, weight: 2, types: ["HUMANIZATION", "GOOD_NIGHT", "CURIOSITY", "REACTION", "EXCLUSIVE_PHOTO"] },
+  // 00–02 madrugada. A v2 tratava como PICO (peso 3, cota 0,4 de convite) e o
+  // gráfico do grupo desmente: 13 views à 0h e 5 à 1h. Um quarto dos convites
+  // do dia ia para uma sala vazia.
+  { start: 0, end: 2, weight: 1, types: ["HUMANIZATION", "GOOD_NIGHT", "CURIOSITY"] },
+  // 02–05 deserto absoluto (1 a 5 views). Presença mínima, nada mais.
+  { start: 2, end: 5, weight: 1, types: ["HUMANIZATION", "GOOD_NIGHT"] },
 ];
 
 export type VipPost = {
@@ -175,16 +193,26 @@ export function planDayVip(opts: { contato?: VipContato | null } = {}): VipPost[
       : w.types.filter((t) => VIP_TYPE_DEFS[t].intent !== "direto");
     const waTarget = comConvite ? windowDiretoTarget(w) : 0;
 
-    let waDone = 0;
-    times.forEach((totalMin) => {
+    // Quais posts DESTA janela levam o convite. `times` sai em ordem
+    // cronológica, então preencher a cota na marra jogava TODOS os convites na
+    // primeira hora da janela: às 20h saíam 1,7 convites e às 21h — a hora de
+    // mais audiência do grupo — 0,2. Sorteando as posições, a cota se espalha
+    // pelas duas horas do pico.
+    const waCount = Math.ceil(count * waTarget);
+    const waSlots = new Set(
+      times
+        .map((_, i) => i)
+        .sort(() => Math.random() - 0.5)
+        .slice(0, waCount),
+    );
+
+    times.forEach((totalMin, ti) => {
       const h = Math.floor(totalMin / 60) % 24;
       const min = totalMin % 60;
       const timeStr = `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
 
-      const wantWa = waDone / count < waTarget;
-      const type = chooseType(types, { wantWa, avoidKind: lastKind });
+      const type = chooseType(types, { wantWa: waSlots.has(ti), avoidKind: lastKind });
       const def = VIP_TYPE_DEFS[type];
-      if (def.intent === "direto") waDone++;
       lastKind = def.kind;
 
       planned.push({
@@ -201,22 +229,87 @@ export function planDayVip(opts: { contato?: VipContato | null } = {}): VipPost[
   // 3) Ordena por horário real (madrugada = fim do "dia MK", que começa 05:00).
   planned.sort((a, b) => wallOrder(a.time) - wallOrder(b.time));
 
-  // 4) Garante um mínimo de ENQUETES (engajamento saudável no VIP).
-  ensureMinPolls(planned, randInt(2, 3));
+  // 4) Limita o CONSUMO DE ACERVO do dia (foto/vídeo) — ver capMedia.
+  capMedia(planned, randInt(4, 6));
+
+  // 5) Deixa as ENQUETES em metade do engajamento do dia — ver balancePolls.
+  balancePolls(planned);
   return planned;
 }
 
-/** Converte posts de engajamento em POLL até o alvo, espalhados (nunca duas
- *  enquetes seguidas). Nunca mexe em posts de convite (o CTA é intocável). */
-function ensureMinPolls(planned: VipPost[], target: number): void {
+/**
+ * Teto de posts com FOTO ou VÍDEO no dia.
+ *
+ * O plano antigo gastava ~9 mídias por dia (39% dos posts) e o acervo não
+ * acompanha: em poucos dias o VIP volta a ver o que já viu, e conteúdo repetido
+ * vale menos que conversa. O excedente vira post de TEXTO da mesma intenção —
+ * o dia não encolhe, só troca acervo por interação.
+ *
+ * Ordem de sacrifício, do menos para o mais valioso:
+ *   SELFIE (foto de rotina) → EXCLUSIVE_PHOTO → DM_PHOTO → EXCLUSIVE_VIDEO.
+ * DM_PHOTO vira DM_INVITE: o convite continua no ar, perde só a foto. O vídeo
+ * é o último a cair — é o post mais raro e mais forte do VIP.
+ */
+function capMedia(planned: VipPost[], target: number): void {
+  const ordem: VipType[] = ["SELFIE", "EXCLUSIVE_PHOTO", "DM_PHOTO", "EXCLUSIVE_VIDEO"];
+  const semMidia: Partial<Record<VipType, VipType[]>> = {
+    SELFIE: ["HUMANIZATION", "BEHIND_SCENES", "WORK"],
+    EXCLUSIVE_PHOTO: ["CURIOSITY", "QUESTION", "REACTION"],
+    DM_PHOTO: ["DM_INVITE"],
+    EXCLUSIVE_VIDEO: ["CURIOSITY", "REACTION"],
+  };
+
+  let current = planned.filter((p) => p.media).length;
+  for (const tipo of ordem) {
+    if (current <= target) return;
+    const alvos = planned
+      .map((p, i) => ({ p, i }))
+      .filter(({ p }) => p.type === tipo)
+      .sort(() => Math.random() - 0.5);
+    for (const { i } of alvos) {
+      if (current <= target) return;
+      const virar = pick(semMidia[tipo]!);
+      const def = VIP_TYPE_DEFS[virar];
+      planned[i] = { ...planned[i], type: virar, kind: def.kind, intent: def.intent, cta: def.cta, media: def.media };
+      current--;
+    }
+  }
+}
+
+/**
+ * Deixa as ENQUETES em metade do engajamento do dia (mesma regra das Prévias),
+ * convertendo nos dois sentidos e sempre espalhado — nunca duas enquetes
+ * seguidas. Antes o alvo era fixo (2 a 3) e o resto do engajamento ficava solto.
+ *
+ * Posts com mídia ficam de fora do sorteio: o teto do dia já foi definido em
+ * `capMedia` e virar uma foto em enquete aqui desfaria aquela conta.
+ */
+function balancePolls(planned: VipPost[]): void {
   const pollDef = VIP_TYPE_DEFS.POLL;
   const isPoll = (i: number) => planned[i]?.type === "POLL";
+  const totalEngaja = planned.filter((p) => p.intent === "engaja").length;
+  const target = Math.round(totalEngaja / 2);
   let current = planned.filter((p) => p.type === "POLL").length;
+
+  if (current > target) {
+    const excedente = planned
+      .map((p, i) => ({ p, i }))
+      .filter(({ p }) => p.type === "POLL")
+      .sort(() => Math.random() - 0.5);
+    for (const { i } of excedente) {
+      if (current <= target) break;
+      const virar = pick<VipType>(["REACTION", "QUESTION", "CURIOSITY"]);
+      const def = VIP_TYPE_DEFS[virar];
+      planned[i] = { ...planned[i], type: virar, kind: def.kind, intent: def.intent, cta: def.cta, media: def.media };
+      current--;
+    }
+    return;
+  }
   if (current >= target) return;
 
   const candidates = planned
     .map((p, i) => ({ p, i }))
-    .filter(({ p }) => p.intent === "engaja" && p.type !== "POLL")
+    .filter(({ p }) => p.intent === "engaja" && p.type !== "POLL" && !p.media)
     .sort(() => Math.random() - 0.5);
 
   for (const { i } of candidates) {
@@ -235,20 +328,24 @@ function ensureMinPolls(planned: VipPost[], target: number): void {
 }
 
 /** Fração-alvo de posts de CONVITE da janela, quando o convite está ligado.
- *  Concentrada nos PICOS do MK (meio-dia, noite, madrugada); quase nada fora
- *  deles. Na prática dá ~8 posts com o link por dia: a cota é conferida ANTES
- *  de contar o post, então cada janela de pico arredonda para cima. */
+ *  Calibrada pelo GRÁFICO DE VISUALIZAÇÕES do próprio grupo VIP: convite só nas
+ *  horas em que tem gente olhando. Na prática dá ~7 a 8 posts com o link por
+ *  dia (a cota arredonda para cima em cada janela), ~90% deles em hora de pico. */
 function windowDiretoTarget(w: Window): number {
-  if (w.start === 20 || w.start === 0) return 0.4; // noite e madrugada (picos)
-  if (w.start === 11) return 0.4; // meio-dia (pico)
-  if (w.start === 17) return 0.15; // fim de tarde (aquece)
-  if (w.start === 8) return 0.1; // manhã (eventual)
-  return 0; // 05–08, 14–17, 03–05 (só relacionamento)
+  if (w.start === 20) return 0.5; // 20–22 máximo do dia (23 e 26 views)
+  if (w.start === 7) return 0.45; // 07–09 pico da manhã (24 views às 7h)
+  if (w.start === 13) return 0.45; // 13–15 pico da tarde (24 e 23 views)
+  if (w.start === 17) return 0.3; // 17–20 fim de tarde subindo
+  if (w.start === 9) return 0.25; // 09–12 manhã cheia
+  if (w.start === 22) return 0.15; // 22–00 já caindo
+  if (w.start === 15) return 0.1; // 15–17 respiro
+  return 0; // 05–07, 12–13, 00–02 e 02–05: sala vazia ou vale
 }
 
 /** Escolhe um tipo dos disponíveis na janela: prioriza o convite quando
- *  `wantWa`; senão pende para HUMANIZAÇÃO (relacionamento) sobre engajamento.
- *  Evita repetir o kind físico do post anterior. */
+ *  `wantWa`; senão sorteia entre HUMANIZAÇÃO e ENGAJAMENTO com leve vantagem
+ *  para o engajamento (o VIP responde mais a pergunta/enquete/reação do que a
+ *  mais um post de rotina). Evita repetir o kind físico do post anterior. */
 function chooseType(
   types: VipType[],
   opts: { wantWa: boolean; avoidKind: VipKind | null },
@@ -261,7 +358,7 @@ function chooseType(
   } else if (nonWa.length > 0) {
     const hum = nonWa.filter((t) => VIP_TYPE_DEFS[t].intent === "humaniza");
     const eng = nonWa.filter((t) => VIP_TYPE_DEFS[t].intent === "engaja");
-    if (hum.length && eng.length) pool = Math.random() < 0.6 ? hum : eng;
+    if (hum.length && eng.length) pool = Math.random() < 0.45 ? hum : eng;
     else pool = nonWa;
   } else {
     pool = types;

@@ -60,6 +60,10 @@ export default function TelegramUnifiedPage() {
   const [daysToGenerateVip, setDaysToGenerateVip] = useState(7);
   const [daysToGenerateWarmup, setDaysToGenerateWarmup] = useState(7);
   const [generatingVip, setGeneratingVip] = useState(false);
+  // O Método MK do VIP tem estado próprio: ele roda em lotes no servidor e a
+  // tela acompanha por polling, enquanto `generatingVip` cobre os geradores
+  // antigos, que respondem dentro da própria requisição.
+  const [generatingVipMk, setGeneratingVipMk] = useState(false);
   // Destino do convite na PRÓXIMA geração do Método MK do VIP. Escolha da
   // geração, não configuração salva: volta em "nenhum" a cada visita, porque o
   // contato particular é produto à parte. É UM destino por geração — misturar
@@ -237,11 +241,62 @@ export default function TelegramUnifiedPage() {
     }
   };
 
-  // Método MK do VIP: planeja o dia (relacionamento e engajamento) e agenda os
-  // posts. O convite pro WhatsApp entra só quando `vipWhatsappCta` está ligado
-  // — é uma escolha DESTA geração, não uma configuração salva.
+  // Método MK do VIP. Igual às Prévias: a rota só ENFILEIRA e responde na hora;
+  // quem escreve a copy é o agendador do servidor, em lotes. O convite pro
+  // particular é escolha DESTA geração (`vipContato`), não configuração salva.
+  const [mkVipJob, setMkVipJob] = useState<{
+    status: string;
+    total: number;
+    done: number;
+    created: number;
+    today: number;
+    error?: string | null;
+    aiError?: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!selectedProfileId || !generatingVipMk) return;
+    let vivo = true;
+    const consultar = async () => {
+      try {
+        const res = await fetch(
+          `/api/telegram/generate-vip?profileId=${encodeURIComponent(selectedProfileId)}`,
+        );
+        const d = await res.json();
+        if (!vivo) return;
+        const job = d.job;
+        setMkVipJob(job);
+        if (!job || job.status === "done" || job.status === "error") {
+          setGeneratingVipMk(false);
+          window.dispatchEvent(new Event("reloadTelegramCalendar"));
+          if (job?.status === "error") {
+            toast.error(job.error || "Erro ao gerar VIP.");
+          } else if (job) {
+            const hoje = job.today
+              ? ` (${job.today} ainda hoje)`
+              : " (nenhum ainda hoje — o dia já acabou)";
+            if (job.aiError) toast.error(`Parcial: ${job.aiError}`);
+            else toast.success(`${job.created} post(s) do VIP gerados${hoje}. Veja no calendário.`);
+          }
+        } else {
+          // Cada lote agenda posts novos: o calendário atualiza junto.
+          window.dispatchEvent(new Event("reloadTelegramCalendar"));
+        }
+      } catch {
+        /* tenta de novo no próximo tick */
+      }
+    };
+    void consultar();
+    const t = setInterval(consultar, 5000);
+    return () => {
+      vivo = false;
+      clearInterval(t);
+    };
+  }, [selectedProfileId, generatingVipMk]);
+
   const generateVipMk = async (daysOverride?: number) => {
-    setGeneratingVip(true);
+    setGeneratingVipMk(true);
+    setMkVipJob(null);
     try {
       const res = await fetch("/api/telegram/generate-vip", {
         method: "POST",
@@ -255,14 +310,16 @@ export default function TelegramUnifiedPage() {
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Erro ao gerar VIP.");
-      window.dispatchEvent(new Event("reloadTelegramCalendar"));
-      const hoje = d.generatedToday ? ` (${d.generatedToday} ainda hoje)` : " (nenhum ainda hoje — o dia já acabou)";
-      if (d.aiError) toast.error(`Parcial: ${d.aiError}`);
-      else toast.success(`${d.generated} post(s) do VIP gerados${hoje}. Veja no calendário.`);
+      if (d.job?.total === 0) {
+        setGeneratingVipMk(false);
+        toast.success(d.message || "Nenhum horário livre no período.");
+        return;
+      }
+      setMkVipJob(d.job);
+      toast.success(`Programação montada: ${d.job.total} posts. Escrevendo as legendas…`);
     } catch (err: any) {
+      setGeneratingVipMk(false);
       toast.error(err.message);
-    } finally {
-      setGeneratingVip(false);
     }
   };
 
@@ -442,19 +499,45 @@ export default function TelegramUnifiedPage() {
                          <button
                            type="button"
                            onClick={() => settings.vipScheduleType === "mk" ? generateVipMk(daysToGenerateVip) : generateSchedule("vip", false)}
-                           disabled={generatingVip}
+                           disabled={generatingVip || generatingVipMk}
                            className="rounded-lg bg-sky-500/20 text-sky-300 px-3 py-1.5 text-xs font-semibold hover:bg-sky-500/30 transition-colors disabled:opacity-50"
                          >
-                           {generatingVip
-                             ? "⏳ Gerando..."
-                             : settings.vipScheduleType === "mk"
-                               ? "✨ Gerar dias (Método MK)"
-                               : "✨ Gerar postagens com IA em massa"}
+                           {generatingVipMk && mkVipJob?.total
+                             ? `⏳ ${mkVipJob.done} de ${mkVipJob.total}`
+                             : (generatingVip || generatingVipMk)
+                               ? "⏳ Gerando..."
+                               : settings.vipScheduleType === "mk"
+                                 ? "✨ Gerar dias (Método MK)"
+                                 : "✨ Gerar postagens com IA em massa"}
                          </button>
                        </div>
                     </div>
                  </div>
-                
+
+                {/* Progresso da geração do Método MK. A geração roda no servidor
+                    em lotes, então continua mesmo se esta tela for fechada. */}
+                {generatingVipMk && mkVipJob && mkVipJob.total > 0 && (
+                  <div className="rounded-xl border border-sky-500/20 bg-sky-950/20 px-4 py-3">
+                    <div className="flex items-center justify-between text-xs text-sky-200">
+                      <span>Escrevendo as legendas no servidor…</span>
+                      <span className="font-mono">
+                        {mkVipJob.done} / {mkVipJob.total}
+                      </span>
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-sky-500/15">
+                      <div
+                        className="h-full rounded-full bg-sky-400 transition-all duration-500"
+                        style={{
+                          width: `${Math.round((100 * mkVipJob.done) / mkVipJob.total)}%`,
+                        }}
+                      />
+                    </div>
+                    <p className="mt-2 text-[11px] text-zinc-500">
+                      Pode fechar esta tela — a geração continua rodando.
+                    </p>
+                  </div>
+                )}
+
                 {/* Agendamento VIP */}
                 <div className="space-y-4 rounded-xl border border-white/[0.06] bg-zinc-950/60 p-5">
                   <h4 className="text-xs font-bold text-zinc-300">Agendamento</h4>

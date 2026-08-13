@@ -23,83 +23,89 @@ import { extractVideoThumbnail, extname } from "./metadata";
 import { readBuffer } from "./storage";
 import { getAiCredentials, getAppTimeZone, type AiProvider } from "./settings";
 import { createPost } from "./posts";
-import { DEFAULT_CTA_BUTTONS, appendCtaLines, pickCtaLinkTexts } from "./postTypes";
-import type { MediaItem } from "./types";
 import {
-  planDay,
-  mkSlotToUtcMs,
-  mkDayFromToday,
-  mkWeekday,
-  captionTheme,
-  fallbackText,
-  fallbackPoll,
-  TYPE_DEFS,
-  type MkType,
-  type MkKind,
-  type MkIntent,
-} from "./previasAi";
+  DEFAULT_VIP_CTA_BUTTONS,
+  DEFAULT_TELEGRAM_CTA_BUTTONS,
+  WHATSAPP_CTA_FALLBACK,
+  TELEGRAM_CTA_FALLBACK,
+  appendCtaLines,
+  pickCtaLinkTexts,
+} from "./postTypes";
+import { whatsappAccounts, telegramAccounts } from "./socialLinks";
+import type { MediaItem } from "./types";
+import { mkSlotToUtcMs, mkDayFromToday, mkWeekday, fallbackPoll } from "./previasAi";
+import {
+  planDayVip,
+  captionThemeVip,
+  fallbackTextVip,
+  type VipContato,
+  type VipType,
+  type VipKind,
+  type VipIntent,
+} from "./vipAi";
 
 /**
- * Geração do Método MK das Prévias, EM LOTES.
+ * Geração do Método MK do GRUPO VIP, EM LOTES — o mesmo desenho das Prévias.
  *
- * A rota antes fazia tudo dentro da requisição e estourava: são ~33 chamadas de
- * IA COM IMAGEM por dia gerado, sequenciais, contra um `maxDuration` de 300s. Com
- * o botão mandando `days: 1` (resto de hoje + 1 dia = ~66 posts) já encostava no
- * teto; com `days: 14` era impossível. Pior: os posts já criados ficavam gravados,
- * então a requisição morria no meio e sobrava meio cronograma sem aviso.
+ * A rota fazia tudo dentro da requisição: são ~22 chamadas de IA COM IMAGEM por
+ * dia gerado, sequenciais, contra um `maxDuration` de 300s, e o campo da tela
+ * aceita até 14 dias. Estourava, e os posts já criados ficavam gravados — meio
+ * cronograma no calendário, sem nenhum aviso de erro.
  *
- * Agora a rota só ENFILEIRA e responde na hora. O PLANO INTEIRO (horários e
- * tipos — a parte barata, 100% servidor) é calculado no enfileiramento e gravado
- * no job; o tick de 1 minuto (`instrumentation.ts`) consome `BATCH_SIZE` slots
- * por vez, escrevendo só a copy. Assim a tela mostra progresso real e nada
- * depende de uma requisição HTTP viva.
+ * Agora a rota só ENFILEIRA (o plano é barato: 100% servidor, zero IA) e o tick
+ * de 1 minuto escreve a copy, `BATCH_SIZE` posts por vez.
  */
 
-/** Slots processados por tick. ~8 chamadas de IA com imagem cabem folgadas em
- *  1 minuto e deixam o resto do tick (autopost, funis) rodar sem atropelo. */
+/** Slots processados por tick — mesmo tamanho das Prévias. */
 const BATCH_SIZE = 8;
 
 /** Um slot do plano, já com o instante UTC resolvido. */
 type JobSlot = {
   at: number;
-  type: MkType;
-  kind: MkKind;
-  intent: MkIntent;
+  type: VipType;
+  kind: VipKind;
+  intent: VipIntent;
   cta: boolean;
   media?: "photo" | "video";
-  hour: number;
   weekday: number;
 };
 
-export type PreviasJob = GenerationJob;
+/** O que o processamento precisa lembrar entre um lote e outro. O destino do
+ *  convite é escolhido NA GERAÇÃO, não é configuração salva; e o link já sai
+ *  resolvido daqui para o post continuar apontando certo mesmo que a conta seja
+ *  editada ou apagada depois. */
+type JobParams = {
+  contato: VipContato | null;
+  ctaLink: string;
+};
 
-// Ângulos de variação (rotacionados por post) — o mesmo recurso do gerador de
-// cronograma, para as legendas não começarem todas iguais.
+export type VipJob = GenerationJob;
+
+// Ângulos de variação (rotacionados por post) — para as legendas não começarem
+// todas iguais.
 const VARIATION_ANGLES = [
-  "Abra com uma provocação ousada.",
-  "Abra com uma pergunta safada e direta pra quem tá lendo.",
-  "Comece contando o que você tá sentindo no corpo agora.",
-  "Comece com um convite safado e sem rodeio.",
-  "Comece reagindo à própria roupa/corpo que aparece na foto — o que aparece e o que quase aparece.",
-  "Comece com um tom mais carinhoso e íntimo, e termine safada.",
-  "Comece com 'será que você aguenta…'.",
-  "Comece descrevendo o clima/cenário da foto e o que você faria ali.",
-  "Comece contando o que você fez sozinha antes de tirar essa foto.",
-  "Comece dizendo o que você quer que ele faça em você.",
+  "Abra com um carinho gostoso.",
+  "Abra com uma pergunta direta pra quem tá lendo.",
+  "Comece contando o que você tá fazendo ou sentindo agora.",
+  "Comece com uma provocação leve e íntima.",
+  "Comece reagindo à própria roupa/corpo que aparece na foto.",
+  "Comece com um tom mais safado.",
+  "Comece com 'tava aqui pensando em você…'.",
+  "Comece descrevendo o clima/cenário da foto.",
 ];
 
 // --------------------------------------------------------------------------
 // Enfileiramento
 // --------------------------------------------------------------------------
 
-/** Job em aberto (pending/processing) do perfil, se houver. */
-export function getActivePreviasJob(profileId: string): PreviasJob | null {
-  return getActiveJob(profileId, "previas");
+/** Job do VIP em aberto (pending/processing) do perfil, se houver. */
+export function getActiveVipJob(profileId: string): VipJob | null {
+  return getActiveJob(profileId, "vip");
 }
 
-/** Último job do perfil, em qualquer estado — é o que a tela mostra. */
-export function getLatestPreviasJob(profileId: string): PreviasJob | null {
-  return getLatestJob(profileId, "previas");
+/** Último job do VIP do perfil, em qualquer estado — é o que a tela mostra. */
+export function getLatestVipJob(profileId: string): VipJob | null {
+  return getLatestJob(profileId, "vip");
 }
 
 /**
@@ -108,25 +114,29 @@ export function getLatestPreviasJob(profileId: string): PreviasJob | null {
  * O plano sai pronto aqui porque é barato (nenhuma chamada de IA) e porque é ele
  * que dá o `total` da barra de progresso já na primeira resposta.
  */
-export function enqueuePreviasJob(profileId: string, days: number): PreviasJob {
+export function enqueueVipJob(opts: {
+  profileId: string;
+  days: number;
+  contato: VipContato | null;
+  ctaLink: string;
+}): VipJob {
   const db = getDb();
   const tz = getAppTimeZone();
 
-  // Horários já ocupados por Prévias agendadas (janela de 5 min) — a mesma
-  // idempotência de antes, agora aplicada de uma vez sobre o plano inteiro.
+  // Horários já ocupados por posts do VIP agendados (janela de 5 min).
   const existing = db
     .prepare(
       `SELECT p.scheduled_at FROM posts p JOIN post_networks pn ON pn.post_id = p.id
-        WHERE p.profile_id = ? AND pn.network = 'telegram' AND pn.post_type = 'Prévias'
+        WHERE p.profile_id = ? AND pn.network = 'telegram' AND pn.post_type = 'VIP'
           AND p.status = 'scheduled'`,
     )
-    .all(profileId) as { scheduled_at: number }[];
+    .all(opts.profileId) as { scheduled_at: number }[];
   const taken = existing.map((e) => e.scheduled_at);
 
   const slots: JobSlot[] = [];
-  for (let dayOffset = 0; dayOffset <= days; dayOffset++) {
+  for (let dayOffset = 0; dayOffset <= opts.days; dayOffset++) {
     const base = mkDayFromToday(dayOffset, tz);
-    for (const slot of planDay()) {
+    for (const slot of planDayVip({ contato: opts.contato })) {
       const at = mkSlotToUtcMs(base, slot.time, tz, true);
       if (at <= Date.now()) continue; // não agenda no passado
       if (taken.some((t) => Math.abs(t - at) < 5 * 60 * 1000)) continue;
@@ -138,14 +148,20 @@ export function enqueuePreviasJob(profileId: string, days: number): PreviasJob {
         intent: slot.intent,
         cta: slot.cta,
         media: slot.media,
-        hour: parseInt(slot.time.slice(0, 2), 10),
         weekday: mkWeekday(base, slot.time),
       });
     }
   }
   slots.sort((a, b) => a.at - b.at);
 
-  return insertJob({ profileId, audience: "previas", days, slots });
+  const params: JobParams = { contato: opts.contato, ctaLink: opts.ctaLink };
+  return insertJob({
+    profileId: opts.profileId,
+    audience: "vip",
+    days: opts.days,
+    slots,
+    params,
+  });
 }
 
 // --------------------------------------------------------------------------
@@ -153,17 +169,17 @@ export function enqueuePreviasJob(profileId: string, days: number): PreviasJob {
 // --------------------------------------------------------------------------
 
 /**
- * Processa UM lote do job mais antigo em aberto. Retorna quantos posts criou.
- * Uma falha marca o job como `error` sem derrubar o tick.
+ * Processa UM lote do job do VIP mais antigo em aberto. Retorna quantos posts
+ * criou. Uma falha marca o job como `error` sem derrubar o tick.
  */
-export async function runPreviasGeneration(): Promise<number> {
+export async function runVipGeneration(): Promise<number> {
   const row = nextOpenJobRow();
-  if (!row || row.audience !== "previas") return 0;
+  if (!row || row.audience !== "vip") return 0;
   try {
     return await processBatch(row);
   } catch (err) {
     markError(row.id, err instanceof Error ? err.message : "Falha na geração.");
-    console.error("[hotdash] Erro na geração das Prévias:", err);
+    console.error("[hotdash] Erro na geração do VIP:", err);
     return 0;
   }
 }
@@ -177,6 +193,10 @@ async function processBatch(row: JobRow): Promise<number> {
     return 0;
   }
 
+  const params = (row.params ? JSON.parse(row.params) : { contato: null, ctaLink: "" }) as JobParams;
+  const contato = params.contato;
+  const ctaLink = params.ctaLink || "";
+
   const profile = await getProfile(row.profile_id);
   if (!profile) throw new Error("Perfil não encontrado.");
   const bot = getBotConfigByProfile(profile.id);
@@ -185,15 +205,19 @@ async function processBatch(row: JobRow): Promise<number> {
   markProcessing(row.id);
 
   const settings = db
-    .prepare(
-      "SELECT warmup_tags, warmup_cta_buttons FROM telegram_autopost_settings WHERE profile_id = ?",
-    )
-    .get(profile.id) as { warmup_tags?: string; warmup_cta_buttons?: string } | undefined;
-  const allowedTagNames = (settings?.warmup_tags || "")
+    .prepare("SELECT vip_tags, vip_cta_buttons FROM telegram_autopost_settings WHERE profile_id = ?")
+    .get(profile.id) as { vip_tags?: string; vip_cta_buttons?: string } | undefined;
+  const allowedTagNames = (settings?.vip_tags || "")
     .split(",")
     .map((t) => t.trim().toLowerCase())
     .filter(Boolean);
-  const ctaList = (settings?.warmup_cta_buttons ?? "").trim() || DEFAULT_CTA_BUTTONS;
+  // Frases dos "Botões da copy (VIP)". A lista configurada é escrita pensando no
+  // WhatsApp ("chama no meu zap"); quando o destino é o Telegram ela não serve, e
+  // as frases próprias do Telegram entram no lugar.
+  const configurada = (settings?.vip_cta_buttons ?? "").trim();
+  const ctaList =
+    contato === "telegram" ? DEFAULT_TELEGRAM_CTA_BUTTONS : configurada || DEFAULT_VIP_CTA_BUTTONS;
+  const ctaFallback = contato === "telegram" ? TELEGRAM_CTA_FALLBACK : WHATSAPP_CTA_FALLBACK;
 
   // Cadeia de provedores (grok primeiro — costuma aceitar conteúdo adulto).
   const providerChain: AiProvider[] = (["grok", "openai", "gemini"] as AiProvider[]).filter(
@@ -206,7 +230,7 @@ async function processBatch(row: JobRow): Promise<number> {
   let aiFailed = false;
   let aiError: string | null = row.ai_error;
 
-  // Persona rica (mesmo detalhamento do gerador de cronograma).
+  // Persona rica (mesmo detalhamento dos outros geradores).
   let richNotes = profile.notes || "";
   if (profile.bioPhysical) richNotes += `\nCaracterísticas físicas: ${profile.bioPhysical}`;
   if (profile.bioUnique) richNotes += `\nDiferencial/fetiche: ${profile.bioUnique}`;
@@ -220,9 +244,9 @@ async function processBatch(row: JobRow): Promise<number> {
     richNotes += `\nPersonalidade/estilo: ${pType}`;
   }
 
-  // Fila de mídia. `getScheduledMediaUses` traz o que os lotes ANTERIORES desta
-  // mesma geração já consumiram — sem isso cada lote recomeçaria a fila e as
-  // primeiras fotos da ordem sairiam repetidas a cada 8 posts.
+  // Fila de mídia do VIP. `getScheduledMediaUses` traz o que os lotes ANTERIORES
+  // desta mesma geração já consumiram — sem isso cada lote recomeçaria a fila e
+  // as primeiras fotos da ordem sairiam repetidas a cada 8 posts.
   const queue = createMediaQueue(
     listMedia(profile.id).filter(
       (m) =>
@@ -230,11 +254,13 @@ async function processBatch(row: JobRow): Promise<number> {
         m.tags.some((t) => allowedTagNames.includes(t.name.toLowerCase())),
     ),
     getMediaPostCounts(profile.id),
-    "previas",
-    getScheduledMediaUses(profile.id, "previas"),
+    "vip",
+    getScheduledMediaUses(profile.id, "vip"),
   );
 
-  const memoria = memoryBlock(recentOpenings(profile.id, ["Prévias", "Aquecimento"]));
+  // Memória anti-repetição. No VIP ela pesa mais que nas Prévias: é o MESMO
+  // público todo dia, então repetir a abertura é percebido na hora.
+  const memoria = memoryBlock(recentOpenings(profile.id, ["VIP"]));
 
   async function mediaImageBase64(
     media: MediaItem,
@@ -255,15 +281,14 @@ async function processBatch(row: JobRow): Promise<number> {
   }
 
   async function writeCaption(
-    type: MkType,
-    hour: number,
+    type: VipType,
     weekday: number,
     images: { mime: string; base64: string }[],
     angleIdx: number,
   ): Promise<string> {
-    if (aiFailed) return fallbackText(type);
+    if (aiFailed) return fallbackTextVip(type, contato ?? "whatsapp");
     const theme =
-      `${captionTheme(type, hour, weekday)}\n` +
+      `${captionThemeVip(type, contato ?? "whatsapp", weekday)}\n` +
       `${VARIATION_ANGLES[angleIdx % VARIATION_ANGLES.length]}${memoria}`;
     const toTry = activeProvider ? [activeProvider] : providerChain;
     const errors: string[] = [];
@@ -271,7 +296,7 @@ async function processBatch(row: JobRow): Promise<number> {
       try {
         const out = await generateCaption({
           provider: p,
-          networks: [{ network: "telegram", postType: "Prévias" }],
+          networks: [{ network: "telegram", postType: "VIP" }],
           profileName: profile!.name,
           profileNotes: richNotes,
           theme,
@@ -291,7 +316,7 @@ async function processBatch(row: JobRow): Promise<number> {
     // pontuais (rate-limit, timeout, recusa) não travam o lote.
     if (errors.length > 0 && errors.every((e) => isSystemicAiError(e))) aiFailed = true;
     else activeProvider = null;
-    return fallbackText(type);
+    return fallbackTextVip(type, contato ?? "whatsapp");
   }
 
   async function writePoll(): Promise<{ question: string; options: string[] }> {
@@ -300,10 +325,7 @@ async function processBatch(row: JobRow): Promise<number> {
     for (const p of toTry) {
       try {
         const raw = await callAiRaw(
-          "Você é uma influenciadora adulta brasileira. Crie UMA enquete curta e bem safada (sem vender nada) " +
-            "pro seu grupo de prévias no Telegram — o público é adulto e espera putaria. A pergunta faz ele " +
-            'imaginar a cena ("por onde você começaria", "como você me prefere", "o que eu faço no vídeo de hoje"). ' +
-            'Responda SÓ um JSON: {"question":"...","options":["..","..",".."]} com 2 a 4 opções curtas.',
+          'Crie UMA enquete curta e safada (sem vender nada) pro grupo VIP no Telegram, tom íntimo de quem já conhece o público. Responda SÓ um JSON: {"question":"...","options":["..","..",".."]} com 2 a 4 opções curtas.',
           p,
           { json: true, maxTokens: 300 },
         );
@@ -332,11 +354,12 @@ async function processBatch(row: JobRow): Promise<number> {
     const slot = lote[i];
     if (slot.at <= Date.now()) continue; // o lote demorou e o horário passou
 
+    // Enquete: gera pergunta/opções, sem mídia, sem link.
     if (slot.kind === "enquete") {
       const poll = await writePoll();
       createPost({
         profileId: profile.id,
-        networks: [{ network: "telegram", postType: "Prévias" }],
+        networks: [{ network: "telegram", postType: "VIP" }],
         scheduledAt: slot.at,
         poll,
         cta: false,
@@ -349,35 +372,40 @@ async function processBatch(row: JobRow): Promise<number> {
     // Próxima mídia da fila (vídeo cai para foto quando não há vídeo).
     let media: MediaItem | null = null;
     let type = slot.type;
-    if (slot.kind === "video") media = queue.take("video");
-    else if (slot.kind === "foto") media = queue.take("photo");
+    if (slot.media === "video") media = queue.take("video");
+    else if (slot.media === "photo") media = queue.take("photo");
 
     // O acervo acabou de vídeo e a fila devolveu uma FOTO: rebaixa o tipo, senão
     // a legenda promete "gravei um vídeo" e vai uma foto anexada.
-    if (slot.kind === "video" && media?.kind === "image") type = "PHOTO_PREMIUM";
+    if (slot.media === "video" && media?.kind === "image") type = "EXCLUSIVE_PHOTO";
 
     const images: { mime: string; base64: string }[] = [];
     if (media) {
       const img = await mediaImageBase64(media);
       if (img) images.push(img);
     }
-    const written = await writeCaption(type, slot.hour, slot.weekday, images, row.done + i);
+    const written = await writeCaption(type, slot.weekday, images, row.done + i);
 
-    // Toda foto e todo vídeo já sai com as 3 linhas de convite ao VIP GRAVADAS
-    // na legenda — assim aparecem no editor do calendário e podem ser revisadas
-    // antes de ir ao ar. Post sem mídia recebe o convite só no envio.
+    // Só os slots de convite levam o link — e eles só existem quando a geração
+    // pediu. Neles as 3 linhas já saem GRAVADAS na legenda, para aparecerem no
+    // editor do calendário e poderem ser revisadas.
     const caption =
-      media && profile.bioVipLink
-        ? appendCtaLines(written, profile.bioVipLink, pickCtaLinkTexts(ctaList, 3))
+      slot.cta && ctaLink
+        ? appendCtaLines(written, ctaLink, pickCtaLinkTexts(ctaList, 3), ctaFallback)
         : written;
 
     createPost({
       profileId: profile.id,
-      networks: [{ network: "telegram", postType: "Prévias" }],
+      networks: [{ network: "telegram", postType: "VIP" }],
       scheduledAt: slot.at,
       caption,
       mediaIds: media ? [media.id] : undefined,
-      cta: TYPE_DEFS[type].cta,
+      cta: slot.cta, // true só nos posts de convite → botão no envio
+      // Só os posts de convite carregam o destino; nos outros ele não é usado e
+      // gravá-lo só faria ruído no banco. Aqui o link vai SEMPRE resolvido (não
+      // só quando há conta escolhida): sem isso o envio cairia no WhatsApp do
+      // cadastro mesmo numa geração de Telegram.
+      waLink: slot.cta ? ctaLink : undefined,
     });
     criados++;
     if (slot.at < hojeFim) hoje++;
@@ -394,4 +422,25 @@ async function processBatch(row: JobRow): Promise<number> {
   });
 
   return criados;
+}
+
+/**
+ * Resolve o LINK do convite desta geração: a conta escolhida vira URL uma vez
+ * só, no enfileiramento. Conta que não existe mais (ou de outra modelo) cai no
+ * link do cadastro.
+ */
+export async function resolveVipCtaLink(
+  profileId: string,
+  contato: VipContato | null,
+  contatoAccountId: string,
+): Promise<string> {
+  if (!contato) return "";
+  const profile = await getProfile(profileId);
+  if (!profile) return "";
+  const contas =
+    contato === "telegram" ? telegramAccounts(profile.accounts) : whatsappAccounts(profile.accounts);
+  const escolhida = contatoAccountId ? contas.find((a) => a.id === contatoAccountId) : undefined;
+  const padraoDoCadastro =
+    contato === "telegram" ? profile.bioTelegramLink : profile.bioWhatsappLink;
+  return escolhida?.url || padraoDoCadastro || "";
 }

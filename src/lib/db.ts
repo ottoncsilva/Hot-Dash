@@ -507,11 +507,14 @@ function migrate(d: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_chat ON whatsapp_messages(chat_id);
 
-    -- Fila da geração do Método MK das Prévias. A rota só ENFILEIRA e responde;
-    -- quem gera é o tick de 1 minuto (instrumentation.ts), em lotes pequenos.
-    -- Sem isso a geração rodava dentro da requisição e estourava o maxDuration
-    -- de 300s (são ~33 chamadas de IA COM IMAGEM por dia gerado), deixando o
-    -- cronograma pela metade e sem aviso.
+    -- Fila da geração do Método MK. A rota só ENFILEIRA e responde; quem gera é
+    -- o tick de 1 minuto (instrumentation.ts), em lotes pequenos. Sem isso a
+    -- geração rodava dentro da requisição e estourava o maxDuration de 300s (são
+    -- ~33 chamadas de IA COM IMAGEM por dia gerado nas Prévias e ~22 no VIP),
+    -- deixando o cronograma pela metade e sem aviso.
+    --
+    -- O nome ficou das Prévias, que vieram primeiro; hoje a mesma fila atende os
+    -- dois grupos — a coluna audience diz qual (ver generationJobs.ts).
     CREATE TABLE IF NOT EXISTS previas_generation_jobs (
       id          TEXT PRIMARY KEY,
       profile_id  TEXT NOT NULL,
@@ -569,6 +572,12 @@ function migrate(d: Database.Database) {
   // Cada geração escolhe UM destino — WhatsApp ou Telegram, nunca os dois.
   ensureColumn(d, "profiles", "bio_telegram_link", "TEXT");
   ensureColumn(d, "profiles", "bio_telegram_button", "TEXT");
+  // A fila de geração nasceu só das Prévias. `audience` diz de qual grupo é o
+  // job ('previas' | 'vip') e `params` guarda o que o VIP precisa lembrar entre
+  // um lote e outro (destino do convite e o link já resolvido). Jobs antigos
+  // continuam válidos: sem a coluna, todos eram das Prévias.
+  ensureColumn(d, "previas_generation_jobs", "audience", "TEXT NOT NULL DEFAULT 'previas'");
+  ensureColumn(d, "previas_generation_jobs", "params", "TEXT");
   ensureColumn(d, "telegram_bots", "welcome_media_tags", "TEXT");
   ensureColumn(d, "telegram_bots", "downsell_funnel", "TEXT");
   ensureColumn(d, "telegram_bots", "upsell_funnel", "TEXT");

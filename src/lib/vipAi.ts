@@ -1,4 +1,7 @@
 import "server-only";
+// O tema do dia da semana é o MESMO dos dois grupos — sexta é sextou em
+// qualquer lugar. Fica nas Prévias porque nasceu lá.
+import { DAY_THEMES } from "./previasAi";
 
 /**
  * Método MK — versão do GRUPO VIP (pós-venda / LTV).
@@ -405,9 +408,20 @@ function wallOrder(time: string): number {
  *  `contato` é o destino da geração. Ele muda a copy de verdade, não só o
  *  botão: "me chama no zap" num post cujo botão abre o Telegram faz o cara
  *  parar no meio do caminho. No Telegram ainda vale um argumento que o WhatsApp
- *  não tem — ele não precisa sair do app nem entregar o número. */
-export function captionThemeVip(type: VipType, contato: VipContato = "whatsapp"): string {
+ *  não tem — ele não precisa sair do app nem entregar o número.
+ *
+ *  `weekday` (0 = domingo) injeta o TEMA DO DIA — os mesmos das Prévias
+ *  ({@link DAY_THEMES}): sexta fala de sextou, domingo fala de carência. No VIP
+ *  isso pesa ainda mais, porque é o mesmo público todo dia: sem o tema, sete
+ *  postagens de "rotina" viram a mesma postagem sete vezes. */
+export function captionThemeVip(
+  type: VipType,
+  contato: VipContato = "whatsapp",
+  weekday?: number,
+): string {
+  const dia = weekday !== undefined && DAY_THEMES[weekday] ? `${DAY_THEMES[weekday]} ` : "";
   const base =
+    dia +
     "Fale como brasileira DE VERDADE, informal, do dia a dia (tá, pra, cê, tô). " +
     "Curta (1–2 linhas). Tom íntimo de quem já conhece o cara — ele já é do seu VIP, " +
     "então NADA de vender assinatura nem 'vem pro VIP'. Sem hashtags. Varie a abertura.";

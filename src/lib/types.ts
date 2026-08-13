@@ -53,6 +53,10 @@ export type Profile = {
   bioWhatsappLink?: string;
   /** Texto do botão do WhatsApp nos posts VIP (padrão "meu whatsapp particular"). */
   bioWhatsappButton?: string;
+  /** Link do Telegram particular — a outra opção de destino dos posts VIP. */
+  bioTelegramLink?: string;
+  /** Texto do botão do Telegram nos posts VIP (padrão "meu telegram particular"). */
+  bioTelegramButton?: string;
   /** Quantidade de posts (agendados + postados) do perfil. */
   postCount?: number;
   /** Soma das transações pagas vinculadas a este perfil. */

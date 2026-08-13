@@ -33,9 +33,11 @@ export async function register() {
     // Monitor dos grupos: consulta a API do Telegram e por isso funciona com a
     // operação do bot desligada, quando nenhum update chega pelo webhook.
     const { runTelegramGroupMonitor } = await import("@/lib/telegramMonitor");
-    // Geração do Método MK das Prévias, em lotes: a rota só enfileira (a copy
-    // de um dia inteiro não cabe no maxDuration de uma requisição).
+    // Geração do Método MK (Prévias e VIP), em lotes: a rota só enfileira (a
+    // copy de um dia inteiro não cabe no maxDuration de uma requisição). Os dois
+    // dividem UMA fila e um lote por tick — ver generationJobs.ts.
     const { runPreviasGeneration } = await import("@/lib/previasGenerator");
+    const { runVipGeneration } = await import("@/lib/vipGenerator");
 
     // Trava anti-sobreposição: se um ciclo demorar mais que o intervalo (muitas
     // mídias, IA/Telegram lentos), o próximo tick é ignorado até o atual terminar.
@@ -78,11 +80,20 @@ export async function register() {
         } catch (err) {
           console.error("[hotdash] Erro no cron (monitor de grupos):", err);
         }
+        // Só um dos dois roda por tick: quem não é o job mais antigo da fila
+        // devolve 0 na hora. Dois lotes juntos dobrariam o ciclo e atrasariam o
+        // autopost.
         try {
           const gerados = await runPreviasGeneration();
-          if (gerados > 0) console.log(`[hotdash] Método MK: ${gerados} post(s) gerados.`);
+          if (gerados > 0) console.log(`[hotdash] Método MK (Prévias): ${gerados} post(s) gerados.`);
         } catch (err) {
           console.error("[hotdash] Erro no cron (geração das Prévias):", err);
+        }
+        try {
+          const gerados = await runVipGeneration();
+          if (gerados > 0) console.log(`[hotdash] Método MK (VIP): ${gerados} post(s) gerados.`);
+        } catch (err) {
+          console.error("[hotdash] Erro no cron (geração do VIP):", err);
         }
       } finally {
         running = false;

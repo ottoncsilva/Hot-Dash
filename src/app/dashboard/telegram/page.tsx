@@ -7,7 +7,7 @@ import { useConfirm } from "@/hooks/useConfirm";
 import Switch from "@/components/Switch";
 import type { Profile } from "@/lib/types";
 import { DEFAULT_CTA_BUTTONS, DEFAULT_VIP_CTA_BUTTONS, CTA_BUTTON_MAX } from "@/lib/postTypes";
-import { whatsappAccounts } from "@/lib/socialLinks";
+import { whatsappAccounts, telegramAccounts } from "@/lib/socialLinks";
 import { useProfile } from "@/context/ProfileContext";
 import { PrecisaDeModelo } from "@/components/ProfilePicker";
 import PageHeader from "@/components/PageHeader";
@@ -60,14 +60,18 @@ export default function TelegramUnifiedPage() {
   const [daysToGenerateVip, setDaysToGenerateVip] = useState(7);
   const [daysToGenerateWarmup, setDaysToGenerateWarmup] = useState(7);
   const [generatingVip, setGeneratingVip] = useState(false);
-  // Convite pro WhatsApp na PRÓXIMA geração do Método MK do VIP. Escolha da
-  // geração, não configuração salva: volta desligado a cada visita, porque o
-  // padrão é não entregar o WhatsApp (ele é produto à parte).
-  const [vipWhatsappCta, setVipWhatsappCta] = useState(false);
-  // Qual WhatsApp da modelo o convite leva. "" = o WhatsApp particular do
-  // cadastro (o destino único de antes). Como o interruptor, é escolha DESTA
-  // geração — cada rodada pode sair com um número diferente.
-  const [vipWhatsappAccountId, setVipWhatsappAccountId] = useState("");
+  // O Método MK do VIP tem estado próprio: ele roda em lotes no servidor e a
+  // tela acompanha por polling, enquanto `generatingVip` cobre os geradores
+  // antigos, que respondem dentro da própria requisição.
+  const [generatingVipMk, setGeneratingVipMk] = useState(false);
+  // Destino do convite na PRÓXIMA geração do Método MK do VIP. Escolha da
+  // geração, não configuração salva: volta em "nenhum" a cada visita, porque o
+  // contato particular é produto à parte. É UM destino por geração — misturar
+  // WhatsApp e Telegram no mesmo dia divide a atenção e nenhum vira hábito.
+  const [vipContato, setVipContato] = useState<"nenhum" | "whatsapp" | "telegram">("nenhum");
+  // Qual conta da modelo o convite leva. "" = o link particular do cadastro.
+  // Como o destino, é escolha DESTA geração — cada rodada pode sair diferente.
+  const [vipContatoAccountId, setVipContatoAccountId] = useState("");
   const [generatingWarmup, setGeneratingWarmup] = useState(false);
 
   const [settings, setSettings] = useState<TelegramSettings>({
@@ -94,9 +98,9 @@ export default function TelegramUnifiedPage() {
 
   useEffect(() => {
     if (!selectedProfileId) return;
-    // Zera a escolha do WhatsApp ao trocar de modelo: as contas são de cada
-    // uma, e uma conta da modelo A não pode ficar selecionada na B.
-    setVipWhatsappAccountId("");
+    // Zera a escolha de conta ao trocar de modelo: as contas são de cada uma,
+    // e uma conta da modelo A não pode ficar selecionada na B.
+    setVipContatoAccountId("");
     setLoading(true);
     fetch(`/api/telegram?profileId=${selectedProfileId}`).then((r) => r.json()).then((d) => {
       if (d.availableTags) setAvailableTags(d.availableTags);
@@ -237,11 +241,62 @@ export default function TelegramUnifiedPage() {
     }
   };
 
-  // Método MK do VIP: planeja o dia (relacionamento e engajamento) e agenda os
-  // posts. O convite pro WhatsApp entra só quando `vipWhatsappCta` está ligado
-  // — é uma escolha DESTA geração, não uma configuração salva.
+  // Método MK do VIP. Igual às Prévias: a rota só ENFILEIRA e responde na hora;
+  // quem escreve a copy é o agendador do servidor, em lotes. O convite pro
+  // particular é escolha DESTA geração (`vipContato`), não configuração salva.
+  const [mkVipJob, setMkVipJob] = useState<{
+    status: string;
+    total: number;
+    done: number;
+    created: number;
+    today: number;
+    error?: string | null;
+    aiError?: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!selectedProfileId || !generatingVipMk) return;
+    let vivo = true;
+    const consultar = async () => {
+      try {
+        const res = await fetch(
+          `/api/telegram/generate-vip?profileId=${encodeURIComponent(selectedProfileId)}`,
+        );
+        const d = await res.json();
+        if (!vivo) return;
+        const job = d.job;
+        setMkVipJob(job);
+        if (!job || job.status === "done" || job.status === "error") {
+          setGeneratingVipMk(false);
+          window.dispatchEvent(new Event("reloadTelegramCalendar"));
+          if (job?.status === "error") {
+            toast.error(job.error || "Erro ao gerar VIP.");
+          } else if (job) {
+            const hoje = job.today
+              ? ` (${job.today} ainda hoje)`
+              : " (nenhum ainda hoje — o dia já acabou)";
+            if (job.aiError) toast.error(`Parcial: ${job.aiError}`);
+            else toast.success(`${job.created} post(s) do VIP gerados${hoje}. Veja no calendário.`);
+          }
+        } else {
+          // Cada lote agenda posts novos: o calendário atualiza junto.
+          window.dispatchEvent(new Event("reloadTelegramCalendar"));
+        }
+      } catch {
+        /* tenta de novo no próximo tick */
+      }
+    };
+    void consultar();
+    const t = setInterval(consultar, 5000);
+    return () => {
+      vivo = false;
+      clearInterval(t);
+    };
+  }, [selectedProfileId, generatingVipMk]);
+
   const generateVipMk = async (daysOverride?: number) => {
-    setGeneratingVip(true);
+    setGeneratingVipMk(true);
+    setMkVipJob(null);
     try {
       const res = await fetch("/api/telegram/generate-vip", {
         method: "POST",
@@ -249,20 +304,22 @@ export default function TelegramUnifiedPage() {
         body: JSON.stringify({
           profileId: selectedProfileId,
           days: daysOverride ?? 1,
-          whatsappCta: vipWhatsappCta,
-          whatsappAccountId: vipWhatsappAccountId,
+          contato: vipContato === "nenhum" ? null : vipContato,
+          contatoAccountId: vipContatoAccountId,
         }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Erro ao gerar VIP.");
-      window.dispatchEvent(new Event("reloadTelegramCalendar"));
-      const hoje = d.generatedToday ? ` (${d.generatedToday} ainda hoje)` : " (nenhum ainda hoje — o dia já acabou)";
-      if (d.aiError) toast.error(`Parcial: ${d.aiError}`);
-      else toast.success(`${d.generated} post(s) do VIP gerados${hoje}. Veja no calendário.`);
+      if (d.job?.total === 0) {
+        setGeneratingVipMk(false);
+        toast.success(d.message || "Nenhum horário livre no período.");
+        return;
+      }
+      setMkVipJob(d.job);
+      toast.success(`Programação montada: ${d.job.total} posts. Escrevendo as legendas…`);
     } catch (err: any) {
+      setGeneratingVipMk(false);
       toast.error(err.message);
-    } finally {
-      setGeneratingVip(false);
     }
   };
 
@@ -369,10 +426,16 @@ export default function TelegramUnifiedPage() {
   // é o destino que a próxima geração usaria de fato — é ele que diz se o aviso
   // de "falta configurar" precisa aparecer.
   const vipProfile = profiles.find((p) => p.id === selectedProfileId);
-  const vipWaAccounts = whatsappAccounts(vipProfile?.accounts);
-  const vipWaTarget = vipWhatsappAccountId
-    ? vipWaAccounts.find((a) => a.id === vipWhatsappAccountId)?.url || ""
-    : vipProfile?.bioWhatsappLink || "";
+  const vipContas =
+    vipContato === "telegram"
+      ? telegramAccounts(vipProfile?.accounts)
+      : whatsappAccounts(vipProfile?.accounts);
+  const vipPadraoCadastro =
+    vipContato === "telegram" ? vipProfile?.bioTelegramLink : vipProfile?.bioWhatsappLink;
+  const vipWaTarget = vipContatoAccountId
+    ? vipContas.find((a) => a.id === vipContatoAccountId)?.url || ""
+    : vipPadraoCadastro || "";
+  const vipContatoNome = vipContato === "telegram" ? "Telegram" : "WhatsApp";
 
   // Configuração de automação é sempre de UMA modelo — com "Todas" no menu
   // não há o que editar.
@@ -436,19 +499,45 @@ export default function TelegramUnifiedPage() {
                          <button
                            type="button"
                            onClick={() => settings.vipScheduleType === "mk" ? generateVipMk(daysToGenerateVip) : generateSchedule("vip", false)}
-                           disabled={generatingVip}
+                           disabled={generatingVip || generatingVipMk}
                            className="rounded-lg bg-sky-500/20 text-sky-300 px-3 py-1.5 text-xs font-semibold hover:bg-sky-500/30 transition-colors disabled:opacity-50"
                          >
-                           {generatingVip
-                             ? "⏳ Gerando..."
-                             : settings.vipScheduleType === "mk"
-                               ? "✨ Gerar dias (Método MK)"
-                               : "✨ Gerar postagens com IA em massa"}
+                           {generatingVipMk && mkVipJob?.total
+                             ? `⏳ ${mkVipJob.done} de ${mkVipJob.total}`
+                             : (generatingVip || generatingVipMk)
+                               ? "⏳ Gerando..."
+                               : settings.vipScheduleType === "mk"
+                                 ? "✨ Gerar dias (Método MK)"
+                                 : "✨ Gerar postagens com IA em massa"}
                          </button>
                        </div>
                     </div>
                  </div>
-                
+
+                {/* Progresso da geração do Método MK. A geração roda no servidor
+                    em lotes, então continua mesmo se esta tela for fechada. */}
+                {generatingVipMk && mkVipJob && mkVipJob.total > 0 && (
+                  <div className="rounded-xl border border-sky-500/20 bg-sky-950/20 px-4 py-3">
+                    <div className="flex items-center justify-between text-xs text-sky-200">
+                      <span>Escrevendo as legendas no servidor…</span>
+                      <span className="font-mono">
+                        {mkVipJob.done} / {mkVipJob.total}
+                      </span>
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-sky-500/15">
+                      <div
+                        className="h-full rounded-full bg-sky-400 transition-all duration-500"
+                        style={{
+                          width: `${Math.round((100 * mkVipJob.done) / mkVipJob.total)}%`,
+                        }}
+                      />
+                    </div>
+                    <p className="mt-2 text-[11px] text-zinc-500">
+                      Pode fechar esta tela — a geração continua rodando.
+                    </p>
+                  </div>
+                )}
+
                 {/* Agendamento VIP */}
                 <div className="space-y-4 rounded-xl border border-white/[0.06] bg-zinc-950/60 p-5">
                   <h4 className="text-xs font-bold text-zinc-300">Agendamento</h4>
@@ -518,62 +607,84 @@ export default function TelegramUnifiedPage() {
                         (reação/enquete), no fuso de São Paulo. A IA <b>analisa cada foto</b> e
                         escreve a legenda.
                       </p>
-                      {/* Escolha DESTA geração: o WhatsApp é produto à parte,
-                          então nasce desligado e você liga quando quiser. */}
-                      <div className="flex items-start justify-between gap-3 rounded-lg border border-white/[0.06] bg-zinc-900/40 px-3 py-2.5">
-                        <div className="min-w-0">
-                          <p className="text-[11px] font-bold text-zinc-200">
-                            Convidar pro WhatsApp nesta geração
-                          </p>
-                          <p className="mt-0.5 text-[11px] text-zinc-500">
-                            {vipWhatsappCta
-                              ? "~8 posts/dia vão com o botão do seu WhatsApp particular, nos horários de pico."
-                              : "O dia sai sem venda nenhuma — nenhum post leva o botão do WhatsApp."}
-                          </p>
+                      {/* Escolha DESTA geração: o contato particular é produto
+                          à parte, então nasce em "nenhum". Um destino por vez —
+                          os dois no mesmo dia dividem a atenção. */}
+                      <div className="rounded-lg border border-white/[0.06] bg-zinc-900/40 px-3 py-2.5">
+                        <p className="text-[11px] font-bold text-zinc-200">
+                          Convite nesta geração
+                        </p>
+                        <div className="mt-2 grid grid-cols-3 gap-1.5">
+                          {(
+                            [
+                              ["nenhum", "Nenhum"],
+                              ["whatsapp", "WhatsApp"],
+                              ["telegram", "Telegram"],
+                            ] as const
+                          ).map(([valor, rotulo]) => (
+                            <button
+                              key={valor}
+                              type="button"
+                              onClick={() => {
+                                setVipContato(valor);
+                                // A conta escolhida é de UMA rede: trocar de
+                                // destino tem de zerar, senão sobraria o id de
+                                // um WhatsApp numa geração de Telegram.
+                                setVipContatoAccountId("");
+                              }}
+                              className={`rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-colors ${
+                                vipContato === valor
+                                  ? "border-emerald-500 bg-emerald-500/15 text-emerald-300"
+                                  : "border-white/[0.08] bg-zinc-900/40 text-zinc-400 hover:bg-zinc-900/70"
+                              }`}
+                            >
+                              {rotulo}
+                            </button>
+                          ))}
                         </div>
-                        <Switch
-                          checked={vipWhatsappCta}
-                          onChange={setVipWhatsappCta}
-                          ariaLabel="Convidar pro WhatsApp nesta geração"
-                        />
+                        <p className="mt-2 text-[11px] text-zinc-500">
+                          {vipContato === "nenhum"
+                            ? "O dia sai sem venda nenhuma — nenhum post leva botão."
+                            : `~8 posts/dia vão com o botão do seu ${vipContatoNome} particular, nos horários de pico. A legenda é escrita citando o ${vipContatoNome}.`}
+                        </p>
                       </div>
                       {/* Qual número o convite leva. Só aparece com o convite
                           ligado — sem ele não há destino nenhum a escolher. */}
-                      {vipWhatsappCta && (
+                      {vipContato !== "nenhum" && (
                         <div className="rounded-lg border border-white/[0.06] bg-zinc-900/40 px-3 py-2.5">
                           <label
                             htmlFor="vip-wa-account"
                             className="text-[11px] font-bold text-zinc-200"
                           >
-                            Qual WhatsApp enviar
+                            Qual {vipContatoNome} enviar
                           </label>
                           <select
                             id="vip-wa-account"
-                            value={vipWhatsappAccountId}
-                            onChange={(e) => setVipWhatsappAccountId(e.target.value)}
+                            value={vipContatoAccountId}
+                            onChange={(e) => setVipContatoAccountId(e.target.value)}
                             className="input mt-1.5 py-1.5 text-xs"
                           >
                             <option value="">
-                              WhatsApp particular (padrão do cadastro)
-                              {vipProfile?.bioWhatsappLink ? "" : " — não configurado"}
+                              {vipContatoNome} particular (padrão do cadastro)
+                              {vipPadraoCadastro ? "" : " — não configurado"}
                             </option>
-                            {vipWaAccounts.map((a) => (
+                            {vipContas.map((a) => (
                               <option key={a.id} value={a.id}>
                                 {a.label}
                               </option>
                             ))}
                           </select>
                           <p className="mt-1.5 text-[11px] text-zinc-500">
-                            Os números vêm das <b>Contas</b> da modelo. O texto do botão continua
+                            Os destinos vêm das <b>Contas</b> da modelo. O texto do botão continua
                             sendo o do cadastro — aqui você escolhe só o destino.
                           </p>
                         </div>
                       )}
-                      {vipWhatsappCta && !vipWaTarget && (
+                      {vipContato !== "nenhum" && !vipWaTarget && (
                         <p className="text-[11px] text-amber-400">
-                          ⚠️ Cadastre um WhatsApp em <b>Contas</b> ou preencha o{" "}
-                          <b>Link do WhatsApp</b> no cadastro da modelo — sem isso, esses posts
-                          saem sem o botão.
+                          ⚠️ Cadastre um {vipContatoNome} em <b>Contas</b> ou preencha o{" "}
+                          <b>Link do {vipContatoNome}</b> no cadastro da modelo — sem isso, esses
+                          posts saem sem o botão.
                         </p>
                       )}
                       <p className="text-[11px] text-emerald-300/80">

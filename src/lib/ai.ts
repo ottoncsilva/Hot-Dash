@@ -61,18 +61,43 @@ function buildPrompt(req: CaptionRequest): string {
 }
 
 /**
- * Classifica um erro da IA como SISTÊMICO (chave/cota/conexão inválidas) — o
- * tipo de falha em que não adianta continuar tentando os próximos posts de um
- * lote. Rate-limit (429), timeout, recusa de conteúdo e resposta vazia são
- * PONTUAIS e não devem derrubar o lote inteiro. Usado pelos geradores em lote
- * (cronograma VIP e Prévias) para não trocar o dia inteiro pela reserva por
- * causa de um tropeço isolado.
+ * Classifica um erro da IA como SISTÊMICO (chave/cota/conexão/endereço
+ * inválidos) — o tipo de falha em que não adianta continuar tentando os
+ * próximos posts de um lote. Rate-limit (429), timeout, recusa de conteúdo e
+ * resposta vazia são PONTUAIS e não devem derrubar o lote inteiro. Usado pelos
+ * geradores em lote (cronograma VIP e Prévias) para não trocar o dia inteiro
+ * pela reserva por causa de um tropeço isolado.
+ *
+ * 404 entra aqui: significa endereço ou modelo que não existe, e isso não muda
+ * no post seguinte — sem isso um lote de 172 slots gastava uma chamada perdida
+ * por slot antes de cair na reserva.
  */
 export function isSystemicAiError(msg: string): boolean {
   const m = (msg || "").toLowerCase();
-  return /\b401\b|\b403\b|unauthor|invalid.*(api|key)|api key|insufficient_quota|\bquota\b|exceeded your current quota|billing|payment|não está conectado|not connected/.test(
+  return /\b401\b|\b403\b|\b404\b|unauthor|invalid.*(api|key)|api key|insufficient_quota|\bquota\b|exceeded your current quota|billing|payment|não está conectado|not connected/.test(
     m,
   );
+}
+
+/**
+ * Monta o endereço de chat/completions a partir do que está salvo na tela.
+ * O campo é livre e as três formas aparecem na documentação dos provedores
+ * (`https://api.x.ai`, `.../v1` e `.../v1/chat/completions`) — todas passam a
+ * chegar no mesmo lugar.
+ *
+ * Sem isto, salvar a base sem o caminho mandava o POST para uma rota que não
+ * existe e o provedor respondia 404. E como `testAiKey`/`listAiModels`
+ * normalizam do outro lado (tiram o sufixo para chamar `/models`), o botão de
+ * testar ficava verde e a lista de modelos carregava normalmente enquanto só a
+ * geração falhava — o que tornava o erro difícil de atribuir à configuração.
+ */
+export function completionsUrl(baseUrl: string | undefined, fallback: string): string {
+  const raw = (baseUrl || "").trim().replace(/\/+$/, "");
+  if (!raw) return fallback;
+  if (/\/chat\/completions$/.test(raw)) return raw;
+  // Só o host, sem caminho nenhum: aí falta também a versão da API.
+  const semEsquema = raw.replace(/^https?:\/\//, "");
+  return raw + (semEsquema.includes("/") ? "/chat/completions" : "/v1/chat/completions");
 }
 
 export async function generateCaption(req: CaptionRequest): Promise<string> {
@@ -141,7 +166,7 @@ export async function callAiRaw(
         provider === "grok"
           ? "https://api.x.ai/v1/chat/completions"
           : "https://api.openai.com/v1/chat/completions";
-      const url = creds!.baseUrl || defaultUrl;
+      const url = completionsUrl(creds!.baseUrl, defaultUrl);
       const res = await fetch(url, {
         method: "POST",
         headers: {

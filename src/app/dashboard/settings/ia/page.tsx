@@ -109,7 +109,7 @@ export default function AiSettingsPage() {
         setGeminiModel(d.settings.gemini.model);
         setGrokEnabled(d.settings.grok.enabled);
         setGrokModel(d.settings.grok.model);
-        setGrokBaseUrl(d.settings.grok.baseUrl || "https://api.x.ai/v1");
+        setGrokBaseUrl(d.settings.grok.baseUrl || "https://api.x.ai/v1/chat/completions");
         setMagnificEnabled(d.settings.magnific?.enabled || false);
         setNudenetEnabled(d.settings.nudenet?.enabled || false);
         setNudenetUrl(d.settings.nudenet?.baseUrl || "");
@@ -126,7 +126,7 @@ export default function AiSettingsPage() {
             setGrokModels,
             setGrokModelsLoading,
             setGrokModelsError,
-            d.settings.grok.baseUrl || "https://api.x.ai/v1",
+            d.settings.grok.baseUrl || "https://api.x.ai/v1/chat/completions",
           );
         }
       })

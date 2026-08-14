@@ -78,6 +78,25 @@ export function getActiveJob(
   return row ? toJob(row) : null;
 }
 
+/**
+ * Encerra o job em aberto do perfil naquele grupo. Serve para destravar a fila
+ * quando a geração emperra (o `total` é o plano inteiro, então um job parado
+ * segurava o botão por horas sem jeito de desistir pela tela).
+ *
+ * Os posts já criados nos lotes anteriores ficam — quem cancela quer parar de
+ * gerar, não desfazer o que já está no calendário.
+ */
+export function cancelActiveJob(profileId: string, audience: GenerationAudience): boolean {
+  const info = getDb()
+    .prepare(
+      `UPDATE previas_generation_jobs
+          SET status = 'error', error = ?, updated_at = ?
+        WHERE profile_id = ? AND audience = ? AND status IN ('pending', 'processing')`,
+    )
+    .run("Geração cancelada.", Date.now(), profileId, audience);
+  return info.changes > 0;
+}
+
 /** Último job do perfil naquele grupo, em qualquer estado — é o que a tela mostra. */
 export function getLatestJob(
   profileId: string,
@@ -169,7 +188,13 @@ export function markError(id: string, message: string): void {
     .run(message, Date.now(), id);
 }
 
-/** Fecha um lote: avança o `done` e soma o que foi criado. */
+/**
+ * Fecha um lote: avança o `done` e soma o que foi criado.
+ *
+ * O `WHERE` exige que o job ainda esteja em aberto: um lote leva minutos, e sem
+ * isso um cancelamento que chegasse no meio seria desfeito aqui no fim — o job
+ * voltava para `processing` e a fila continuava travada.
+ */
 export function saveBatchProgress(opts: {
   id: string;
   done: number;
@@ -183,7 +208,7 @@ export function saveBatchProgress(opts: {
       `UPDATE previas_generation_jobs
           SET done = ?, created = created + ?, today = today + ?, status = ?,
               ai_error = ?, updated_at = ?
-        WHERE id = ?`,
+        WHERE id = ? AND status IN ('pending', 'processing')`,
     )
     .run(
       opts.done,

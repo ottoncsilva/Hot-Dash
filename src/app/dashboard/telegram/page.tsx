@@ -203,6 +203,34 @@ export default function TelegramUnifiedPage() {
     aiError?: string | null;
   } | null>(null);
 
+  // Retoma um job que já estava rodando. A barra vive em estado local desta
+  // aba, então recarregar a página (ou abrir noutro aparelho) escondia uma
+  // geração que seguia firme no servidor — e o clique seguinte só trazia o 409
+  // "já existe uma geração em andamento", sem barra nenhuma na tela.
+  useEffect(() => {
+    if (!selectedProfileId) return;
+    let vivo = true;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/telegram/generate-previas?profileId=${encodeURIComponent(selectedProfileId)}`,
+        );
+        const d = await res.json();
+        if (!vivo) return;
+        const job = d.job;
+        if (job && (job.status === "pending" || job.status === "processing")) {
+          setPreviasJob(job);
+          setGeneratingPrevias(true);
+        }
+      } catch {
+        /* silencioso: isto é só a retomada da barra */
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [selectedProfileId]);
+
   useEffect(() => {
     if (!selectedProfileId || !generatingPrevias) return;
     let vivo = true;
@@ -243,6 +271,34 @@ export default function TelegramUnifiedPage() {
     };
   }, [selectedProfileId, generatingPrevias]);
 
+  /**
+   * Encerra a geração em andamento e libera o botão. Os posts já escritos nos
+   * lotes anteriores continuam no calendário — cancelar é parar de gerar, não
+   * desfazer o que já ficou pronto.
+   */
+  const cancelarGeracao = async (grupo: "previas" | "vip") => {
+    if (!selectedProfileId) return;
+    const rota = grupo === "previas" ? "generate-previas" : "generate-vip";
+    try {
+      const res = await fetch(
+        `/api/telegram/${rota}?profileId=${encodeURIComponent(selectedProfileId)}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) throw new Error("Não deu para cancelar a geração.");
+      if (grupo === "previas") {
+        setGeneratingPrevias(false);
+        setPreviasJob(null);
+      } else {
+        setGeneratingVipMk(false);
+        setMkVipJob(null);
+      }
+      toast.success("Geração cancelada. Os posts já criados seguem no calendário.");
+      window.dispatchEvent(new Event("reloadTelegramCalendar"));
+    } catch (err: any) {
+      toast.error(err.message || "Não deu para cancelar a geração.");
+    }
+  };
+
   const generatePrevias = async (daysOverride?: number) => {
     setGeneratingPrevias(true);
     setPreviasJob(null);
@@ -253,6 +309,13 @@ export default function TelegramUnifiedPage() {
         body: JSON.stringify({ profileId: selectedProfileId, days: daysOverride ?? 1 }),
       });
       const d = await res.json();
+      // Já havia uma geração rodando: em vez de só reclamar, adota o job que a
+      // rota devolve — a barra aparece e o acompanhamento recomeça.
+      if (res.status === 409 && d.job) {
+        setPreviasJob(d.job);
+        toast.error(d.error || "Já existe uma geração em andamento.");
+        return;
+      }
       if (!res.ok) throw new Error(d.error || "Erro ao gerar prévias.");
       if (d.job?.total === 0) {
         setGeneratingPrevias(false);
@@ -279,6 +342,32 @@ export default function TelegramUnifiedPage() {
     error?: string | null;
     aiError?: string | null;
   } | null>(null);
+
+  // Mesma retomada das Prévias: sem isto a barra do VIP só existe na aba que
+  // clicou no botão.
+  useEffect(() => {
+    if (!selectedProfileId) return;
+    let vivo = true;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/telegram/generate-vip?profileId=${encodeURIComponent(selectedProfileId)}`,
+        );
+        const d = await res.json();
+        if (!vivo) return;
+        const job = d.job;
+        if (job && (job.status === "pending" || job.status === "processing")) {
+          setMkVipJob(job);
+          setGeneratingVipMk(true);
+        }
+      } catch {
+        /* silencioso: isto é só a retomada da barra */
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [selectedProfileId]);
 
   useEffect(() => {
     if (!selectedProfileId || !generatingVipMk) return;
@@ -337,6 +426,12 @@ export default function TelegramUnifiedPage() {
         }),
       });
       const d = await res.json();
+      // Idem Prévias: o 409 vira acompanhamento do job que já está rodando.
+      if (res.status === 409 && d.job) {
+        setMkVipJob(d.job);
+        toast.error(d.error || "Já existe uma geração em andamento.");
+        return;
+      }
       if (!res.ok) throw new Error(d.error || "Erro ao gerar VIP.");
       if (d.job?.total === 0) {
         setGeneratingVipMk(false);
@@ -573,9 +668,18 @@ export default function TelegramUnifiedPage() {
                         }}
                       />
                     </div>
-                    <p className="mt-2 text-[11px] text-zinc-500">
-                      Pode fechar esta tela — a geração continua rodando.
-                    </p>
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <p className="text-[11px] text-zinc-500">
+                        Pode fechar esta tela — a geração continua rodando.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => cancelarGeracao("vip")}
+                        className="shrink-0 text-[11px] font-semibold text-rose-300 underline underline-offset-2 hover:text-rose-200"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -929,12 +1033,21 @@ export default function TelegramUnifiedPage() {
                         }}
                       />
                     </div>
-                    <p className="mt-2 text-[11px] text-zinc-500">
-                      Pode fechar esta tela — a geração continua rodando.
-                    </p>
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <p className="text-[11px] text-zinc-500">
+                        Pode fechar esta tela — a geração continua rodando.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => cancelarGeracao("previas")}
+                        className="shrink-0 text-[11px] font-semibold text-rose-300 underline underline-offset-2 hover:text-rose-200"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
                   </div>
                 )}
-                
+
                 {/* Agendamento Prévias */}
                 <div className="space-y-4 rounded-xl border border-white/[0.06] bg-zinc-950/60 p-5">
                   <h4 className="text-xs font-bold text-zinc-300">Agendamento</h4>

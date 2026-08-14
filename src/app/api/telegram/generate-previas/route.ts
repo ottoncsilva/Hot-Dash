@@ -7,6 +7,7 @@ import {
   getActivePreviasJob,
   getLatestPreviasJob,
 } from "@/lib/previasGenerator";
+import { cancelActiveJob } from "@/lib/generationJobs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,4 +84,11 @@ export async function GET(req: NextRequest) {
   const profileId = req.nextUrl.searchParams.get("profileId");
   if (!profileId) return NextResponse.json({ error: "Informe o profileId." }, { status: 400 });
   return NextResponse.json({ job: getLatestPreviasJob(profileId) });
+}
+
+/** Cancela a geração em andamento — destrava o botão sem esperar o lote todo. */
+export async function DELETE(req: NextRequest) {
+  const profileId = req.nextUrl.searchParams.get("profileId");
+  if (!profileId) return NextResponse.json({ error: "Informe o profileId." }, { status: 400 });
+  return NextResponse.json({ ok: true, cancelado: cancelActiveJob(profileId, "previas") });
 }

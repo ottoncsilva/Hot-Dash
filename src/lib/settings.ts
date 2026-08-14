@@ -299,7 +299,10 @@ type AiSettingsStored = { openai?: AiProviderStored; gemini?: AiProviderStored; 
 export const DEFAULT_AI_MODELS: Record<AiProvider, string> = {
   openai: "gpt-4o-mini",
   gemini: "gemini-2.0-flash",
-  grok: "grok-4.20-0309-reasoning",
+  // Só o ponto de partida de quem ativa o Grok sem escolher na lista (a tela
+  // carrega os modelos ao vivo da chave). Precisa ser um modelo que exista e
+  // aceite imagem, senão a primeira legenda volta 404 de modelo.
+  grok: "grok-4",
   magnific: "seedream-v5-pro-edit",
   kling: "kling-v2-6-pro-motion-control",
   nudenet: "nudenet-detector"

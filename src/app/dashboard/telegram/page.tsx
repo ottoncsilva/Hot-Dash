@@ -96,6 +96,32 @@ export default function TelegramUnifiedPage() {
     warmupCtaButtons: DEFAULT_CTA_BUTTONS,
   });
 
+  // Cadastro COMPLETO da modelo (contas + links do particular), buscado toda vez
+  // que esta tela abre. A lista do menu (`useProfile`) é carregada UMA vez, na
+  // montagem do painel: cadastrar o Telegram em Modelos e vir para cá sem
+  // recarregar a página deixava a conta invisível aqui, e a tela dizia "não
+  // configurado" com o Telegram cadastrado.
+  const [profileCadastro, setProfileCadastro] = useState<Profile | null>(null);
+
+  useEffect(() => {
+    if (!selectedProfileId) {
+      setProfileCadastro(null);
+      return;
+    }
+    let vivo = true;
+    fetch(`/api/profiles/${selectedProfileId}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (vivo) setProfileCadastro(d.profile || null);
+      })
+      .catch(() => {
+        /* fica com o que o menu já tinha */
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [selectedProfileId]);
+
   useEffect(() => {
     if (!selectedProfileId) return;
     // Zera a escolha de conta ao trocar de modelo: as contas são de cada uma,
@@ -305,7 +331,9 @@ export default function TelegramUnifiedPage() {
           profileId: selectedProfileId,
           days: daysOverride ?? 1,
           contato: vipContato === "nenhum" ? null : vipContato,
-          contatoAccountId: vipContatoAccountId,
+          // A conta EFETIVA, não a bruta: sem link no cadastro, a lista assume a
+          // primeira conta sozinha e é ela que precisa ir para a geração.
+          contatoAccountId: vipContaSel,
         }),
       });
       const d = await res.json();
@@ -421,19 +449,32 @@ export default function TelegramUnifiedPage() {
     return settings[target].split(",").map(t => t.trim().toLowerCase()).filter(Boolean).includes(tagName.toLowerCase());
   };
 
-  // WhatsApps que o convite do VIP pode usar: os números cadastrados em Contas
-  // da modelo, mais o "WhatsApp particular" do cadastro como padrão. `waTarget`
-  // é o destino que a próxima geração usaria de fato — é ele que diz se o aviso
-  // de "falta configurar" precisa aparecer.
-  const vipProfile = profiles.find((p) => p.id === selectedProfileId);
+  // Destinos que o convite do VIP pode usar: as contas cadastradas em Contas da
+  // modelo, mais o "particular" do cadastro como padrão. `vipWaTarget` é o link
+  // que a próxima geração usaria DE FATO — é ele que a tela mostra para
+  // conferência e é ele que diz se o aviso de "falta configurar" aparece.
+  //
+  // O cadastro recém-buscado manda; a lista do menu é só o que aparece enquanto
+  // a busca não volta (assim o nome da modelo não pisca vazio).
+  const vipProfile =
+    profileCadastro || profiles.find((p) => p.id === selectedProfileId);
   const vipContas =
     vipContato === "telegram"
       ? telegramAccounts(vipProfile?.accounts)
       : whatsappAccounts(vipProfile?.accounts);
   const vipPadraoCadastro =
     vipContato === "telegram" ? vipProfile?.bioTelegramLink : vipProfile?.bioWhatsappLink;
-  const vipWaTarget = vipContatoAccountId
-    ? vipContas.find((a) => a.id === vipContatoAccountId)?.url || ""
+  // O "padrão do cadastro" só é uma opção de verdade quando existe. Sem ele, a
+  // lista começa direto na primeira conta: antes o campo abria em "padrão do
+  // cadastro — não configurado" e a tela avisava que faltava cadastrar, mesmo
+  // com a conta cadastrada logo abaixo, sem seleção nenhuma.
+  const vipTemPadrao = Boolean(vipPadraoCadastro);
+  const vipContaSel =
+    vipTemPadrao || vipContas.length === 0
+      ? vipContatoAccountId
+      : vipContatoAccountId || vipContas[0].id;
+  const vipWaTarget = vipContaSel
+    ? vipContas.find((a) => a.id === vipContaSel)?.url || ""
     : vipPadraoCadastro || "";
   const vipContatoNome = vipContato === "telegram" ? "Telegram" : "WhatsApp";
 
@@ -660,14 +701,19 @@ export default function TelegramUnifiedPage() {
                           </label>
                           <select
                             id="vip-wa-account"
-                            value={vipContatoAccountId}
+                            value={vipContaSel}
                             onChange={(e) => setVipContatoAccountId(e.target.value)}
                             className="input mt-1.5 py-1.5 text-xs"
                           >
-                            <option value="">
-                              {vipContatoNome} particular (padrão do cadastro)
-                              {vipPadraoCadastro ? "" : " — não configurado"}
-                            </option>
+                            {/* Sem link no cadastro E com contas na lista, esta
+                                opção sairia de fábrica apontando para lugar
+                                nenhum — some, e a primeira conta assume. */}
+                            {(vipTemPadrao || vipContas.length === 0) && (
+                              <option value="">
+                                {vipContatoNome} particular (padrão do cadastro)
+                                {vipPadraoCadastro ? "" : " — não configurado"}
+                              </option>
+                            )}
                             {vipContas.map((a) => (
                               <option key={a.id} value={a.id}>
                                 {a.label}
@@ -678,6 +724,29 @@ export default function TelegramUnifiedPage() {
                             Os destinos vêm das <b>Contas</b> da modelo. O texto do botão continua
                             sendo o do cadastro — aqui você escolhe só o destino.
                           </p>
+                          {/* Conferência: o link EXATO que vai ser gravado nos
+                              posts desta geração. É o mesmo cálculo que a rota
+                              faz — conta escolhida, senão o link do cadastro. */}
+                          {vipWaTarget ? (
+                            <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] px-2.5 py-2">
+                              <p className="text-[11px] font-bold text-emerald-300">
+                                Link que vai nos posts
+                              </p>
+                              <a
+                                href={vipWaTarget}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mt-0.5 block break-all font-mono text-[11px] text-emerald-200 underline decoration-emerald-500/40 hover:decoration-emerald-300"
+                              >
+                                {vipWaTarget}
+                              </a>
+                              <p className="mt-1 text-[10px] text-zinc-500">
+                                {vipContaSel
+                                  ? "Veio da conta escolhida acima."
+                                  : `Veio do ${vipContatoNome} particular do cadastro da modelo.`}
+                              </p>
+                            </div>
+                          ) : null}
                         </div>
                       )}
                       {vipContato !== "nenhum" && !vipWaTarget && (

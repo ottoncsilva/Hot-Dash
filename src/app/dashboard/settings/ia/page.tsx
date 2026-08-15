@@ -78,6 +78,9 @@ export default function AiSettingsPage() {
   const [grokKey, setGrokKey] = useState("");
   const [grokModel, setGrokModel] = useState("grok-4.20-0309-reasoning");
   const [grokBaseUrl, setGrokBaseUrl] = useState("https://api.x.ai/v1/chat/completions");
+  // Modelo por atividade: { atividade: { provedor: modelo } }. Vazio = cada
+  // atividade usa o modelo padrão do provedor que a atender.
+  const [activityModels, setActivityModels] = useState<ActivityModels>({});
   const [grokModels, setGrokModels] = useState<string[] | null>(null);
   const [grokModelsLoading, setGrokModelsLoading] = useState(false);
   const [grokModelsError, setGrokModelsError] = useState<string | null>(null);
@@ -113,6 +116,7 @@ export default function AiSettingsPage() {
         setMagnificEnabled(d.settings.magnific?.enabled || false);
         setNudenetEnabled(d.settings.nudenet?.enabled || false);
         setNudenetUrl(d.settings.nudenet?.baseUrl || "");
+        setActivityModels(d.settings.activityModels || {});
         if (d.settings.openai.hasKey) {
           fetchAiModels("openai", "", setOpenaiModels, setOpenaiModelsLoading, setOpenaiModelsError);
         }
@@ -193,6 +197,7 @@ export default function AiSettingsPage() {
           grok: { enabled: grokEnabled, model: grokModel, baseUrl: grokBaseUrl, ...(grokKey ? { apiKey: grokKey } : {}) },
           magnific: { enabled: magnificEnabled, ...(magnificKey ? { apiKey: magnificKey } : {}) },
           nudenet: { enabled: nudenetEnabled, baseUrl: nudenetUrl, ...(nudenetToken ? { apiKey: nudenetToken } : {}) },
+          activityModels,
         },
       );
       setCfg(settings);
@@ -584,6 +589,16 @@ export default function AiSettingsPage() {
         </div>
       </div>
 
+      <ModeloPorAtividade
+        value={activityModels}
+        onChange={setActivityModels}
+        provedores={[
+          { key: "grok", label: "Grok (x.ai)", enabled: grokEnabled, padrao: grokModel, models: grokModels },
+          { key: "openai", label: "OpenAI", enabled: openaiEnabled, padrao: openaiModel, models: openaiModels },
+          { key: "gemini", label: "Gemini", enabled: geminiEnabled, padrao: geminiModel, models: geminiModels },
+        ]}
+      />
+
       <div className="mt-3 flex items-center gap-3">
         <button onClick={save} disabled={saving} className="btn-primary">
           {saving ? "Salvando..." : "Salvar IA"}
@@ -593,6 +608,120 @@ export default function AiSettingsPage() {
             salvo ✓
           </span>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Modelo por atividade
+// ---------------------------------------------------------------------------
+type ActivityKey = "mk" | "schedule" | "caption" | "whatsapp";
+type ActivityModels = Partial<Record<ActivityKey, Partial<Record<string, string>>>>;
+
+/**
+ * Espelha AI_ACTIVITIES do servidor. Fica duplicado de propósito: esta é uma
+ * tela cliente e importar de `@/lib/settings` puxaria o módulo inteiro de
+ * segredos (que é `server-only`) para o bundle.
+ */
+const ATIVIDADES: { key: ActivityKey; label: string; hint: string }[] = [
+  {
+    key: "mk",
+    label: "Método MK (Prévias e VIP)",
+    hint: "Dezenas de legendas por dia, em lote. É o maior volume — e onde raciocínio menos compensa.",
+  },
+  {
+    key: "schedule",
+    label: "Gerador de cronograma",
+    hint: "Poucas chamadas, mas com resposta longa em JSON.",
+  },
+  {
+    key: "caption",
+    label: "Legenda de post manual",
+    hint: "Uma por vez, com a imagem junto — precisa de um modelo com visão.",
+  },
+  {
+    key: "whatsapp",
+    label: "Agente de vendas (WhatsApp)",
+    hint: "Conversa com o cliente. É onde raciocínio tem mais chance de se pagar.",
+  },
+];
+
+function ModeloPorAtividade({
+  value,
+  onChange,
+  provedores,
+}: {
+  value: ActivityModels;
+  onChange: (v: ActivityModels) => void;
+  provedores: {
+    key: string;
+    label: string;
+    enabled: boolean;
+    padrao: string;
+    models: string[] | null;
+  }[];
+}) {
+  const ativos = provedores.filter((p) => p.enabled);
+  if (ativos.length === 0) return null;
+
+  function set(atividade: ActivityKey, provedor: string, modelo: string) {
+    const atual = { ...(value[atividade] || {}) };
+    // Em branco = REMOVE o override e volta ao padrão do provedor. Guardar ""
+    // faria a atividade tentar chamar um modelo de nome vazio.
+    if (modelo) atual[provedor] = modelo;
+    else delete atual[provedor];
+    onChange({ ...value, [atividade]: atual });
+  }
+
+  return (
+    <div className="card mt-3 p-4">
+      <h2 className="font-display text-lg font-semibold">Modelo por atividade</h2>
+      <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+        Cada trabalho pode usar um modelo diferente, na <b>mesma chave</b>. Serve para não pagar
+        raciocínio onde ele não rende: num modelo de raciocínio o &quot;pensamento&quot; é cobrado
+        como saída, e gerar legenda em lote é justamente onde isso mais desperdiça. Deixe em{" "}
+        <b>Padrão</b> para usar o modelo configurado acima.
+      </p>
+
+      <div className="mt-4 space-y-3">
+        {ATIVIDADES.map((a) => (
+          <div key={a.key} className="panel p-3">
+            <p className="text-sm font-semibold text-white">{a.label}</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{a.hint}</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {ativos.map((p) => {
+                const escolhido = value[a.key]?.[p.key] || "";
+                return (
+                  <label key={p.key} className="block">
+                    <span className="eyebrow">{p.label}</span>
+                    {p.models && p.models.length > 0 ? (
+                      <select
+                        className="input mt-1 text-xs"
+                        value={escolhido}
+                        onChange={(e) => set(a.key, p.key, e.target.value)}
+                      >
+                        <option value="">Padrão ({p.padrao})</option>
+                        {p.models.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        className="input mt-1 font-mono text-xs"
+                        placeholder={`Padrão (${p.padrao})`}
+                        value={escolhido}
+                        onChange={(e) => set(a.key, p.key, e.target.value)}
+                      />
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

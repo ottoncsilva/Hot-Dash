@@ -290,11 +290,76 @@ export function updateFinanceSettings(
 // há mais um "provedor ativo" fixo aqui. ----
 export type AiProvider = "openai" | "gemini" | "grok" | "magnific" | "kling" | "nudenet";
 
+/**
+ * As ATIVIDADES que chamam a IA. Existem porque o modelo certo depende do
+ * trabalho, e antes havia um modelo só por provedor para tudo.
+ *
+ * O caso que motivou a separação: um modelo de RACIOCÍNIO cobra o pensamento
+ * como saída. Numa conversa do agente de vendas isso pode valer os centavos;
+ * para gerar 20 a 35 legendas por dia no Método MK, é desperdício puro — numa
+ * medição real, 423,6K tokens de raciocínio produziram 13,1K de texto e
+ * responderam por 76% da fatura.
+ */
+export type AiActivity = "mk" | "schedule" | "caption" | "whatsapp";
+
+export const AI_ACTIVITIES: { key: AiActivity; label: string; hint: string }[] = [
+  {
+    key: "mk",
+    label: "Método MK (Prévias e VIP)",
+    hint: "Dezenas de legendas por dia, em lote. É o maior volume — e onde raciocínio menos compensa.",
+  },
+  {
+    key: "schedule",
+    label: "Gerador de cronograma",
+    hint: "Poucas chamadas, mas com resposta longa em JSON.",
+  },
+  {
+    key: "caption",
+    label: "Legenda de post manual",
+    hint: "Uma por vez, com a imagem junto — precisa de um modelo com visão.",
+  },
+  {
+    key: "whatsapp",
+    label: "Agente de vendas (WhatsApp)",
+    hint: "Conversa com o cliente. É onde raciocínio tem mais chance de se pagar.",
+  },
+];
+
+const ACTIVITY_KEYS = new Set<string>(AI_ACTIVITIES.map((a) => a.key));
+
 export type AiProviderPublic = { enabled: boolean; hasKey: boolean; model: string; baseUrl?: string };
-export type AiSettingsPublic = { openai: AiProviderPublic; gemini: AiProviderPublic; grok: AiProviderPublic; magnific: AiProviderPublic; kling: AiProviderPublic; nudenet: AiProviderPublic; };
+
+/**
+ * Modelo por atividade, por provedor. A chave é o par (atividade, provedor)
+ * porque uma atividade pode cair em provedores diferentes: os geradores do
+ * Método MK tentam Grok → Gemini → OpenAI, e o modelo certo muda com o
+ * provedor que atendeu.
+ *
+ * Ausente ou vazio = usa o modelo padrão daquele provedor, que é o
+ * comportamento de antes desta configuração existir.
+ */
+export type AiActivityModels = Partial<Record<AiActivity, Partial<Record<AiProvider, string>>>>;
+
+export type AiSettingsPublic = {
+  openai: AiProviderPublic;
+  gemini: AiProviderPublic;
+  grok: AiProviderPublic;
+  magnific: AiProviderPublic;
+  kling: AiProviderPublic;
+  nudenet: AiProviderPublic;
+  activityModels: AiActivityModels;
+};
 
 type AiProviderStored = { enabled: boolean; apiKeyEnc?: string; model?: string; baseUrl?: string };
-type AiSettingsStored = { openai?: AiProviderStored; gemini?: AiProviderStored; grok?: AiProviderStored; magnific?: AiProviderStored; kling?: AiProviderStored; nudenet?: AiProviderStored };
+type AiSettingsStored = {
+  openai?: AiProviderStored;
+  gemini?: AiProviderStored;
+  grok?: AiProviderStored;
+  magnific?: AiProviderStored;
+  kling?: AiProviderStored;
+  nudenet?: AiProviderStored;
+  activityModels?: AiActivityModels;
+};
 
 export const DEFAULT_AI_MODELS: Record<AiProvider, string> = {
   openai: "gpt-4o-mini",
@@ -327,6 +392,7 @@ export function getAiSettingsPublic(): AiSettingsPublic {
     magnific: build("magnific"),
     kling: build("kling"),
     nudenet: build("nudenet"),
+    activityModels: s.activityModels || {},
   };
 }
 
@@ -353,15 +419,26 @@ export function getNudenetConfig(): { url: string; token?: string } | null {
 }
 
 /** Credenciais do provedor pedido, descriptografadas (server-side apenas). */
-export function getAiCredentials(provider: AiProvider): { apiKey: string; model: string; baseUrl?: string } | null {
+/**
+ * Credenciais do provedor. Quando `activity` é informada e existe um modelo
+ * escolhido para aquele par (atividade, provedor), ele vence o modelo padrão
+ * do provedor — é o que deixa o Método MK rodar num modelo barato enquanto o
+ * agente do WhatsApp fica num mais caro, com a mesma chave.
+ */
+export function getAiCredentials(
+  provider: AiProvider,
+  activity?: AiActivity,
+): { apiKey: string; model: string; baseUrl?: string } | null {
   const s = rawAi();
+  const override = activity ? s.activityModels?.[activity]?.[provider]?.trim() : undefined;
+
   if (provider === "kling" || provider === "magnific") {
     const m = s.magnific;
     if (!m?.enabled || !m.apiKeyEnc) return null;
     try {
       return {
         apiKey: decryptSecret(m.apiKeyEnc),
-        model: s[provider]?.model || DEFAULT_AI_MODELS[provider],
+        model: override || s[provider]?.model || DEFAULT_AI_MODELS[provider],
         baseUrl: m.baseUrl || undefined,
       };
     } catch {
@@ -374,7 +451,7 @@ export function getAiCredentials(provider: AiProvider): { apiKey: string; model:
   try {
     return {
       apiKey: decryptSecret(p.apiKeyEnc),
-      model: p.model || DEFAULT_AI_MODELS[provider],
+      model: override || p.model || DEFAULT_AI_MODELS[provider],
       baseUrl: p.baseUrl || undefined,
     };
   } catch {
@@ -404,6 +481,8 @@ export function updateAiSettings(patch: {
   magnific?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   kling?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   nudenet?: { enabled?: boolean; apiKey?: string; baseUrl?: string; model?: string };
+  /** Substitui o mapa inteiro de modelos por atividade, quando presente. */
+  activityModels?: AiActivityModels;
 }): AiSettingsPublic {
   const s = rawAi();
   for (const provider of ["openai", "gemini", "grok", "magnific", "kling", "nudenet"] as const) {
@@ -423,6 +502,23 @@ export function updateAiSettings(patch: {
   if (patch.magnific && patch.magnific.enabled !== undefined) {
     if (!s.kling) s.kling = { enabled: false };
     s.kling.enabled = patch.magnific.enabled;
+  }
+
+  // Modelos por atividade. Só chaves conhecidas entram, e valor em branco
+  // REMOVE o override (volta ao padrão do provedor) em vez de gravar "".
+  if (patch.activityModels) {
+    const limpo: AiActivityModels = {};
+    for (const [atividade, porProvedor] of Object.entries(patch.activityModels)) {
+      if (!ACTIVITY_KEYS.has(atividade) || !porProvedor) continue;
+      const mapa: Partial<Record<AiProvider, string>> = {};
+      for (const [provedor, modelo] of Object.entries(porProvedor)) {
+        if (!(provedor in DEFAULT_AI_MODELS)) continue;
+        const v = typeof modelo === "string" ? modelo.trim() : "";
+        if (v) mapa[provedor as AiProvider] = v;
+      }
+      if (Object.keys(mapa).length > 0) limpo[atividade as AiActivity] = mapa;
+    }
+    s.activityModels = limpo;
   }
 
   setJson("ai", s);

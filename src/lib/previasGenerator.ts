@@ -293,6 +293,7 @@ async function processBatch(row: JobRow): Promise<number> {
       try {
         const out = await generateCaption({
           provider: p,
+          activity: "mk",
           networks: [{ network: "telegram", postType: "Prévias" }],
           profileName: profile!.name,
           profileNotes: richNotes,
@@ -332,7 +333,7 @@ async function processBatch(row: JobRow): Promise<number> {
             'imaginar a cena ("por onde você começaria", "como você me prefere", "o que eu faço no vídeo de hoje"). ' +
             'Responda SÓ um JSON: {"question":"...","options":["..","..",".."]} com 2 a 4 opções curtas.',
           p,
-          { json: true, maxTokens: 300 },
+          { json: true, maxTokens: 300, activity: "mk" },
         );
         const parsed = JSON.parse(raw) as { question?: string; options?: unknown };
         const q = typeof parsed.question === "string" ? parsed.question.trim() : "";

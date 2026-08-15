@@ -191,6 +191,43 @@ export function sortCandidates(
 }
 
 /**
+ * Substituta para um post cuja mídia sumiu da galeria entre o agendamento e o
+ * envio. Sem isso o post saía só com o texto — e a legenda tinha sido escrita
+ * para uma imagem, então descrevia uma foto que ninguém via.
+ *
+ * Usa a mesma ordem da geração (`sortCandidates`: menos postada naquele grupo
+ * primeiro) e, nas Prévias, respeita as ETIQUETAS de aquecimento configuradas.
+ * Isso não é detalhe: sem o filtro, o substituto poderia mandar para o grupo
+ * gratuito uma imagem destinada só ao VIP.
+ *
+ * Devolve `null` quando não há nenhuma imagem elegível — aí o post sai como
+ * texto mesmo, que é o melhor possível.
+ */
+export function pickReplacementMedia(
+  profileId: string,
+  audience: MkAudience,
+  pool: MediaItem[],
+): MediaItem | null {
+  let candidatos = pool.filter((m) => m.kind === "image");
+  if (audience === "previas") {
+    const settings = getDb()
+      .prepare("SELECT warmup_tags FROM telegram_autopost_settings WHERE profile_id = ?")
+      .get(profileId) as { warmup_tags?: string } | undefined;
+    const permitidas = (settings?.warmup_tags || "")
+      .split(",")
+      .map((t) => t.trim().toLowerCase())
+      .filter(Boolean);
+    if (permitidas.length > 0) {
+      candidatos = candidatos.filter((m) =>
+        m.tags.some((t) => permitidas.includes(t.name.toLowerCase())),
+      );
+    }
+  }
+  if (candidatos.length === 0) return null;
+  return sortCandidates(candidatos, getMediaPostCounts(profileId), audience)[0] ?? null;
+}
+
+/**
  * Fila de consumo de mídia de uma geração do Método MK (a mesma para Prévias e
  * VIP). Entrega sempre a próxima da ordem e, quando o acervo do dia acaba,
  * recomeça a rodada em vez de devolver nada — antes disso o post ia ao ar sem

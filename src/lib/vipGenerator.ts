@@ -234,7 +234,7 @@ async function processBatch(row: JobRow): Promise<number> {
   const ctaFallback = contato === "telegram" ? TELEGRAM_CTA_FALLBACK : WHATSAPP_CTA_FALLBACK;
 
   // Cadeia de provedores (grok primeiro — costuma aceitar conteúdo adulto).
-  const providerChain: AiProvider[] = (["grok", "openai", "gemini"] as AiProvider[]).filter(
+  const providerChain: AiProvider[] = (["grok", "gemini", "openai"] as AiProvider[]).filter(
     (p) => getAiCredentials(p) !== null,
   );
   if (providerChain.length === 0) {

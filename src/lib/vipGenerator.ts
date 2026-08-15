@@ -37,6 +37,7 @@ import { mkSlotToUtcMs, mkDayFromToday, mkWeekday, fallbackPoll } from "./previa
 import {
   planDayVip,
   spreadInteractions,
+  typeWithoutMedia,
   captionThemeVip,
   fallbackTextVip,
   type VipContato,
@@ -385,6 +386,13 @@ async function processBatch(row: JobRow): Promise<number> {
     // O acervo acabou de vídeo e a fila devolveu uma FOTO: rebaixa o tipo, senão
     // a legenda promete "gravei um vídeo" e vai uma foto anexada.
     if (slot.media === "video" && media?.kind === "image") type = "EXCLUSIVE_PHOTO";
+
+    // A fila acabou de vez: sem trocar o tipo, a legenda descreveria uma imagem
+    // que não foi enviada. Troca por um tipo da mesma intenção, sem acervo.
+    if (!media && slot.media) {
+      const semMidia = typeWithoutMedia(type);
+      if (semMidia) type = semMidia;
+    }
 
     const images: { mime: string; base64: string }[] = [];
     if (media) {

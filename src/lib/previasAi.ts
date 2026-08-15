@@ -248,6 +248,30 @@ export function planDay(): Omit<PreviaPost, "text" | "poll">[] {
   return planned;
 }
 
+/**
+ * Substituto de TEXTO quando o acervo não tem mídia para o slot.
+ *
+ * A fila de mídia acaba antes do dia (o acervo é finito e a mesma foto não pode
+ * repetir), e aí o post seguia com o tipo de foto/vídeo: a IA escrevia
+ * "olha como esse vestido tá marcando" e saía uma mensagem de texto sem imagem
+ * nenhuma. Trocando o tipo, a legenda é escrita para o que o post realmente é.
+ *
+ * A intenção é preservada — post de conversão continua de conversão, com CTA.
+ */
+const SEM_MIDIA: Partial<Record<MkType, MkType[]>> = {
+  SELFIE: ["HUMANIZATION", "BEHIND_SCENES", "WORK"],
+  PHOTO_PREMIUM: ["VIP_INVITATION", "OFFER", "SOCIAL_PROOF"],
+  CENSORED_PREVIEW: ["VIP_INVITATION", "COUNTDOWN"],
+  PRESENT: ["VIP_INVITATION", "SOCIAL_PROOF"],
+  VIDEO_PREMIUM: ["COUNTDOWN", "VIP_INVITATION"],
+};
+
+/** Tipo equivalente sem mídia, ou `null` se o tipo já não depende de acervo. */
+export function typeWithoutMedia(type: MkType): MkType | null {
+  const alts = SEM_MIDIA[type];
+  return alts && alts.length > 0 ? pick(alts) : null;
+}
+
 /** Kinds que pedem ação do grupo — dois colados soam pedinte. */
 const INTERACTION_KINDS: MkKind[] = ["enquete", "reacao"];
 

@@ -28,6 +28,7 @@ import type { MediaItem } from "./types";
 import {
   planDay,
   spreadInteractions,
+  typeWithoutMedia,
   mkSlotToUtcMs,
   mkDayFromToday,
   mkWeekday,
@@ -360,6 +361,14 @@ async function processBatch(row: JobRow): Promise<number> {
     // O acervo acabou de vídeo e a fila devolveu uma FOTO: rebaixa o tipo, senão
     // a legenda promete "gravei um vídeo" e vai uma foto anexada.
     if (slot.kind === "video" && media?.kind === "image") type = "PHOTO_PREMIUM";
+
+    // A fila acabou de vez: sem trocar o tipo, a IA escreveria sobre uma imagem
+    // ("olha esse vestido") e o post sairia só com texto. Troca por um tipo da
+    // mesma intenção que não depende de acervo.
+    if (!media && (slot.kind === "foto" || slot.kind === "video")) {
+      const semMidia = typeWithoutMedia(type);
+      if (semMidia) type = semMidia;
+    }
 
     const images: { mime: string; base64: string }[] = [];
     if (media) {

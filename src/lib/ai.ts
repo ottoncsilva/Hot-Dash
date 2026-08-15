@@ -100,10 +100,31 @@ export function completionsUrl(baseUrl: string | undefined, fallback: string): s
   return raw + (semEsquema.includes("/") ? "/chat/completions" : "/v1/chat/completions");
 }
 
+/**
+ * Limpa o que o modelo devolve antes de virar post.
+ *
+ * O prompt pede "responda SOMENTE com o texto da legenda", e mesmo assim os
+ * modelos abrem com rótulo (`**Legenda:**`, `Caption:`) e usam markdown de
+ * negrito. As mensagens saem em `parse_mode: HTML` (`telegramApi.ts`), então o
+ * markdown não é interpretado: os asteriscos chegam literais no grupo, e foi
+ * isso que apareceu nas Prévias.
+ *
+ * Vale para qualquer provedor — o rótulo é vício de instrução, não de um
+ * modelo específico.
+ */
+export function cleanCaption(raw: string): string {
+  let t = (raw || "").trim();
+  // Rótulo de abertura, com ou sem markdown em volta ("**Legenda:**", "Texto:").
+  t = t.replace(/^[*_`#>\s]*(legenda|caption|texto do post|texto|post)\s*[:：]\s*[*_`]*\s*/i, "");
+  // Negrito/itálico de markdown: viraria asterisco visível no Telegram.
+  t = t.replace(/\*\*([\s\S]+?)\*\*/g, "$1").replace(/__([\s\S]+?)__/g, "$1");
+  // Aspas envolvendo a legenda inteira.
+  t = t.replace(/^["'“«]\s*/, "").replace(/\s*["'”»]$/, "");
+  return t.trim();
+}
+
 export async function generateCaption(req: CaptionRequest): Promise<string> {
-  return (
-    await callAiRaw(buildPrompt(req), req.provider, { images: req.images })
-  ).trim();
+  return cleanCaption(await callAiRaw(buildPrompt(req), req.provider, { images: req.images }));
 }
 
 /**

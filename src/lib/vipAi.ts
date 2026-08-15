@@ -255,12 +255,7 @@ export function planDayVip(opts: { contato?: VipContato | null } = {}): VipPost[
  */
 function capMedia(planned: VipPost[], target: number): void {
   const ordem: VipType[] = ["SELFIE", "EXCLUSIVE_PHOTO", "DM_PHOTO", "EXCLUSIVE_VIDEO"];
-  const semMidia: Partial<Record<VipType, VipType[]>> = {
-    SELFIE: ["HUMANIZATION", "BEHIND_SCENES", "WORK"],
-    EXCLUSIVE_PHOTO: ["CURIOSITY", "QUESTION", "REACTION"],
-    DM_PHOTO: ["DM_INVITE"],
-    EXCLUSIVE_VIDEO: ["CURIOSITY", "REACTION"],
-  };
+  const semMidia = SEM_MIDIA;
 
   let current = planned.filter((p) => p.media).length;
   for (const tipo of ordem) {
@@ -277,6 +272,25 @@ function capMedia(planned: VipPost[], target: number): void {
       current--;
     }
   }
+}
+
+/**
+ * Substituto de TEXTO quando o acervo não tem mídia para o slot — o mesmo mapa
+ * que o `capMedia` usa para respeitar o teto do dia, aqui reaproveitado para
+ * quando a FILA ACABA. Sem isso o post seguia com o tipo de foto/vídeo e a
+ * legenda descrevia uma imagem que não foi enviada.
+ */
+const SEM_MIDIA: Partial<Record<VipType, VipType[]>> = {
+  SELFIE: ["HUMANIZATION", "BEHIND_SCENES", "WORK"],
+  EXCLUSIVE_PHOTO: ["CURIOSITY", "QUESTION", "REACTION"],
+  DM_PHOTO: ["DM_INVITE"],
+  EXCLUSIVE_VIDEO: ["CURIOSITY", "REACTION"],
+};
+
+/** Tipo equivalente sem mídia, ou `null` se o tipo já não depende de acervo. */
+export function typeWithoutMedia(type: VipType): VipType | null {
+  const alts = SEM_MIDIA[type];
+  return alts && alts.length > 0 ? pick(alts) : null;
 }
 
 /** Kinds que pedem ação do grupo. Dois colados soam pedinte — é o que o VIP

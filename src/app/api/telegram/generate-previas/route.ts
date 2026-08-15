@@ -42,7 +42,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Bot não configurado." }, { status: 400 });
     }
 
-    const temIa = (["grok", "openai", "gemini"] as AiProvider[]).some(
+    // Um terço do dia das Prévias é post de CONVERSÃO: a copy chama pro VIP e o
+    // envio anexa o link. Sem o link cadastrado esses posts saem convidando para
+    // lugar nenhum — melhor não gerar e dizer o que falta.
+    if (!profile.bioVipLink) {
+      return NextResponse.json(
+        {
+          error:
+            "Nenhum link do VIP configurado para este perfil. Cadastre-o antes de gerar — os posts de conversão das Prévias dependem dele.",
+        },
+        { status: 400 },
+      );
+    }
+
+    const temIa = (["grok", "gemini", "openai"] as AiProvider[]).some(
       (p) => getAiCredentials(p) !== null,
     );
     if (!temIa) {

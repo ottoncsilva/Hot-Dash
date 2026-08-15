@@ -27,6 +27,8 @@ import { DEFAULT_CTA_BUTTONS, appendCtaLines, pickCtaLinkTexts } from "./postTyp
 import type { MediaItem } from "./types";
 import {
   planDay,
+  spreadInteractions,
+  typeWithoutMedia,
   mkSlotToUtcMs,
   mkDayFromToday,
   mkWeekday,
@@ -80,12 +82,25 @@ const VARIATION_ANGLES = [
   "Abra com uma pergunta safada e direta pra quem tá lendo.",
   "Comece contando o que você tá sentindo no corpo agora.",
   "Comece com um convite safado e sem rodeio.",
-  "Comece reagindo à própria roupa/corpo que aparece na foto — o que aparece e o que quase aparece.",
   "Comece com um tom mais carinhoso e íntimo, e termine safada.",
   "Comece com 'será que você aguenta…'.",
+  "Comece dizendo o que você quer que ele faça em você.",
+];
+
+/**
+ * Ângulos que mandam DESCREVER A IMAGEM. Só entram no sorteio quando a foto vai
+ * junto na chamada — antes eram sorteados pelo índice como os outros, e um post
+ * de texto puro recebia "reaja à roupa que aparece na foto". A IA obedecia e
+ * inventava o vestido: saía no grupo uma legenda descrevendo uma imagem que
+ * nunca foi anexada.
+ *
+ * A escolha olha `images`, não o tipo do post: quando a miniatura falha, o post
+ * até tem mídia, mas o modelo não recebeu nada para olhar e inventaria igual.
+ */
+const ANGLES_COM_FOTO = [
+  "Comece reagindo à própria roupa/corpo que aparece na foto — o que aparece e o que quase aparece.",
   "Comece descrevendo o clima/cenário da foto e o que você faria ali.",
   "Comece contando o que você fez sozinha antes de tirar essa foto.",
-  "Comece dizendo o que você quer que ele faça em você.",
 ];
 
 // --------------------------------------------------------------------------
@@ -145,6 +160,10 @@ export function enqueuePreviasJob(profileId: string, days: number): PreviasJob {
   }
   slots.sort((a, b) => a.at - b.at);
 
+  // Mesma rede de segurança do VIP: o plano nasce espalhado, mas os `continue`
+  // acima descartam horários vencidos e ocupados, e o que sobra fecha fileira.
+  spreadInteractions(slots);
+
   return insertJob({ profileId, audience: "previas", days, slots });
 }
 
@@ -196,7 +215,7 @@ async function processBatch(row: JobRow): Promise<number> {
   const ctaList = (settings?.warmup_cta_buttons ?? "").trim() || DEFAULT_CTA_BUTTONS;
 
   // Cadeia de provedores (grok primeiro — costuma aceitar conteúdo adulto).
-  const providerChain: AiProvider[] = (["grok", "openai", "gemini"] as AiProvider[]).filter(
+  const providerChain: AiProvider[] = (["grok", "gemini", "openai"] as AiProvider[]).filter(
     (p) => getAiCredentials(p) !== null,
   );
   if (providerChain.length === 0) {
@@ -262,9 +281,10 @@ async function processBatch(row: JobRow): Promise<number> {
     angleIdx: number,
   ): Promise<string> {
     if (aiFailed) return fallbackText(type);
+    const angulos = images.length > 0 ? [...VARIATION_ANGLES, ...ANGLES_COM_FOTO] : VARIATION_ANGLES;
     const theme =
       `${captionTheme(type, hour, weekday)}\n` +
-      `${VARIATION_ANGLES[angleIdx % VARIATION_ANGLES.length]}${memoria}`;
+      `${angulos[angleIdx % angulos.length]}${memoria}`;
     const toTry = activeProvider ? [activeProvider] : providerChain;
     const errors: string[] = [];
     for (const p of toTry) {
@@ -355,6 +375,14 @@ async function processBatch(row: JobRow): Promise<number> {
     // O acervo acabou de vídeo e a fila devolveu uma FOTO: rebaixa o tipo, senão
     // a legenda promete "gravei um vídeo" e vai uma foto anexada.
     if (slot.kind === "video" && media?.kind === "image") type = "PHOTO_PREMIUM";
+
+    // A fila acabou de vez: sem trocar o tipo, a IA escreveria sobre uma imagem
+    // ("olha esse vestido") e o post sairia só com texto. Troca por um tipo da
+    // mesma intenção que não depende de acervo.
+    if (!media && (slot.kind === "foto" || slot.kind === "video")) {
+      const semMidia = typeWithoutMedia(type);
+      if (semMidia) type = semMidia;
+    }
 
     const images: { mime: string; base64: string }[] = [];
     if (media) {

@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Bot não configurado." }, { status: 400 });
     }
 
-    const temIa = (["grok", "openai", "gemini"] as AiProvider[]).some(
+    const temIa = (["grok", "gemini", "openai"] as AiProvider[]).some(
       (p) => getAiCredentials(p) !== null,
     );
     if (!temIa) {
@@ -93,6 +93,20 @@ export async function POST(req: NextRequest) {
     }
 
     const ctaLink = await resolveVipCtaLink(profile.id, contato, contatoAccountId);
+    // Convite pedido mas sem link para onde mandar: ~8 posts do dia sairiam
+    // escritos chamando pro particular e sem botão nenhum. Melhor não gerar e
+    // dizer o que falta do que agendar um dia de convite quebrado.
+    if (contato && !ctaLink) {
+      return NextResponse.json(
+        {
+          error:
+            contato === "telegram"
+              ? "Nenhum link de Telegram particular configurado para este perfil. Cadastre a conta (ou escolha uma) antes de gerar com convite."
+              : "Nenhum link de WhatsApp configurado para este perfil. Cadastre a conta (ou escolha uma) antes de gerar com convite.",
+        },
+        { status: 400 },
+      );
+    }
     const job = enqueueVipJob({ profileId: profile.id, days, contato, ctaLink });
     if (job.total === 0) {
       return NextResponse.json({

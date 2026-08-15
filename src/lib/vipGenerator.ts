@@ -36,6 +36,8 @@ import type { MediaItem } from "./types";
 import { mkSlotToUtcMs, mkDayFromToday, mkWeekday, fallbackPoll } from "./previasAi";
 import {
   planDayVip,
+  spreadInteractions,
+  typeWithoutMedia,
   captionThemeVip,
   fallbackTextVip,
   type VipContato,
@@ -88,9 +90,15 @@ const VARIATION_ANGLES = [
   "Abra com uma pergunta direta pra quem tá lendo.",
   "Comece contando o que você tá fazendo ou sentindo agora.",
   "Comece com uma provocação leve e íntima.",
-  "Comece reagindo à própria roupa/corpo que aparece na foto.",
   "Comece com um tom mais safado.",
   "Comece com 'tava aqui pensando em você…'.",
+];
+
+/** Ângulos que mandam DESCREVER A IMAGEM — ver a nota em `previasGenerator.ts`.
+ *  Só entram quando a foto vai junto na chamada; num post de texto puro eles
+ *  faziam a IA inventar uma imagem que nunca foi anexada. */
+const ANGLES_COM_FOTO = [
+  "Comece reagindo à própria roupa/corpo que aparece na foto.",
   "Comece descrevendo o clima/cenário da foto.",
 ];
 
@@ -153,6 +161,12 @@ export function enqueueVipJob(opts: {
     }
   }
   slots.sort((a, b) => a.at - b.at);
+
+  // O plano nasce espalhado, mas os dois `continue` acima jogam fora parte dele
+  // (horário vencido, horário ocupado) e o que sobra fecha fileira. Reavalia os
+  // tipos sobre a lista que vai mesmo para o banco — sem isso, gerar no meio do
+  // dia produzia enquetes em sequência.
+  spreadInteractions(slots);
 
   const params: JobParams = { contato: opts.contato, ctaLink: opts.ctaLink };
   return insertJob({
@@ -220,7 +234,7 @@ async function processBatch(row: JobRow): Promise<number> {
   const ctaFallback = contato === "telegram" ? TELEGRAM_CTA_FALLBACK : WHATSAPP_CTA_FALLBACK;
 
   // Cadeia de provedores (grok primeiro — costuma aceitar conteúdo adulto).
-  const providerChain: AiProvider[] = (["grok", "openai", "gemini"] as AiProvider[]).filter(
+  const providerChain: AiProvider[] = (["grok", "gemini", "openai"] as AiProvider[]).filter(
     (p) => getAiCredentials(p) !== null,
   );
   if (providerChain.length === 0) {
@@ -287,9 +301,10 @@ async function processBatch(row: JobRow): Promise<number> {
     angleIdx: number,
   ): Promise<string> {
     if (aiFailed) return fallbackTextVip(type, contato ?? "whatsapp");
+    const angulos = images.length > 0 ? [...VARIATION_ANGLES, ...ANGLES_COM_FOTO] : VARIATION_ANGLES;
     const theme =
       `${captionThemeVip(type, contato ?? "whatsapp", weekday)}\n` +
-      `${VARIATION_ANGLES[angleIdx % VARIATION_ANGLES.length]}${memoria}`;
+      `${angulos[angleIdx % angulos.length]}${memoria}`;
     const toTry = activeProvider ? [activeProvider] : providerChain;
     const errors: string[] = [];
     for (const p of toTry) {
@@ -378,6 +393,13 @@ async function processBatch(row: JobRow): Promise<number> {
     // O acervo acabou de vídeo e a fila devolveu uma FOTO: rebaixa o tipo, senão
     // a legenda promete "gravei um vídeo" e vai uma foto anexada.
     if (slot.media === "video" && media?.kind === "image") type = "EXCLUSIVE_PHOTO";
+
+    // A fila acabou de vez: sem trocar o tipo, a legenda descreveria uma imagem
+    // que não foi enviada. Troca por um tipo da mesma intenção, sem acervo.
+    if (!media && slot.media) {
+      const semMidia = typeWithoutMedia(type);
+      if (semMidia) type = semMidia;
+    }
 
     const images: { mime: string; base64: string }[] = [];
     if (media) {

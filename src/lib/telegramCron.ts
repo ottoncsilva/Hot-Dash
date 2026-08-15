@@ -39,7 +39,7 @@ import {
 } from "@/lib/telegramMailing";
 import { updatePost } from "@/lib/posts";
 import { listMedia, getMediaRow } from "@/lib/media";
-import { audienceFromPostType, logMediaPosted } from "@/lib/mediaUsage";
+import { audienceFromPostType, logMediaPosted, pickReplacementMedia } from "@/lib/mediaUsage";
 import { getProfile } from "@/lib/profiles";
 import {
   DEFAULT_CTA_BUTTONS,
@@ -161,11 +161,41 @@ export async function runTelegramAutopost(): Promise<number> {
         continue;
       }
 
-      // Obtém o caminho da mídia
+      // Obtém o caminho da mídia.
+      //
+      // Se a mídia escolhida na geração não estiver mais na galeria, o post NÃO
+      // pode virar texto: a legenda foi escrita para uma imagem ("olha esse
+      // vestido") e sairia descrevendo uma foto que ninguém vê. Busca outra do
+      // acervo do mesmo grupo, na ordem do Método MK — a menos postada primeiro,
+      // que é a mesma regra da geração.
       let mediaPath = "";
+      let mediaIdUsada = post.media_id as string | null;
       if (post.media_id) {
         const row = getMediaRow(post.media_id);
         if (row) mediaPath = row.path;
+        else {
+          const audience = audienceFromPostType(post.post_type);
+          const substituta = audience
+            ? pickReplacementMedia(profile.id, audience, listMedia(profile.id))
+            : null;
+          if (substituta) {
+            const subRow = getMediaRow(substituta.id);
+            if (subRow) {
+              mediaPath = subRow.path;
+              mediaIdUsada = substituta.id;
+              console.warn(
+                `[hotdash] Mídia ${post.media_id} sumiu do acervo; post ${post.id} saiu com ${substituta.id}.`,
+              );
+            }
+          }
+          // Sem substituta o acervo está vazio: aí o post sai só com o texto,
+          // que é o melhor possível — mas fica o registro do motivo.
+          if (!mediaPath) {
+            console.warn(
+              `[hotdash] Post ${post.id} pedia mídia, mas ${post.media_id} sumiu e não há substituta no acervo.`,
+            );
+          }
+        }
       }
 
       // Enquete do post (se houver). Lida antes do CTA porque é ela que define
@@ -276,13 +306,15 @@ export async function runTelegramAutopost(): Promise<number> {
         // Só conta o que REALMENTE foi ao ar (falha cai no catch e o post
         // continua agendado): é esse registro que alimenta o contador da
         // galeria e faz o Método MK preferir a mídia menos postada no grupo.
-        if (post.media_id) {
+        // Registra a mídia que REALMENTE saiu — se houve substituição, é a
+        // substituta que precisa contar, senão ela repetiria antes da hora.
+        if (mediaIdUsada) {
           const audience = audienceFromPostType(post.post_type);
           // Nunca deixa uma falha de REGISTRO virar falha de ENVIO: o post já
           // saiu e já está marcado como postado — cair no catch de baixo o
           // contabilizaria como erro e alertaria à toa.
           try {
-            if (audience) logMediaPosted([post.media_id], profile.id, audience, post.id);
+            if (audience) logMediaPosted([mediaIdUsada], profile.id, audience, post.id);
           } catch (e) {
             console.error(`Falha ao registrar publicação da mídia do post ${post.id}:`, e);
           }

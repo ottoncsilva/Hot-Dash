@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
     // texto/erro), enquanto o Grok (x.ai) costuma aceitar. Por isso tentamos
     // Grok primeiro e só caímos para os demais se ele não estiver conectado ou
     // falhar. A cadeia é percorrida até um provedor devolver uma legenda válida.
-    const providerChain: AiProvider[] = (["grok", "openai", "gemini"] as AiProvider[]).filter(
+    const providerChain: AiProvider[] = (["grok", "gemini", "openai"] as AiProvider[]).filter(
       (p) => getAiCredentials(p) !== null,
     );
 

@@ -90,9 +90,15 @@ const VARIATION_ANGLES = [
   "Abra com uma pergunta direta pra quem tá lendo.",
   "Comece contando o que você tá fazendo ou sentindo agora.",
   "Comece com uma provocação leve e íntima.",
-  "Comece reagindo à própria roupa/corpo que aparece na foto.",
   "Comece com um tom mais safado.",
   "Comece com 'tava aqui pensando em você…'.",
+];
+
+/** Ângulos que mandam DESCREVER A IMAGEM — ver a nota em `previasGenerator.ts`.
+ *  Só entram quando a foto vai junto na chamada; num post de texto puro eles
+ *  faziam a IA inventar uma imagem que nunca foi anexada. */
+const ANGLES_COM_FOTO = [
+  "Comece reagindo à própria roupa/corpo que aparece na foto.",
   "Comece descrevendo o clima/cenário da foto.",
 ];
 
@@ -295,9 +301,10 @@ async function processBatch(row: JobRow): Promise<number> {
     angleIdx: number,
   ): Promise<string> {
     if (aiFailed) return fallbackTextVip(type, contato ?? "whatsapp");
+    const angulos = images.length > 0 ? [...VARIATION_ANGLES, ...ANGLES_COM_FOTO] : VARIATION_ANGLES;
     const theme =
       `${captionThemeVip(type, contato ?? "whatsapp", weekday)}\n` +
-      `${VARIATION_ANGLES[angleIdx % VARIATION_ANGLES.length]}${memoria}`;
+      `${angulos[angleIdx % angulos.length]}${memoria}`;
     const toTry = activeProvider ? [activeProvider] : providerChain;
     const errors: string[] = [];
     for (const p of toTry) {

@@ -82,12 +82,25 @@ const VARIATION_ANGLES = [
   "Abra com uma pergunta safada e direta pra quem tá lendo.",
   "Comece contando o que você tá sentindo no corpo agora.",
   "Comece com um convite safado e sem rodeio.",
-  "Comece reagindo à própria roupa/corpo que aparece na foto — o que aparece e o que quase aparece.",
   "Comece com um tom mais carinhoso e íntimo, e termine safada.",
   "Comece com 'será que você aguenta…'.",
+  "Comece dizendo o que você quer que ele faça em você.",
+];
+
+/**
+ * Ângulos que mandam DESCREVER A IMAGEM. Só entram no sorteio quando a foto vai
+ * junto na chamada — antes eram sorteados pelo índice como os outros, e um post
+ * de texto puro recebia "reaja à roupa que aparece na foto". A IA obedecia e
+ * inventava o vestido: saía no grupo uma legenda descrevendo uma imagem que
+ * nunca foi anexada.
+ *
+ * A escolha olha `images`, não o tipo do post: quando a miniatura falha, o post
+ * até tem mídia, mas o modelo não recebeu nada para olhar e inventaria igual.
+ */
+const ANGLES_COM_FOTO = [
+  "Comece reagindo à própria roupa/corpo que aparece na foto — o que aparece e o que quase aparece.",
   "Comece descrevendo o clima/cenário da foto e o que você faria ali.",
   "Comece contando o que você fez sozinha antes de tirar essa foto.",
-  "Comece dizendo o que você quer que ele faça em você.",
 ];
 
 // --------------------------------------------------------------------------
@@ -268,9 +281,10 @@ async function processBatch(row: JobRow): Promise<number> {
     angleIdx: number,
   ): Promise<string> {
     if (aiFailed) return fallbackText(type);
+    const angulos = images.length > 0 ? [...VARIATION_ANGLES, ...ANGLES_COM_FOTO] : VARIATION_ANGLES;
     const theme =
       `${captionTheme(type, hour, weekday)}\n` +
-      `${VARIATION_ANGLES[angleIdx % VARIATION_ANGLES.length]}${memoria}`;
+      `${angulos[angleIdx % angulos.length]}${memoria}`;
     const toTry = activeProvider ? [activeProvider] : providerChain;
     const errors: string[] = [];
     for (const p of toTry) {

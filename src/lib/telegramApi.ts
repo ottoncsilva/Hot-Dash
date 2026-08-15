@@ -225,6 +225,102 @@ export async function sendTelegramMedia(
   }
 }
 
+/**
+ * Envia várias mídias como UM ÁLBUM (sendMediaGroup).
+ *
+ * Três regras do Telegram que moldam esta função:
+ *  • o álbum aceita de 2 a 10 itens — com 1 só, quem chama deve usar
+ *    sendTelegramMedia, que é o que o `if` no começo faz;
+ *  • a legenda vai no PRIMEIRO item e é ela que aparece embaixo do álbum;
+ *  • **sendMediaGroup não aceita reply_markup**. Por isso o /start com álbum
+ *    manda os botões numa mensagem separada logo depois — não é escolha
+ *    estética, é a única forma de ter álbum e botões.
+ *
+ * Os arquivos vão por multipart, referenciados por `attach://<campo>`, que é
+ * como a API liga cada item do JSON ao seu anexo.
+ */
+export async function sendTelegramMediaGroup(
+  botToken: string,
+  chatId: string,
+  relPaths: string[],
+  caption?: string,
+): Promise<unknown> {
+  if (relPaths.length === 0) return undefined;
+  if (relPaths.length === 1) {
+    return sendTelegramMedia(botToken, chatId, relPaths[0], caption);
+  }
+
+  const formData = new FormData();
+  formData.append("chat_id", chatId);
+
+  const media: Record<string, unknown>[] = [];
+  const usados = relPaths.slice(0, 10); // teto do Telegram
+  for (let i = 0; i < usados.length; i++) {
+    const relPath = usados[i];
+    const ext = relPath.slice(relPath.lastIndexOf(".")).toLowerCase();
+    const isVideo = [".mp4", ".mov", ".mkv", ".webm"].includes(ext);
+    const campo = `file${i}`;
+    const buffer = await readBuffer(relPath);
+    const blob = new Blob([buffer as any], { type: MIME_BY_EXT[ext] || "application/octet-stream" });
+    formData.append(campo, blob, `${campo}${ext}`);
+
+    media.push({
+      type: isVideo ? "video" : "photo",
+      media: `attach://${campo}`,
+      ...(i === 0 && caption ? { caption, parse_mode: "HTML" } : {}),
+      ...(isVideo ? { supports_streaming: true } : {}),
+    });
+  }
+  formData.append("media", JSON.stringify(media));
+
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMediaGroup`, {
+    method: "POST",
+    body: formData,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`Telegram API: ${data.description || `Erro HTTP ${res.status}`}`);
+  }
+  return data.result;
+}
+
+/**
+ * Envia um áudio como MENSAGEM DE VOZ, a partir de uma URL pública.
+ *
+ * O Telegram baixa o arquivo sozinho — não precisamos hospedá-lo nem subir
+ * bytes. Em compensação a URL tem de ser alcançável da internet, e o formato
+ * de voz é OGG/OPUS: outros formatos o Telegram entrega como arquivo comum,
+ * sem a bolha de áudio. Nunca lança: um áudio que falha não pode derrubar a
+ * entrega do PIX.
+ */
+export async function sendTelegramVoiceUrl(
+  botToken: string,
+  chatId: string,
+  url: string,
+): Promise<boolean> {
+  try {
+    await telegramFetch(botToken, "sendVoice", { chat_id: chatId, voice: url });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Updates ainda na fila do bot (getUpdates), usado só para DESCOBRIR grupos.
+ *
+ * Chamado SEM `offset` de propósito: assim o Telegram devolve o que está na
+ * fila mas não marca nada como entregue — se outro sistema estiver operando o
+ * bot, não roubamos os updates dele.
+ *
+ * Só funciona quando NÃO há webhook registrado; com webhook ativo o Telegram
+ * responde com um erro de conflito, e quem chama trata isso.
+ */
+export async function getTelegramUpdates(botToken: string): Promise<any[]> {
+  const r = (await telegramFetch(botToken, "getUpdates", { timeout: 0, limit: 100 })) as any[];
+  return Array.isArray(r) ? r : [];
+}
+
 /** Envia uma foto a partir de um Buffer em memória (ex.: QR Code do PIX). */
 export async function sendTelegramPhotoBuffer(
   botToken: string,

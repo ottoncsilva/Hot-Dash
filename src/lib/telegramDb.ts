@@ -28,6 +28,16 @@ export type TelegramBotConfig = {
   pixCaption?: string;
   /** Texto do botão de acesso ao VIP na aprovação. Vazio = link solto no texto. */
   successButtonText?: string;
+  /** Ids da Galeria escolhidos a dedo para a abertura do /start, em ordem. */
+  welcomeMediaIds?: string[];
+  /** "album" = tudo numa mensagem; "separate" = uma mensagem por mídia. */
+  welcomeMediaMode: "album" | "separate";
+  /** Mostra a linha de prova social (números reais) na tela do PIX. */
+  pixSocialProof: boolean;
+  /** Texto da prova social. Aceita {vendas_hoje} e {assinantes}. */
+  pixSocialProofText?: string;
+  /** URL pública de um OGG/OPUS enviado como mensagem de voz junto do PIX. */
+  pixAudioUrl?: string;
 };
 
 /** Textos padrão da tela de pagamento — os mesmos que antes viviam fixos no
@@ -35,6 +45,16 @@ export type TelegramBotConfig = {
  *  placeholder e oferecer um "restaurar padrão" honesto. */
 export const PIX_DEFAULTS = {
   generatingMessage: "⏳ Gerando cobrança PIX...",
+  /**
+   * Prova social com números REAIS desta modelo — vendas pagas hoje e
+   * assinantes ativos, lidos das mesmas tabelas do painel financeiro.
+   *
+   * De propósito não existe campo para inventar número: prova social fabricada
+   * é propaganda enganosa com o cliente do outro lado, e quem responderia por
+   * ela seria a operação, não o painel. Quando o número real é zero, a linha
+   * simplesmente não é enviada.
+   */
+  socialProofText: "🔥 {vendas_hoje} pessoa(s) garantiram o acesso hoje.",
   caption:
     `🔑 <b>PIX gerado!</b>\n\n` +
     `📸 Escaneie o QR acima <b>ou</b> copie o código abaixo no seu app do banco:\n\n` +
@@ -111,7 +131,24 @@ function toBotConfig(row: any): TelegramBotConfig {
     pixGeneratingMessage: row.pix_generating_message || undefined,
     pixCaption: row.pix_caption || undefined,
     successButtonText: row.success_button_text || undefined,
+    welcomeMediaIds: parseIds(row.welcome_media_ids),
+    welcomeMediaMode: row.welcome_media_mode === "separate" ? "separate" : "album",
+    pixSocialProof: !!row.pix_social_proof,
+    pixSocialProofText: row.pix_social_proof_text || undefined,
+    pixAudioUrl: row.pix_audio_url || undefined,
   };
+}
+
+/** JSON de ids da Galeria → lista. Conteúdo corrompido vira lista vazia em vez
+ *  de derrubar o carregamento do bot inteiro. */
+function parseIds(raw: unknown): string[] | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string" && x) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function getBotConfigByProfile(profileId: string): TelegramBotConfig | null {
@@ -131,8 +168,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -151,7 +188,12 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        previas_approval_mode = excluded.previas_approval_mode,
        pix_generating_message = excluded.pix_generating_message,
        pix_caption = excluded.pix_caption,
-       success_button_text = excluded.success_button_text`
+       success_button_text = excluded.success_button_text,
+       welcome_media_ids = excluded.welcome_media_ids,
+       welcome_media_mode = excluded.welcome_media_mode,
+       pix_social_proof = excluded.pix_social_proof,
+       pix_social_proof_text = excluded.pix_social_proof_text,
+       pix_audio_url = excluded.pix_audio_url`
   ).run(
     id,
     config.profileId,
@@ -173,6 +215,11 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.pixGeneratingMessage?.trim() || null,
     config.pixCaption?.trim() || null,
     config.successButtonText?.trim() || null,
+    config.welcomeMediaIds?.length ? JSON.stringify(config.welcomeMediaIds.slice(0, 10)) : null,
+    config.welcomeMediaMode === "separate" ? "separate" : "album",
+    config.pixSocialProof ? 1 : 0,
+    config.pixSocialProofText?.trim() || null,
+    config.pixAudioUrl?.trim() || null,
     now
   );
   return getBotConfig(id)!;
@@ -270,6 +317,19 @@ export function findActiveSubscription(botId: string, telegramUserId: number): T
   return row ? toSubscription(row) : null;
 }
 
+/** Quantos assinantes ativos o bot tem AGORA (alimenta a prova social real).
+ *  `expires_at > 0` exclui os pacotes de compra única, que ficam "active" com
+ *  expiração zero e não são assinantes. */
+export function countActiveSubscriptions(botId: string): number {
+  const r = getDb()
+    .prepare(
+      `SELECT COUNT(*) c FROM telegram_subscriptions
+        WHERE bot_id = ? AND status = 'active' AND expires_at > ?`,
+    )
+    .get(botId, Date.now()) as { c: number };
+  return r?.c || 0;
+}
+
 export function findSubscriptionByTransaction(transactionId: string): TelegramSubscription | null {
   const row = getDb()
     .prepare("SELECT * FROM telegram_subscriptions WHERE transaction_id = ?")
@@ -342,6 +402,45 @@ export function saveCustomButton(btn: CustomButton): void {
 
 export function deleteCustomButton(id: string): void {
   getDb().prepare("DELETE FROM telegram_custom_buttons WHERE id = ?").run(id);
+}
+
+// ---- Chats que o bot já viu (alimenta o botão "Detectar") ----
+export type SeenChat = { chatId: string; title?: string; type?: string; lastSeenAt: number };
+
+/**
+ * Anota um chat que apareceu num update. Só GRUPOS e CANAIS interessam — o
+ * privado do lead não é candidato a "grupo VIP" e só poluiria a lista.
+ *
+ * O título é atualizado a cada visita (grupos são renomeados), mas nunca
+ * apagado por um update que venha sem ele.
+ */
+export function recordSeenChat(
+  botId: string,
+  chat: { id?: number | string; title?: string; type?: string } | undefined,
+): void {
+  if (!chat?.id || !chat.type || chat.type === "private") return;
+  getDb()
+    .prepare(
+      `INSERT INTO telegram_seen_chats (bot_id, chat_id, title, type, last_seen_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(bot_id, chat_id) DO UPDATE SET
+         title = COALESCE(excluded.title, telegram_seen_chats.title),
+         type = excluded.type,
+         last_seen_at = excluded.last_seen_at`,
+    )
+    .run(botId, String(chat.id), chat.title || null, chat.type, Date.now());
+}
+
+export function listSeenChats(botId: string): SeenChat[] {
+  const rows = getDb()
+    .prepare("SELECT * FROM telegram_seen_chats WHERE bot_id = ? ORDER BY last_seen_at DESC")
+    .all(botId) as any[];
+  return rows.map((r) => ({
+    chatId: r.chat_id,
+    title: r.title || undefined,
+    type: r.type || undefined,
+    lastSeenAt: r.last_seen_at,
+  }));
 }
 
 // ---- Trackeamento: links de divulgação (deep-link ?start=CODIGO) ----

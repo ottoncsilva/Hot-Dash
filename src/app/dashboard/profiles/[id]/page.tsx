@@ -28,6 +28,7 @@ import {
 } from "@/lib/types";
 import { buildSocialUrl, networkMeta } from "@/lib/socialLinks";
 import { showToast } from "@/lib/toast";
+import DetectChat from "@/components/telegram/bot/DetectChat";
 
 export default function ProfileDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -447,6 +448,15 @@ export default function ProfileDetailPage() {
                       value={botIdVip}
                       onChange={(e) => setBotIdVip(e.target.value)}
                     />
+                    <p className="mt-1 text-[11px] text-zinc-500">
+                      Onde o cliente entra ao pagar. O bot precisa ser <b>admin</b> lá (convidar por
+                      link e remover membros).
+                    </p>
+                    {hasToken && (
+                      <div className="mt-1.5">
+                        <DetectChat profileId={id} onPick={setBotIdVip} />
+                      </div>
+                    )}
                   </div>
                   <div>
                     <label className="eyebrow mb-1.5 block">ID Grupo Prévias</label>
@@ -456,6 +466,14 @@ export default function ProfileDetailPage() {
                       value={botIdPrevias}
                       onChange={(e) => setBotIdPrevias(e.target.value)}
                     />
+                    <p className="mt-1 text-[11px] text-zinc-500">
+                      Grupo gratuito de aquecimento. Também recebe as postagens automáticas.
+                    </p>
+                    {hasToken && (
+                      <div className="mt-1.5">
+                        <DetectChat profileId={id} onPick={setBotIdPrevias} />
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

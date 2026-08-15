@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getBotConfig, listPlans, listCustomButtons, saveSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, PIX_DEFAULTS } from "@/lib/telegramDb";
+import { getBotConfig, listPlans, listCustomButtons, saveSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, PIX_DEFAULTS } from "@/lib/telegramDb";
 import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser } from "@/lib/telegramUsers";
 import { recordGroupMembershipChange } from "@/lib/telegramMonitor";
 import { getMailingOffer } from "@/lib/telegramMailing";
-import { sendTelegramMessage, sendTelegramMedia, sendTelegramPhotoBuffer, approveTelegramJoinRequest, declineTelegramJoinRequest, telegramWebhookSecret } from "@/lib/telegramApi";
+import { sendTelegramMessage, sendTelegramMedia, sendTelegramMediaGroup, sendTelegramVoiceUrl, sendTelegramPhotoBuffer, approveTelegramJoinRequest, declineTelegramJoinRequest, telegramWebhookSecret } from "@/lib/telegramApi";
 import QRCode from "qrcode";
 import { listMedia, getMediaRow } from "@/lib/media";
 import { activeProvider } from "@/lib/payments";
-import { recordTransaction } from "@/lib/transactions";
+import { recordTransaction, overview } from "@/lib/transactions";
 import { ensureSyncpayWebhookShortToken } from "@/lib/settings";
 import { publicOrigin } from "@/lib/publicOrigin";
 import { randomUUID } from "node:crypto";
@@ -63,6 +63,19 @@ export async function POST(
     }
 
     const update = await req.json().catch(() => ({}));
+
+    // Anota TODO grupo/canal que aparecer, venha por onde vier. É a única
+    // forma de o painel saber em que grupos o bot está: a API do Telegram não
+    // deixa um bot listar os próprios chats. É o que alimenta o "Detectar".
+    for (const c of [
+      update.message?.chat,
+      update.channel_post?.chat,
+      update.my_chat_member?.chat,
+      update.chat_member?.chat,
+      update.chat_join_request?.chat,
+    ]) {
+      if (c) recordSeenChat(bot.id, c);
+    }
 
     // ---- Mensagem comum (Ex: /start) ----
     if (update.message) {
@@ -192,8 +205,41 @@ export async function POST(
         // Personaliza a mensagem substituindo o placeholder do nome
         const welcomeText = bot.welcomeMessage.replace(/{nome}/gi, from.first_name || "linda(o)");
 
+        // A abertura tem dois modos, e a LISTA EXPLÍCITA manda quando existe:
+        //   • ids escolhidos a dedo → manda todos, na ordem, como álbum ou uma
+        //     mensagem por mídia;
+        //   • só etiquetas → sorteia UMA (o comportamento de sempre).
+        const escolhidas = (bot.welcomeMediaIds || [])
+          .map((id) => getMediaRow(id))
+          .filter((r): r is NonNullable<typeof r> => Boolean(r));
+
         let sentWithMedia = false;
-        if (bot.welcomeMediaTags) {
+        if (escolhidas.length > 0) {
+          const caminhos = escolhidas.map((r) => r.path);
+          if (bot.welcomeMediaMode === "separate" || caminhos.length === 1) {
+            // Uma mensagem por mídia. A legenda e os botões vão na ÚLTIMA,
+            // para o texto ficar logo acima do teclado.
+            for (let i = 0; i < caminhos.length; i++) {
+              const ultima = i === caminhos.length - 1;
+              await sendTelegramMedia(
+                bot.botToken,
+                String(chat.id),
+                caminhos[i],
+                ultima ? welcomeText : undefined,
+                ultima ? { reply_markup: replyMarkup } : {},
+              );
+            }
+          } else {
+            // Álbum: o sendMediaGroup NÃO aceita botões, então eles vêm numa
+            // mensagem própria depois — e a legenda vai junto dela, senão o
+            // texto ficaria espremido embaixo do álbum, longe dos botões.
+            await sendTelegramMediaGroup(bot.botToken, String(chat.id), caminhos);
+            await sendTelegramMessage(bot.botToken, String(chat.id), welcomeText, {
+              reply_markup: replyMarkup,
+            });
+          }
+          sentWithMedia = true;
+        } else if (bot.welcomeMediaTags) {
           const tagsArray = bot.welcomeMediaTags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
           if (tagsArray.length > 0) {
             const allMedia = listMedia(bot.profileId);
@@ -374,6 +420,21 @@ export async function POST(
         } else {
           pixCaption += `\n\n<code>${pixCode}</code>`;
         }
+
+        // PROVA SOCIAL com números REAIS desta modelo. Se o número do dia for
+        // zero, a linha inteira é omitida — dizer "0 pessoas garantiram hoje"
+        // seria pior que não dizer nada, e inventar um número seria enganar o
+        // cliente que está prestes a pagar.
+        if (bot.pixSocialProof) {
+          const hoje = overview(bot.profileId).today.paidCount;
+          const assinantes = countActiveSubscriptions(bot.id);
+          if (hoje > 0 || assinantes > 0) {
+            const linha = (bot.pixSocialProofText?.trim() || PIX_DEFAULTS.socialProofText)
+              .replace(/{vendas_hoje}/gi, String(hoje))
+              .replace(/{assinantes}/gi, String(assinantes));
+            pixCaption = `${linha}\n\n${pixCaption}`;
+          }
+        }
         let sentPix = false;
         if (pixCode) {
           try {
@@ -386,6 +447,13 @@ export async function POST(
         }
         if (!sentPix) {
           await sendTelegramMessage(bot.botToken, String(message.chat.id), pixCaption);
+        }
+
+        // Áudio opcional, DEPOIS do PIX: o código copia-e-cola é o que o
+        // cliente veio buscar e não pode ficar atrás de um áudio. Best-effort
+        // por dentro — uma URL fora do ar não derruba a cobrança.
+        if (bot.pixAudioUrl?.trim()) {
+          await sendTelegramVoiceUrl(bot.botToken, String(message.chat.id), bot.pixAudioUrl.trim());
         }
       }
     }

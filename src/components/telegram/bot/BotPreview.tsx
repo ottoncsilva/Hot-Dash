@@ -24,20 +24,27 @@ export default function BotPreview({
   botUsername,
   welcomeMessage,
   welcomeMediaTags,
+  welcomeMediaIds,
+  welcomeMediaMode,
   buttons,
 }: {
   profileId: string;
   botUsername?: string;
   welcomeMessage: string;
   welcomeMediaTags: string;
+  /** Mídias escolhidas a dedo. Quando há alguma, o bot ignora as etiquetas. */
+  welcomeMediaIds?: string[];
+  welcomeMediaMode?: "album" | "separate";
   buttons: Btn[];
 }) {
   const [media, setMedia] = useState<PreviewMedia[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
 
+  const explicitas = welcomeMediaIds && welcomeMediaIds.length > 0;
+
   const load = useCallback(async () => {
-    if (!profileId) return;
+    if (!profileId || explicitas) return;
     setLoading(true);
     try {
       const r = await apiSend<{ ok: boolean; total: number; items: PreviewMedia[] }>(
@@ -53,7 +60,7 @@ export default function BotPreview({
     } finally {
       setLoading(false);
     }
-  }, [profileId, welcomeMediaTags]);
+  }, [profileId, welcomeMediaTags, explicitas]);
 
   // Espera o operador parar de digitar antes de consultar: o campo de
   // etiquetas dispararia uma requisição por tecla.
@@ -85,9 +92,32 @@ export default function BotPreview({
           /start
         </p>
 
-        {/* Mídia sorteada. Mostramos TODAS as candidatas, porque o que importa
-            para conferir a configuração é o conjunto de onde o bot sorteia. */}
-        {semEtiquetas ? (
+        {/* Duas fontes possíveis de mídia, e a explícita manda. Com etiquetas,
+            mostramos TODAS as candidatas: o que importa para conferir a
+            configuração é o conjunto de onde o bot vai sortear. */}
+        {explicitas ? (
+          <>
+            <div
+              className={`grid gap-1 overflow-hidden rounded-lg ${
+                welcomeMediaIds!.length > 1 ? "grid-cols-2" : "grid-cols-1"
+              }`}
+            >
+              {welcomeMediaIds!.slice(0, 4).map((id, i) => (
+                <div key={id} className="relative aspect-[3/4] bg-ink-850">
+                  <img src={`/api/media/${id}/thumbnail`} alt="" className="h-full w-full object-cover" />
+                  <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1 text-[10px] text-white">
+                    {i + 1}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="text-center text-[11px] text-zinc-500">
+              {welcomeMediaIds!.length} mídia(s) fixa(s) ·{" "}
+              {welcomeMediaMode === "separate" ? "uma mensagem por mídia" : "álbum único"}
+              {welcomeMediaIds!.length > 4 && " · mostrando as 4 primeiras"}
+            </p>
+          </>
+        ) : semEtiquetas ? (
           <p className="rounded-lg border border-dashed border-white/10 p-3 text-center text-[11px] text-zinc-500">
             Sem etiquetas de mídia: o /start sai só com o texto.
           </p>

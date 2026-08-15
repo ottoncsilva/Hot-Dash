@@ -24,6 +24,9 @@ import PageHeader from "@/components/PageHeader";
 import SectionRow, { resumo } from "@/components/telegram/bot/SectionRow";
 import VarChips from "@/components/telegram/bot/VarChips";
 import BotPreview from "@/components/telegram/bot/BotPreview";
+import FormatToolbar from "@/components/telegram/bot/FormatToolbar";
+import MediaPicker from "@/components/telegram/bot/MediaPicker";
+import DetectChat from "@/components/telegram/bot/DetectChat";
 
 // ---- Tipos (espelham telegramDb.ts) ----
 type Bot = {
@@ -47,7 +50,13 @@ type Bot = {
   pixGeneratingMessage?: string;
   pixCaption?: string;
   successButtonText?: string;
+  welcomeMediaIds?: string[];
+  welcomeMediaMode: "album" | "separate";
+  pixSocialProof: boolean;
+  pixSocialProofText?: string;
+  pixAudioUrl?: string;
 };
+type SeenChat = { chatId: string; title?: string; type?: string };
 type ApprovalMode = "subscribers" | "all" | "manual";
 type PixDefaults = { generatingMessage: string; caption: string };
 type LinkStats = { starts: number; pixGenerated: number; pixPaid: number; paidCents: number };
@@ -110,6 +119,8 @@ export default function BotVendasPage() {
   // irmão do formulário, não filho.
   const [welcome, setWelcome] = useState("");
   const [welcomeTags, setWelcomeTags] = useState("");
+  const [welcomeIds, setWelcomeIds] = useState<string[]>([]);
+  const [welcomeMode, setWelcomeMode] = useState<"album" | "separate">("album");
 
   const load = useCallback(async () => {
     if (!profileId) return;
@@ -137,6 +148,8 @@ export default function BotVendasPage() {
       setPixDefaults(d.pixDefaults || null);
       setWelcome(d.bot?.welcomeMessage || "");
       setWelcomeTags(d.bot?.welcomeMediaTags || "");
+      setWelcomeIds(d.bot?.welcomeMediaIds || []);
+      setWelcomeMode(d.bot?.welcomeMediaMode || "album");
     } finally {
       setLoading(false);
     }
@@ -231,6 +244,10 @@ export default function BotVendasPage() {
                     setWelcome={setWelcome}
                     welcomeTags={welcomeTags}
                     setWelcomeTags={setWelcomeTags}
+                    mediaIds={welcomeIds}
+                    setMediaIds={setWelcomeIds}
+                    mode={welcomeMode}
+                    setMode={setWelcomeMode}
                     onSaved={load}
                   />
                   <SuccessRow profileId={profileId} bot={bot} onSaved={load} />
@@ -266,6 +283,8 @@ export default function BotVendasPage() {
                 botUsername={bot.botUsername}
                 welcomeMessage={welcome}
                 welcomeMediaTags={welcomeTags}
+                welcomeMediaIds={welcomeIds}
+                welcomeMediaMode={welcomeMode}
                 buttons={previewButtons}
               />
             )}
@@ -517,6 +536,10 @@ function WelcomeRow({
   setWelcome,
   welcomeTags,
   setWelcomeTags,
+  mediaIds,
+  setMediaIds,
+  mode,
+  setMode,
   onSaved,
 }: {
   profileId: string;
@@ -526,6 +549,10 @@ function WelcomeRow({
   setWelcome: (v: string) => void;
   welcomeTags: string;
   setWelcomeTags: (v: string) => void;
+  mediaIds: string[];
+  setMediaIds: (v: string[]) => void;
+  mode: "album" | "separate";
+  setMode: (v: "album" | "separate") => void;
   onSaved: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -534,7 +561,14 @@ function WelcomeRow({
   async function save() {
     setBusy(true);
     try {
-      await salvarMensagens(profileId, { welcomeMessage: welcome, welcomeMediaTags: welcomeTags });
+      await apiSend("/api/telegram", "POST", {
+        action: "save-bot-messages",
+        profileId,
+        welcomeMessage: welcome,
+        welcomeMediaTags: welcomeTags,
+        welcomeMediaIds: mediaIds,
+        welcomeMediaMode: mode,
+      });
       showToast("Boas-vindas salvas.", "success");
       onSaved();
     } catch (e) {
@@ -552,9 +586,12 @@ function WelcomeRow({
       status={bot.welcomeMessage?.trim() ? undefined : { label: "vazia", tone: "warn" }}
     >
       <label className="eyebrow block">Texto enviado no /start</label>
+      <div className="mt-1.5">
+        <FormatToolbar targetRef={areaRef} onChange={setWelcome} />
+      </div>
       <textarea
         ref={areaRef}
-        className="input mt-1.5 min-h-[140px]"
+        className="input min-h-[140px]"
         value={welcome}
         onChange={(e) => setWelcome(e.target.value)}
       />
@@ -564,7 +601,46 @@ function WelcomeRow({
         onChange={setWelcome}
       />
 
-      <label className="eyebrow mt-4 block">Etiquetas da mídia de abertura (opcional)</label>
+      <label className="eyebrow mt-4 block">Mídias de abertura · até 10</label>
+      <p className="mb-1.5 mt-0.5 text-[11px] text-zinc-500">
+        Escolhidas a dedo, enviadas <b>sempre</b> nesta ordem. Deixe vazio para o bot sortear por
+        etiqueta (abaixo).
+      </p>
+      <MediaPicker profileId={profileId} selected={mediaIds} onChange={setMediaIds} />
+
+      {mediaIds.length > 1 && (
+        <div className="mt-3">
+          <label className="eyebrow block">Como enviar as {mediaIds.length} mídias</label>
+          <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+            {(
+              [
+                ["album", "Agrupadas", "Um álbum único. Os botões vêm logo abaixo, numa mensagem própria — o Telegram não deixa colar botão em álbum."],
+                ["separate", "Separadas", "Uma mensagem por mídia. O texto e os botões vão na última."],
+              ] as const
+            ).map(([k, titulo, desc]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setMode(k)}
+                className={`rounded-xl border p-3 text-left transition-colors ${
+                  mode === k
+                    ? "border-emerald-500/40 bg-emerald-500/[0.07]"
+                    : "border-white/10 bg-ink-850 hover:border-white/20"
+                }`}
+              >
+                <p className={`text-sm font-semibold ${mode === k ? "text-emerald-300" : "text-zinc-200"}`}>
+                  {titulo}
+                </p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{desc}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <label className="eyebrow mt-4 block">
+        Etiquetas da mídia de abertura {mediaIds.length > 0 && "(ignoradas — há mídias escolhidas acima)"}
+      </label>
       <input
         className="input mt-1.5"
         placeholder="ex.: previa, quente"
@@ -690,8 +766,12 @@ function PixRow({
 }) {
   const [gerando, setGerando] = useState(bot.pixGeneratingMessage || "");
   const [legenda, setLegenda] = useState(bot.pixCaption || "");
+  const [prova, setProva] = useState(Boolean(bot.pixSocialProof));
+  const [provaTexto, setProvaTexto] = useState(bot.pixSocialProofText || "");
+  const [audio, setAudio] = useState(bot.pixAudioUrl || "");
   const [busy, setBusy] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const provaRef = useRef<HTMLTextAreaElement>(null);
 
   async function save() {
     setBusy(true);
@@ -701,6 +781,9 @@ function PixRow({
         profileId,
         pixGeneratingMessage: gerando,
         pixCaption: legenda,
+        pixSocialProof: prova,
+        pixSocialProofText: provaTexto,
+        pixAudioUrl: audio,
       });
       showToast("Tela de pagamento salva.", "success");
       onSaved();
@@ -756,6 +839,55 @@ function PixRow({
         fim mesmo assim.
       </p>
 
+      {/* Prova social — números REAIS, e só isso. Não existe campo para
+          inventar quantidade: o cliente está a um toque de pagar, e um número
+          falso ali é propaganda enganosa por quem opera, não pelo painel. */}
+      <div className="mt-5 rounded-xl border border-white/10 bg-ink-850 p-3.5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white">Prova social</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+              Uma linha acima do PIX com os números <b>reais</b> desta modelo. Quando o número do
+              dia é zero, a linha não é enviada.
+            </p>
+          </div>
+          <Switch checked={prova} onChange={setProva} ariaLabel="Prova social" />
+        </div>
+        {prova && (
+          <>
+            <textarea
+              ref={provaRef}
+              className="input mt-3 min-h-[60px]"
+              placeholder={PROVA_PADRAO}
+              value={provaTexto}
+              onChange={(e) => setProvaTexto(e.target.value)}
+            />
+            <VarChips
+              vars={[
+                ["{vendas_hoje}", "vendas pagas hoje, do painel financeiro"],
+                ["{assinantes}", "assinantes VIP ativos agora"],
+              ]}
+              targetRef={provaRef}
+              onChange={setProvaTexto}
+            />
+          </>
+        )}
+      </div>
+
+      <label className="eyebrow mt-4 block">Áudio do PIX (URL pública .ogg)</label>
+      <input
+        className="input mt-1.5 font-mono text-xs"
+        placeholder="https://... .ogg"
+        value={audio}
+        onChange={(e) => setAudio(e.target.value)}
+      />
+      <p className="mt-1 text-[11px] text-zinc-500">
+        Enviado como mensagem de voz <b>depois</b> do PIX — o código copia-e-cola é o que o cliente
+        veio buscar e não pode ficar atrás de um áudio. O Telegram baixa o arquivo sozinho, então a
+        URL precisa ser alcançável da internet; fora do formato OGG/OPUS ele entrega como arquivo
+        comum, sem a bolha de áudio.
+      </p>
+
       <div className="mt-4 flex flex-wrap gap-2">
         <button onClick={save} disabled={busy} className="btn-primary">
           {busy ? "Salvando..." : "Salvar"}
@@ -774,6 +906,8 @@ function PixRow({
     </SectionRow>
   );
 }
+
+const PROVA_PADRAO = "🔥 {vendas_hoje} pessoa(s) garantiram o acesso hoje.";
 
 function ExtrasRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; onSaved: () => void }) {
   const [previews, setPreviews] = useState(bot.previewsWelcomeMessage || "");
@@ -847,6 +981,9 @@ function ExtrasRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; o
           <p className="mt-1 text-[11px] text-zinc-500">
             Um canal só seu onde o bot anota cada venda. Ele precisa ser membro.
           </p>
+          <div className="mt-1.5">
+            <DetectChat profileId={profileId} onPick={setRegistro} />
+          </div>
         </div>
       </div>
 

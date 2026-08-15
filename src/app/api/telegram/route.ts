@@ -21,6 +21,8 @@ import {
   sanitizeSourceCode,
   sanitizeSlug,
   toApprovalMode,
+  listSeenChats,
+  recordSeenChat,
   PIX_DEFAULTS,
 } from "@/lib/telegramDb";
 import {
@@ -28,6 +30,7 @@ import {
   deleteTelegramWebhook,
   getTelegramMe,
   getTelegramWebhookInfo,
+  getTelegramUpdates,
   telegramWebhookSecret,
   createTelegramInviteLink,
   sendTelegramMessage,
@@ -194,6 +197,8 @@ export async function POST(req: NextRequest) {
           operationActive: false,
           vipApprovalMode: "subscribers" as const,
           previasApprovalMode: "all" as const,
+          welcomeMediaMode: "album" as const,
+          pixSocialProof: false,
         }),
         id: botId,
         profileId,
@@ -299,6 +304,13 @@ export async function POST(req: NextRequest) {
         ...bot,
         welcomeMessage: String(body.welcomeMessage ?? bot.welcomeMessage ?? "Bem-vindo"),
         welcomeMediaTags: body.welcomeMediaTags !== undefined ? String(body.welcomeMediaTags) : bot.welcomeMediaTags,
+        welcomeMediaIds: Array.isArray(body.welcomeMediaIds)
+          ? body.welcomeMediaIds.filter((v: unknown) => typeof v === "string" && v).slice(0, 10)
+          : bot.welcomeMediaIds,
+        welcomeMediaMode:
+          body.welcomeMediaMode === "separate" || body.welcomeMediaMode === "album"
+            ? body.welcomeMediaMode
+            : bot.welcomeMediaMode,
         successMessage: String(body.successMessage ?? bot.successMessage ?? "Aprovado"),
         previewsWelcomeMessage: body.previewsWelcomeMessage !== undefined ? String(body.previewsWelcomeMessage) : bot.previewsWelcomeMessage,
         supportUsername: body.supportUsername !== undefined ? String(body.supportUsername) : bot.supportUsername,
@@ -319,6 +331,13 @@ export async function POST(req: NextRequest) {
             ? String(body.pixGeneratingMessage)
             : bot.pixGeneratingMessage,
         pixCaption: body.pixCaption !== undefined ? String(body.pixCaption) : bot.pixCaption,
+        pixSocialProof:
+          body.pixSocialProof !== undefined ? Boolean(body.pixSocialProof) : bot.pixSocialProof,
+        pixSocialProofText:
+          body.pixSocialProofText !== undefined
+            ? String(body.pixSocialProofText)
+            : bot.pixSocialProofText,
+        pixAudioUrl: body.pixAudioUrl !== undefined ? String(body.pixAudioUrl) : bot.pixAudioUrl,
       });
       return NextResponse.json({ ok: true });
     }
@@ -490,6 +509,62 @@ export async function POST(req: NextRequest) {
           originProblem: problem,
         });
       }
+    }
+
+    // ---- "Detectar": em que grupos este bot está ----
+    //
+    // A API do Telegram NÃO deixa um bot listar os próprios grupos: a única
+    // forma de saber de um grupo é ter visto um update vindo dele. Por isso a
+    // detecção junta duas fontes:
+    //   • os chats que o nosso webhook já anotou (funciona com a operação
+    //     ligada, que é quando os updates chegam aqui);
+    //   • o getUpdates, para quando NÃO há webhook nenhum registrado — é o
+    //     caso de quem ainda não fez o cutover.
+    // Com um webhook de TERCEIRO ativo não dá para fazer nem um nem outro, e
+    // aí a resposta explica isso em vez de devolver uma lista vazia sem motivo.
+    if (action === "detect-chats") {
+      const bot = requireBot(body.profileId);
+      const chats = new Map<string, { chatId: string; title?: string; type?: string }>();
+      for (const c of listSeenChats(bot.id)) chats.set(c.chatId, c);
+
+      let hint: string | undefined;
+      try {
+        const info = await getTelegramWebhookInfo(bot.botToken);
+        const nosso = webhookUrlFor(req, bot.id).url;
+        if (!info.url) {
+          // Sem webhook: a fila está nossa para ler (sem confirmar nada).
+          for (const u of await getTelegramUpdates(bot.botToken)) {
+            const c =
+              u.message?.chat ||
+              u.channel_post?.chat ||
+              u.my_chat_member?.chat ||
+              u.chat_member?.chat ||
+              u.chat_join_request?.chat;
+            if (c?.id && c.type && c.type !== "private") {
+              recordSeenChat(bot.id, c);
+              chats.set(String(c.id), { chatId: String(c.id), title: c.title, type: c.type });
+            }
+          }
+          if (chats.size === 0) {
+            hint =
+              "Nenhum grupo encontrado. Envie qualquer mensagem no grupo (com o bot lá dentro) e toque em Detectar de novo.";
+          }
+        } else if (info.url !== nosso && chats.size === 0) {
+          hint =
+            "O bot está apontado para outro sistema, então não dá para ler a fila de mensagens dele. Ligue a operação do Hot-Dash e mande uma mensagem no grupo, ou informe o ID na mão.";
+        } else if (chats.size === 0) {
+          hint =
+            "Ainda não vimos nenhum grupo. Mande uma mensagem no grupo (com o bot lá) e toque em Detectar de novo.";
+        }
+      } catch (e) {
+        hint = e instanceof Error ? e.message : "Falha ao consultar o Telegram.";
+      }
+
+      return NextResponse.json({
+        ok: true,
+        chats: Array.from(chats.values()),
+        hint,
+      });
     }
 
     // ---- Mídias que batem com as etiquetas de boas-vindas ----

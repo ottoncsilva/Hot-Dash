@@ -384,6 +384,24 @@ function migrate(d: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_telegram_users_bot ON telegram_users(bot_id);
 
+    -- CHATS QUE O BOT JÁ VIU. Serve para o botão "Detectar": em vez de o
+    -- operador caçar o ID numérico do grupo (-100...) em algum outro app, ele
+    -- escolhe da lista de grupos onde o bot está.
+    --
+    -- Um bot NÃO consegue listar os próprios grupos pela API do Telegram — a
+    -- única forma de saber é ver um update vindo de lá. Por isso a tabela é
+    -- alimentada pelo webhook, a cada mensagem ou mudança de membro, e o
+    -- getUpdates cobre o caso de a operação ainda estar desligada.
+    CREATE TABLE IF NOT EXISTS telegram_seen_chats (
+      bot_id       TEXT NOT NULL,
+      chat_id      TEXT NOT NULL,
+      title        TEXT,
+      type         TEXT,
+      last_seen_at INTEGER NOT NULL,
+      PRIMARY KEY (bot_id, chat_id),
+      FOREIGN KEY (bot_id) REFERENCES telegram_bots(id) ON DELETE CASCADE
+    );
+
     -- TRACKEAMENTO: cada link de divulgação ganha um código, que viaja no
     -- deep-link do bot (t.me/<bot>?start=CODIGO). O código já era gravado no
     -- lead e copiado para a venda; esta tabela é o que faltava para o operador
@@ -635,6 +653,19 @@ function migrate(d: Database.Database) {
   // Texto do botão que leva ao VIP na mensagem de pagamento aprovado. Vazio =
   // sem botão, com o link solto no texto (o comportamento anterior).
   ensureColumn(d, "telegram_bots", "success_button_text", "TEXT");
+  // MÍDIAS DE ABERTURA escolhidas a dedo (JSON com ids da Galeria, em ordem) e
+  // como enviá-las: "album" = um álbum só, "separate" = uma mensagem por mídia.
+  // Convivem com welcome_media_tags, que continua sorteando UMA mídia — a lista
+  // explícita, quando existe, tem prioridade. Quem já usava etiquetas não vê
+  // diferença nenhuma.
+  ensureColumn(d, "telegram_bots", "welcome_media_ids", "TEXT");
+  ensureColumn(d, "telegram_bots", "welcome_media_mode", "TEXT NOT NULL DEFAULT 'album'");
+  // PROVA SOCIAL na tela de pagamento: uma linha extra com números REAIS de
+  // vendas desta modelo ({vendas_hoje}, {assinantes}). Desligada por padrão.
+  ensureColumn(d, "telegram_bots", "pix_social_proof", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(d, "telegram_bots", "pix_social_proof_text", "TEXT");
+  // Áudio (URL pública OGG/OPUS) enviado junto do PIX, como mensagem de voz.
+  ensureColumn(d, "telegram_bots", "pix_audio_url", "TEXT");
   // Planos: tipo (assinatura recorrente vs pacote/compra única) e o entregável
   // (texto/link enviado ao pagar — o "MEU WHATSAPP" dos pacotes/bônus).
   ensureColumn(d, "telegram_plans", "kind", "TEXT NOT NULL DEFAULT 'subscription'");

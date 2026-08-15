@@ -18,7 +18,7 @@ import { getProfile } from "./profiles";
 import { getBotConfigByProfile } from "./telegramDb";
 import { listMedia, getMediaRow, renderVisionImageBase64 } from "./media";
 import { createMediaQueue, getMediaPostCounts, getScheduledMediaUses } from "./mediaUsage";
-import { generateCaption, callAiRaw, isSystemicAiError } from "./ai";
+import { generateCaption, callAiRaw, isSystemicAiError, SystemicAiError } from "./ai";
 import { extractVideoThumbnail, extname } from "./metadata";
 import { readBuffer } from "./storage";
 import { getAiCredentials, getAppTimeZone, type AiProvider } from "./settings";
@@ -241,7 +241,9 @@ async function processBatch(row: JobRow): Promise<number> {
     throw new Error("Nenhum provedor de IA conectado. Ative um em Configurações → Conexão com IA.");
   }
   let activeProvider: AiProvider | null = null;
-  let aiFailed = false;
+  // Quantos posts DESTE lote saíram com o texto de reserva (ver a nota igual em
+  // previasGenerator).
+  let reservaCount = 0;
   let aiError: string | null = row.ai_error;
 
   // Persona rica (mesmo detalhamento dos outros geradores).
@@ -300,7 +302,6 @@ async function processBatch(row: JobRow): Promise<number> {
     images: { mime: string; base64: string }[],
     angleIdx: number,
   ): Promise<string> {
-    if (aiFailed) return fallbackTextVip(type, contato ?? "whatsapp");
     const angulos = images.length > 0 ? [...VARIATION_ANGLES, ...ANGLES_COM_FOTO] : VARIATION_ANGLES;
     const theme =
       `${captionThemeVip(type, contato ?? "whatsapp", weekday)}\n` +
@@ -327,16 +328,20 @@ async function processBatch(row: JobRow): Promise<number> {
         errors.push(msg);
       }
     }
-    // Só desiste quando a causa é SISTÊMICA (chave/cota/conexão). Falhas
-    // pontuais (rate-limit, timeout, recusa) não travam o lote.
-    if (errors.length > 0 && errors.every((e) => isSystemicAiError(e))) aiFailed = true;
-    else activeProvider = null;
+    // Causa SISTÊMICA (chave/cota/endereço/modelo): parar é melhor que encher o
+    // dia de texto de reserva com cara de sucesso.
+    if (errors.length > 0 && errors.every((e) => isSystemicAiError(e))) {
+      throw new SystemicAiError(errors[0]);
+    }
+    // Falha pontual: este post sai com a reserva, contabilizado.
+    activeProvider = null;
+    reservaCount++;
     return fallbackTextVip(type, contato ?? "whatsapp");
   }
 
   async function writePoll(): Promise<{ question: string; options: string[] }> {
-    if (aiFailed) return fallbackPoll();
     const toTry = activeProvider ? [activeProvider] : providerChain;
+    const errosPoll: string[] = [];
     for (const p of toTry) {
       try {
         const raw = await callAiRaw(
@@ -354,9 +359,15 @@ async function processBatch(row: JobRow): Promise<number> {
           return { question: q, options: opts.slice(0, 4) };
         }
       } catch (e) {
-        aiError = e instanceof Error ? e.message : "Falha na IA.";
+        const msg = e instanceof Error ? e.message : "Falha na IA.";
+        aiError = msg;
+        errosPoll.push(msg);
       }
     }
+    if (errosPoll.length > 0 && errosPoll.every((e) => isSystemicAiError(e))) {
+      throw new SystemicAiError(errosPoll[0]);
+    }
+    reservaCount++;
     return fallbackPoll();
   }
 
@@ -365,6 +376,7 @@ async function processBatch(row: JobRow): Promise<number> {
   let criados = 0;
   let hoje = 0;
 
+  try {
   for (let i = 0; i < lote.length; i++) {
     const slot = lote[i];
     if (slot.at <= Date.now()) continue; // o lote demorou e o horário passou
@@ -432,6 +444,22 @@ async function processBatch(row: JobRow): Promise<number> {
     criados++;
     if (slot.at < hojeFim) hoje++;
   }
+  } catch (err) {
+    // Falha sistêmica no meio do lote: grava o que já foi criado e deixa o erro
+    // subir para o job morrer com o motivo à vista.
+    if (err instanceof SystemicAiError) {
+      saveBatchProgress({
+        id: row.id,
+        done: row.done + criados,
+        created: criados,
+        today: hoje,
+        finished: false,
+        aiError,
+        reserve: reservaCount,
+      });
+    }
+    throw err;
+  }
 
   const done = row.done + lote.length;
   saveBatchProgress({
@@ -441,6 +469,7 @@ async function processBatch(row: JobRow): Promise<number> {
     today: hoje,
     finished: done >= slots.length,
     aiError,
+    reserve: reservaCount,
   });
 
   return criados;

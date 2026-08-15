@@ -29,6 +29,8 @@ export type GenerationJob = {
   today: number;
   error: string | null;
   aiError: string | null;
+  /** Posts que saíram com o texto de reserva em vez da legenda da IA. */
+  reserveCount: number;
 };
 
 export type JobRow = {
@@ -45,6 +47,7 @@ export type JobRow = {
   today: number;
   error: string | null;
   ai_error: string | null;
+  reserve_count: number | null;
 };
 
 export function toJob(r: JobRow): GenerationJob {
@@ -60,6 +63,7 @@ export function toJob(r: JobRow): GenerationJob {
     today: r.today,
     error: r.error,
     aiError: r.ai_error,
+    reserveCount: r.reserve_count ?? 0,
   };
 }
 
@@ -153,6 +157,7 @@ export function insertJob(opts: {
     today: 0,
     error: null,
     aiError: null,
+    reserveCount: 0,
   };
 }
 
@@ -202,12 +207,14 @@ export function saveBatchProgress(opts: {
   today: number;
   finished: boolean;
   aiError: string | null;
+  /** Posts DESTE lote que saíram com o texto de reserva. */
+  reserve: number;
 }): void {
   getDb()
     .prepare(
       `UPDATE previas_generation_jobs
           SET done = ?, created = created + ?, today = today + ?, status = ?,
-              ai_error = ?, updated_at = ?
+              ai_error = ?, reserve_count = reserve_count + ?, updated_at = ?
         WHERE id = ? AND status IN ('pending', 'processing')`,
     )
     .run(
@@ -216,6 +223,7 @@ export function saveBatchProgress(opts: {
       opts.today,
       opts.finished ? "done" : "processing",
       opts.aiError,
+      opts.reserve,
       Date.now(),
       opts.id,
     );

@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
     try {
       caption = await generateCaption({
         provider,
+        activity: "caption",
         networks,
         profileName: profile?.name || "a influenciadora",
         profileNotes: profile?.notes,

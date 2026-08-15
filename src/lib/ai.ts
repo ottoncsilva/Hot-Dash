@@ -1,5 +1,5 @@
 import "server-only";
-import { getAiCredentials, type AiProvider } from "./settings";
+import { getAiCredentials, type AiProvider, type AiActivity } from "./settings";
 import { NETWORK_LABELS, type SocialNetwork } from "./types";
 
 /**
@@ -21,6 +21,8 @@ export type CaptionRequest = {
   theme?: string;
   /** Mídia(s) selecionada(s) — quando presente, a IA analisa a imagem de verdade. */
   images?: CaptionImage[];
+  /** Qual trabalho é este, para escolher o modelo configurado para ele. */
+  activity?: AiActivity;
 };
 
 function buildPrompt(req: CaptionRequest): string {
@@ -134,7 +136,14 @@ export function cleanCaption(raw: string): string {
 }
 
 export async function generateCaption(req: CaptionRequest): Promise<string> {
-  return cleanCaption(await callAiRaw(buildPrompt(req), req.provider, { images: req.images }));
+  return cleanCaption(
+    await callAiRaw(buildPrompt(req), req.provider, {
+      images: req.images,
+      // Sem atividade declarada, cai no modelo padrão do provedor — que é o
+      // comportamento de antes. Quem gera em lote (Método MK) passa a sua.
+      activity: req.activity,
+    }),
+  );
 }
 
 /**
@@ -148,9 +157,11 @@ export async function generateCaption(req: CaptionRequest): Promise<string> {
 export async function callAiRaw(
   prompt: string,
   provider: AiProvider,
-  opts?: { json?: boolean; maxTokens?: number; images?: CaptionImage[] },
+  opts?: { json?: boolean; maxTokens?: number; images?: CaptionImage[]; activity?: AiActivity },
 ): Promise<string> {
-  const creds = getAiCredentials(provider);
+  // A atividade decide o MODELO: cada trabalho pode ter o seu, na mesma chave
+  // e no mesmo provedor (Configurações → Conexão com IA → Modelo por atividade).
+  const creds = getAiCredentials(provider, opts?.activity);
   if (!creds) {
     const label = provider === "openai" ? "OpenAI" : provider === "grok" ? "Grok (x.ai)" : "Google Gemini";
     throw new Error(

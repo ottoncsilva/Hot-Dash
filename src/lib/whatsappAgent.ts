@@ -73,7 +73,7 @@ ${enableMedia ? "" : "- O envio de imagens está DESATIVADO nas configurações.
     const rawAiResponse = await callAiRaw(
       JSON.stringify(messagesPayload),
       provider,
-      { maxTokens: 500 },
+      { maxTokens: 500, activity: "whatsapp" },
     );
 
     if (!rawAiResponse) throw new Error("IA retornou vazio");

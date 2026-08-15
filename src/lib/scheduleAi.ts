@@ -220,7 +220,7 @@ function fillGaps(
 export async function generateSchedulePlan(input: ScheduleAiInput): Promise<ScheduleProposal[]> {
   if (input.slots.length === 0) return [];
   const prompt = buildSchedulePrompt(input);
-  const raw = await callAiRaw(prompt, input.provider, { json: true, maxTokens: 4000 });
+  const raw = await callAiRaw(prompt, input.provider, { json: true, maxTokens: 4000, activity: "schedule" });
   const validated = parseAndValidate(raw, input);
   return fillGaps(input, validated);
 }

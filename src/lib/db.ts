@@ -578,6 +578,10 @@ function migrate(d: Database.Database) {
   // continuam válidos: sem a coluna, todos eram das Prévias.
   ensureColumn(d, "previas_generation_jobs", "audience", "TEXT NOT NULL DEFAULT 'previas'");
   ensureColumn(d, "previas_generation_jobs", "params", "TEXT");
+  // Quantos posts do job saíram com o TEXTO DE RESERVA em vez da legenda da IA.
+  // Sem esse número o painel dizia "30 posts gerados" sem distinguir o que a IA
+  // escreveu do que era frase enlatada.
+  ensureColumn(d, "previas_generation_jobs", "reserve_count", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(d, "telegram_bots", "welcome_media_tags", "TEXT");
   ensureColumn(d, "telegram_bots", "downsell_funnel", "TEXT");
   ensureColumn(d, "telegram_bots", "upsell_funnel", "TEXT");

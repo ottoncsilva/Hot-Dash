@@ -72,6 +72,16 @@ function buildPrompt(req: CaptionRequest): string {
  * no post seguinte — sem isso um lote de 172 slots gastava uma chamada perdida
  * por slot antes de cair na reserva.
  */
+/**
+ * Falha em que não adianta seguir: a geração inteira deve PARAR.
+ *
+ * Antes, uma chave inválida ou um endereço errado apenas ligavam um sinalizador
+ * e o resto do dia saía com o texto de reserva — a tela dizia "30 posts
+ * gerados" e o grupo recebia frase enlatada. Meio dia de 404 passou despercebido
+ * exatamente assim. Agora o job morre com o motivo à vista.
+ */
+export class SystemicAiError extends Error {}
+
 export function isSystemicAiError(msg: string): boolean {
   const m = (msg || "").toLowerCase();
   return /\b401\b|\b403\b|\b404\b|unauthor|invalid.*(api|key)|api key|insufficient_quota|\bquota\b|exceeded your current quota|billing|payment|não está conectado|not connected/.test(

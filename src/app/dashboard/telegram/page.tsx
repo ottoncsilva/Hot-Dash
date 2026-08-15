@@ -201,6 +201,7 @@ export default function TelegramUnifiedPage() {
     today: number;
     error?: string | null;
     aiError?: string | null;
+    reserveCount?: number;
   } | null>(null);
 
   // Retoma um job que já estava rodando. A barra vive em estado local desta
@@ -252,8 +253,18 @@ export default function TelegramUnifiedPage() {
             const hoje = job.today
               ? ` (${job.today} ainda hoje)`
               : " (nenhum ainda hoje — o dia já acabou)";
-            if (job.aiError) toast.error(`Parcial: ${job.aiError}`);
-            else toast.success(`${job.created} post(s) de prévias gerados${hoje}. Veja no calendário.`);
+            const reserva = job.reserveCount || 0;
+            if (reserva > 0) {
+              toast.error(
+                `${job.created} post(s) de prévias gerados${hoje}, mas ${reserva} saíram com o TEXTO DE RESERVA` +
+                  ` (a IA falhou neles). Revise no calendário antes de deixar ir ao ar.` +
+                  (job.aiError ? ` Motivo: ${job.aiError}` : ""),
+              );
+            } else if (job.aiError) {
+              toast.error(`Parcial: ${job.aiError}`);
+            } else {
+              toast.success(`${job.created} post(s) de prévias gerados${hoje}. Veja no calendário.`);
+            }
           }
         } else {
           // Cada lote agenda posts novos: o calendário atualiza junto.
@@ -341,6 +352,7 @@ export default function TelegramUnifiedPage() {
     today: number;
     error?: string | null;
     aiError?: string | null;
+    reserveCount?: number;
   } | null>(null);
 
   // Mesma retomada das Prévias: sem isto a barra do VIP só existe na aba que
@@ -390,8 +402,18 @@ export default function TelegramUnifiedPage() {
             const hoje = job.today
               ? ` (${job.today} ainda hoje)`
               : " (nenhum ainda hoje — o dia já acabou)";
-            if (job.aiError) toast.error(`Parcial: ${job.aiError}`);
-            else toast.success(`${job.created} post(s) do VIP gerados${hoje}. Veja no calendário.`);
+            const reserva = job.reserveCount || 0;
+            if (reserva > 0) {
+              toast.error(
+                `${job.created} post(s) do VIP gerados${hoje}, mas ${reserva} saíram com o TEXTO DE RESERVA` +
+                  ` (a IA falhou neles). Revise no calendário antes de deixar ir ao ar.` +
+                  (job.aiError ? ` Motivo: ${job.aiError}` : ""),
+              );
+            } else if (job.aiError) {
+              toast.error(`Parcial: ${job.aiError}`);
+            } else {
+              toast.success(`${job.created} post(s) do VIP gerados${hoje}. Veja no calendário.`);
+            }
           }
         } else {
           // Cada lote agenda posts novos: o calendário atualiza junto.

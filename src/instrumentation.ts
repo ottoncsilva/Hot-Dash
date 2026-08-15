@@ -99,21 +99,49 @@ export async function register() {
      */
     let gerando = false;
 
+    /**
+     * Quanto tempo um ciclo de geração pode ficar puxando lotes seguidos.
+     *
+     * O tick de 1 minuto ERA o teto real do tempo de geração: um lote por
+     * minuto significa que 210 posts levavam ~27 minutos, com o servidor
+     * ocioso quase o tempo todo. Agora, enquanto o job tiver trabalho, o ciclo
+     * emenda um lote no outro sem esperar o próximo minuto.
+     *
+     * O limite existe para o ciclo não virar um laço infinito segurando o
+     * processo: ao estourar, ele devolve o controle e o tick seguinte retoma
+     * de onde parou (o progresso está gravado no job a cada lote).
+     */
+    const JANELA_GERACAO_MS = 5 * 60 * 1000;
+
     async function tickGeracao() {
       if (gerando) return;
       gerando = true;
+      const ate = Date.now() + JANELA_GERACAO_MS;
       try {
-        try {
-          const gerados = await runPreviasGeneration();
-          if (gerados > 0) console.log(`[hotdash] Método MK (Prévias): ${gerados} post(s) gerados.`);
-        } catch (err) {
-          console.error("[hotdash] Erro no cron (geração das Prévias):", err);
-        }
-        try {
-          const gerados = await runVipGeneration();
-          if (gerados > 0) console.log(`[hotdash] Método MK (VIP): ${gerados} post(s) gerados.`);
-        } catch (err) {
-          console.error("[hotdash] Erro no cron (geração do VIP):", err);
+        // `runPreviasGeneration`/`runVipGeneration` processam UM lote e
+        // devolvem quantos posts criaram; 0 = não há mais trabalho agora.
+        // Repetir enquanto houver é o que tira a espera de 60s entre lotes.
+        for (;;) {
+          let fezAlgo = false;
+          try {
+            const gerados = await runPreviasGeneration();
+            if (gerados > 0) {
+              console.log(`[hotdash] Método MK (Prévias): ${gerados} post(s) gerados.`);
+              fezAlgo = true;
+            }
+          } catch (err) {
+            console.error("[hotdash] Erro no cron (geração das Prévias):", err);
+          }
+          try {
+            const gerados = await runVipGeneration();
+            if (gerados > 0) {
+              console.log(`[hotdash] Método MK (VIP): ${gerados} post(s) gerados.`);
+              fezAlgo = true;
+            }
+          } catch (err) {
+            console.error("[hotdash] Erro no cron (geração do VIP):", err);
+          }
+          if (!fezAlgo || Date.now() >= ate) break;
         }
       } finally {
         gerando = false;

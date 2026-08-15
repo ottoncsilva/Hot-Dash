@@ -154,6 +154,37 @@ export async function generateCaption(req: CaptionRequest): Promise<string> {
  * presente, envia a mídia junto (visão) — só o gerador de legenda do post
  * manual usa isso; o gerador de cronograma em lote nunca passa imagens.
  */
+/**
+ * Repete a chamada quando o provedor devolve 429 (limite de taxa).
+ *
+ * Sem isto, um 429 virava "falha pontual" e o post saía com o TEXTO DE
+ * RESERVA — trocando velocidade por qualidade em silêncio. Com os lotes
+ * rodando em paralelo, esbarrar no limite deixa de ser exceção, então a
+ * espera passa a fazer parte do caminho normal.
+ *
+ * Respeita o cabeçalho `Retry-After` quando o provedor manda um (é ele quem
+ * sabe quanto falta para a janela virar); sem ele, dobra a espera a cada
+ * tentativa. O teto de 3 tentativas existe para um limite de cota diário —
+ * que não passa com espera — não prender o lote por minutos.
+ */
+async function withRateLimitRetry<T extends { res: Response }>(
+  fn: () => Promise<T>,
+  tentativas = 3,
+): Promise<T> {
+  let espera = 1500;
+  for (let i = 0; ; i++) {
+    const out = await fn();
+    if (out.res.status !== 429 || i >= tentativas - 1) return out;
+
+    const retryAfter = Number(out.res.headers.get("retry-after"));
+    const ms = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : espera;
+    // Teto por espera: um Retry-After absurdo não pode segurar o ciclo de
+    // geração inteiro, que tem o seu próprio limite de tempo.
+    await new Promise((r) => setTimeout(r, Math.min(ms, 15_000)));
+    espera *= 2;
+  }
+}
+
 export async function callAiRaw(
   prompt: string,
   provider: AiProvider,
@@ -209,16 +240,18 @@ export async function callAiRaw(
           ? "https://api.x.ai/v1/chat/completions"
           : "https://api.openai.com/v1/chat/completions";
       const url = completionsUrl(creds!.baseUrl, defaultUrl);
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${creds!.apiKey}`,
-        },
-        body: JSON.stringify(body),
+      return withRateLimitRetry(async () => {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${creds!.apiKey}`,
+          },
+          body: JSON.stringify(body),
+        });
+        const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        return { res, data };
       });
-      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      return { res, data };
     }
 
     let { res, data } = await attempt(buildBody({}));
@@ -253,30 +286,34 @@ export async function callAiRaw(
     { text: prompt },
     ...images.map((img) => ({ inlineData: { mimeType: img.mime, data: img.base64 } })),
   ];
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-      creds.model,
-    )}:generateContent?key=${encodeURIComponent(creds.apiKey)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: {
-          temperature: 0.9,
-          maxOutputTokens: maxTokens,
-          ...(opts?.json ? { responseMimeType: "application/json" } : {}),
-        },
-        safetySettings: [
-          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
-        ]
-      }),
-    },
-  );
-  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  // O Gemini é o que mais precisa do backoff: os limites gratuitos dele são
+  // muito menores que os da xAI, e ele é o primeiro fallback dos geradores.
+  const { res, data } = await withRateLimitRetry(async () => {
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+        creds.model,
+      )}:generateContent?key=${encodeURIComponent(creds.apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: {
+            temperature: 0.9,
+            maxOutputTokens: maxTokens,
+            ...(opts?.json ? { responseMimeType: "application/json" } : {}),
+          },
+          safetySettings: [
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+          ]
+        }),
+      },
+    );
+    return { res: r, data: (await r.json().catch(() => ({}))) as Record<string, unknown> };
+  });
   if (!res.ok) {
     const msg = ((data.error as Record<string, unknown>)?.message as string) || "";
     throw new Error(`Gemini (${res.status}): ${msg || "falha ao gerar conteúdo"}`);

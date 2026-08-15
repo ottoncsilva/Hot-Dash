@@ -18,7 +18,64 @@ export type TelegramBotConfig = {
   previewsWelcomeMessage?: string;
   /** Liga/desliga da operação do bot de vendas (cutover para o Hot-Dash). */
   operationActive: boolean;
+  /** Regra de aprovação de quem pede entrada no grupo VIP. */
+  vipApprovalMode: ApprovalMode;
+  /** Regra de aprovação de quem pede entrada no grupo de Prévias. */
+  previasApprovalMode: ApprovalMode;
+  /** Aviso enviado enquanto a cobrança é criada. Vazio = padrão. */
+  pixGeneratingMessage?: string;
+  /** Legenda do PIX. Aceita {plano}, {valor} e {pix_code}. Vazio = padrão. */
+  pixCaption?: string;
+  /** Texto do botão de acesso ao VIP na aprovação. Vazio = link solto no texto. */
+  successButtonText?: string;
+  /** Ids da Galeria escolhidos a dedo para a abertura do /start, em ordem. */
+  welcomeMediaIds?: string[];
+  /** "album" = tudo numa mensagem; "separate" = uma mensagem por mídia. */
+  welcomeMediaMode: "album" | "separate";
+  /** Mostra a linha de prova social (números reais) na tela do PIX. */
+  pixSocialProof: boolean;
+  /** Texto da prova social. Aceita {vendas_hoje} e {assinantes}. */
+  pixSocialProofText?: string;
+  /** URL pública de um OGG/OPUS enviado como mensagem de voz junto do PIX. */
+  pixAudioUrl?: string;
 };
+
+/** Textos padrão da tela de pagamento — os mesmos que antes viviam fixos no
+ *  handler do webhook. Ficam aqui para a UI conseguir mostrá-los como
+ *  placeholder e oferecer um "restaurar padrão" honesto. */
+export const PIX_DEFAULTS = {
+  generatingMessage: "⏳ Gerando cobrança PIX...",
+  /**
+   * Prova social com números REAIS desta modelo — vendas pagas hoje e
+   * assinantes ativos, lidos das mesmas tabelas do painel financeiro.
+   *
+   * De propósito não existe campo para inventar número: prova social fabricada
+   * é propaganda enganosa com o cliente do outro lado, e quem responderia por
+   * ela seria a operação, não o painel. Quando o número real é zero, a linha
+   * simplesmente não é enviada.
+   */
+  socialProofText: "🔥 {vendas_hoje} pessoa(s) garantiram o acesso hoje.",
+  caption:
+    `🔑 <b>PIX gerado!</b>\n\n` +
+    `📸 Escaneie o QR acima <b>ou</b> copie o código abaixo no seu app do banco:\n\n` +
+    `<code>{pix_code}</code>\n\n` +
+    `<i>A confirmação é imediata. Após pagar, você recebe o acesso automaticamente.</i>`,
+} as const;
+
+/**
+ * O que o bot faz com um pedido de entrada no grupo:
+ *   subscribers → aprova só quem tem assinatura ativa (recusa o resto);
+ *   all         → aprova todo mundo (grupo gratuito, de aquecimento);
+ *   manual      → não decide: o pedido fica na fila do Telegram para o admin.
+ */
+export type ApprovalMode = "subscribers" | "all" | "manual";
+
+const APPROVAL_MODES: ApprovalMode[] = ["subscribers", "all", "manual"];
+
+/** Lê um modo vindo do banco ou da UI, caindo no padrão se vier lixo. */
+export function toApprovalMode(value: unknown, fallback: ApprovalMode): ApprovalMode {
+  return APPROVAL_MODES.includes(value as ApprovalMode) ? (value as ApprovalMode) : fallback;
+}
 
 export type TelegramPlan = {
   id: string;
@@ -49,50 +106,61 @@ export type TelegramSubscription = {
   createdAt: number;
 };
 
+/** Linha do banco → config do bot. Um lugar só: as duas consultas abaixo
+ *  liam os mesmos campos em cópias separadas, e um campo novo tinha de ser
+ *  lembrado nas duas. */
+function toBotConfig(row: any): TelegramBotConfig {
+  return {
+    id: row.id,
+    profileId: row.profile_id,
+    botToken: row.bot_token,
+    botUsername: row.bot_username || undefined,
+    idVip: row.id_vip,
+    idAquecimento: row.id_aquecimento,
+    idRegistro: row.id_registro || undefined,
+    supportUsername: row.support_username || undefined,
+    welcomeMessage: row.welcome_message,
+    welcomeMediaTags: row.welcome_media_tags || undefined,
+    successMessage: row.success_message,
+    downsellFunnel: row.downsell_funnel || undefined,
+    upsellFunnel: row.upsell_funnel || undefined,
+    previewsWelcomeMessage: row.previews_welcome_message || undefined,
+    operationActive: !!row.operation_active,
+    vipApprovalMode: toApprovalMode(row.vip_approval_mode, "subscribers"),
+    previasApprovalMode: toApprovalMode(row.previas_approval_mode, "all"),
+    pixGeneratingMessage: row.pix_generating_message || undefined,
+    pixCaption: row.pix_caption || undefined,
+    successButtonText: row.success_button_text || undefined,
+    welcomeMediaIds: parseIds(row.welcome_media_ids),
+    welcomeMediaMode: row.welcome_media_mode === "separate" ? "separate" : "album",
+    pixSocialProof: !!row.pix_social_proof,
+    pixSocialProofText: row.pix_social_proof_text || undefined,
+    pixAudioUrl: row.pix_audio_url || undefined,
+  };
+}
+
+/** JSON de ids da Galeria → lista. Conteúdo corrompido vira lista vazia em vez
+ *  de derrubar o carregamento do bot inteiro. */
+function parseIds(raw: unknown): string[] | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string" && x) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function getBotConfigByProfile(profileId: string): TelegramBotConfig | null {
   const row = getDb()
     .prepare("SELECT * FROM telegram_bots WHERE profile_id = ?")
     .get(profileId) as any;
-  if (!row) return null;
-  return {
-    id: row.id,
-    profileId: row.profile_id,
-    botToken: row.bot_token,
-    botUsername: row.bot_username || undefined,
-    idVip: row.id_vip,
-    idAquecimento: row.id_aquecimento,
-    idRegistro: row.id_registro || undefined,
-    supportUsername: row.support_username || undefined,
-    welcomeMessage: row.welcome_message,
-    welcomeMediaTags: row.welcome_media_tags || undefined,
-    successMessage: row.success_message,
-    downsellFunnel: row.downsell_funnel || undefined,
-    upsellFunnel: row.upsell_funnel || undefined,
-    previewsWelcomeMessage: row.previews_welcome_message || undefined,
-    operationActive: !!row.operation_active,
-  };
+  return row ? toBotConfig(row) : null;
 }
 
 export function getBotConfig(id: string): TelegramBotConfig | null {
   const row = getDb().prepare("SELECT * FROM telegram_bots WHERE id = ?").get(id) as any;
-  if (!row) return null;
-  return {
-    id: row.id,
-    profileId: row.profile_id,
-    botToken: row.bot_token,
-    botUsername: row.bot_username || undefined,
-    idVip: row.id_vip,
-    idAquecimento: row.id_aquecimento,
-    idRegistro: row.id_registro || undefined,
-    supportUsername: row.support_username || undefined,
-    welcomeMessage: row.welcome_message,
-    welcomeMediaTags: row.welcome_media_tags || undefined,
-    successMessage: row.success_message,
-    downsellFunnel: row.downsell_funnel || undefined,
-    upsellFunnel: row.upsell_funnel || undefined,
-    previewsWelcomeMessage: row.previews_welcome_message || undefined,
-    operationActive: !!row.operation_active,
-  };
+  return row ? toBotConfig(row) : null;
 }
 
 export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: string }): TelegramBotConfig {
@@ -100,8 +168,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -115,7 +183,17 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        downsell_funnel = excluded.downsell_funnel,
        upsell_funnel = excluded.upsell_funnel,
        previews_welcome_message = excluded.previews_welcome_message,
-       operation_active = excluded.operation_active`
+       operation_active = excluded.operation_active,
+       vip_approval_mode = excluded.vip_approval_mode,
+       previas_approval_mode = excluded.previas_approval_mode,
+       pix_generating_message = excluded.pix_generating_message,
+       pix_caption = excluded.pix_caption,
+       success_button_text = excluded.success_button_text,
+       welcome_media_ids = excluded.welcome_media_ids,
+       welcome_media_mode = excluded.welcome_media_mode,
+       pix_social_proof = excluded.pix_social_proof,
+       pix_social_proof_text = excluded.pix_social_proof_text,
+       pix_audio_url = excluded.pix_audio_url`
   ).run(
     id,
     config.profileId,
@@ -132,6 +210,16 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.upsellFunnel || null,
     config.previewsWelcomeMessage || null,
     config.operationActive ? 1 : 0,
+    toApprovalMode(config.vipApprovalMode, "subscribers"),
+    toApprovalMode(config.previasApprovalMode, "all"),
+    config.pixGeneratingMessage?.trim() || null,
+    config.pixCaption?.trim() || null,
+    config.successButtonText?.trim() || null,
+    config.welcomeMediaIds?.length ? JSON.stringify(config.welcomeMediaIds.slice(0, 10)) : null,
+    config.welcomeMediaMode === "separate" ? "separate" : "album",
+    config.pixSocialProof ? 1 : 0,
+    config.pixSocialProofText?.trim() || null,
+    config.pixAudioUrl?.trim() || null,
     now
   );
   return getBotConfig(id)!;
@@ -229,6 +317,19 @@ export function findActiveSubscription(botId: string, telegramUserId: number): T
   return row ? toSubscription(row) : null;
 }
 
+/** Quantos assinantes ativos o bot tem AGORA (alimenta a prova social real).
+ *  `expires_at > 0` exclui os pacotes de compra única, que ficam "active" com
+ *  expiração zero e não são assinantes. */
+export function countActiveSubscriptions(botId: string): number {
+  const r = getDb()
+    .prepare(
+      `SELECT COUNT(*) c FROM telegram_subscriptions
+        WHERE bot_id = ? AND status = 'active' AND expires_at > ?`,
+    )
+    .get(botId, Date.now()) as { c: number };
+  return r?.c || 0;
+}
+
 export function findSubscriptionByTransaction(transactionId: string): TelegramSubscription | null {
   const row = getDb()
     .prepare("SELECT * FROM telegram_subscriptions WHERE transaction_id = ?")
@@ -301,6 +402,186 @@ export function saveCustomButton(btn: CustomButton): void {
 
 export function deleteCustomButton(id: string): void {
   getDb().prepare("DELETE FROM telegram_custom_buttons WHERE id = ?").run(id);
+}
+
+// ---- Chats que o bot já viu (alimenta o botão "Detectar") ----
+export type SeenChat = { chatId: string; title?: string; type?: string; lastSeenAt: number };
+
+/**
+ * Anota um chat que apareceu num update. Só GRUPOS e CANAIS interessam — o
+ * privado do lead não é candidato a "grupo VIP" e só poluiria a lista.
+ *
+ * O título é atualizado a cada visita (grupos são renomeados), mas nunca
+ * apagado por um update que venha sem ele.
+ */
+export function recordSeenChat(
+  botId: string,
+  chat: { id?: number | string; title?: string; type?: string } | undefined,
+): void {
+  if (!chat?.id || !chat.type || chat.type === "private") return;
+  getDb()
+    .prepare(
+      `INSERT INTO telegram_seen_chats (bot_id, chat_id, title, type, last_seen_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(bot_id, chat_id) DO UPDATE SET
+         title = COALESCE(excluded.title, telegram_seen_chats.title),
+         type = excluded.type,
+         last_seen_at = excluded.last_seen_at`,
+    )
+    .run(botId, String(chat.id), chat.title || null, chat.type, Date.now());
+}
+
+export function listSeenChats(botId: string): SeenChat[] {
+  const rows = getDb()
+    .prepare("SELECT * FROM telegram_seen_chats WHERE bot_id = ? ORDER BY last_seen_at DESC")
+    .all(botId) as any[];
+  return rows.map((r) => ({
+    chatId: r.chat_id,
+    title: r.title || undefined,
+    type: r.type || undefined,
+    lastSeenAt: r.last_seen_at,
+  }));
+}
+
+// ---- Trackeamento: links de divulgação (deep-link ?start=CODIGO) ----
+export type TelegramSourceLink = {
+  id: string;
+  botId: string;
+  profileId: string;
+  /** O que viaja no deep-link. Só [A-Za-z0-9_-], até 40 chars (limite do /start). */
+  code: string;
+  /** Nome legível: "bio do Instagram", "anúncio X". */
+  name: string;
+  /** Slug do redirecionador público (/r/<slug>). Vazio = sem link curto. */
+  slug?: string;
+  createdAt: number;
+};
+
+/**
+ * Sanitiza um código para o formato que sobrevive ao `/start`.
+ *
+ * O handler do webhook já corta o que chega em `[^\w-]` e 40 chars — se aqui
+ * aceitássemos mais que isso, o código salvo na tela e o código gravado no lead
+ * seriam diferentes, e a atribuição de origem apontaria para um link que não
+ * existe no painel.
+ */
+export function sanitizeSourceCode(raw: string): string {
+  return String(raw || "").trim().replace(/[^\w-]/g, "").slice(0, 40);
+}
+
+/** Mesma ideia para o slug da URL curta, que também vai aparecer numa bio. */
+export function sanitizeSlug(raw: string): string {
+  return String(raw || "").trim().toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 40);
+}
+
+function toSourceLink(r: any): TelegramSourceLink {
+  return {
+    id: r.id,
+    botId: r.bot_id,
+    profileId: r.profile_id,
+    code: r.code,
+    name: r.name,
+    slug: r.slug || undefined,
+    createdAt: r.created_at,
+  };
+}
+
+export function listSourceLinks(botId: string): TelegramSourceLink[] {
+  const rows = getDb()
+    .prepare("SELECT * FROM telegram_source_links WHERE bot_id = ? ORDER BY created_at DESC")
+    .all(botId) as any[];
+  return rows.map(toSourceLink);
+}
+
+/** Resolve o redirecionador público: slug → link (e daí o bot e o código). */
+export function getSourceLinkBySlug(slug: string): TelegramSourceLink | null {
+  const row = getDb()
+    .prepare("SELECT * FROM telegram_source_links WHERE slug = ?")
+    .get(slug) as any;
+  return row ? toSourceLink(row) : null;
+}
+
+export function saveSourceLink(link: TelegramSourceLink): void {
+  getDb().prepare(
+    `INSERT INTO telegram_source_links (id, bot_id, profile_id, code, name, slug, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       code = excluded.code,
+       name = excluded.name,
+       slug = excluded.slug`
+  ).run(
+    link.id,
+    link.botId,
+    link.profileId,
+    link.code,
+    link.name,
+    link.slug || null,
+    link.createdAt,
+  );
+}
+
+export function deleteSourceLink(id: string): void {
+  getDb().prepare("DELETE FROM telegram_source_links WHERE id = ?").run(id);
+}
+
+export type SourceLinkStats = {
+  /** Quantos leads deram /start por este código. */
+  starts: number;
+  /** PIX gerados por leads dessa origem. */
+  pixGenerated: number;
+  pixPaid: number;
+  /** Faturamento pago atribuído ao código, em centavos. */
+  paidCents: number;
+};
+
+/**
+ * Desempenho por código de origem, em DUAS consultas agregadas para o perfil
+ * inteiro (e não uma por link) — a tela lista todos os códigos de uma vez.
+ *
+ * Os `/start` vêm de telegram_leads e o dinheiro de transactions: são as mesmas
+ * tabelas que o Funil de Vendas já usa, então os números batem com aquela tela.
+ */
+export function sourceLinkStats(profileId: string): Map<string, SourceLinkStats> {
+  const db = getDb();
+  const out = new Map<string, SourceLinkStats>();
+  const ensure = (code: string) => {
+    let s = out.get(code);
+    if (!s) {
+      s = { starts: 0, pixGenerated: 0, pixPaid: 0, paidCents: 0 };
+      out.set(code, s);
+    }
+    return s;
+  };
+
+  const leads = db
+    .prepare(
+      `SELECT source_code AS code, COUNT(*) AS c
+         FROM telegram_leads
+        WHERE profile_id = ? AND source_code IS NOT NULL AND source_code <> ''
+        GROUP BY source_code`,
+    )
+    .all(profileId) as { code: string; c: number }[];
+  for (const r of leads) ensure(r.code).starts = r.c;
+
+  const tx = db
+    .prepare(
+      `SELECT source_code AS code,
+              COUNT(*) AS gerados,
+              SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS pagos,
+              SUM(CASE WHEN status = 'paid' THEN amount_cents ELSE 0 END) AS cents
+         FROM transactions
+        WHERE profile_id = ? AND source_code IS NOT NULL AND source_code <> ''
+        GROUP BY source_code`,
+    )
+    .all(profileId) as { code: string; gerados: number; pagos: number; cents: number }[];
+  for (const r of tx) {
+    const s = ensure(r.code);
+    s.pixGenerated = r.gerados;
+    s.pixPaid = r.pagos || 0;
+    s.paidCents = r.cents || 0;
+  }
+
+  return out;
 }
 
 // ---- Leads (Downsell Remarketing) ----

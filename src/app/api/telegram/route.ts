@@ -14,12 +14,23 @@ import {
   listSubscriptions,
   getSubscription,
   saveSubscription,
+  listSourceLinks,
+  saveSourceLink,
+  deleteSourceLink,
+  sourceLinkStats,
+  sanitizeSourceCode,
+  sanitizeSlug,
+  toApprovalMode,
+  listSeenChats,
+  recordSeenChat,
+  PIX_DEFAULTS,
 } from "@/lib/telegramDb";
 import {
   setTelegramWebhook,
   deleteTelegramWebhook,
   getTelegramMe,
   getTelegramWebhookInfo,
+  getTelegramUpdates,
   telegramWebhookSecret,
   createTelegramInviteLink,
   sendTelegramMessage,
@@ -27,25 +38,36 @@ import {
   unbanTelegramMember,
 } from "@/lib/telegramApi";
 import { overview } from "@/lib/transactions";
+import { listMedia } from "@/lib/media";
+import { resolvePublicOrigin, webhookOriginProblem } from "@/lib/publicOrigin";
 
 import { randomUUID } from "node:crypto";
 
-/** Base pública do app para montar a URL do webhook do Telegram. */
-function publicOrigin(req: NextRequest): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.WEBHOOK_APP_URL ||
-    req.nextUrl.origin
-  );
+/** URL que o Telegram deve chamar para este bot, e o diagnóstico da base. */
+function webhookUrlFor(req: NextRequest, botId: string) {
+  const { origin, source } = resolvePublicOrigin(req);
+  return {
+    url: `${origin}/api/webhooks/telegram/${botId}`,
+    origin,
+    originSource: source,
+    problem: webhookOriginProblem(origin),
+  };
 }
 
 /** Registra (ou re-registra) o webhook do bot apontando para o Hot-Dash.
- *  Nunca lança — devolve {ok,message} para a UI mostrar o status. */
+ *  Nunca lança — devolve {ok,message} para a UI mostrar o status.
+ *
+ *  Checa a base pública ANTES de falar com o Telegram: sem isso o operador
+ *  recebia só o eco cru da API ("bad webhook: IP address 0.0.0.0 is reserved"),
+ *  que não diz o que fazer. O problema nunca é o bot — é o app não saber o
+ *  próprio endereço público. */
 async function registerBotWebhook(
   req: NextRequest,
   botId: string,
   botToken: string,
-): Promise<{ ok: boolean; message?: string; username?: string }> {
+): Promise<{ ok: boolean; message?: string; username?: string; url?: string }> {
+  const { url, problem } = webhookUrlFor(req, botId);
+  if (problem) return { ok: false, message: problem, url };
   try {
     let username: string | undefined;
     try {
@@ -54,11 +76,14 @@ async function registerBotWebhook(
     } catch {
       // token inválido → o setWebhook abaixo também falha e reporta.
     }
-    const url = `${publicOrigin(req).replace(/\/+$/, "")}/api/webhooks/telegram/${botId}`;
     await setTelegramWebhook(botToken, url, telegramWebhookSecret(botId));
-    return { ok: true, username };
+    return { ok: true, username, url };
   } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : "Falha ao registrar webhook." };
+    return {
+      ok: false,
+      url,
+      message: e instanceof Error ? e.message : "Falha ao registrar webhook.",
+    };
   }
 }
 
@@ -75,7 +100,13 @@ export async function GET(req: NextRequest) {
       throw new ApiError(400, "Informe o profileId.");
     }
 
-    const bot = getBotConfigByProfile(profileId);
+    const botRaw = getBotConfigByProfile(profileId);
+    // O TOKEN NÃO VAI PARA O NAVEGADOR. Ele dá controle total do bot (ler as
+    // conversas, escrever como a modelo, trocar o webhook), e ia no JSON de
+    // duas telas a cada carregamento — bastava um print ou uma tela
+    // compartilhada para vazar. A UI só precisa saber se existe um token
+    // salvo; para trocá-lo, o operador cola um novo.
+    const bot = botRaw ? { ...botRaw, botToken: undefined, hasToken: Boolean(botRaw.botToken) } : null;
     let autopost: any = null;
 
     // Carrega configurações de autopost
@@ -101,6 +132,21 @@ export async function GET(req: NextRequest) {
     // Métricas de venda do modelo (reaproveita o painel financeiro).
     const metrics = overview(profileId);
 
+    // Trackeamento: os links de divulgação com o desempenho de cada código.
+    // As estatísticas vêm de UMA consulta agregada para o perfil inteiro.
+    const stats = bot ? sourceLinkStats(profileId) : new Map();
+    const sourceLinks = (bot ? listSourceLinks(bot.id) : []).map((l) => ({
+      ...l,
+      stats: stats.get(l.code) || { starts: 0, pixGenerated: 0, pixPaid: 0, paidCents: 0 },
+    }));
+    // Códigos que apareceram nos leads/vendas mas não têm registro na tela —
+    // links antigos, feitos à mão antes desta tela existir. Aparecem para o
+    // operador poder nomeá-los em vez de ficarem invisíveis.
+    const conhecidos = new Set(sourceLinks.map((l) => l.code));
+    const orphanCodes = Array.from(stats.entries())
+      .filter(([code]) => !conhecidos.has(code))
+      .map(([code, s]) => ({ code, stats: s }));
+
     return NextResponse.json({
       bot,
       autopost,
@@ -109,6 +155,9 @@ export async function GET(req: NextRequest) {
       customButtons,
       subscriptions,
       metrics,
+      sourceLinks,
+      orphanCodes,
+      pixDefaults: PIX_DEFAULTS,
     });
   } catch (err) {
     return errorResponse(err);
@@ -128,33 +177,39 @@ export async function POST(req: NextRequest) {
     // operação já estiver ligada, re-registra o webhook (token/grupos mudaram).
     if (action === "save-bot-credentials") {
       const { profileId, botToken, idVip, idAquecimento } = body;
-      if (!profileId || !botToken || !idVip || !idAquecimento) {
+      const existing = getBotConfigByProfile(profileId);
+      // O token não volta mais para o navegador, então a tela manda o campo
+      // VAZIO quando o operador não quer trocá-lo — nesse caso o que já está
+      // salvo é mantido. Só é obrigatório quando ainda não há token nenhum.
+      const token = String(botToken || "").trim() || existing?.botToken || "";
+      if (!profileId || !token || !idVip || !idAquecimento) {
         throw new ApiError(400, "Preencha o Token do Bot e os IDs dos grupos VIP e Prévias.");
       }
-      const existing = getBotConfigByProfile(profileId);
       const botId = existing?.id || randomUUID();
 
+      // Espalha o que já existe e sobrescreve só as credenciais: um campo novo
+      // na configuração não precisa ser lembrado aqui para deixar de ser
+      // apagado a cada salvamento das credenciais.
       saveBotConfig({
+        ...(existing || {
+          welcomeMessage: "Bem-vindo",
+          successMessage: "Aprovado",
+          operationActive: false,
+          vipApprovalMode: "subscribers" as const,
+          previasApprovalMode: "all" as const,
+          welcomeMediaMode: "album" as const,
+          pixSocialProof: false,
+        }),
         id: botId,
         profileId,
-        botToken: String(botToken).trim(),
-        botUsername: existing?.botUsername,
+        botToken: token,
         idVip: String(idVip).trim(),
         idAquecimento: String(idAquecimento).trim(),
-        idRegistro: existing?.idRegistro,
-        supportUsername: existing?.supportUsername,
-        welcomeMessage: existing?.welcomeMessage || "Bem-vindo",
-        welcomeMediaTags: existing?.welcomeMediaTags,
-        successMessage: existing?.successMessage || "Aprovado",
-        downsellFunnel: existing?.downsellFunnel,
-        upsellFunnel: existing?.upsellFunnel,
-        previewsWelcomeMessage: existing?.previewsWelcomeMessage,
-        operationActive: existing?.operationActive ?? false,
       });
 
       let webhook: { ok: boolean; message?: string; username?: string } | undefined;
       if (existing?.operationActive) {
-        webhook = await registerBotWebhook(req, botId, String(botToken).trim());
+        webhook = await registerBotWebhook(req, botId, token);
         if (webhook.username && webhook.username !== existing?.botUsername) {
           const cur = getBotConfigByProfile(profileId);
           if (cur) saveBotConfig({ ...cur, botUsername: webhook.username });
@@ -249,12 +304,95 @@ export async function POST(req: NextRequest) {
         ...bot,
         welcomeMessage: String(body.welcomeMessage ?? bot.welcomeMessage ?? "Bem-vindo"),
         welcomeMediaTags: body.welcomeMediaTags !== undefined ? String(body.welcomeMediaTags) : bot.welcomeMediaTags,
+        welcomeMediaIds: Array.isArray(body.welcomeMediaIds)
+          ? body.welcomeMediaIds.filter((v: unknown) => typeof v === "string" && v).slice(0, 10)
+          : bot.welcomeMediaIds,
+        welcomeMediaMode:
+          body.welcomeMediaMode === "separate" || body.welcomeMediaMode === "album"
+            ? body.welcomeMediaMode
+            : bot.welcomeMediaMode,
         successMessage: String(body.successMessage ?? bot.successMessage ?? "Aprovado"),
         previewsWelcomeMessage: body.previewsWelcomeMessage !== undefined ? String(body.previewsWelcomeMessage) : bot.previewsWelcomeMessage,
         supportUsername: body.supportUsername !== undefined ? String(body.supportUsername) : bot.supportUsername,
         idRegistro: body.idRegistro !== undefined ? String(body.idRegistro) : bot.idRegistro,
+        successButtonText:
+          body.successButtonText !== undefined ? String(body.successButtonText) : bot.successButtonText,
       });
       return NextResponse.json({ ok: true });
+    }
+
+    // ---- Tela de pagamento (PIX). Campo vazio = volta ao texto padrão. ----
+    if (action === "save-pix") {
+      const bot = requireBot(body.profileId);
+      saveBotConfig({
+        ...bot,
+        pixGeneratingMessage:
+          body.pixGeneratingMessage !== undefined
+            ? String(body.pixGeneratingMessage)
+            : bot.pixGeneratingMessage,
+        pixCaption: body.pixCaption !== undefined ? String(body.pixCaption) : bot.pixCaption,
+        pixSocialProof:
+          body.pixSocialProof !== undefined ? Boolean(body.pixSocialProof) : bot.pixSocialProof,
+        pixSocialProofText:
+          body.pixSocialProofText !== undefined
+            ? String(body.pixSocialProofText)
+            : bot.pixSocialProofText,
+        pixAudioUrl: body.pixAudioUrl !== undefined ? String(body.pixAudioUrl) : bot.pixAudioUrl,
+      });
+      return NextResponse.json({ ok: true });
+    }
+
+    // ---- Aprovação automática: o que o bot faz com cada pedido de entrada ----
+    if (action === "save-approval") {
+      const bot = requireBot(body.profileId);
+      saveBotConfig({
+        ...bot,
+        vipApprovalMode: toApprovalMode(body.vipApprovalMode, bot.vipApprovalMode),
+        previasApprovalMode: toApprovalMode(body.previasApprovalMode, bot.previasApprovalMode),
+      });
+      return NextResponse.json({ ok: true });
+    }
+
+    // ---- Trackeamento: substitui a lista inteira de links de divulgação ----
+    if (action === "save-source-links") {
+      const bot = requireBot(body.profileId);
+      const incoming = Array.isArray(body.links) ? body.links : [];
+      const existing = listSourceLinks(bot.id);
+      const keepIds = new Set<string>();
+      // Códigos e slugs são únicos: o banco recusaria o duplicado no meio do
+      // laço e deixaria a lista pela metade, então filtramos antes de gravar.
+      const usedCodes = new Set<string>();
+      const usedSlugs = new Set<string>();
+      for (const raw of incoming) {
+        const code = sanitizeSourceCode(String(raw.code || ""));
+        const name = String(raw.name || "").trim().slice(0, 80);
+        const slug = sanitizeSlug(String(raw.slug || ""));
+        if (!code || !name) continue;
+        if (usedCodes.has(code)) continue;
+        if (slug && usedSlugs.has(slug)) continue;
+        usedCodes.add(code);
+        if (slug) usedSlugs.add(slug);
+        const id = typeof raw.id === "string" && raw.id ? raw.id : randomUUID();
+        keepIds.add(id);
+        saveSourceLink({
+          id,
+          botId: bot.id,
+          profileId: bot.profileId,
+          code,
+          name,
+          slug: slug || undefined,
+          createdAt: Number(raw.createdAt) || Date.now(),
+        });
+      }
+      for (const old of existing) if (!keepIds.has(old.id)) deleteSourceLink(old.id);
+      const stats = sourceLinkStats(bot.profileId);
+      return NextResponse.json({
+        ok: true,
+        sourceLinks: listSourceLinks(bot.id).map((l) => ({
+          ...l,
+          stats: stats.get(l.code) || { starts: 0, pixGenerated: 0, pixPaid: 0, paidCents: 0 },
+        })),
+      });
     }
 
     // ---- Funis (downsell / upsell) — JSON de FunnelStep[] ----
@@ -345,16 +483,125 @@ export async function POST(req: NextRequest) {
     }
 
     // ---- Status do webhook (getWebhookInfo) ----
+    // Devolve TAMBÉM a URL que este app usaria e o problema da base pública,
+    // se houver: é o que deixa a tela explicar por que o registro falha, sem
+    // depender de o operador ler o log do container.
     if (action === "webhook-status") {
       const bot = requireBot(body.profileId);
+      const { url: expectedUrl, originSource, problem } = webhookUrlFor(req, bot.id);
       try {
         const info = await getTelegramWebhookInfo(bot.botToken);
-        const expectedUrl = `${publicOrigin(req).replace(/\/+$/, "")}/api/webhooks/telegram/${bot.id}`;
         const ok = Boolean(info.url) && info.url === expectedUrl;
-        return NextResponse.json({ ok: true, info, matches: ok, expectedUrl });
+        return NextResponse.json({
+          ok: true,
+          info,
+          matches: ok,
+          expectedUrl,
+          originSource,
+          originProblem: problem,
+        });
       } catch (e) {
-        return NextResponse.json({ ok: false, message: e instanceof Error ? e.message : "Falha ao consultar." });
+        return NextResponse.json({
+          ok: false,
+          message: e instanceof Error ? e.message : "Falha ao consultar.",
+          expectedUrl,
+          originSource,
+          originProblem: problem,
+        });
       }
+    }
+
+    // ---- "Detectar": em que grupos este bot está ----
+    //
+    // A API do Telegram NÃO deixa um bot listar os próprios grupos: a única
+    // forma de saber de um grupo é ter visto um update vindo dele. Por isso a
+    // detecção junta duas fontes:
+    //   • os chats que o nosso webhook já anotou (funciona com a operação
+    //     ligada, que é quando os updates chegam aqui);
+    //   • o getUpdates, para quando NÃO há webhook nenhum registrado — é o
+    //     caso de quem ainda não fez o cutover.
+    // Com um webhook de TERCEIRO ativo não dá para fazer nem um nem outro, e
+    // aí a resposta explica isso em vez de devolver uma lista vazia sem motivo.
+    if (action === "detect-chats") {
+      const bot = requireBot(body.profileId);
+      const chats = new Map<string, { chatId: string; title?: string; type?: string }>();
+      for (const c of listSeenChats(bot.id)) chats.set(c.chatId, c);
+
+      let hint: string | undefined;
+      try {
+        const info = await getTelegramWebhookInfo(bot.botToken);
+        const nosso = webhookUrlFor(req, bot.id).url;
+        if (!info.url) {
+          // Sem webhook: a fila está nossa para ler (sem confirmar nada).
+          for (const u of await getTelegramUpdates(bot.botToken)) {
+            const c =
+              u.message?.chat ||
+              u.channel_post?.chat ||
+              u.my_chat_member?.chat ||
+              u.chat_member?.chat ||
+              u.chat_join_request?.chat;
+            if (c?.id && c.type && c.type !== "private") {
+              recordSeenChat(bot.id, c);
+              chats.set(String(c.id), { chatId: String(c.id), title: c.title, type: c.type });
+            }
+          }
+          if (chats.size === 0) {
+            hint =
+              "Nenhum grupo encontrado. Envie qualquer mensagem no grupo (com o bot lá dentro) e toque em Detectar de novo.";
+          }
+        } else if (info.url !== nosso && chats.size === 0) {
+          hint =
+            "O bot está apontado para outro sistema, então não dá para ler a fila de mensagens dele. Ligue a operação do Hot-Dash e mande uma mensagem no grupo, ou informe o ID na mão.";
+        } else if (chats.size === 0) {
+          hint =
+            "Ainda não vimos nenhum grupo. Mande uma mensagem no grupo (com o bot lá) e toque em Detectar de novo.";
+        }
+      } catch (e) {
+        hint = e instanceof Error ? e.message : "Falha ao consultar o Telegram.";
+      }
+
+      return NextResponse.json({
+        ok: true,
+        chats: Array.from(chats.values()),
+        hint,
+      });
+    }
+
+    // ---- Mídias que batem com as etiquetas de boas-vindas ----
+    // O bot SORTEIA uma delas a cada /start. Sem isto a tela era um campo de
+    // texto cego: você digitava "previa, quente" e não tinha como saber se
+    // existia mídia com aquela etiqueta, muito menos qual apareceria.
+    if (action === "welcome-media") {
+      const bot = requireBot(body.profileId);
+      const raw = typeof body.tags === "string" ? body.tags : bot.welcomeMediaTags || "";
+      const wanted = raw
+        .split(",")
+        .map((t: string) => t.trim().toLowerCase())
+        .filter(Boolean);
+      if (wanted.length === 0) return NextResponse.json({ ok: true, total: 0, items: [] });
+
+      // Mesmo casamento que o webhook faz na hora de enviar — se divergir, o
+      // preview mente.
+      const matches = listMedia(bot.profileId).filter((m) =>
+        m.tags.some((t) => wanted.includes(t.name.toLowerCase())),
+      );
+      return NextResponse.json({
+        ok: true,
+        total: matches.length,
+        items: matches.slice(0, 12).map((m) => ({
+          id: m.id,
+          kind: m.kind,
+          updatedAt: m.updatedAt || m.createdAt,
+        })),
+      });
+    }
+
+    // ---- Diagnóstico da base pública (a tela mostra mesmo com o bot
+    // desligado, para o operador conferir ANTES de tentar o cutover) ----
+    if (action === "webhook-origin") {
+      const bot = requireBot(body.profileId);
+      const { url, origin, originSource, problem } = webhookUrlFor(req, bot.id);
+      return NextResponse.json({ ok: true, url, origin, originSource, problem });
     }
 
     // ---- Ações manuais sobre uma assinatura ----

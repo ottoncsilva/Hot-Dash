@@ -279,6 +279,80 @@ function capMedia(planned: VipPost[], target: number): void {
   }
 }
 
+/** Kinds que pedem ação do grupo. Dois colados soam pedinte — é o que o VIP
+ *  viu com quatro enquetes em sequência. */
+const INTERACTION_KINDS: VipKind[] = ["enquete", "reacao"];
+
+/** Trocas possíveis: engajamento sem mídia, o mesmo conjunto de `balancePolls`. */
+const ENGAJA_SEM_MIDIA: VipType[] = ["QUESTION", "CURIOSITY", "REACTION"];
+
+/** O bastante de um post para reavaliar seu tipo — serve tanto para `VipPost`
+ *  quanto para o slot já com horário resolvido do `vipGenerator`. */
+export type SpreadableSlot = {
+  type: VipType;
+  kind: VipKind;
+  intent: VipIntent;
+  cta: boolean;
+  media?: "photo" | "video";
+};
+
+/**
+ * Rede de segurança aplicada sobre a lista que REALMENTE vai ser agendada.
+ *
+ * `chooseType` e `balancePolls` espalham as enquetes muito bem — mas fazem isso
+ * no dia MK inteiro (05:00 → 04:59), e o `enqueueVipJob` depois descarta os
+ * horários que já passaram e os que colidem com posts existentes. Gerar às 18h
+ * joga fora dois terços do plano; o que sobra fecha fileira, e enquetes que
+ * estavam separadas por um vizinho viram vizinhas. O alvo de quantidade piora a
+ * conta: ele foi calculado sobre o dia cheio, então quase todas as enquetes
+ * sobrevivem num pedaço bem menor de dia.
+ *
+ * Aqui a regra vale sobre o que sobrou:
+ *   1. nunca dois kinds de interação colados;
+ *   2. no máximo um quarto dos posts agendados é enquete.
+ *
+ * Só o TIPO de alguns posts muda. Horário, intenção, mídia e convite ficam como
+ * estavam — nenhum post com mídia ou com CTA é tocado, então o teto de acervo do
+ * `capMedia` e a cota de convite do `windowDiretoTarget` seguem valendo.
+ */
+export function spreadInteractions<T extends SpreadableSlot>(slots: T[]): void {
+  const maxPolls = Math.max(1, Math.round(slots.length / 4));
+  let polls = 0;
+
+  for (let i = 0; i < slots.length; i++) {
+    const slot = slots[i];
+    if (!INTERACTION_KINDS.includes(slot.kind)) continue;
+    // Convite e post com mídia não entram na troca: são eles que sustentam as
+    // cotas do dia.
+    if (slot.intent !== "engaja" || slot.media || slot.cta) continue;
+
+    const anterior = slots[i - 1];
+    const coladoNoAnterior = !!anterior && INTERACTION_KINDS.includes(anterior.kind);
+    const estourouCota = slot.kind === "enquete" && polls >= maxPolls;
+    if (!coladoNoAnterior && !estourouCota) {
+      if (slot.kind === "enquete") polls++;
+      continue;
+    }
+
+    // Troca por um tipo que não repita o kind de nenhum vizinho — e que não
+    // recrie a colagem que estamos desfazendo.
+    const vizinhos = [anterior?.kind, slots[i + 1]?.kind].filter(Boolean) as VipKind[];
+    const vizinhoInterage = vizinhos.some((k) => INTERACTION_KINDS.includes(k));
+    const candidatos = ENGAJA_SEM_MIDIA.filter((t) => {
+      const kind = VIP_TYPE_DEFS[t].kind;
+      if (vizinhos.includes(kind)) return false;
+      if (vizinhoInterage && INTERACTION_KINDS.includes(kind)) return false;
+      if (kind === "enquete" && polls >= maxPolls) return false;
+      return true;
+    });
+    // QUESTION é texto puro: nunca colide com a regra, serve de último recurso.
+    const escolhido = candidatos.length > 0 ? pick(candidatos) : "QUESTION";
+    const def = VIP_TYPE_DEFS[escolhido];
+    slots[i] = { ...slot, type: escolhido, kind: def.kind, intent: def.intent, cta: def.cta };
+    if (def.kind === "enquete") polls++;
+  }
+}
+
 /**
  * Deixa as ENQUETES em metade do engajamento do dia (mesma regra das Prévias),
  * convertendo nos dois sentidos e sempre espalhado — nunca duas enquetes

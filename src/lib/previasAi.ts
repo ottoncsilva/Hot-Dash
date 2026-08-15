@@ -248,6 +248,71 @@ export function planDay(): Omit<PreviaPost, "text" | "poll">[] {
   return planned;
 }
 
+/** Kinds que pedem ação do grupo — dois colados soam pedinte. */
+const INTERACTION_KINDS: MkKind[] = ["enquete", "reacao"];
+
+/** Trocas possíveis: engajamento sem mídia, o mesmo conjunto de `balancePolls`. */
+const ENGAJA_SEM_MIDIA: MkType[] = ["QUESTION", "CURIOSITY", "REACTION"];
+
+/** O bastante de um post para reavaliar seu tipo — serve tanto para o plano do
+ *  dia quanto para o slot já com horário resolvido do `previasGenerator`. */
+export type SpreadableSlot = {
+  type: MkType;
+  kind: MkKind;
+  intent: MkIntent;
+  cta: boolean;
+  media?: "photo" | "video";
+};
+
+/**
+ * Rede de segurança aplicada sobre a lista que REALMENTE vai ser agendada —
+ * a mesma do VIP (`vipAi.spreadInteractions`), pelo mesmo motivo.
+ *
+ * `balancePolls` espalha as enquetes no dia MK inteiro (05:00 → 04:59), mas o
+ * `enqueuePreviasJob` depois descarta os horários que já passaram e os que
+ * colidem com posts existentes. O que sobra fecha fileira, e enquetes separadas
+ * por um vizinho viram vizinhas — com o agravante de o alvo de quantidade ter
+ * sido calculado sobre o dia cheio.
+ *
+ * Aqui a regra vale sobre o que sobrou: nunca dois kinds de interação colados, e
+ * no máximo um quarto dos posts agendados é enquete. Só o TIPO muda; horário,
+ * mídia e CTA de conversão ficam intactos.
+ */
+export function spreadInteractions<T extends SpreadableSlot>(slots: T[]): void {
+  const maxPolls = Math.max(1, Math.round(slots.length / 4));
+  let polls = 0;
+
+  for (let i = 0; i < slots.length; i++) {
+    const slot = slots[i];
+    if (!INTERACTION_KINDS.includes(slot.kind)) continue;
+    // Post de conversão e post com mídia não entram na troca.
+    if (slot.intent !== "engaja" || slot.media || slot.cta) continue;
+
+    const anterior = slots[i - 1];
+    const coladoNoAnterior = !!anterior && INTERACTION_KINDS.includes(anterior.kind);
+    const estourouCota = slot.kind === "enquete" && polls >= maxPolls;
+    if (!coladoNoAnterior && !estourouCota) {
+      if (slot.kind === "enquete") polls++;
+      continue;
+    }
+
+    const vizinhos = [anterior?.kind, slots[i + 1]?.kind].filter(Boolean) as MkKind[];
+    const vizinhoInterage = vizinhos.some((k) => INTERACTION_KINDS.includes(k));
+    const candidatos = ENGAJA_SEM_MIDIA.filter((t) => {
+      const kind = TYPE_DEFS[t].kind;
+      if (vizinhos.includes(kind)) return false;
+      if (vizinhoInterage && INTERACTION_KINDS.includes(kind)) return false;
+      if (kind === "enquete" && polls >= maxPolls) return false;
+      return true;
+    });
+    // QUESTION é texto puro: nunca colide com a regra, serve de último recurso.
+    const escolhido = candidatos.length > 0 ? pick(candidatos) : "QUESTION";
+    const def = TYPE_DEFS[escolhido];
+    slots[i] = { ...slot, type: escolhido, kind: def.kind, intent: def.intent, cta: def.cta };
+    if (def.kind === "enquete") polls++;
+  }
+}
+
 /**
  * Deixa as ENQUETES em metade do engajamento do dia, convertendo posts de
  * engajamento em POLL até chegar lá (espalhados, nunca duas seguidas).

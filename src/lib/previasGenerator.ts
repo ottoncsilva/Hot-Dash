@@ -27,6 +27,7 @@ import { DEFAULT_CTA_BUTTONS, appendCtaLines, pickCtaLinkTexts } from "./postTyp
 import type { MediaItem } from "./types";
 import {
   planDay,
+  spreadInteractions,
   mkSlotToUtcMs,
   mkDayFromToday,
   mkWeekday,
@@ -144,6 +145,10 @@ export function enqueuePreviasJob(profileId: string, days: number): PreviasJob {
     }
   }
   slots.sort((a, b) => a.at - b.at);
+
+  // Mesma rede de segurança do VIP: o plano nasce espalhado, mas os `continue`
+  // acima descartam horários vencidos e ocupados, e o que sobra fecha fileira.
+  spreadInteractions(slots);
 
   return insertJob({ profileId, audience: "previas", days, slots });
 }

@@ -36,6 +36,7 @@ import type { MediaItem } from "./types";
 import { mkSlotToUtcMs, mkDayFromToday, mkWeekday, fallbackPoll } from "./previasAi";
 import {
   planDayVip,
+  spreadInteractions,
   captionThemeVip,
   fallbackTextVip,
   type VipContato,
@@ -153,6 +154,12 @@ export function enqueueVipJob(opts: {
     }
   }
   slots.sort((a, b) => a.at - b.at);
+
+  // O plano nasce espalhado, mas os dois `continue` acima jogam fora parte dele
+  // (horário vencido, horário ocupado) e o que sobra fecha fileira. Reavalia os
+  // tipos sobre a lista que vai mesmo para o banco — sem isso, gerar no meio do
+  // dia produzia enquetes em sequência.
+  spreadInteractions(slots);
 
   const params: JobParams = { contato: opts.contato, ctaLink: opts.ctaLink };
   return insertJob({

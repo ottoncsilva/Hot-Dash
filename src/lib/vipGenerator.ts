@@ -22,6 +22,7 @@ import { generateCaption, callAiRaw, isSystemicAiError, SystemicAiError } from "
 import { extractVideoThumbnail, extname } from "./metadata";
 import { readBuffer } from "./storage";
 import { getAiCredentials, getAppTimeZone, type AiProvider } from "./settings";
+import { mapLimit, mapLimitSettled, AI_CONCURRENCY, MEDIA_CONCURRENCY } from "./concurrency";
 import { createPost } from "./posts";
 import {
   DEFAULT_VIP_CTA_BUTTONS,
@@ -377,23 +378,26 @@ async function processBatch(row: JobRow): Promise<number> {
   let criados = 0;
   let hoje = 0;
 
-  try {
+  // Três fases — a mesma divisão do gerador das Prévias, e pelos mesmos
+  // motivos: `queue.take()` é síncrono e precisa rodar EM ORDEM (senão a fila
+  // anti-repetição de mídia vira sorteio), a chamada de IA é onde está o tempo
+  // e vai em paralelo, e a gravação volta a ser sequencial para o calendário
+  // sair na ordem dos horários.
+  type Preparado = {
+    slot: (typeof lote)[number];
+    media: MediaItem | null;
+    type: VipType;
+    angleIdx: number;
+  };
+
+  const preparados: Preparado[] = [];
   for (let i = 0; i < lote.length; i++) {
     const slot = lote[i];
     if (slot.at <= Date.now()) continue; // o lote demorou e o horário passou
 
     // Enquete: gera pergunta/opções, sem mídia, sem link.
     if (slot.kind === "enquete") {
-      const poll = await writePoll();
-      createPost({
-        profileId: profile.id,
-        networks: [{ network: "telegram", postType: "VIP" }],
-        scheduledAt: slot.at,
-        poll,
-        cta: false,
-      });
-      criados++;
-      if (slot.at < hojeFim) hoje++;
+      preparados.push({ slot, media: null, type: slot.type, angleIdx: row.done + i });
       continue;
     }
 
@@ -414,37 +418,75 @@ async function processBatch(row: JobRow): Promise<number> {
       if (semMidia) type = semMidia;
     }
 
-    const images: { mime: string; base64: string }[] = [];
-    if (media) {
-      const img = await mediaImageBase64(media);
-      if (img) images.push(img);
-    }
-    const written = await writeCaption(type, slot.weekday, images, row.done + i);
-
-    // Só os slots de convite levam o link — e eles só existem quando a geração
-    // pediu. Neles as 3 linhas já saem GRAVADAS na legenda, para aparecerem no
-    // editor do calendário e poderem ser revisadas.
-    const caption =
-      slot.cta && ctaLink
-        ? appendCtaLines(written, ctaLink, pickCtaLinkTexts(ctaList, 3), ctaFallback)
-        : written;
-
-    createPost({
-      profileId: profile.id,
-      networks: [{ network: "telegram", postType: "VIP" }],
-      scheduledAt: slot.at,
-      caption,
-      mediaIds: media ? [media.id] : undefined,
-      cta: slot.cta, // true só nos posts de convite → botão no envio
-      // Só os posts de convite carregam o destino; nos outros ele não é usado e
-      // gravá-lo só faria ruído no banco. Aqui o link vai SEMPRE resolvido (não
-      // só quando há conta escolhida): sem isso o envio cairia no WhatsApp do
-      // cadastro mesmo numa geração de Telegram.
-      waLink: slot.cta ? ctaLink : undefined,
-    });
-    criados++;
-    if (slot.at < hojeFim) hoje++;
+    preparados.push({ slot, media, type, angleIdx: row.done + i });
   }
+
+  try {
+    const imagensPorIndice = await mapLimit(preparados, MEDIA_CONCURRENCY, async (p) => {
+      if (!p.media) return [] as { mime: string; base64: string }[];
+      const img = await mediaImageBase64(p.media);
+      return img ? [img] : [];
+    });
+
+    const textos = await mapLimitSettled(preparados, AI_CONCURRENCY, async (p, i) => {
+      if (p.slot.kind === "enquete") {
+        return { poll: await writePoll() } as const;
+      }
+      return {
+        caption: await writeCaption(p.type, p.slot.weekday, imagensPorIndice[i], p.angleIdx),
+      } as const;
+    });
+
+    // Grava só até ANTES da primeira falha sistêmica, mesmo que slots seguintes
+    // tenham dado certo no paralelo — é o que mantém o `done` do job coerente
+    // com o que foi criado, para a retomada recomeçar no slot que falhou em vez
+    // de duplicar um posterior.
+    const ehSistemico = (t: (typeof textos)[number]) =>
+      t.erro instanceof SystemicAiError || (t.erro instanceof Error && isSystemicAiError(t.erro.message));
+    const idxSistemico = textos.findIndex(ehSistemico);
+    const ate = idxSistemico >= 0 ? idxSistemico : preparados.length;
+
+    for (let i = 0; i < ate; i++) {
+      const p = preparados[i];
+      const r = textos[i];
+      if (!r.ok) continue;
+
+      if ("poll" in r.ok) {
+        createPost({
+          profileId: profile.id,
+          networks: [{ network: "telegram", postType: "VIP" }],
+          scheduledAt: p.slot.at,
+          poll: r.ok.poll,
+          cta: false,
+        });
+      } else {
+        // Só os slots de convite levam o link — e eles só existem quando a
+        // geração pediu. Neles as 3 linhas já saem GRAVADAS na legenda, para
+        // aparecerem no editor do calendário e poderem ser revisadas.
+        const caption =
+          p.slot.cta && ctaLink
+            ? appendCtaLines(r.ok.caption, ctaLink, pickCtaLinkTexts(ctaList, 3), ctaFallback)
+            : r.ok.caption;
+
+        createPost({
+          profileId: profile.id,
+          networks: [{ network: "telegram", postType: "VIP" }],
+          scheduledAt: p.slot.at,
+          caption,
+          mediaIds: p.media ? [p.media.id] : undefined,
+          cta: p.slot.cta, // true só nos posts de convite → botão no envio
+          // Só os posts de convite carregam o destino; nos outros ele não é
+          // usado e gravá-lo só faria ruído no banco. Aqui o link vai SEMPRE
+          // resolvido (não só quando há conta escolhida): sem isso o envio
+          // cairia no WhatsApp do cadastro mesmo numa geração de Telegram.
+          waLink: p.slot.cta ? ctaLink : undefined,
+        });
+      }
+      criados++;
+      if (p.slot.at < hojeFim) hoje++;
+    }
+
+    if (idxSistemico >= 0) throw textos[idxSistemico].erro;
   } catch (err) {
     // Falha sistêmica no meio do lote: grava o que já foi criado e deixa o erro
     // subir para o job morrer com o motivo à vista.

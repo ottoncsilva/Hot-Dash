@@ -22,6 +22,7 @@ import { generateCaption, callAiRaw, isSystemicAiError, SystemicAiError } from "
 import { extractVideoThumbnail, extname } from "./metadata";
 import { readBuffer } from "./storage";
 import { getAiCredentials, getAppTimeZone, type AiProvider } from "./settings";
+import { mapLimit, mapLimitSettled, AI_CONCURRENCY, MEDIA_CONCURRENCY } from "./concurrency";
 import { createPost } from "./posts";
 import { DEFAULT_CTA_BUTTONS, appendCtaLines, pickCtaLinkTexts } from "./postTypes";
 import type { MediaItem } from "./types";
@@ -364,22 +365,31 @@ async function processBatch(row: JobRow): Promise<number> {
   let criados = 0;
   let hoje = 0;
 
-  try {
+  // O lote roda em TRÊS FASES, e a divisão não é estética.
+  //
+  //  1. Preparo, em ordem e sem esperar nada: `queue.take()` é síncrono e
+  //     entrega a próxima mídia da fila. Se ele fosse chamado dentro do
+  //     paralelo, a ordem em que as mídias caem em cada post viraria sorteio,
+  //     e a fila anti-repetição perderia o sentido.
+  //  2. Geração, EM PARALELO: é onde está o tempo (chamada de IA com imagem).
+  //     O limite da xAI é de 1.800 requisições por minuto e nós fazíamos 8 —
+  //     o gargalo era o nosso laço, não o provedor.
+  //  3. Gravação, em ordem: o calendário mostra os posts na sequência dos
+  //     horários, então `createPost` volta a ser sequencial no fim.
+  type Preparado = {
+    slot: (typeof lote)[number];
+    media: MediaItem | null;
+    type: MkType;
+    angleIdx: number;
+  };
+
+  const preparados: Preparado[] = [];
   for (let i = 0; i < lote.length; i++) {
     const slot = lote[i];
     if (slot.at <= Date.now()) continue; // o lote demorou e o horário passou
 
     if (slot.kind === "enquete") {
-      const poll = await writePoll();
-      createPost({
-        profileId: profile.id,
-        networks: [{ network: "telegram", postType: "Prévias" }],
-        scheduledAt: slot.at,
-        poll,
-        cta: false,
-      });
-      criados++;
-      if (slot.at < hojeFim) hoje++;
+      preparados.push({ slot, media: null, type: slot.type, angleIdx: row.done + i });
       continue;
     }
 
@@ -401,32 +411,81 @@ async function processBatch(row: JobRow): Promise<number> {
       if (semMidia) type = semMidia;
     }
 
-    const images: { mime: string; base64: string }[] = [];
-    if (media) {
-      const img = await mediaImageBase64(media);
-      if (img) images.push(img);
-    }
-    const written = await writeCaption(type, slot.hour, slot.weekday, images, row.done + i);
-
-    // Toda foto e todo vídeo já sai com as 3 linhas de convite ao VIP GRAVADAS
-    // na legenda — assim aparecem no editor do calendário e podem ser revisadas
-    // antes de ir ao ar. Post sem mídia recebe o convite só no envio.
-    const caption =
-      media && profile.bioVipLink
-        ? appendCtaLines(written, profile.bioVipLink, pickCtaLinkTexts(ctaList, 3))
-        : written;
-
-    createPost({
-      profileId: profile.id,
-      networks: [{ network: "telegram", postType: "Prévias" }],
-      scheduledAt: slot.at,
-      caption,
-      mediaIds: media ? [media.id] : undefined,
-      cta: TYPE_DEFS[type].cta,
-    });
-    criados++;
-    if (slot.at < hojeFim) hoje++;
+    preparados.push({ slot, media, type, angleIdx: row.done + i });
   }
+
+  try {
+    // Fase 2a: renderizar as imagens de visão. Concorrência PRÓPRIA e menor —
+    // ffmpeg e sharp rodam no mesmo processo do painel, e exagerar aqui deixa
+    // o Hot-Dash sem resposta durante a geração.
+    const imagensPorIndice = await mapLimit(preparados, MEDIA_CONCURRENCY, async (p) => {
+      if (!p.media) return [] as { mime: string; base64: string }[];
+      const img = await mediaImageBase64(p.media);
+      return img ? [img] : [];
+    });
+
+    // Fase 2b: as chamadas de IA. `settled` porque uma legenda recusada não
+    // pode cancelar as outras sete — que é o que Promise.all faria.
+    const textos = await mapLimitSettled(preparados, AI_CONCURRENCY, async (p, i) => {
+      if (p.slot.kind === "enquete") {
+        return { poll: await writePoll() } as const;
+      }
+      return {
+        caption: await writeCaption(p.type, p.slot.hour, p.slot.weekday, imagensPorIndice[i], p.angleIdx),
+      } as const;
+    });
+
+    // Um erro SISTÊMICO (chave/cota/endereço inválidos) não melhora no próximo
+    // post: o lote para em vez de gravar oito reservas. Como agora as chamadas
+    // saem juntas, a checagem é feita depois do fan-out.
+    const ehSistemico = (t: (typeof textos)[number]) =>
+      t.erro instanceof SystemicAiError || (t.erro instanceof Error && isSystemicAiError(t.erro.message));
+    const idxSistemico = textos.findIndex(ehSistemico);
+
+    // Grava só até ANTES da primeira falha sistêmica, mesmo que slots seguintes
+    // tenham dado certo no paralelo. É o que mantém o `done` do job coerente:
+    // ele avança pelo que foi criado, e a retomada recomeça exatamente no slot
+    // que falhou. Gravar um slot posterior aqui o duplicaria na retomada.
+    const ate = idxSistemico >= 0 ? idxSistemico : preparados.length;
+
+    // Fase 3: gravar em ordem o que deu certo.
+    for (let i = 0; i < ate; i++) {
+      const p = preparados[i];
+      const r = textos[i];
+      if (!r.ok) continue; // falhou: não vira post
+
+      if ("poll" in r.ok) {
+        createPost({
+          profileId: profile.id,
+          networks: [{ network: "telegram", postType: "Prévias" }],
+          scheduledAt: p.slot.at,
+          poll: r.ok.poll,
+          cta: false,
+        });
+      } else {
+        // Toda foto e todo vídeo já sai com as 3 linhas de convite ao VIP
+        // GRAVADAS na legenda — assim aparecem no editor do calendário e podem
+        // ser revisadas antes de ir ao ar. Post sem mídia recebe o convite só
+        // no envio.
+        const caption =
+          p.media && profile.bioVipLink
+            ? appendCtaLines(r.ok.caption, profile.bioVipLink, pickCtaLinkTexts(ctaList, 3))
+            : r.ok.caption;
+
+        createPost({
+          profileId: profile.id,
+          networks: [{ network: "telegram", postType: "Prévias" }],
+          scheduledAt: p.slot.at,
+          caption,
+          mediaIds: p.media ? [p.media.id] : undefined,
+          cta: TYPE_DEFS[p.type].cta,
+        });
+      }
+      criados++;
+      if (p.slot.at < hojeFim) hoje++;
+    }
+
+    if (idxSistemico >= 0) throw textos[idxSistemico].erro;
   } catch (err) {
     // Falha sistêmica no meio do lote: grava o que já foi criado (os posts já
     // estão no calendário) e deixa o erro subir para o job morrer com o motivo.

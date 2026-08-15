@@ -80,9 +80,29 @@ export async function register() {
         } catch (err) {
           console.error("[hotdash] Erro no cron (monitor de grupos):", err);
         }
-        // Só um dos dois roda por tick: quem não é o job mais antigo da fila
-        // devolve 0 na hora. Dois lotes juntos dobrariam o ciclo e atrasariam o
-        // autopost.
+      } finally {
+        running = false;
+      }
+    }
+
+    /**
+     * A GERAÇÃO tem ciclo próprio, separado do de cima.
+     *
+     * Um lote são 8 chamadas de IA com imagem, em sequência — passa de 60s com
+     * facilidade. Enquanto elas rodavam dentro do ciclo principal, a trava
+     * anti-sobreposição pulava o tick seguinte INTEIRO, e o autopost ia junto:
+     * escrever a programação de amanhã atrasava a postagem de agora.
+     *
+     * Cada laço tem a sua própria trava, então um lote longo só adia o lote
+     * seguinte. Os dois grupos continuam dividindo UMA fila (quem não é o job
+     * mais antigo devolve 0 na hora), para não rodar dois lotes ao mesmo tempo.
+     */
+    let gerando = false;
+
+    async function tickGeracao() {
+      if (gerando) return;
+      gerando = true;
+      try {
         try {
           const gerados = await runPreviasGeneration();
           if (gerados > 0) console.log(`[hotdash] Método MK (Prévias): ${gerados} post(s) gerados.`);
@@ -96,13 +116,18 @@ export async function register() {
           console.error("[hotdash] Erro no cron (geração do VIP):", err);
         }
       } finally {
-        running = false;
+        gerando = false;
       }
     }
 
     // Roda a cada 1 minuto (garante pontualidade das postagens agendadas).
     setInterval(() => {
       void tick();
+    }, 60 * 1000);
+
+    // Mesmo intervalo, laço independente: a geração nunca segura o autopost.
+    setInterval(() => {
+      void tickGeracao();
     }, 60 * 1000);
   }
 }

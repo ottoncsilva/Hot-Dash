@@ -193,8 +193,23 @@ export async function processarWebhookSyncPay(
               sub.upsellStepIndex = 0;
               saveSubscription(sub);
 
+              // Botão de acesso (opcional). Com ele o convite vira um botão
+              // clicável em vez de uma URL solta no meio do texto — o link
+              // continua no corpo para quem prefere copiar.
+              const botaoTexto = bot.successButtonText?.trim();
               const clientMsg = bot.successMessage.replace(/{link_vip}/gi, invite.invite_link);
-              await sendTelegramMessage(bot.botToken, String(sub.telegramUserId), clientMsg);
+              await sendTelegramMessage(
+                bot.botToken,
+                String(sub.telegramUserId),
+                clientMsg,
+                botaoTexto
+                  ? {
+                      reply_markup: {
+                        inline_keyboard: [[{ text: botaoTexto, url: invite.invite_link }]],
+                      },
+                    }
+                  : {},
+              );
 
               // Entregável adicional (bônus da assinatura, ex.: WhatsApp).
               const deliverable = plan?.deliverable?.trim();

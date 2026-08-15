@@ -47,6 +47,8 @@ export default function ProfileDetailPage() {
   const [bioTelegramButton, setBioTelegramButton] = useState("");
   // Credenciais do bot do Telegram (vivem em telegram_bots, por perfil).
   const [botToken, setBotToken] = useState("");
+  // Existe token salvo? A API só informa isso — nunca o token em si.
+  const [hasToken, setHasToken] = useState(false);
   const [botIdVip, setBotIdVip] = useState("");
   const [botIdPrevias, setBotIdPrevias] = useState("");
   const [botOrig, setBotOrig] = useState({ token: "", vip: "", prev: "" });
@@ -75,13 +77,17 @@ export default function ProfileDetailPage() {
       setBioTelegramButton(data.profile.bioTelegramButton || "");
       // Credenciais do bot (não bloqueia a tela se falhar).
       try {
-        const tg = await apiGet<{ bot: { botToken?: string; idVip?: string; idAquecimento?: string } | null }>(
+        const tg = await apiGet<{ bot: { hasToken?: boolean; idVip?: string; idAquecimento?: string } | null }>(
           `/api/telegram?profileId=${id}`,
         );
-        setBotToken(tg.bot?.botToken || "");
+        // O token NÃO volta da API (ver a rota: ele dá controle total do bot).
+        // O campo fica vazio e o placeholder avisa que já existe um salvo —
+        // digitar algo aqui é o que troca o token.
+        setHasToken(Boolean(tg.bot?.hasToken));
+        setBotToken("");
         setBotIdVip(tg.bot?.idVip || "");
         setBotIdPrevias(tg.bot?.idAquecimento || "");
-        setBotOrig({ token: tg.bot?.botToken || "", vip: tg.bot?.idVip || "", prev: tg.bot?.idAquecimento || "" });
+        setBotOrig({ token: "", vip: tg.bot?.idVip || "", prev: tg.bot?.idAquecimento || "" });
       } catch {
         /* sem bot ainda */
       }
@@ -119,8 +125,10 @@ export default function ProfileDetailPage() {
       );
       setProfile(p);
 
-      // Credenciais do bot: só salva quando os 3 campos estão preenchidos.
-      if (botToken.trim() && botIdVip.trim() && botIdPrevias.trim()) {
+      // Credenciais do bot. O token só é enviado quando o operador digita um
+      // novo: campo vazio com token já salvo significa "mantenha o que está lá"
+      // (a rota resolve isso), então dá para editar só os IDs dos grupos.
+      if ((botToken.trim() || hasToken) && botIdVip.trim() && botIdPrevias.trim()) {
         await apiSend("/api/telegram", "POST", {
           action: "save-bot-credentials",
           profileId: id,
@@ -128,7 +136,9 @@ export default function ProfileDetailPage() {
           idVip: botIdVip.trim(),
           idAquecimento: botIdPrevias.trim(),
         });
-        setBotOrig({ token: botToken.trim(), vip: botIdVip.trim(), prev: botIdPrevias.trim() });
+        if (botToken.trim()) setHasToken(true);
+        setBotToken("");
+        setBotOrig({ token: "", vip: botIdVip.trim(), prev: botIdPrevias.trim() });
       }
       showToast("Salvo!");
     } catch (err) {
@@ -413,10 +423,20 @@ export default function ProfileDetailPage() {
                   <label className="eyebrow mb-1.5 block">Bot Token</label>
                   <input
                     className="input font-mono"
-                    placeholder="Ex: 123456:ABC-DEF..."
+                    type="password"
+                    autoComplete="off"
+                    placeholder={
+                      hasToken ? "token salvo — cole outro para trocar" : "Ex: 123456:ABC-DEF..."
+                    }
                     value={botToken}
                     onChange={(e) => setBotToken(e.target.value)}
                   />
+                  {hasToken && (
+                    <p className="mt-1 text-[11px] text-zinc-500">
+                      O token salvo não é exibido de volta — ele dá controle total do bot. Deixe em
+                      branco para mantê-lo.
+                    </p>
+                  )}
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>

@@ -1,20 +1,35 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useProfile } from "@/context/ProfileContext";
 import { PrecisaDeModelo } from "@/components/ProfilePicker";
 import { apiGet, apiSend } from "@/lib/api";
 import { showToast } from "@/lib/toast";
 import { useConfirm } from "@/hooks/useConfirm";
 import Switch from "@/components/Switch";
-import type { Profile } from "@/lib/types";
-import { IconTelegram, IconClose, IconRefresh } from "@/components/icons";
+import {
+  IconTelegram,
+  IconClose,
+  IconRefresh,
+  IconMail,
+  IconCheck,
+  IconPayments,
+  IconSend,
+  IconPlus,
+  IconTrash,
+  IconCopy,
+  IconUndo,
+} from "@/components/icons";
 import PageHeader from "@/components/PageHeader";
+import SectionRow, { resumo } from "@/components/telegram/bot/SectionRow";
+import VarChips from "@/components/telegram/bot/VarChips";
+import BotPreview from "@/components/telegram/bot/BotPreview";
 
 // ---- Tipos (espelham telegramDb.ts) ----
 type Bot = {
   id: string;
-  botToken: string;
+  /** A API nunca devolve o token — só se existe um salvo. */
+  hasToken?: boolean;
   botUsername?: string;
   idVip: string;
   idAquecimento: string;
@@ -27,7 +42,24 @@ type Bot = {
   upsellFunnel?: string;
   previewsWelcomeMessage?: string;
   operationActive: boolean;
+  vipApprovalMode: ApprovalMode;
+  previasApprovalMode: ApprovalMode;
+  pixGeneratingMessage?: string;
+  pixCaption?: string;
+  successButtonText?: string;
 };
+type ApprovalMode = "subscribers" | "all" | "manual";
+type PixDefaults = { generatingMessage: string; caption: string };
+type LinkStats = { starts: number; pixGenerated: number; pixPaid: number; paidCents: number };
+type SourceLink = {
+  id: string;
+  code: string;
+  name: string;
+  slug?: string;
+  createdAt: number;
+  stats: LinkStats;
+};
+type OrphanCode = { code: string; stats: LinkStats };
 type Plan = {
   id: string;
   name: string;
@@ -68,9 +100,16 @@ export default function BotVendasPage() {
   const [subs, setSubs] = useState<Sub[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [sourceLinks, setSourceLinks] = useState<SourceLink[]>([]);
+  const [orphanCodes, setOrphanCodes] = useState<OrphanCode[]>([]);
+  const [pixDefaults, setPixDefaults] = useState<PixDefaults | null>(null);
+  const [tab, setTab] = useState<TabKey>("config");
 
-  useEffect(() => {
-  }, []);
+  // A mensagem de boas-vindas e as etiquetas vivem AQUI, e não dentro da linha
+  // que as edita: o preview à direita precisa acompanhar a digitação, e ele é
+  // irmão do formulário, não filho.
+  const [welcome, setWelcome] = useState("");
+  const [welcomeTags, setWelcomeTags] = useState("");
 
   const load = useCallback(async () => {
     if (!profileId) return;
@@ -83,6 +122,9 @@ export default function BotVendasPage() {
         subscriptions: Sub[];
         availableTags: Tag[];
         metrics: Metrics;
+        sourceLinks: SourceLink[];
+        orphanCodes: OrphanCode[];
+        pixDefaults: PixDefaults;
       }>(`/api/telegram?profileId=${profileId}`);
       setBot(d.bot);
       setPlans(d.plans || []);
@@ -90,10 +132,26 @@ export default function BotVendasPage() {
       setSubs(d.subscriptions || []);
       setTags(d.availableTags || []);
       setMetrics(d.metrics || null);
+      setSourceLinks(d.sourceLinks || []);
+      setOrphanCodes(d.orphanCodes || []);
+      setPixDefaults(d.pixDefaults || null);
+      setWelcome(d.bot?.welcomeMessage || "");
+      setWelcomeTags(d.bot?.welcomeMediaTags || "");
     } finally {
       setLoading(false);
     }
   }, [profileId]);
+
+  // O preview só faz sentido nas abas que mudam o que o lead vê no /start.
+  const mostraPreview = tab === "config" || tab === "planos";
+  const previewButtons = [
+    ...plans.map((p) => ({
+      text: `${p.name} - ${(p.priceCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`,
+      kind: "plan" as const,
+    })),
+    ...buttons.map((b) => ({ text: b.text, kind: "custom" as const })),
+    ...(bot?.supportUsername ? [{ text: "💬 Suporte / Dúvidas", kind: "support" as const }] : []),
+  ];
 
   useEffect(() => {
     load();
@@ -141,17 +199,93 @@ export default function BotVendasPage() {
       {!loading && bot && (
         <div className="space-y-5">
           <MetricsCard metrics={metrics} activeSubs={subs.filter((s) => s.status === "active" && s.expiresAt > 0).length} pendingSubs={subs.filter((s) => s.status === "pending").length} />
-          <WebhookCard profileId={profileId} bot={bot} onSaved={load} />
-          <MessagesCard profileId={profileId} bot={bot} tags={tags} onSaved={load} />
-          <PlansCard profileId={profileId} plans={plans} onSaved={load} />
-          <FunnelCard profileId={profileId} bot={bot} tags={tags} onSaved={load} />
-          <ButtonsCard profileId={profileId} buttons={buttons} onSaved={load} />
-          <SubscribersCard subs={subs} onAction={load} confirm={confirm} />
+
+          {/* Abas em vez de uma rolagem com tudo aberto: cada assunto do bot
+              ocupa a tela sozinho, e o preview do /start acompanha à direita. */}
+          <div className="flex flex-wrap gap-1.5">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
+                  tab === t.key
+                    ? "bg-white/10 font-semibold text-white"
+                    : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          <div className={mostraPreview ? "grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]" : ""}>
+            <div className="min-w-0 space-y-3">
+              {tab === "config" && (
+                <>
+                  <WebhookCard profileId={profileId} bot={bot} onSaved={load} />
+                  <WelcomeRow
+                    profileId={profileId}
+                    bot={bot}
+                    tags={tags}
+                    welcome={welcome}
+                    setWelcome={setWelcome}
+                    welcomeTags={welcomeTags}
+                    setWelcomeTags={setWelcomeTags}
+                    onSaved={load}
+                  />
+                  <SuccessRow profileId={profileId} bot={bot} onSaved={load} />
+                  <PixRow profileId={profileId} bot={bot} pixDefaults={pixDefaults} onSaved={load} />
+                  <ExtrasRow profileId={profileId} bot={bot} onSaved={load} />
+                  <ButtonsCard profileId={profileId} buttons={buttons} onSaved={load} />
+                </>
+              )}
+              {tab === "planos" && <PlansCard profileId={profileId} plans={plans} onSaved={load} />}
+              {tab === "recuperacao" && (
+                <FunnelCard profileId={profileId} bot={bot} tags={tags} onSaved={load} />
+              )}
+              {tab === "aprovacao" && (
+                <ApprovalCard profileId={profileId} bot={bot} onSaved={load} />
+              )}
+              {tab === "trackeamento" && (
+                <TrackingCard
+                  profileId={profileId}
+                  bot={bot}
+                  links={sourceLinks}
+                  orphans={orphanCodes}
+                  onSaved={load}
+                />
+              )}
+              {tab === "assinantes" && (
+                <SubscribersCard subs={subs} onAction={load} confirm={confirm} />
+              )}
+            </div>
+
+            {mostraPreview && (
+              <BotPreview
+                profileId={profileId}
+                botUsername={bot.botUsername}
+                welcomeMessage={welcome}
+                welcomeMediaTags={welcomeTags}
+                buttons={previewButtons}
+              />
+            )}
+          </div>
         </div>
       )}
     </div>
   );
 }
+
+const TABS = [
+  { key: "config", label: "Configuração" },
+  { key: "planos", label: "Planos" },
+  { key: "recuperacao", label: "Recuperação" },
+  { key: "aprovacao", label: "Aprovação Automática" },
+  { key: "trackeamento", label: "Trackeamento" },
+  { key: "assinantes", label: "Assinantes" },
+] as const;
+
+type TabKey = (typeof TABS)[number]["key"];
 
 // ---------------------------------------------------------------------------
 // Métricas de venda (reaproveita o overview financeiro)
@@ -364,42 +498,44 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
+
 // ---------------------------------------------------------------------------
-// Mensagens
+// Mensagens — uma linha colapsada por assunto, no lugar do formulário único
 // ---------------------------------------------------------------------------
-function MessagesCard({
+
+/** Salva um pedaço das mensagens. A rota preserva o que não for enviado, então
+ *  cada linha manda só os seus campos. */
+async function salvarMensagens(profileId: string, patch: Record<string, string>) {
+  await apiSend("/api/telegram", "POST", { action: "save-bot-messages", profileId, ...patch });
+}
+
+function WelcomeRow({
   profileId,
   bot,
   tags,
+  welcome,
+  setWelcome,
+  welcomeTags,
+  setWelcomeTags,
   onSaved,
 }: {
   profileId: string;
   bot: Bot;
   tags: Tag[];
+  welcome: string;
+  setWelcome: (v: string) => void;
+  welcomeTags: string;
+  setWelcomeTags: (v: string) => void;
   onSaved: () => void;
 }) {
-  const [welcome, setWelcome] = useState(bot.welcomeMessage || "");
-  const [welcomeTags, setWelcomeTags] = useState(bot.welcomeMediaTags || "");
-  const [success, setSuccess] = useState(bot.successMessage || "");
-  const [previews, setPreviews] = useState(bot.previewsWelcomeMessage || "");
-  const [support, setSupport] = useState(bot.supportUsername || "");
-  const [registro, setRegistro] = useState(bot.idRegistro || "");
   const [busy, setBusy] = useState(false);
+  const areaRef = useRef<HTMLTextAreaElement>(null);
 
   async function save() {
     setBusy(true);
     try {
-      await apiSend("/api/telegram", "POST", {
-        action: "save-bot-messages",
-        profileId,
-        welcomeMessage: welcome,
-        welcomeMediaTags: welcomeTags,
-        successMessage: success,
-        previewsWelcomeMessage: previews,
-        supportUsername: support,
-        idRegistro: registro,
-      });
-      showToast("Mensagens salvas.", "success");
+      await salvarMensagens(profileId, { welcomeMessage: welcome, welcomeMediaTags: welcomeTags });
+      showToast("Boas-vindas salvas.", "success");
       onSaved();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha.", "error");
@@ -409,48 +545,315 @@ function MessagesCard({
   }
 
   return (
-    <div className="card p-4">
-      <h2 className="font-display text-lg font-semibold">Mensagens</h2>
-      <label className="eyebrow mt-3 block">Boas-vindas (no /start) · use {"{nome}"}</label>
-      <textarea className="input mt-1.5 min-h-[90px]" value={welcome} onChange={(e) => setWelcome(e.target.value)} />
-      <label className="eyebrow mt-3 block">Etiquetas da mídia de boas-vindas (opcional)</label>
+    <SectionRow
+      icon={<IconMail size={16} />}
+      title="Mensagem de boas-vindas"
+      summary={resumo(bot.welcomeMessage) || "(vazia)"}
+      status={bot.welcomeMessage?.trim() ? undefined : { label: "vazia", tone: "warn" }}
+    >
+      <label className="eyebrow block">Texto enviado no /start</label>
+      <textarea
+        ref={areaRef}
+        className="input mt-1.5 min-h-[140px]"
+        value={welcome}
+        onChange={(e) => setWelcome(e.target.value)}
+      />
+      <VarChips
+        vars={[["{nome}", "primeiro nome do lead no Telegram"]]}
+        targetRef={areaRef}
+        onChange={setWelcome}
+      />
+
+      <label className="eyebrow mt-4 block">Etiquetas da mídia de abertura (opcional)</label>
       <input
         className="input mt-1.5"
         placeholder="ex.: previa, quente"
         value={welcomeTags}
         onChange={(e) => setWelcomeTags(e.target.value)}
       />
+      <p className="mt-1 text-[11px] text-zinc-500">
+        O bot sorteia <b>uma</b> mídia com essas etiquetas a cada /start. O preview ao lado mostra
+        de quais ele vai sortear.
+      </p>
       {tags.length > 0 && (
-        <p className="mt-1 text-[11px] text-zinc-500">
-          Disponíveis: {tags.map((t) => t.name).join(", ")}
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {tags.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => {
+                const atuais = welcomeTags.split(",").map((s) => s.trim()).filter(Boolean);
+                const ja = atuais.some((a) => a.toLowerCase() === t.name.toLowerCase());
+                setWelcomeTags(
+                  ja
+                    ? atuais.filter((a) => a.toLowerCase() !== t.name.toLowerCase()).join(", ")
+                    : [...atuais, t.name].join(", "),
+                );
+              }}
+              className={`rounded-md border px-1.5 py-0.5 text-[11px] transition-colors ${
+                welcomeTags.toLowerCase().includes(t.name.toLowerCase())
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                  : "border-white/10 bg-ink-850 text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <button onClick={save} disabled={busy} className="btn-primary mt-4">
+        {busy ? "Salvando..." : "Salvar mensagem"}
+      </button>
+    </SectionRow>
+  );
+}
+
+function SuccessRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; onSaved: () => void }) {
+  const [texto, setTexto] = useState(bot.successMessage || "");
+  const [botao, setBotao] = useState(bot.successButtonText || "");
+  const [busy, setBusy] = useState(false);
+  const areaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Sem {link_vip} no texto E sem botão, o cliente paga e não recebe caminho
+  // nenhum para o grupo. É o pior defeito silencioso do fluxo — vira aviso.
+  const semAcesso = !/{link_vip}/i.test(texto) && !botao.trim();
+
+  async function save() {
+    setBusy(true);
+    try {
+      await salvarMensagens(profileId, { successMessage: texto, successButtonText: botao });
+      showToast("Mensagem de aprovação salva.", "success");
+      onSaved();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SectionRow
+      icon={<IconCheck size={16} />}
+      title="Mensagem de pagamento aprovado"
+      summary={resumo(bot.successMessage) || "(vazia)"}
+      status={semAcesso ? { label: "sem link do VIP", tone: "error" } : undefined}
+    >
+      <label className="eyebrow block">Enviada assim que o PIX é confirmado</label>
+      <textarea
+        ref={areaRef}
+        className="input mt-1.5 min-h-[110px]"
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+      />
+      <VarChips
+        vars={[["{link_vip}", "link de convite do grupo VIP, gerado na hora"]]}
+        targetRef={areaRef}
+        onChange={setTexto}
+      />
+
+      <label className="eyebrow mt-4 block">Texto do botão de acesso (opcional)</label>
+      <input
+        className="input mt-1.5"
+        placeholder="🔒 Acessar o VIP"
+        value={botao}
+        onChange={(e) => setBotao(e.target.value)}
+      />
+      <p className="mt-1 text-[11px] text-zinc-500">
+        Preenchido, o convite vira um botão clicável. Vazio, o link só aparece no texto — e aí{" "}
+        <b>{"{link_vip}"}</b> precisa estar escrito acima.
+      </p>
+
+      {semAcesso && (
+        <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/[0.07] p-2.5 text-xs text-red-300">
+          Do jeito que está, quem pagar não recebe o link nem o botão do VIP.
         </p>
       )}
-      <label className="eyebrow mt-3 block">Mensagem de sucesso (após pagar) · use {"{link_vip}"}</label>
-      <textarea className="input mt-1.5 min-h-[80px]" value={success} onChange={(e) => setSuccess(e.target.value)} />
-      <label className="eyebrow mt-3 block">Boas-vindas nas prévias (ao entrar no grupo grátis) · use {"{nome}"}</label>
+
+      <button onClick={save} disabled={busy} className="btn-primary mt-4">
+        {busy ? "Salvando..." : "Salvar mensagem"}
+      </button>
+    </SectionRow>
+  );
+}
+
+function PixRow({
+  profileId,
+  bot,
+  pixDefaults,
+  onSaved,
+}: {
+  profileId: string;
+  bot: Bot;
+  pixDefaults: PixDefaults | null;
+  onSaved: () => void;
+}) {
+  const [gerando, setGerando] = useState(bot.pixGeneratingMessage || "");
+  const [legenda, setLegenda] = useState(bot.pixCaption || "");
+  const [busy, setBusy] = useState(false);
+  const areaRef = useRef<HTMLTextAreaElement>(null);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await apiSend("/api/telegram", "POST", {
+        action: "save-pix",
+        profileId,
+        pixGeneratingMessage: gerando,
+        pixCaption: legenda,
+      });
+      showToast("Tela de pagamento salva.", "success");
+      onSaved();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SectionRow
+      icon={<IconPayments size={16} />}
+      title="Tela de pagamento (PIX)"
+      summary={
+        bot.pixCaption || bot.pixGeneratingMessage
+          ? resumo(bot.pixCaption || bot.pixGeneratingMessage)
+          : "Usando os textos padrão"
+      }
+    >
+      <p className="text-xs text-zinc-500">
+        O que o lead vê entre clicar no plano e pagar. Deixe em branco para usar o texto padrão.
+      </p>
+
+      <label className="eyebrow mt-4 block">Aviso enquanto a cobrança é criada</label>
+      <input
+        className="input mt-1.5"
+        placeholder={pixDefaults?.generatingMessage}
+        value={gerando}
+        onChange={(e) => setGerando(e.target.value)}
+      />
+
+      <label className="eyebrow mt-4 block">Legenda do PIX (vai junto do QR Code)</label>
       <textarea
-        className="input mt-1.5 min-h-[70px]"
-        placeholder="Opcional. Enviada no privado do lead quando ele entra nas prévias."
+        ref={areaRef}
+        className="input mt-1.5 min-h-[140px] font-mono text-xs"
+        placeholder={pixDefaults?.caption}
+        value={legenda}
+        onChange={(e) => setLegenda(e.target.value)}
+      />
+      <VarChips
+        vars={[
+          ["{pix_code}", "o código copia-e-cola — sem ele o cliente não tem o que copiar"],
+          ["{plano}", "nome do plano ou da oferta comprada"],
+          ["{valor}", "valor já com o desconto aplicado"],
+        ]}
+        targetRef={areaRef}
+        onChange={setLegenda}
+      />
+      <p className="mt-1 text-[11px] text-zinc-500">
+        Aceita as marcações do Telegram (<code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>,{" "}
+        <code>&lt;code&gt;</code>). Se você remover <b>{"{pix_code}"}</b>, o código é acrescentado no
+        fim mesmo assim.
+      </p>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button onClick={save} disabled={busy} className="btn-primary">
+          {busy ? "Salvando..." : "Salvar"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setGerando("");
+            setLegenda("");
+          }}
+          className="btn-ghost"
+        >
+          <IconUndo size={14} /> Restaurar padrão
+        </button>
+      </div>
+    </SectionRow>
+  );
+}
+
+function ExtrasRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; onSaved: () => void }) {
+  const [previews, setPreviews] = useState(bot.previewsWelcomeMessage || "");
+  const [support, setSupport] = useState(bot.supportUsername || "");
+  const [registro, setRegistro] = useState(bot.idRegistro || "");
+  const [busy, setBusy] = useState(false);
+  const areaRef = useRef<HTMLTextAreaElement>(null);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await salvarMensagens(profileId, {
+        previewsWelcomeMessage: previews,
+        supportUsername: support,
+        idRegistro: registro,
+      });
+      showToast("Salvo.", "success");
+      onSaved();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SectionRow
+      icon={<IconSend size={16} />}
+      title="Prévias, suporte e canal de vendas"
+      summary={
+        [
+          previews.trim() && "boas-vindas das prévias",
+          support.trim() && `suporte ${support}`,
+          registro.trim() && "canal de vendas",
+        ]
+          .filter(Boolean)
+          .join(" · ") || "nada configurado"
+      }
+    >
+      <label className="eyebrow block">Boas-vindas nas prévias (grupo grátis)</label>
+      <textarea
+        ref={areaRef}
+        className="input mt-1.5 min-h-[80px]"
+        placeholder="Opcional. Enviada no privado do lead quando ele é aprovado nas prévias."
         value={previews}
         onChange={(e) => setPreviews(e.target.value)}
       />
+      <VarChips
+        vars={[["{nome}", "primeiro nome do lead"]]}
+        targetRef={areaRef}
+        onChange={setPreviews}
+      />
       <p className="mt-1 text-[11px] text-zinc-500">
-        Só chega se o lead já tiver iniciado conversa com o bot.
+        Só chega se o lead já tiver dado /start no bot — antes disso o Telegram proíbe a mensagem.
       </p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div>
           <label className="eyebrow block">Suporte (@usuário ou link)</label>
           <input className="input mt-1.5" value={support} onChange={(e) => setSupport(e.target.value)} />
+          <p className="mt-1 text-[11px] text-zinc-500">Vira um botão no fim do /start.</p>
         </div>
         <div>
-          <label className="eyebrow block">Canal de registro/vendas (ID)</label>
-          <input className="input mt-1.5 font-mono" value={registro} onChange={(e) => setRegistro(e.target.value)} />
+          <label className="eyebrow block">Canal de vendas (ID)</label>
+          <input
+            className="input mt-1.5 font-mono"
+            placeholder="-100..."
+            value={registro}
+            onChange={(e) => setRegistro(e.target.value)}
+          />
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Um canal só seu onde o bot anota cada venda. Ele precisa ser membro.
+          </p>
         </div>
       </div>
+
       <button onClick={save} disabled={busy} className="btn-primary mt-4">
-        {busy ? "Salvando..." : "Salvar mensagens"}
+        {busy ? "Salvando..." : "Salvar"}
       </button>
-    </div>
+    </SectionRow>
   );
 }
 
@@ -904,5 +1307,341 @@ function SubscribersCard({
         acima para casos manuais.
       </p>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Aprovação Automática — a regra de quem entra em cada grupo
+// ---------------------------------------------------------------------------
+const MODOS: { key: ApprovalMode; label: string; desc: string }[] = [
+  {
+    key: "subscribers",
+    label: "Só assinantes",
+    desc: "Aprova quem tem assinatura ativa e RECUSA o resto. É o normal do VIP.",
+  },
+  {
+    key: "all",
+    label: "Aprovar todos",
+    desc: "Aceita qualquer pedido. É o normal do grupo de prévias, que é gratuito.",
+  },
+  {
+    key: "manual",
+    label: "Deixar na fila",
+    desc: "O bot não decide: o pedido espera na fila do Telegram para você aprovar na mão.",
+  },
+];
+
+function ApprovalCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot; onSaved: () => void }) {
+  const [vip, setVip] = useState<ApprovalMode>(bot.vipApprovalMode || "subscribers");
+  const [previas, setPrevias] = useState<ApprovalMode>(bot.previasApprovalMode || "all");
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await apiSend("/api/telegram", "POST", {
+        action: "save-approval",
+        profileId,
+        vipApprovalMode: vip,
+        previasApprovalMode: previas,
+      });
+      showToast("Regras de aprovação salvas.", "success");
+      onSaved();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card p-4">
+      <h2 className="font-display text-lg font-semibold">Aprovação automática</h2>
+      <p className="mt-1 text-xs text-zinc-500">
+        O que o bot faz quando alguém pede para entrar em cada grupo. Vale só para grupos com{" "}
+        <b>&quot;aprovar novos membros&quot;</b> ligado nas configurações do Telegram — sem isso o
+        Telegram nem avisa o bot, e nenhuma regra aqui tem efeito.
+      </p>
+
+      <GrupoAprovacao
+        titulo="Grupo VIP"
+        subtitulo={bot.idVip || "sem ID configurado"}
+        valor={vip}
+        onChange={setVip}
+      />
+      <GrupoAprovacao
+        titulo="Grupo de Prévias"
+        subtitulo={bot.idAquecimento || "sem ID configurado"}
+        valor={previas}
+        onChange={setPrevias}
+      />
+
+      <p className="mt-4 rounded-lg border border-white/10 bg-ink-850 p-3 text-xs text-zinc-400">
+        Em qualquer modo o bot precisa ser <b>administrador</b> do grupo, com permissão de convidar
+        por link — é assim que ele aprova a entrada e gera o convite de quem pagou.
+      </p>
+
+      <button onClick={save} disabled={busy} className="btn-primary mt-4">
+        {busy ? "Salvando..." : "Salvar regras"}
+      </button>
+    </div>
+  );
+}
+
+function GrupoAprovacao({
+  titulo,
+  subtitulo,
+  valor,
+  onChange,
+}: {
+  titulo: string;
+  subtitulo: string;
+  valor: ApprovalMode;
+  onChange: (v: ApprovalMode) => void;
+}) {
+  return (
+    <div className="mt-4">
+      <div className="flex items-baseline gap-2">
+        <p className="text-sm font-semibold text-white">{titulo}</p>
+        <p className="truncate font-mono text-[11px] text-zinc-500">{subtitulo}</p>
+      </div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-3">
+        {MODOS.map((m) => (
+          <button
+            key={m.key}
+            type="button"
+            onClick={() => onChange(m.key)}
+            className={`rounded-xl border p-3 text-left transition-colors ${
+              valor === m.key
+                ? "border-emerald-500/40 bg-emerald-500/[0.07]"
+                : "border-white/10 bg-ink-850 hover:border-white/20"
+            }`}
+          >
+            <p
+              className={`text-sm font-semibold ${
+                valor === m.key ? "text-emerald-300" : "text-zinc-200"
+              }`}
+            >
+              {m.label}
+            </p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{m.desc}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Trackeamento — links de divulgação e o que cada um trouxe
+// ---------------------------------------------------------------------------
+function TrackingCard({
+  profileId,
+  bot,
+  links,
+  orphans,
+  onSaved,
+}: {
+  profileId: string;
+  bot: Bot;
+  links: SourceLink[];
+  orphans: OrphanCode[];
+  onSaved: () => void;
+}) {
+  type Row = { id?: string; name: string; code: string; slug: string; createdAt?: number; stats?: LinkStats };
+  const [rows, setRows] = useState<Row[]>(
+    links.map((l) => ({
+      id: l.id,
+      name: l.name,
+      code: l.code,
+      slug: l.slug || "",
+      createdAt: l.createdAt,
+      stats: l.stats,
+    })),
+  );
+  const [busy, setBusy] = useState(false);
+
+  function update(i: number, patch: Partial<Row>) {
+    setRows((r) => r.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
+  }
+
+  async function save() {
+    setBusy(true);
+    try {
+      const r = await apiSend<{ ok: boolean; sourceLinks: SourceLink[] }>(
+        "/api/telegram",
+        "POST",
+        { action: "save-source-links", profileId, links: rows },
+      );
+      setRows(
+        (r.sourceLinks || []).map((l) => ({
+          id: l.id,
+          name: l.name,
+          code: l.code,
+          slug: l.slug || "",
+          createdAt: l.createdAt,
+          stats: l.stats,
+        })),
+      );
+      showToast("Links salvos.", "success");
+      onSaved();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="card p-4">
+        <h2 className="font-display text-lg font-semibold">Trackeamento</h2>
+        <p className="mt-1 text-xs text-zinc-500">
+          Um link por origem de tráfego. O <b>código</b> viaja no deep-link do bot e fica gravado no
+          lead e na venda — é o que responde qual divulgação trouxe o dinheiro. O{" "}
+          <b>redirecionador</b> é a URL curta que você publica: o destino continua sob seu controle,
+          então trocar o bot depois não invalida o que já foi divulgado.
+        </p>
+
+        <div className="mt-3 space-y-2">
+          {rows.map((r, i) => (
+            <div key={r.id || i} className="panel p-3">
+              <div className="grid gap-2 sm:grid-cols-[1fr_150px_150px_auto]">
+                <input
+                  className="input"
+                  placeholder="Nome (ex.: bio do Instagram)"
+                  value={r.name}
+                  onChange={(e) => update(i, { name: e.target.value })}
+                />
+                <input
+                  className="input font-mono text-xs"
+                  placeholder="codigo"
+                  value={r.code}
+                  onChange={(e) => update(i, { code: e.target.value.replace(/[^\w-]/g, "") })}
+                />
+                <input
+                  className="input font-mono text-xs"
+                  placeholder="url-curta"
+                  value={r.slug}
+                  onChange={(e) =>
+                    update(i, { slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })
+                  }
+                />
+                <button
+                  onClick={() => setRows((rr) => rr.filter((_, idx) => idx !== i))}
+                  className="btn-ghost px-2.5"
+                  aria-label="Remover link"
+                >
+                  <IconTrash size={14} />
+                </button>
+              </div>
+
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-zinc-500">
+                {bot.botUsername && r.code && (
+                  <CopiavelLink texto={`https://t.me/${bot.botUsername}?start=${r.code}`} />
+                )}
+                {r.slug && <CopiavelLink texto={`/r/${r.slug}`} relativo />}
+              </div>
+
+              {r.stats && (
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+                  <span className="text-zinc-400">
+                    <b className="text-white">{r.stats.starts}</b> /start
+                  </span>
+                  <span className="text-zinc-400">
+                    <b className="text-white">{r.stats.pixGenerated}</b> PIX gerado(s)
+                  </span>
+                  <span className="text-zinc-400">
+                    <b className="text-white">{r.stats.pixPaid}</b> pago(s)
+                  </span>
+                  <span className="text-emerald-400">{money(r.stats.paidCents)}</span>
+                </div>
+              )}
+            </div>
+          ))}
+          {rows.length === 0 && (
+            <p className="py-6 text-center text-sm text-zinc-500">
+              Nenhum link ainda. Crie um para cada lugar onde você divulga o bot.
+            </p>
+          )}
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            onClick={() => setRows((r) => [...r, { name: "", code: "", slug: "" }])}
+            className="btn-ghost"
+          >
+            <IconPlus size={14} /> Novo link
+          </button>
+          <button onClick={save} disabled={busy} className="btn-primary">
+            {busy ? "Salvando..." : "Salvar links"}
+          </button>
+        </div>
+
+        {!bot.botUsername && (
+          <p className="mt-3 text-xs text-amber-400">
+            O @username do bot ainda não foi resolvido — ligue a operação uma vez para o Hot-Dash
+            descobri-lo, e os links completos aparecem aqui.
+          </p>
+        )}
+      </div>
+
+      {orphans.length > 0 && (
+        <div className="card p-4">
+          <h3 className="text-sm font-semibold text-white">Códigos já usados, sem cadastro</h3>
+          <p className="mt-1 text-xs text-zinc-500">
+            Apareceram em leads ou vendas mas não estão na lista acima — links criados à mão antes
+            desta tela existir. Cadastre para dar um nome a eles.
+          </p>
+          <div className="mt-3 space-y-1.5">
+            {orphans.map((o) => (
+              <div
+                key={o.code}
+                className="flex flex-wrap items-center justify-between gap-2 panel px-3 py-2"
+              >
+                <code className="text-xs text-zinc-200">{o.code}</code>
+                <div className="flex flex-wrap items-center gap-x-3 text-[11px] text-zinc-500">
+                  <span>{o.stats.starts} /start</span>
+                  <span>{o.stats.pixPaid} pago(s)</span>
+                  <span className="text-emerald-400">{money(o.stats.paidCents)}</span>
+                  <button
+                    onClick={() =>
+                      setRows((r) => [...r, { name: o.code, code: o.code, slug: "" }])
+                    }
+                    className="btn-ghost px-2 py-1 text-[11px]"
+                  >
+                    Cadastrar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Mostra uma URL com botão de copiar. Links relativos ganham a origem do
+ *  navegador na hora de copiar — é o endereço que o operador vai colar fora. */
+function CopiavelLink({ texto, relativo }: { texto: string; relativo?: boolean }) {
+  const [copiado, setCopiado] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        const url = relativo ? `${window.location.origin}${texto}` : texto;
+        try {
+          await navigator.clipboard.writeText(url);
+          setCopiado(true);
+          setTimeout(() => setCopiado(false), 1500);
+        } catch {
+          showToast("Não foi possível copiar.", "error");
+        }
+      }}
+      className="inline-flex items-center gap-1 font-mono text-[11px] text-sky-400 transition-colors hover:text-sky-300"
+    >
+      <IconCopy size={12} /> {copiado ? "copiado!" : texto}
+    </button>
   );
 }

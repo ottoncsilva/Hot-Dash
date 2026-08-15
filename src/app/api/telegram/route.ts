@@ -14,6 +14,14 @@ import {
   listSubscriptions,
   getSubscription,
   saveSubscription,
+  listSourceLinks,
+  saveSourceLink,
+  deleteSourceLink,
+  sourceLinkStats,
+  sanitizeSourceCode,
+  sanitizeSlug,
+  toApprovalMode,
+  PIX_DEFAULTS,
 } from "@/lib/telegramDb";
 import {
   setTelegramWebhook,
@@ -27,6 +35,7 @@ import {
   unbanTelegramMember,
 } from "@/lib/telegramApi";
 import { overview } from "@/lib/transactions";
+import { listMedia } from "@/lib/media";
 import { resolvePublicOrigin, webhookOriginProblem } from "@/lib/publicOrigin";
 
 import { randomUUID } from "node:crypto";
@@ -88,7 +97,13 @@ export async function GET(req: NextRequest) {
       throw new ApiError(400, "Informe o profileId.");
     }
 
-    const bot = getBotConfigByProfile(profileId);
+    const botRaw = getBotConfigByProfile(profileId);
+    // O TOKEN NÃO VAI PARA O NAVEGADOR. Ele dá controle total do bot (ler as
+    // conversas, escrever como a modelo, trocar o webhook), e ia no JSON de
+    // duas telas a cada carregamento — bastava um print ou uma tela
+    // compartilhada para vazar. A UI só precisa saber se existe um token
+    // salvo; para trocá-lo, o operador cola um novo.
+    const bot = botRaw ? { ...botRaw, botToken: undefined, hasToken: Boolean(botRaw.botToken) } : null;
     let autopost: any = null;
 
     // Carrega configurações de autopost
@@ -114,6 +129,21 @@ export async function GET(req: NextRequest) {
     // Métricas de venda do modelo (reaproveita o painel financeiro).
     const metrics = overview(profileId);
 
+    // Trackeamento: os links de divulgação com o desempenho de cada código.
+    // As estatísticas vêm de UMA consulta agregada para o perfil inteiro.
+    const stats = bot ? sourceLinkStats(profileId) : new Map();
+    const sourceLinks = (bot ? listSourceLinks(bot.id) : []).map((l) => ({
+      ...l,
+      stats: stats.get(l.code) || { starts: 0, pixGenerated: 0, pixPaid: 0, paidCents: 0 },
+    }));
+    // Códigos que apareceram nos leads/vendas mas não têm registro na tela —
+    // links antigos, feitos à mão antes desta tela existir. Aparecem para o
+    // operador poder nomeá-los em vez de ficarem invisíveis.
+    const conhecidos = new Set(sourceLinks.map((l) => l.code));
+    const orphanCodes = Array.from(stats.entries())
+      .filter(([code]) => !conhecidos.has(code))
+      .map(([code, s]) => ({ code, stats: s }));
+
     return NextResponse.json({
       bot,
       autopost,
@@ -122,6 +152,9 @@ export async function GET(req: NextRequest) {
       customButtons,
       subscriptions,
       metrics,
+      sourceLinks,
+      orphanCodes,
+      pixDefaults: PIX_DEFAULTS,
     });
   } catch (err) {
     return errorResponse(err);
@@ -141,33 +174,37 @@ export async function POST(req: NextRequest) {
     // operação já estiver ligada, re-registra o webhook (token/grupos mudaram).
     if (action === "save-bot-credentials") {
       const { profileId, botToken, idVip, idAquecimento } = body;
-      if (!profileId || !botToken || !idVip || !idAquecimento) {
+      const existing = getBotConfigByProfile(profileId);
+      // O token não volta mais para o navegador, então a tela manda o campo
+      // VAZIO quando o operador não quer trocá-lo — nesse caso o que já está
+      // salvo é mantido. Só é obrigatório quando ainda não há token nenhum.
+      const token = String(botToken || "").trim() || existing?.botToken || "";
+      if (!profileId || !token || !idVip || !idAquecimento) {
         throw new ApiError(400, "Preencha o Token do Bot e os IDs dos grupos VIP e Prévias.");
       }
-      const existing = getBotConfigByProfile(profileId);
       const botId = existing?.id || randomUUID();
 
+      // Espalha o que já existe e sobrescreve só as credenciais: um campo novo
+      // na configuração não precisa ser lembrado aqui para deixar de ser
+      // apagado a cada salvamento das credenciais.
       saveBotConfig({
+        ...(existing || {
+          welcomeMessage: "Bem-vindo",
+          successMessage: "Aprovado",
+          operationActive: false,
+          vipApprovalMode: "subscribers" as const,
+          previasApprovalMode: "all" as const,
+        }),
         id: botId,
         profileId,
-        botToken: String(botToken).trim(),
-        botUsername: existing?.botUsername,
+        botToken: token,
         idVip: String(idVip).trim(),
         idAquecimento: String(idAquecimento).trim(),
-        idRegistro: existing?.idRegistro,
-        supportUsername: existing?.supportUsername,
-        welcomeMessage: existing?.welcomeMessage || "Bem-vindo",
-        welcomeMediaTags: existing?.welcomeMediaTags,
-        successMessage: existing?.successMessage || "Aprovado",
-        downsellFunnel: existing?.downsellFunnel,
-        upsellFunnel: existing?.upsellFunnel,
-        previewsWelcomeMessage: existing?.previewsWelcomeMessage,
-        operationActive: existing?.operationActive ?? false,
       });
 
       let webhook: { ok: boolean; message?: string; username?: string } | undefined;
       if (existing?.operationActive) {
-        webhook = await registerBotWebhook(req, botId, String(botToken).trim());
+        webhook = await registerBotWebhook(req, botId, token);
         if (webhook.username && webhook.username !== existing?.botUsername) {
           const cur = getBotConfigByProfile(profileId);
           if (cur) saveBotConfig({ ...cur, botUsername: webhook.username });
@@ -266,8 +303,77 @@ export async function POST(req: NextRequest) {
         previewsWelcomeMessage: body.previewsWelcomeMessage !== undefined ? String(body.previewsWelcomeMessage) : bot.previewsWelcomeMessage,
         supportUsername: body.supportUsername !== undefined ? String(body.supportUsername) : bot.supportUsername,
         idRegistro: body.idRegistro !== undefined ? String(body.idRegistro) : bot.idRegistro,
+        successButtonText:
+          body.successButtonText !== undefined ? String(body.successButtonText) : bot.successButtonText,
       });
       return NextResponse.json({ ok: true });
+    }
+
+    // ---- Tela de pagamento (PIX). Campo vazio = volta ao texto padrão. ----
+    if (action === "save-pix") {
+      const bot = requireBot(body.profileId);
+      saveBotConfig({
+        ...bot,
+        pixGeneratingMessage:
+          body.pixGeneratingMessage !== undefined
+            ? String(body.pixGeneratingMessage)
+            : bot.pixGeneratingMessage,
+        pixCaption: body.pixCaption !== undefined ? String(body.pixCaption) : bot.pixCaption,
+      });
+      return NextResponse.json({ ok: true });
+    }
+
+    // ---- Aprovação automática: o que o bot faz com cada pedido de entrada ----
+    if (action === "save-approval") {
+      const bot = requireBot(body.profileId);
+      saveBotConfig({
+        ...bot,
+        vipApprovalMode: toApprovalMode(body.vipApprovalMode, bot.vipApprovalMode),
+        previasApprovalMode: toApprovalMode(body.previasApprovalMode, bot.previasApprovalMode),
+      });
+      return NextResponse.json({ ok: true });
+    }
+
+    // ---- Trackeamento: substitui a lista inteira de links de divulgação ----
+    if (action === "save-source-links") {
+      const bot = requireBot(body.profileId);
+      const incoming = Array.isArray(body.links) ? body.links : [];
+      const existing = listSourceLinks(bot.id);
+      const keepIds = new Set<string>();
+      // Códigos e slugs são únicos: o banco recusaria o duplicado no meio do
+      // laço e deixaria a lista pela metade, então filtramos antes de gravar.
+      const usedCodes = new Set<string>();
+      const usedSlugs = new Set<string>();
+      for (const raw of incoming) {
+        const code = sanitizeSourceCode(String(raw.code || ""));
+        const name = String(raw.name || "").trim().slice(0, 80);
+        const slug = sanitizeSlug(String(raw.slug || ""));
+        if (!code || !name) continue;
+        if (usedCodes.has(code)) continue;
+        if (slug && usedSlugs.has(slug)) continue;
+        usedCodes.add(code);
+        if (slug) usedSlugs.add(slug);
+        const id = typeof raw.id === "string" && raw.id ? raw.id : randomUUID();
+        keepIds.add(id);
+        saveSourceLink({
+          id,
+          botId: bot.id,
+          profileId: bot.profileId,
+          code,
+          name,
+          slug: slug || undefined,
+          createdAt: Number(raw.createdAt) || Date.now(),
+        });
+      }
+      for (const old of existing) if (!keepIds.has(old.id)) deleteSourceLink(old.id);
+      const stats = sourceLinkStats(bot.profileId);
+      return NextResponse.json({
+        ok: true,
+        sourceLinks: listSourceLinks(bot.id).map((l) => ({
+          ...l,
+          stats: stats.get(l.code) || { starts: 0, pixGenerated: 0, pixPaid: 0, paidCents: 0 },
+        })),
+      });
     }
 
     // ---- Funis (downsell / upsell) — JSON de FunnelStep[] ----
@@ -384,6 +490,35 @@ export async function POST(req: NextRequest) {
           originProblem: problem,
         });
       }
+    }
+
+    // ---- Mídias que batem com as etiquetas de boas-vindas ----
+    // O bot SORTEIA uma delas a cada /start. Sem isto a tela era um campo de
+    // texto cego: você digitava "previa, quente" e não tinha como saber se
+    // existia mídia com aquela etiqueta, muito menos qual apareceria.
+    if (action === "welcome-media") {
+      const bot = requireBot(body.profileId);
+      const raw = typeof body.tags === "string" ? body.tags : bot.welcomeMediaTags || "";
+      const wanted = raw
+        .split(",")
+        .map((t: string) => t.trim().toLowerCase())
+        .filter(Boolean);
+      if (wanted.length === 0) return NextResponse.json({ ok: true, total: 0, items: [] });
+
+      // Mesmo casamento que o webhook faz na hora de enviar — se divergir, o
+      // preview mente.
+      const matches = listMedia(bot.profileId).filter((m) =>
+        m.tags.some((t) => wanted.includes(t.name.toLowerCase())),
+      );
+      return NextResponse.json({
+        ok: true,
+        total: matches.length,
+        items: matches.slice(0, 12).map((m) => ({
+          id: m.id,
+          kind: m.kind,
+          updatedAt: m.updatedAt || m.createdAt,
+        })),
+      });
     }
 
     // ---- Diagnóstico da base pública (a tela mostra mesmo com o bot

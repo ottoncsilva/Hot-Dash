@@ -27,25 +27,35 @@ import {
   unbanTelegramMember,
 } from "@/lib/telegramApi";
 import { overview } from "@/lib/transactions";
+import { resolvePublicOrigin, webhookOriginProblem } from "@/lib/publicOrigin";
 
 import { randomUUID } from "node:crypto";
 
-/** Base pública do app para montar a URL do webhook do Telegram. */
-function publicOrigin(req: NextRequest): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.WEBHOOK_APP_URL ||
-    req.nextUrl.origin
-  );
+/** URL que o Telegram deve chamar para este bot, e o diagnóstico da base. */
+function webhookUrlFor(req: NextRequest, botId: string) {
+  const { origin, source } = resolvePublicOrigin(req);
+  return {
+    url: `${origin}/api/webhooks/telegram/${botId}`,
+    origin,
+    originSource: source,
+    problem: webhookOriginProblem(origin),
+  };
 }
 
 /** Registra (ou re-registra) o webhook do bot apontando para o Hot-Dash.
- *  Nunca lança — devolve {ok,message} para a UI mostrar o status. */
+ *  Nunca lança — devolve {ok,message} para a UI mostrar o status.
+ *
+ *  Checa a base pública ANTES de falar com o Telegram: sem isso o operador
+ *  recebia só o eco cru da API ("bad webhook: IP address 0.0.0.0 is reserved"),
+ *  que não diz o que fazer. O problema nunca é o bot — é o app não saber o
+ *  próprio endereço público. */
 async function registerBotWebhook(
   req: NextRequest,
   botId: string,
   botToken: string,
-): Promise<{ ok: boolean; message?: string; username?: string }> {
+): Promise<{ ok: boolean; message?: string; username?: string; url?: string }> {
+  const { url, problem } = webhookUrlFor(req, botId);
+  if (problem) return { ok: false, message: problem, url };
   try {
     let username: string | undefined;
     try {
@@ -54,11 +64,14 @@ async function registerBotWebhook(
     } catch {
       // token inválido → o setWebhook abaixo também falha e reporta.
     }
-    const url = `${publicOrigin(req).replace(/\/+$/, "")}/api/webhooks/telegram/${botId}`;
     await setTelegramWebhook(botToken, url, telegramWebhookSecret(botId));
-    return { ok: true, username };
+    return { ok: true, username, url };
   } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : "Falha ao registrar webhook." };
+    return {
+      ok: false,
+      url,
+      message: e instanceof Error ? e.message : "Falha ao registrar webhook.",
+    };
   }
 }
 
@@ -345,16 +358,40 @@ export async function POST(req: NextRequest) {
     }
 
     // ---- Status do webhook (getWebhookInfo) ----
+    // Devolve TAMBÉM a URL que este app usaria e o problema da base pública,
+    // se houver: é o que deixa a tela explicar por que o registro falha, sem
+    // depender de o operador ler o log do container.
     if (action === "webhook-status") {
       const bot = requireBot(body.profileId);
+      const { url: expectedUrl, originSource, problem } = webhookUrlFor(req, bot.id);
       try {
         const info = await getTelegramWebhookInfo(bot.botToken);
-        const expectedUrl = `${publicOrigin(req).replace(/\/+$/, "")}/api/webhooks/telegram/${bot.id}`;
         const ok = Boolean(info.url) && info.url === expectedUrl;
-        return NextResponse.json({ ok: true, info, matches: ok, expectedUrl });
+        return NextResponse.json({
+          ok: true,
+          info,
+          matches: ok,
+          expectedUrl,
+          originSource,
+          originProblem: problem,
+        });
       } catch (e) {
-        return NextResponse.json({ ok: false, message: e instanceof Error ? e.message : "Falha ao consultar." });
+        return NextResponse.json({
+          ok: false,
+          message: e instanceof Error ? e.message : "Falha ao consultar.",
+          expectedUrl,
+          originSource,
+          originProblem: problem,
+        });
       }
+    }
+
+    // ---- Diagnóstico da base pública (a tela mostra mesmo com o bot
+    // desligado, para o operador conferir ANTES de tentar o cutover) ----
+    if (action === "webhook-origin") {
+      const bot = requireBot(body.profileId);
+      const { url, origin, originSource, problem } = webhookUrlFor(req, bot.id);
+      return NextResponse.json({ ok: true, url, origin, originSource, problem });
     }
 
     // ---- Ações manuais sobre uma assinatura ----

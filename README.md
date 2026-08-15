@@ -82,7 +82,8 @@ MEDIA_STORAGE_DIR=./data          # em produção: /app/data
 2. No EasyPanel, crie um **App** apontando para o repositório (branch `main`).
 3. Build type: **Dockerfile** (já incluso na raiz).
 4. Em **Environment**, adicione as variáveis do `.env.example`
-   (`AUTH_EMAIL`, `AUTH_PASSWORD`, `SESSION_SECRET`, `APP_ENCRYPTION_KEY`).
+   (`AUTH_EMAIL`, `AUTH_PASSWORD`, `SESSION_SECRET`, `APP_ENCRYPTION_KEY`,
+   `WEBHOOK_APP_URL`).
 5. Porta do container: **3000**.
 6. **Monte um volume persistente** apontando para `/app/data` (o banco SQLite e
    a mídia ficam aí — sem o volume, os dados somem a cada deploy).
@@ -90,6 +91,15 @@ MEDIA_STORAGE_DIR=./data          # em produção: /app/data
 
 > **Uploads grandes:** para vídeos grandes, aumente o limite de body do proxy
 > (Nginx/Traefik) no EasyPanel e a variável `NEXT_PUBLIC_MAX_UPLOAD_MB`.
+
+> **Bot de vendas — `WEBHOOK_APP_URL`:** defina com o domínio público do painel
+> (ex.: `https://painel.seudominio.com`). É a base das URLs de webhook do
+> Telegram e da SyncPay. Sem ela, o app rodando standalone no container resolve
+> o próprio endereço como `http://0.0.0.0:3000`, o Telegram recusa o registro
+> ("bad webhook: IP address 0.0.0.0 is reserved") e a operação do bot não liga.
+> Use `WEBHOOK_APP_URL` e **não** `NEXT_PUBLIC_APP_URL`: variáveis
+> `NEXT_PUBLIC_*` são embutidas no build, então configurá-la só no runtime do
+> EasyPanel não surte efeito.
 
 ## Instalar como app no iPhone
 

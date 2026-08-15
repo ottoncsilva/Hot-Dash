@@ -194,8 +194,25 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
   const [busy, setBusy] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [status, setStatus] = useState<{ matches?: boolean; url?: string; error?: string } | null>(null);
+  // Endereço público que este app usaria para receber os updates. Vale a
+  // consulta MESMO COM A OPERAÇÃO DESLIGADA: é o que deixa o operador ver que
+  // a base está errada antes de tentar ligar e tomar o erro cru do Telegram.
+  const [origin, setOrigin] = useState<{ url?: string; problem?: string | null } | null>(null);
 
   const active = bot.operationActive;
+
+  const checkOrigin = useCallback(async () => {
+    try {
+      const r = await apiSend<{ ok: boolean; url?: string; problem?: string | null }>(
+        "/api/telegram",
+        "POST",
+        { action: "webhook-origin", profileId },
+      );
+      setOrigin({ url: r.url, problem: r.problem });
+    } catch {
+      setOrigin(null);
+    }
+  }, [profileId]);
 
   const checkStatus = useCallback(async () => {
     try {
@@ -210,6 +227,10 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
       setStatus({ error: e instanceof Error ? e.message : "falha" });
     }
   }, [profileId]);
+
+  useEffect(() => {
+    checkOrigin();
+  }, [checkOrigin]);
 
   useEffect(() => {
     if (active) checkStatus();
@@ -229,6 +250,9 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
         onSaved();
       } else {
         showToast(r.message || "Falha ao alterar a operação.", "error");
+        // Falhou ao ligar → o motivo quase sempre é a base pública. Recarrega
+        // o diagnóstico para o card explicar o que fazer (o toast some).
+        await checkOrigin();
       }
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha.", "error");
@@ -246,7 +270,7 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
       });
       if (r.webhook.ok) showToast("Webhook reenviado ao Telegram.", "success");
       else showToast(r.webhook.message || "Falha ao registrar webhook.", "error");
-      await checkStatus();
+      await Promise.all([checkStatus(), checkOrigin()]);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha.", "error");
     } finally {
@@ -257,6 +281,17 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
   return (
     <div className="card p-4">
       <h2 className="font-display text-lg font-semibold">Operação do bot</h2>
+
+      {/* Base pública quebrada: o Telegram não tem como alcançar este app, e
+          ligar a operação vai falhar. Avisa ANTES, com o que fazer. */}
+      {origin?.problem && (
+        <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/[0.07] p-3.5">
+          <p className="text-sm font-semibold text-red-300">
+            Endereço público não configurado — o webhook não pode ser registrado
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-zinc-300">{origin.problem}</p>
+        </div>
+      )}
 
       {/* Liga/desliga da operação (cutover do sistema atual → Hot-Dash) */}
       <div
@@ -282,6 +317,19 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
         <Info label="Grupo VIP" value={bot.idVip || "—"} />
         <Info label="Grupo Prévias" value={bot.idAquecimento || "—"} />
       </div>
+      {origin?.url && (
+        <div className="mt-2 panel px-3 py-2">
+          <p className="eyebrow">URL do webhook (o Telegram chama este endereço)</p>
+          <p
+            className={`mt-0.5 break-all font-mono text-xs ${
+              origin.problem ? "text-red-300" : "text-zinc-200"
+            }`}
+          >
+            {origin.url}
+          </p>
+        </div>
+      )}
+
       <p className="mt-2 text-xs text-zinc-500">
         Token e IDs dos grupos VIP/Prévias vêm do <b>cadastro da modelo</b> (Modelos → editar). A
         postagem automática funciona independentemente deste liga/desliga.

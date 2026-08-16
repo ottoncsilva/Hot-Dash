@@ -679,6 +679,12 @@ function migrate(d: Database.Database) {
   // (`previews_welcome_message`), então nada muda para quem não mexer na tela.
   ensureColumn(d, "telegram_bots", "previas_welcome_funnel", "TEXT");
   ensureColumn(d, "telegram_bots", "vip_welcome_funnel", "TEXT");
+  // Reusar a MENSAGEM DE BOAS-VINDAS do /start ao aprovar alguém no grupo de
+  // prévias, em vez de reescrevê-la na sequência. É a mesma conversa: quem
+  // entra nas prévias precisa ver a mesma oferta de quem chega pelo /start,
+  // e manter as duas em sincronia à mão era garantia de divergirem.
+  ensureColumn(d, "telegram_bots", "previas_use_welcome", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(d, "telegram_bots", "vip_use_welcome", "INTEGER NOT NULL DEFAULT 0");
   // Terceiro gatilho da RECUPERAÇÃO: quem gerou PIX e não pagou. É um público
   // diferente do downsell geral — já escolheu o plano e chegou na tela de
   // pagamento, então merece outra conversa (e outro desconto).

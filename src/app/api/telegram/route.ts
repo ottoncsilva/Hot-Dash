@@ -391,6 +391,10 @@ export async function POST(req: NextRequest) {
           body.previewsWelcomeMessage !== undefined
             ? String(body.previewsWelcomeMessage)
             : bot.previewsWelcomeMessage,
+        previasUseWelcome:
+          body.previasUseWelcome !== undefined ? Boolean(body.previasUseWelcome) : bot.previasUseWelcome,
+        vipUseWelcome:
+          body.vipUseWelcome !== undefined ? Boolean(body.vipUseWelcome) : bot.vipUseWelcome,
       });
       return NextResponse.json({ ok: true });
     }
@@ -690,6 +694,10 @@ export async function POST(req: NextRequest) {
     // O bot SORTEIA uma delas a cada /start. Sem isto a tela era um campo de
     // texto cego: você digitava "previa, quente" e não tinha como saber se
     // existia mídia com aquela etiqueta, muito menos qual apareceria.
+    // NÃO É MAIS CHAMADA POR NENHUMA TELA: o campo de etiquetas saiu da
+    // interface e a mídia passou a ser escolhida a dedo. Fica de pé porque o
+    // envio ainda aceita etiquetas como legado, e é por aqui que dá para
+    // conferir o que elas casam sem abrir o banco.
     if (action === "welcome-media") {
       const bot = requireBot(body.profileId);
       const raw = typeof body.tags === "string" ? body.tags : bot.welcomeMediaTags || "";

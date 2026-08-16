@@ -21,13 +21,16 @@ import {
   IconUndo,
   IconChevronUp,
   IconChevronDown,
+  IconSettings,
 } from "@/components/icons";
+import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import SectionRow, { resumo } from "@/components/telegram/bot/SectionRow";
 import VarChips from "@/components/telegram/bot/VarChips";
-import BotPreview, { type PreviewStyle } from "@/components/telegram/bot/BotPreview";
+import BotPreview, { PreviewBalao, type PreviewStyle } from "@/components/telegram/bot/BotPreview";
 import FormatToolbar from "@/components/telegram/bot/FormatToolbar";
 import MediaPicker from "@/components/telegram/bot/MediaPicker";
+import MessageEditor, { VARS_PADRAO } from "@/components/telegram/bot/MessageEditor";
 import DetectChat from "@/components/telegram/bot/DetectChat";
 
 // ---- Tipos (espelham telegramDb.ts) ----
@@ -70,12 +73,18 @@ type Bot = {
   effectWelcome?: string;
   effectPix?: string;
   effectSuccess?: string;
+  previasUseWelcome?: boolean;
+  vipUseWelcome?: boolean;
 };
 /** Estilos globais dos botões (Configurações → cores). O preview usa os mesmos. */
 type ButtonStyles = Record<string, "" | "primary" | "success" | "danger">;
 type WelcomeStep = {
   delayMinutes: number;
   text: string;
+  /** Mídias escolhidas a dedo, na ordem de envio. */
+  mediaIds?: string[];
+  mediaMode?: "album" | "separate";
+  /** Etiquetas — legado. Saiu da tela, o envio ainda lê (lib/telegramSend.ts). */
   mediaTags?: string;
   buttons?: "none" | "plans";
 };
@@ -128,14 +137,20 @@ type Sub = {
   expiresAt: number;
   createdAt: number;
 };
-type Tag = { id: string; name: string; color: string };
 type FunnelStep = {
   delayMinutes: number;
   text: string;
   discountPercent?: number;
+  /** Mídias escolhidas a dedo, na ordem de envio. */
+  mediaIds?: string[];
+  mediaMode?: "album" | "separate";
+  /** Etiquetas — legado. Saiu da tela, o envio ainda lê (lib/telegramSend.ts). */
   mediaTags?: string;
   isLoop?: boolean;
 };
+
+/** Um botão como o preview desenha. Mesmo formato do BotPreview. */
+type Btn = { text: string; kind: "plan" | "custom" | "support"; style?: PreviewStyle };
 
 export default function BotVendasPage() {
   const { confirm, ConfirmDialog } = useConfirm();
@@ -147,7 +162,6 @@ export default function BotVendasPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [buttons, setButtons] = useState<CustomButton[]>([]);
   const [subs, setSubs] = useState<Sub[]>([]);
-  const [tags, setTags] = useState<Tag[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [pixDefaults, setPixDefaults] = useState<PixDefaults | null>(null);
   const [tab, setTab] = useState<TabKey>("config");
@@ -156,7 +170,6 @@ export default function BotVendasPage() {
   // que as edita: o preview à direita precisa acompanhar a digitação, e ele é
   // irmão do formulário, não filho.
   const [welcome, setWelcome] = useState("");
-  const [welcomeTags, setWelcomeTags] = useState("");
   const [welcomeIds, setWelcomeIds] = useState<string[]>([]);
   const [welcomeMode, setWelcomeMode] = useState<"album" | "separate">("album");
   // Efeitos de mensagem — editados aqui porque o preview precisa acompanhar.
@@ -177,7 +190,6 @@ export default function BotVendasPage() {
         plans: Plan[];
         customButtons: CustomButton[];
         subscriptions: Sub[];
-        availableTags: Tag[];
         metrics: Metrics;
         pixDefaults: PixDefaults;
       }>(`/api/telegram?profileId=${profileId}`);
@@ -185,11 +197,9 @@ export default function BotVendasPage() {
       setPlans(d.plans || []);
       setButtons(d.customButtons || []);
       setSubs(d.subscriptions || []);
-      setTags(d.availableTags || []);
       setMetrics(d.metrics || null);
       setPixDefaults(d.pixDefaults || null);
       setWelcome(d.bot?.welcomeMessage || "");
-      setWelcomeTags(d.bot?.welcomeMediaTags || "");
       setWelcomeIds(d.bot?.welcomeMediaIds || []);
       setWelcomeMode(d.bot?.welcomeMediaMode || "album");
       setEfeitoWelcome(d.bot?.effectWelcome || "");
@@ -300,11 +310,8 @@ export default function BotVendasPage() {
                   <WelcomeRow
                     profileId={profileId}
                     bot={bot}
-                    tags={tags}
                     welcome={welcome}
                     setWelcome={setWelcome}
-                    welcomeTags={welcomeTags}
-                    setWelcomeTags={setWelcomeTags}
                     mediaIds={welcomeIds}
                     setMediaIds={setWelcomeIds}
                     mode={welcomeMode}
@@ -317,23 +324,42 @@ export default function BotVendasPage() {
                   <PixRow profileId={profileId} bot={bot} pixDefaults={pixDefaults} onSaved={load} />
                   <ExtrasRow profileId={profileId} bot={bot} onSaved={load} />
                   <ButtonsCard profileId={profileId} buttons={buttons} onSaved={load} />
+                  {/* Preço dinâmico e cores valem para TODAS as modelos, então
+                      moram em Configurações. Só que é aqui que se procura por
+                      eles — daí o atalho, em vez de mais um lugar para editar
+                      a mesma coisa. */}
+                  <Link
+                    href="/dashboard/settings/bot"
+                    className="card flex items-center gap-3 p-4 transition-colors hover:border-white/20"
+                  >
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-300">
+                      <IconSettings size={18} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-zinc-100">
+                        Preço dinâmico e cores dos botões
+                      </span>
+                      <span className="block text-[11px] text-zinc-500">
+                        Em Configurações — valem para todas as modelos de uma vez.
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-zinc-500">›</span>
+                  </Link>
                 </>
               )}
               {tab === "planos" && <PlansCard profileId={profileId} plans={plans} onSaved={load} />}
               {tab === "recuperacao" && (
-                <FunnelCard profileId={profileId} bot={bot} tags={tags} onSaved={load} />
+                <FunnelCard profileId={profileId} bot={bot} planos={plans} onSaved={load} />
               )}
               {tab === "aprovacao" && (
-                <ApprovalCard profileId={profileId} bot={bot} tags={tags} onSaved={load} />
+                <ApprovalCard profileId={profileId} bot={bot} planos={previewButtons} onSaved={load} />
               )}
             </div>
 
             {mostraPreview && (
               <BotPreview
-                profileId={profileId}
                 botUsername={bot.botUsername}
                 welcomeMessage={welcome}
-                welcomeMediaTags={welcomeTags}
                 welcomeMediaIds={welcomeIds}
                 welcomeMediaMode={welcomeMode}
                 buttons={previewButtons}
@@ -684,11 +710,8 @@ function EfeitoPicker({
 function WelcomeRow({
   profileId,
   bot,
-  tags,
   welcome,
   setWelcome,
-  welcomeTags,
-  setWelcomeTags,
   mediaIds,
   setMediaIds,
   mode,
@@ -699,11 +722,8 @@ function WelcomeRow({
 }: {
   profileId: string;
   bot: Bot;
-  tags: Tag[];
   welcome: string;
   setWelcome: (v: string) => void;
-  welcomeTags: string;
-  setWelcomeTags: (v: string) => void;
   mediaIds: string[];
   setMediaIds: (v: string[]) => void;
   mode: "album" | "separate";
@@ -713,7 +733,6 @@ function WelcomeRow({
   onSaved: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const areaRef = useRef<HTMLTextAreaElement>(null);
 
   async function save() {
     setBusy(true);
@@ -722,7 +741,6 @@ function WelcomeRow({
         action: "save-bot-messages",
         profileId,
         welcomeMessage: welcome,
-        welcomeMediaTags: welcomeTags,
         welcomeMediaIds: mediaIds,
         welcomeMediaMode: mode,
         effectWelcome: efeito,
@@ -745,96 +763,23 @@ function WelcomeRow({
     >
       <label className="eyebrow block">Texto enviado no /start</label>
       <div className="mt-1.5">
-        <FormatToolbar targetRef={areaRef} onChange={setWelcome} />
+        <MessageEditor
+          profileId={profileId}
+          text={welcome}
+          onText={setWelcome}
+          mediaIds={mediaIds}
+          onMediaIds={setMediaIds}
+          mode={mode}
+          onMode={setMode}
+          vars={VARS_PADRAO}
+          placeholder="Oi meu amor... use {nome}"
+          minHeight={140}
+        />
       </div>
-      <textarea
-        ref={areaRef}
-        className="input min-h-[140px]"
-        value={welcome}
-        onChange={(e) => setWelcome(e.target.value)}
-      />
-      <VarChips
-        vars={[["{nome}", "primeiro nome do lead no Telegram"]]}
-        targetRef={areaRef}
-        onChange={setWelcome}
-      />
-
-      <label className="eyebrow mt-4 block">Mídias de abertura · até 10</label>
-      <p className="mb-1.5 mt-0.5 text-[11px] text-zinc-500">
-        Escolhidas a dedo, enviadas <b>sempre</b> nesta ordem. Deixe vazio para o bot sortear por
-        etiqueta (abaixo).
-      </p>
-      <MediaPicker profileId={profileId} selected={mediaIds} onChange={setMediaIds} />
-
-      {mediaIds.length > 1 && (
-        <div className="mt-3">
-          <label className="eyebrow block">Como enviar as {mediaIds.length} mídias</label>
-          <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
-            {(
-              [
-                ["album", "Agrupadas", "Um álbum único. Os botões vêm logo abaixo, numa mensagem própria — o Telegram não deixa colar botão em álbum."],
-                ["separate", "Separadas", "Uma mensagem por mídia. O texto e os botões vão na última."],
-              ] as const
-            ).map(([k, titulo, desc]) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setMode(k)}
-                className={`rounded-xl border p-3 text-left transition-colors ${
-                  mode === k
-                    ? "border-emerald-500/40 bg-emerald-500/[0.07]"
-                    : "border-white/10 bg-ink-850 hover:border-white/20"
-                }`}
-              >
-                <p className={`text-sm font-semibold ${mode === k ? "text-emerald-300" : "text-zinc-200"}`}>
-                  {titulo}
-                </p>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{desc}</p>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <label className="eyebrow mt-4 block">
-        Etiquetas da mídia de abertura {mediaIds.length > 0 && "(ignoradas — há mídias escolhidas acima)"}
-      </label>
-      <input
-        className="input mt-1.5"
-        placeholder="ex.: previa, quente"
-        value={welcomeTags}
-        onChange={(e) => setWelcomeTags(e.target.value)}
-      />
-      <p className="mt-1 text-[11px] text-zinc-500">
-        O bot sorteia <b>uma</b> mídia com essas etiquetas a cada /start. O preview ao lado mostra
-        de quais ele vai sortear.
-      </p>
-      {tags.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {tags.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => {
-                const atuais = welcomeTags.split(",").map((s) => s.trim()).filter(Boolean);
-                const ja = atuais.some((a) => a.toLowerCase() === t.name.toLowerCase());
-                setWelcomeTags(
-                  ja
-                    ? atuais.filter((a) => a.toLowerCase() !== t.name.toLowerCase()).join(", ")
-                    : [...atuais, t.name].join(", "),
-                );
-              }}
-              className={`rounded-md border px-1.5 py-0.5 text-[11px] transition-colors ${
-                welcomeTags.toLowerCase().includes(t.name.toLowerCase())
-                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
-                  : "border-white/10 bg-ink-850 text-zinc-400 hover:text-zinc-200"
-              }`}
-            >
-              {t.name}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* As ETIQUETAS saíram: a mídia da abertura é escolhida a dedo, sempre.
+          Sortear significava não saber o que o lead ia ver na primeira tela da
+          conversa. O sorteio continua funcionando para quem já tinha etiquetas
+          salvas (ver lib/telegramSend.ts), mas não se configura mais aqui. */}
 
       <EfeitoPicker valor={efeito} onChange={setEfeito} />
 
@@ -1654,12 +1599,13 @@ function parseFunnel(json?: string): FunnelStep[] {
 function FunnelCard({
   profileId,
   bot,
-  tags,
+  planos,
   onSaved,
 }: {
   profileId: string;
   bot: Bot;
-  tags: Tag[];
+  /** Os planos ativos, para cada passo mostrar o preço já com o desconto. */
+  planos: Plan[];
   onSaved: () => void;
 }) {
   const [downsell, setDownsell] = useState<FunnelStep[]>(parseFunnel(bot.downsellFunnel));
@@ -1711,7 +1657,8 @@ function FunnelCard({
         setAtivo={setOnDownsell}
         steps={downsell}
         setSteps={setDownsell}
-        tags={tags}
+        profileId={profileId}
+        planos={planos}
       />
 
       <FunilRetratil
@@ -1722,7 +1669,8 @@ function FunnelCard({
         setAtivo={setOnPix}
         steps={pixDownsell}
         setSteps={setPixDownsell}
-        tags={tags}
+        profileId={profileId}
+        planos={planos}
       />
 
       <FunilRetratil
@@ -1733,7 +1681,8 @@ function FunnelCard({
         setAtivo={setOnUpsell}
         steps={upsell}
         setSteps={setUpsell}
-        tags={tags}
+        profileId={profileId}
+        planos={planos}
       />
 
       <button onClick={save} disabled={busy} className="btn-primary mt-4">
@@ -1743,101 +1692,197 @@ function FunnelCard({
   );
 }
 
+/** Tempos oferecidos na Recuperação. Lista fechada porque digitar minutos
+ *  soltos convidava a "1440" quando a intenção era "1 dia". */
+const TEMPOS = [
+  { min: 5, label: "5 min" },
+  { min: 15, label: "15 min" },
+  { min: 30, label: "30 min" },
+  { min: 60, label: "1 hora" },
+  { min: 180, label: "3 horas" },
+  { min: 360, label: "6 horas" },
+  { min: 720, label: "12 horas" },
+  { min: 1440, label: "1 dia" },
+  { min: 2880, label: "2 dias" },
+  { min: 4320, label: "3 dias" },
+  { min: 10080, label: "7 dias" },
+];
+
+const DESCONTOS = [0, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70];
+
+/**
+ * Um passo da RECUPERAÇÃO.
+ *
+ * Mesmo editor das outras telas (texto, variáveis, mídia escolhida) mais o que
+ * só existe aqui: quando a mensagem sai, quanto de desconto ela leva, e a
+ * lista dos PLANOS ENVIADOS já com o desconto aplicado — porque o desconto é
+ * um número solto que só significa alguma coisa depois de virar preço, e
+ * conferir isso de cabeça a cada mudança é como se erra o valor da oferta.
+ */
 function FunnelEditor({
+  profileId,
   title,
   steps,
   setSteps,
-  tags,
+  planos,
 }: {
+  profileId: string;
   title: string;
   steps: FunnelStep[];
   setSteps: (s: FunnelStep[]) => void;
-  tags: Tag[];
+  planos: Plan[];
 }) {
   function update(i: number, patch: Partial<FunnelStep>) {
     setSteps(steps.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
   }
+
+  const ativos = planos.filter((p) => p.active !== false);
+
   return (
     <div className="mt-4 border-t border-white/10 pt-3">
-      <p className="eyebrow">{title}</p>
-      <div className="mt-2 space-y-2">
-        {steps.map((s, i) => (
-          <div key={i} className="panel p-2.5">
-            <div className="mb-2 flex items-center gap-2">
-              <span className="chip">Etapa {i + 1}</span>
-              <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  className="input w-20"
-                  value={s.delayMinutes}
-                  onChange={(e) => update(i, { delayMinutes: Number(e.target.value) })}
-                />
-                <span className="text-xs text-zinc-500">min de espera</span>
+      {title && <p className="eyebrow">{title}</p>}
+      <div className="mt-2 space-y-3">
+        {steps.map((s, i) => {
+          const desconto = s.discountPercent ?? 0;
+          return (
+            <div key={i} className="panel p-3">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className="chip">Mensagem {i + 1}</span>
+                <label className="flex items-center gap-1 text-[11px] text-zinc-400">
+                  <input
+                    type="checkbox"
+                    className="accent-white"
+                    checked={Boolean(s.isLoop)}
+                    onChange={(e) => update(i, { isLoop: e.target.checked })}
+                  />
+                  repetir (loop)
+                </label>
+                {/* Duplicar poupa refazer texto, mídia e desconto quando a
+                    mensagem seguinte é uma variação da anterior — que é o caso
+                    na maior parte das sequências de recuperação. */}
+                <button
+                  onClick={() => setSteps([...steps.slice(0, i + 1), { ...s }, ...steps.slice(i + 1)])}
+                  className="ml-auto rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/10 hover:text-white"
+                >
+                  Duplicar
+                </button>
+                <button
+                  onClick={() => setSteps(steps.filter((_, idx) => idx !== i))}
+                  className="rounded px-2 py-1 text-[11px] text-red-400 hover:bg-red-500/10"
+                >
+                  Excluir
+                </button>
               </div>
-              <label className="ml-auto flex items-center gap-1 text-[11px] text-zinc-400">
-                <input
-                  type="checkbox"
-                  className="accent-white"
-                  checked={Boolean(s.isLoop)}
-                  onChange={(e) => update(i, { isLoop: e.target.checked })}
-                />
-                repetir (loop)
-              </label>
-              {/* Duplicar poupa refazer texto, mídia e desconto quando a
-                  mensagem seguinte é uma variação da anterior — que é o caso
-                  na maior parte das sequências de recuperação. */}
-              <button
-                onClick={() => setSteps([...steps.slice(0, i + 1), { ...s }, ...steps.slice(i + 1)])}
-                className="rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/10 hover:text-white"
-              >
-                Duplicar
-              </button>
-              <button
-                onClick={() => setSteps(steps.filter((_, idx) => idx !== i))}
-                className="grid h-7 w-7 place-items-center rounded text-zinc-500 hover:bg-white/10 hover:text-red-400"
-                aria-label="Remover etapa"
-              >
-                <IconClose size={14} />
-              </button>
-            </div>
-            <textarea
-              className="input min-h-[64px]"
-              placeholder="Texto da mensagem"
-              value={s.text}
-              onChange={(e) => update(i, { text: e.target.value })}
-            />
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-1">
-                <span className="text-[11px] text-zinc-500">Desconto</span>
-                <input
-                  type="number"
-                  className="input w-16"
-                  value={s.discountPercent ?? 0}
-                  onChange={(e) => update(i, { discountPercent: Number(e.target.value) })}
-                />
-                <span className="text-[11px] text-zinc-500">%</span>
-              </div>
-              <input
-                className="input min-w-[140px] flex-1"
-                placeholder="Etiquetas da mídia (opcional)"
-                value={s.mediaTags ?? ""}
-                onChange={(e) => update(i, { mediaTags: e.target.value })}
+
+              <MessageEditor
+                profileId={profileId}
+                text={s.text}
+                onText={(v) => update(i, { text: v })}
+                mediaIds={s.mediaIds || []}
+                onMediaIds={(v) => update(i, { mediaIds: v })}
+                mode={s.mediaMode}
+                onMode={(v) => update(i, { mediaMode: v })}
+                vars={VARS_PADRAO}
+                placeholder="Texto da mensagem · use {nome}"
+                minHeight={90}
               />
+
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <div>
+                  <label className="eyebrow block">Tempo de espera</label>
+                  <select
+                    className="input mt-1 h-9 py-0 text-xs"
+                    value={String(s.delayMinutes ?? 60)}
+                    onChange={(e) => update(i, { delayMinutes: Number(e.target.value) })}
+                  >
+                    {/* Um valor salvo fora da lista (vindo de antes destes
+                        selects) continua aparecendo, em vez de ser trocado
+                        em silêncio pelo primeiro da lista. */}
+                    {!TEMPOS.some((t) => t.min === (s.delayMinutes ?? 60)) && (
+                      <option value={String(s.delayMinutes ?? 60)}>{s.delayMinutes} min</option>
+                    )}
+                    {TEMPOS.map((t) => (
+                      <option key={t.min} value={t.min}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="eyebrow block">Desconto</label>
+                  <select
+                    className="input mt-1 h-9 py-0 text-xs"
+                    value={String(desconto)}
+                    onChange={(e) => update(i, { discountPercent: Number(e.target.value) })}
+                  >
+                    {!DESCONTOS.includes(desconto) && (
+                      <option value={String(desconto)}>{desconto}%</option>
+                    )}
+                    {DESCONTOS.map((d) => (
+                      <option key={d} value={d}>
+                        {d === 0 ? "Sem desconto" : `${d}%`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {ativos.length > 0 && (
+                <div className="mt-3 rounded-xl border border-dashed border-white/10 p-2.5">
+                  <p className="eyebrow mb-1.5">Planos enviados</p>
+                  <div className="space-y-1">
+                    {ativos.map((p) => {
+                      const cheio = p.priceCents;
+                      const comDesconto =
+                        desconto > 0 ? Math.floor(cheio * (1 - desconto / 100)) : cheio;
+                      return (
+                        <div key={p.id} className="flex items-center justify-between gap-2 text-xs">
+                          <span className="min-w-0 truncate text-zinc-300">
+                            {desconto > 0 && <span className="text-amber-400">🔥 (-{desconto}%) </span>}
+                            {p.highlight === "green" && "⭐ "}
+                            {p.name}
+                          </span>
+                          <span className="shrink-0 font-mono">
+                            {desconto > 0 && (
+                              <span className="mr-1.5 text-zinc-600 line-through">
+                                {brl(cheio)}
+                              </span>
+                            )}
+                            <span className={desconto > 0 ? "text-emerald-400" : "text-zinc-300"}>
+                              {brl(comDesconto)}
+                            </span>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
+
       <button
-        onClick={() => setSteps([...steps, { delayMinutes: 60, text: "", discountPercent: 0 }])}
+        onClick={() =>
+          setSteps([...steps, { delayMinutes: steps.length === 0 ? 60 : 1440, text: "", discountPercent: 0 }])
+        }
         className="btn-ghost mt-2 text-sm"
       >
-        + Adicionar etapa
+        <IconPlus size={13} /> Adicionar mensagem
       </button>
-      {tags.length > 0 && (
-        <p className="mt-1 text-[11px] text-zinc-500">Etiquetas: {tags.map((t) => t.name).join(", ")}</p>
+      {ativos.length === 0 && (
+        <p className="mt-2 text-[11px] text-amber-400">
+          Nenhum plano ativo: estas mensagens sairiam sem botão de compra.
+        </p>
       )}
     </div>
   );
+}
+
+/** Centavos → R$ 0,00. */
+function brl(cents: number): string {
+  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 // ---------------------------------------------------------------------------
@@ -1946,18 +1991,22 @@ const MODOS: { key: ApprovalMode; label: string; desc: string }[] = [
 function ApprovalCard({
   profileId,
   bot,
-  tags,
+  planos,
   onSaved,
 }: {
   profileId: string;
   bot: Bot;
-  tags: Tag[];
+  /** Os botões dos planos, como o preview desenha — para a linha "usar a
+   *  mensagem de boas-vindas" mostrar exatamente o que vai ser enviado. */
+  planos: Btn[];
   onSaved: () => void;
 }) {
   const [vip, setVip] = useState<ApprovalMode>(bot.vipApprovalMode || "subscribers");
   const [previas, setPrevias] = useState<ApprovalMode>(bot.previasApprovalMode || "all");
   const [seqPrevias, setSeqPrevias] = useState<WelcomeStep[]>(parseSteps(bot.previasWelcomeFunnel));
   const [seqVip, setSeqVip] = useState<WelcomeStep[]>(parseSteps(bot.vipWelcomeFunnel));
+  const [usaPrevias, setUsaPrevias] = useState(Boolean(bot.previasUseWelcome));
+  const [usaVip, setUsaVip] = useState(Boolean(bot.vipUseWelcome));
   const [busy, setBusy] = useState(false);
 
   async function save() {
@@ -1970,6 +2019,8 @@ function ApprovalCard({
         previasApprovalMode: previas,
         previasWelcomeFunnel: seqPrevias,
         vipWelcomeFunnel: seqVip,
+        previasUseWelcome: usaPrevias,
+        vipUseWelcome: usaVip,
       });
       showToast("Aprovação salva.", "success");
       onSaved();
@@ -2003,16 +2054,28 @@ function ApprovalCard({
       />
 
       <WelcomeSequence
+        profileId={profileId}
         titulo="Boas-vindas ao entrar nas Prévias"
         steps={seqPrevias}
         setSteps={setSeqPrevias}
-        tags={tags}
+        usarBoasVindas={usaPrevias}
+        setUsarBoasVindas={setUsaPrevias}
+        boasVindas={bot.welcomeMessage}
+        boasVindasMedia={bot.welcomeMediaIds || []}
+        boasVindasModo={bot.welcomeMediaMode}
+        planos={planos}
       />
       <WelcomeSequence
+        profileId={profileId}
         titulo="Boas-vindas ao entrar no VIP"
         steps={seqVip}
         setSteps={setSeqVip}
-        tags={tags}
+        usarBoasVindas={usaVip}
+        setUsarBoasVindas={setUsaVip}
+        boasVindas={bot.welcomeMessage}
+        boasVindasMedia={bot.welcomeMediaIds || []}
+        boasVindasModo={bot.welcomeMediaMode}
+        planos={planos}
       />
 
       <p className="mt-4 rounded-lg border border-white/10 bg-ink-850 p-3 text-xs text-zinc-400">
@@ -2095,15 +2158,28 @@ const ATRASOS = [
  * minutos depois. Vazio = nada é enviado (a aprovação continua acontecendo).
  */
 function WelcomeSequence({
+  profileId,
   titulo,
   steps,
   setSteps,
-  tags,
+  usarBoasVindas,
+  setUsarBoasVindas,
+  boasVindas,
+  boasVindasMedia,
+  boasVindasModo,
+  planos,
 }: {
+  profileId: string;
   titulo: string;
   steps: WelcomeStep[];
   setSteps: (s: WelcomeStep[]) => void;
-  tags: Tag[];
+  usarBoasVindas: boolean;
+  setUsarBoasVindas: (v: boolean) => void;
+  /** O que a mensagem de boas-vindas tem hoje — para mostrar no preview. */
+  boasVindas: string;
+  boasVindasMedia: string[];
+  boasVindasModo: "album" | "separate";
+  planos: Btn[];
 }) {
   function update(i: number, patch: Partial<WelcomeStep>) {
     setSteps(steps.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
@@ -2118,11 +2194,49 @@ function WelcomeSequence({
         enviar nada.
       </p>
 
+      {/* REUSAR A MENSAGEM DE BOAS-VINDAS. É a mesma conversa: quem entra no
+          grupo precisa ver a mesma oferta de quem chega pelo /start. Manter as
+          duas em sincronia na mão era garantia de elas divergirem. */}
+      <div className="mt-2.5 rounded-xl border border-white/10 bg-ink-850 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-zinc-100">Usar a mensagem de boas-vindas</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+              Manda a MESMA mensagem do <code>/start</code> — texto, mídias e botões dos planos —
+              como primeira mensagem. Editar as boas-vindas muda as duas de uma vez.
+            </p>
+          </div>
+          <Switch
+            checked={usarBoasVindas}
+            onChange={setUsarBoasVindas}
+            ariaLabel="Usar a mensagem de boas-vindas"
+          />
+        </div>
+
+        {usarBoasVindas && (
+          <div className="mt-3">
+            <p className="eyebrow mb-1.5">O que vai ser enviado</p>
+            <PreviewBalao
+              mediaIds={boasVindasMedia}
+              mode={boasVindasModo}
+              text={boasVindas}
+              buttons={planos}
+              vazio="(mensagem de boas-vindas vazia)"
+            />
+            <p className="mt-1.5 text-[11px] text-zinc-500">
+              As mensagens abaixo continuam valendo e saem <b>depois</b> desta.
+            </p>
+          </div>
+        )}
+      </div>
+
       <div className="mt-2 space-y-2">
         {steps.map((s, i) => (
           <div key={i} className="panel p-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="chip">Mensagem {i + 1}</span>
+              <span className="chip">
+                Mensagem {usarBoasVindas ? i + 2 : i + 1}
+              </span>
               <select
                 className="input h-8 w-auto py-0 text-xs"
                 value={String(s.delayMinutes ?? 0)}
@@ -2143,32 +2257,34 @@ function WelcomeSequence({
                 <option value="plans">Com os planos</option>
               </select>
               <button
+                onClick={() => setSteps([...steps.slice(0, i + 1), { ...s }, ...steps.slice(i + 1)])}
+                className="ml-auto rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/10 hover:text-white"
+              >
+                Duplicar
+              </button>
+              <button
                 onClick={() => setSteps(steps.filter((_, idx) => idx !== i))}
-                className="ml-auto grid h-7 w-7 place-items-center rounded text-zinc-500 hover:bg-white/10 hover:text-red-400"
+                className="grid h-7 w-7 place-items-center rounded text-zinc-500 hover:bg-white/10 hover:text-red-400"
                 aria-label="Remover mensagem"
               >
                 <IconClose size={14} />
               </button>
             </div>
 
-            <textarea
-              className="input mt-2 min-h-[70px]"
-              placeholder="Texto da mensagem · use {nome}"
-              value={s.text}
-              onChange={(e) => update(i, { text: e.target.value })}
-            />
-
-            <input
-              className="input mt-2 text-xs"
-              placeholder="Etiquetas da mídia (opcional) — ex.: previa, quente"
-              value={s.mediaTags || ""}
-              onChange={(e) => update(i, { mediaTags: e.target.value })}
-            />
-            {tags.length > 0 && (
-              <p className="mt-1 text-[11px] text-zinc-500">
-                Disponíveis: {tags.map((t) => t.name).join(", ")}
-              </p>
-            )}
+            <div className="mt-2">
+              <MessageEditor
+                profileId={profileId}
+                text={s.text}
+                onText={(v) => update(i, { text: v })}
+                mediaIds={s.mediaIds || []}
+                onMediaIds={(v) => update(i, { mediaIds: v })}
+                mode={s.mediaMode}
+                onMode={(v) => update(i, { mediaMode: v })}
+                vars={VARS_PADRAO}
+                placeholder="Texto da mensagem · use {nome}"
+                minHeight={80}
+              />
+            </div>
           </div>
         ))}
       </div>
@@ -2402,7 +2518,8 @@ function FunilRetratil({
   setAtivo,
   steps,
   setSteps,
-  tags,
+  profileId,
+  planos,
 }: {
   titulo: string;
   resumo: string;
@@ -2411,7 +2528,8 @@ function FunilRetratil({
   setAtivo: (v: boolean) => void;
   steps: FunnelStep[];
   setSteps: (s: FunnelStep[]) => void;
-  tags: Tag[];
+  profileId: string;
+  planos: Plan[];
 }) {
   const [aberto, setAberto] = useState(false);
 
@@ -2453,7 +2571,7 @@ function FunilRetratil({
             {aviso}
           </p>
           <div className="mt-1">
-            <FunnelEditor title="" steps={steps} setSteps={setSteps} tags={tags} />
+            <FunnelEditor title="" profileId={profileId} steps={steps} setSteps={setSteps} planos={planos} />
           </div>
         </div>
       )}

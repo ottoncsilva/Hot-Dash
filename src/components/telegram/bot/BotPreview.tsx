@@ -1,22 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { apiSend } from "@/lib/api";
-
 /**
  * PREVIEW AO VIVO do /start: o que o lead vê ao abrir a conversa com o bot.
  *
- * O ponto cego que isto fecha é a MÍDIA. As mensagens dá para reler no próprio
- * campo, mas a mídia de boas-vindas é escolhida por ETIQUETA e sorteada na
- * hora do envio — você escrevia "previa, quente" e não tinha como saber se
- * existia alguma mídia com aquela etiqueta, quantas eram, nem o que apareceria.
- * Um erro de digitação na etiqueta virava um /start sem foto nenhuma, e só o
- * lead descobria.
+ * Mostra as três coisas que decidem se a abertura funciona e que, separadas,
+ * ninguém confere de cabeça: as MÍDIAS na ordem em que vão sair, o TEXTO como
+ * ele vai chegar e os BOTÕES nas CORES REAIS — a cor do plano quando ele tem
+ * uma, e o estilo configurado em Configurações quando não tem, que é
+ * exatamente a regra do envio.
  *
- * A consulta usa o MESMO casamento de etiquetas que o webhook faz na hora de
- * enviar (rota `welcome-media`) — se divergisse, o preview mentiria.
+ * O sorteio por etiqueta saiu daqui junto com o campo que o alimentava. O
+ * preview de um sorteio só podia mostrar o conjunto de onde ele sortearia —
+ * ou seja, nunca a mensagem de verdade.
  */
-type PreviewMedia = { id: string; kind: "image" | "video"; updatedAt: number };
 /** O estilo é o MESMO que vai para o Telegram (Bot API 9.4). */
 export type PreviewStyle = "" | "primary" | "success" | "danger";
 type Btn = { text: string; kind: "plan" | "custom" | "support"; style?: PreviewStyle };
@@ -45,60 +41,23 @@ const EFEITO_EMOJI: Record<string, string> = {
 };
 
 export default function BotPreview({
-  profileId,
   botUsername,
   welcomeMessage,
-  welcomeMediaTags,
   welcomeMediaIds,
   welcomeMediaMode,
   buttons,
   effect,
 }: {
-  profileId: string;
   botUsername?: string;
   welcomeMessage: string;
-  welcomeMediaTags: string;
-  /** Mídias escolhidas a dedo. Quando há alguma, o bot ignora as etiquetas. */
+  /** Mídias escolhidas a dedo, na ordem de envio. */
   welcomeMediaIds?: string[];
   welcomeMediaMode?: "album" | "separate";
   buttons: Btn[];
   /** Chave do efeito de mensagem aplicado ao /start. */
   effect?: string;
 }) {
-  const [media, setMedia] = useState<PreviewMedia[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
-
-  const explicitas = welcomeMediaIds && welcomeMediaIds.length > 0;
-
-  const load = useCallback(async () => {
-    if (!profileId || explicitas) return;
-    setLoading(true);
-    try {
-      const r = await apiSend<{ ok: boolean; total: number; items: PreviewMedia[] }>(
-        "/api/telegram",
-        "POST",
-        { action: "welcome-media", profileId, tags: welcomeMediaTags },
-      );
-      setMedia(r.items || []);
-      setTotal(r.total || 0);
-    } catch {
-      setMedia([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [profileId, welcomeMediaTags, explicitas]);
-
-  // Espera o operador parar de digitar antes de consultar: o campo de
-  // etiquetas dispararia uma requisição por tecla.
-  useEffect(() => {
-    const t = setTimeout(load, 400);
-    return () => clearTimeout(t);
-  }, [load]);
-
-  const texto = (welcomeMessage || "").replace(/{nome}/gi, "Otton");
-  const semEtiquetas = !welcomeMediaTags.trim();
+  const ids = welcomeMediaIds || [];
 
   return (
     <div className="card sticky top-4 overflow-hidden">
@@ -120,104 +79,116 @@ export default function BotPreview({
           /start
         </p>
 
-        {/* Duas fontes possíveis de mídia, e a explícita manda. Com etiquetas,
-            mostramos TODAS as candidatas: o que importa para conferir a
-            configuração é o conjunto de onde o bot vai sortear. */}
-        {explicitas ? (
-          <>
-            <div
-              className={`grid gap-1 overflow-hidden rounded-lg ${
-                welcomeMediaIds!.length > 1 ? "grid-cols-2" : "grid-cols-1"
-              }`}
-            >
-              {welcomeMediaIds!.slice(0, 4).map((id, i) => (
-                <div key={id} className="relative aspect-[3/4] bg-ink-850">
-                  <img src={`/api/media/${id}/thumbnail`} alt="" className="h-full w-full object-cover" />
-                  <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1 text-[10px] text-white">
-                    {i + 1}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <p className="text-center text-[11px] text-zinc-500">
-              {welcomeMediaIds!.length} mídia(s) fixa(s) ·{" "}
-              {welcomeMediaMode === "separate" ? "uma mensagem por mídia" : "álbum único"}
-              {welcomeMediaIds!.length > 4 && " · mostrando as 4 primeiras"}
-            </p>
-          </>
-        ) : semEtiquetas ? (
+        {ids.length === 0 && (
           <p className="rounded-lg border border-dashed border-white/10 p-3 text-center text-[11px] text-zinc-500">
-            Sem etiquetas de mídia: o /start sai só com o texto.
+            Sem mídia escolhida: o /start sai só com o texto.
           </p>
-        ) : loading ? (
-          <div className="grid h-24 place-items-center">
-            <div className="h-5 w-5 animate-spin rounded-full border border-white/15 border-t-white" />
-          </div>
-        ) : total === 0 ? (
-          <p className="rounded-lg border border-red-500/30 bg-red-500/[0.07] p-3 text-center text-[11px] text-red-300">
-            Nenhuma mídia com {welcomeMediaTags.trim()}. O /start vai sair sem foto — confira as
-            etiquetas na Galeria.
-          </p>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 gap-1 overflow-hidden rounded-lg">
-              {media.slice(0, 4).map((m) => (
-                <div key={m.id} className="relative aspect-[3/4] bg-ink-850">
-                  {/* A rota de miniatura é a mesma que a Galeria usa: serve o
-                      pôster do vídeo e a versão leve da imagem. */}
-                  <img
-                    src={`/api/media/${m.id}/thumbnail?v=${m.updatedAt}`}
-                    alt=""
-                    className="h-full w-full object-cover"
-                  />
-                  {m.kind === "video" && (
-                    <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1 text-[10px] text-white">
-                      vídeo
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-            <p className="text-center text-[11px] text-zinc-500">
-              {total} mídia(s) com essas etiquetas — o bot sorteia <b>uma</b> a cada /start.
-            </p>
-          </>
         )}
 
-        {/* Balão da mensagem. `whitespace-pre-wrap` porque a quebra de linha do
-            campo é a mesma que o Telegram mostra. */}
-        <div className="relative rounded-2xl rounded-tl-sm bg-sky-950/50 p-3">
-          {EFEITO_EMOJI[effect || ""] && (
-            <span
-              className="absolute -right-1 -top-2 rounded-full border border-white/10 bg-ink-850 px-1.5 py-0.5 text-[11px]"
-              title="Efeito de mensagem: a animação roda quando a mensagem chega (só no privado)"
-            >
-              {EFEITO_EMOJI[effect || ""]}
-            </span>
-          )}
-          <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-zinc-100">
-            {texto || <span className="text-zinc-500">(mensagem de boas-vindas vazia)</span>}
-          </p>
-        </div>
+        <PreviewBalao
+          mediaIds={ids}
+          mode={welcomeMediaMode}
+          text={welcomeMessage}
+          buttons={buttons}
+          effect={effect}
+          vazio="(mensagem de boas-vindas vazia)"
+        />
 
-        {buttons.length > 0 && (
-          <div className="space-y-1">
-            {buttons.map((b, i) => (
-              <div
-                key={`${b.kind}-${i}`}
-                className={`rounded-lg border px-3 py-2 text-center text-[12px] ${CORES[b.style || ""] || CORES[""]}`}
-              >
-                {b.text}
-              </div>
-            ))}
-          </div>
-        )}
         {buttons.length === 0 && (
           <p className="rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-2.5 text-center text-[11px] text-amber-300">
             Nenhum botão: sem plano cadastrado, o lead recebe a mensagem e não tem como comprar.
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * UM balão — mídias, texto e botões.
+ *
+ * Vive separado porque a Recuperação e as sequências de aprovação mostram a
+ * mesma coisa passo a passo: uma mensagem só. Se cada tela desenhasse o seu
+ * próprio balão, "ver como fica" significaria coisas diferentes em cada uma.
+ */
+export function PreviewBalao({
+  mediaIds,
+  mode,
+  text,
+  buttons,
+  effect,
+  vazio = "(mensagem vazia)",
+}: {
+  mediaIds: string[];
+  mode?: "album" | "separate";
+  text: string;
+  buttons: Btn[];
+  effect?: string;
+  vazio?: string;
+}) {
+  // Separadas = o texto e os botões vão na ÚLTIMA mídia; em álbum eles vêm
+  // numa mensagem própria logo abaixo. É diferença que o lead enxerga, não só
+  // detalhe de como o servidor envia.
+  const separadas = mode === "separate" && mediaIds.length > 1;
+  const texto = (text || "").replace(/{nome}/gi, "Otton");
+
+  return (
+    <div className="space-y-2">
+      {mediaIds.length > 0 && (
+        <>
+          <div
+            className={`grid gap-1 overflow-hidden rounded-lg ${
+              mediaIds.length > 1 && !separadas ? "grid-cols-2" : "grid-cols-1"
+            }`}
+          >
+            {mediaIds.slice(0, 6).map((id, i) => (
+              <div key={id} className="relative aspect-[3/4] bg-ink-850">
+                <img src={`/api/media/${id}/thumbnail`} alt="" className="h-full w-full object-cover" />
+                <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1 text-[10px] text-white">
+                  {i + 1}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="text-center text-[11px] text-zinc-500">
+            {mediaIds.length} mídia(s) ·{" "}
+            {separadas
+              ? "uma mensagem por mídia"
+              : mediaIds.length > 1
+                ? "álbum único"
+                : "mensagem única"}
+          </p>
+        </>
+      )}
+
+      <div className="relative rounded-2xl rounded-tl-sm bg-sky-950/50 p-3">
+        {EFEITO_EMOJI[effect || ""] && (
+          <span
+            className="absolute -right-1 -top-2 rounded-full border border-white/10 bg-ink-850 px-1.5 py-0.5 text-[11px]"
+            title="Efeito de mensagem: a animação roda quando a mensagem chega (só no privado)"
+          >
+            {EFEITO_EMOJI[effect || ""]}
+          </span>
+        )}
+        {/* `whitespace-pre-wrap` porque a quebra de linha do campo é a mesma
+            que o Telegram mostra. */}
+        <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-zinc-100">
+          {texto || <span className="text-zinc-500">{vazio}</span>}
+        </p>
+      </div>
+
+      {buttons.length > 0 && (
+        <div className="space-y-1">
+          {buttons.map((b, i) => (
+            <div
+              key={`${b.kind}-${i}`}
+              className={`rounded-lg border px-3 py-2 text-center text-[12px] ${CORES[b.style || ""] || CORES[""]}`}
+            >
+              {b.text}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

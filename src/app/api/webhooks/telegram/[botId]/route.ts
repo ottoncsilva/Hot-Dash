@@ -12,6 +12,7 @@ import { recordTransaction, overview } from "@/lib/transactions";
 import { ensureSyncpayWebhookShortToken, applyDynamicPrice, buttonStyleProps, planButtonStyleProps } from "@/lib/settings";
 import { publicOrigin } from "@/lib/publicOrigin";
 import { botaoCopiar, efeitoProps } from "@/lib/telegramEffects";
+import { enviarMensagemDoBot } from "@/lib/telegramSend";
 import { randomUUID } from "node:crypto";
 
 export const runtime = "nodejs";
@@ -212,69 +213,21 @@ export async function POST(
         // Personaliza a mensagem substituindo o placeholder do nome
         const welcomeText = bot.welcomeMessage.replace(/{nome}/gi, from.first_name || "linda(o)");
 
-        // A abertura tem dois modos, e a LISTA EXPLÍCITA manda quando existe:
-        //   • ids escolhidos a dedo → manda todos, na ordem, como álbum ou uma
-        //     mensagem por mídia;
-        //   • só etiquetas → sorteia UMA (o comportamento de sempre).
-        const escolhidas = (bot.welcomeMediaIds || [])
-          .map((id) => getMediaRow(id))
-          .filter((r): r is NonNullable<typeof r> => Boolean(r));
-
-        let sentWithMedia = false;
-        if (escolhidas.length > 0) {
-          const caminhos = escolhidas.map((r) => r.path);
-          if (bot.welcomeMediaMode === "separate" || caminhos.length === 1) {
-            // Uma mensagem por mídia. A legenda e os botões vão na ÚLTIMA,
-            // para o texto ficar logo acima do teclado.
-            for (let i = 0; i < caminhos.length; i++) {
-              const ultima = i === caminhos.length - 1;
-              await sendTelegramMedia(
-                bot.botToken,
-                String(chat.id),
-                caminhos[i],
-                ultima ? welcomeText : undefined,
-                ultima ? { reply_markup: replyMarkup } : {},
-              );
-            }
-          } else {
-            // Álbum: o sendMediaGroup NÃO aceita botões, então eles vêm numa
-            // mensagem própria depois — e a legenda vai junto dela, senão o
-            // texto ficaria espremido embaixo do álbum, longe dos botões.
-            await sendTelegramMediaGroup(bot.botToken, String(chat.id), caminhos);
-            await sendTelegramMessage(bot.botToken, String(chat.id), welcomeText, {
-              reply_markup: replyMarkup,
-              ...efeitoProps(bot.effectWelcome),
-            });
-          }
-          sentWithMedia = true;
-        } else if (bot.welcomeMediaTags) {
-          const tagsArray = bot.welcomeMediaTags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
-          if (tagsArray.length > 0) {
-            const allMedia = listMedia(bot.profileId);
-            const candidates = allMedia.filter(m => m.tags.some(t => tagsArray.includes(t.name.toLowerCase())));
-            if (candidates.length > 0) {
-              const randomMedia = candidates[Math.floor(Math.random() * candidates.length)];
-              const row = getMediaRow(randomMedia.id);
-              if (row) {
-                await sendTelegramMedia(bot.botToken, String(chat.id), row.path, welcomeText, {
-                  reply_markup: replyMarkup,
-                });
-                sentWithMedia = true;
-              }
-            }
-          }
-        }
-
-        if (!sentWithMedia) {
-          // O efeito acompanha a MENSAGEM DE TEXTO. Nos caminhos com mídia ele
-          // fica de fora de propósito: o envio de mídia é multipart e não tem
-          // o mesmo reenvio-sem-efeito de segurança, e uma foto que não chega
-          // é pior que uma animação que não roda.
-          await sendTelegramMessage(bot.botToken, String(chat.id), welcomeText, {
-            reply_markup: replyMarkup,
-            ...efeitoProps(bot.effectWelcome),
-          });
-        }
+        // A abertura sai pelo MESMO caminho de envio que a Recuperação e as
+        // sequências de aprovação (lib/telegramSend.ts): mídias escolhidas a
+        // dedo, em álbum ou uma por mensagem. As etiquetas continuam sendo
+        // aceitas ali dentro, como legado, para quem já as tinha salvas.
+        await enviarMensagemDoBot({
+          botToken: bot.botToken,
+          chatId: String(chat.id),
+          profileId: bot.profileId,
+          text: welcomeText,
+          mediaIds: bot.welcomeMediaIds,
+          mode: bot.welcomeMediaMode,
+          mediaTags: bot.welcomeMediaTags,
+          replyMarkup,
+          extra: efeitoProps(bot.effectWelcome),
+        });
       }
     }
 

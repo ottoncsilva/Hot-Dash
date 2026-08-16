@@ -30,6 +30,17 @@ type TelegramUser = {
 };
 
 type Stats = { total: number; vips: number; expirados: number; leads: number; bloqueados: number };
+/** Assinatura paga. Vem do mesmo bot, e agora mora nesta tela — antes era uma
+ *  aba separada em "Bot de vendas", o que obrigava a pular de tela para ver
+ *  quem é lead e quem é assinante. */
+type Sub = {
+  id: string;
+  telegramUserId: number;
+  telegramUsername?: string;
+  status: "pending" | "active" | "expired" | "blocked";
+  expiresAt: number;
+  createdAt: number;
+};
 type Filter = "todos" | "vips" | "expirados" | "leads" | "bloqueados";
 
 const FILTERS: { value: Filter; label: string }[] = [
@@ -73,6 +84,7 @@ export default function TelegramUsuariosPage() {
   const [users, setUsers] = useState<TelegramUser[]>([]);
   const [total, setTotal] = useState(0);
   const [stats, setStats] = useState<Stats>({ total: 0, vips: 0, expirados: 0, leads: 0, bloqueados: 0 });
+  const [subs, setSubs] = useState<Sub[]>([]);
 
   const [filter, setFilter] = useState<Filter>("todos");
   const [searchInput, setSearchInput] = useState("");
@@ -104,6 +116,14 @@ export default function TelegramUsuariosPage() {
       setUsers(d.users || []);
       setTotal(d.total || 0);
       setStats(d.stats);
+      // Assinaturas vêm da rota do bot: a lista de usuários e a de assinantes
+      // se completam (quem pagou vs. quem só apareceu), e agora dividem a tela.
+      try {
+        const a = await apiGet<{ subscriptions: Sub[] }>(`/api/telegram?profileId=${profileId}`);
+        setSubs(a.subscriptions || []);
+      } catch {
+        setSubs([]);
+      }
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha ao carregar.", "error");
     } finally {
@@ -161,6 +181,12 @@ export default function TelegramUsuariosPage() {
         <div className="card p-6 text-center text-sm text-zinc-400">
           Este modelo ainda não tem o bot configurado. Vá em <b>Modelos → editar a modelo → Bot do
           Telegram</b> e informe o token e os IDs dos grupos.
+        </div>
+      )}
+
+      {bot && subs.length > 0 && (
+        <div className="mb-3">
+          <SubscribersCard subs={subs} onAction={load} confirm={confirm} />
         </div>
       )}
 
@@ -375,5 +401,98 @@ function SendMessageModal({ user, onClose }: { user: TelegramUser | null; onClos
         </button>
       </div>
     </Modal>
+  );
+}
+// ---------------------------------------------------------------------------
+function SubscribersCard({
+  subs,
+  onAction,
+  confirm,
+}: {
+  subs: Sub[];
+  onAction: () => void;
+  confirm: (opts: { title: string; message: string }) => Promise<boolean>;
+}) {
+  const [busyId, setBusyId] = useState<string>("");
+
+  async function act(sub: Sub, action: "sub-resend-link" | "sub-extend" | "sub-kick", extra?: Record<string, unknown>) {
+    setBusyId(sub.id + action);
+    try {
+      await apiSend("/api/telegram", "POST", { action, subscriptionId: sub.id, ...extra });
+      showToast("Feito.", "success");
+      onAction();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha.", "error");
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  const label = (s: Sub["status"]) =>
+    ({ pending: "pendente", active: "ativo", expired: "expirado", blocked: "bloqueado" }[s]);
+  const color = (s: Sub["status"]) =>
+    ({ pending: "text-amber-400", active: "text-emerald-400", expired: "text-zinc-500", blocked: "text-red-400" }[s]);
+
+  const active = subs.filter((s) => s.status === "active").length;
+
+  return (
+    <div className="card p-4">
+      <div className="flex items-center justify-between">
+        <h2 className="font-display text-lg font-semibold">Assinantes</h2>
+        <span className="chip">{active} ativo(s) · {subs.length} total</span>
+      </div>
+      {subs.length === 0 ? (
+        <p className="mt-3 text-sm text-zinc-500">Nenhum assinante ainda.</p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {subs.map((s) => (
+            <div key={s.id} className="flex flex-wrap items-center gap-2 panel p-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm text-zinc-200">
+                  {s.telegramUsername ? `@${s.telegramUsername}` : `ID ${s.telegramUserId}`}
+                </p>
+                <p className="font-mono text-[11px] text-zinc-500">
+                  <span className={color(s.status)}>{label(s.status)}</span>
+                  {s.status === "active" && s.expiresAt > 0
+                    ? ` · vence ${new Date(s.expiresAt).toLocaleDateString("pt-BR")}`
+                    : ""}
+                </p>
+              </div>
+              <button
+                onClick={() => act(s, "sub-resend-link")}
+                disabled={Boolean(busyId)}
+                className="btn-ghost px-2.5 py-1.5 text-xs"
+              >
+                Reenviar link
+              </button>
+              <button
+                onClick={() => act(s, "sub-extend", { days: 30 })}
+                disabled={Boolean(busyId)}
+                className="btn-ghost px-2.5 py-1.5 text-xs"
+              >
+                +30 dias
+              </button>
+              <button
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: "Expulsar do VIP",
+                    message: `Remover ${s.telegramUsername ? "@" + s.telegramUsername : s.telegramUserId} do grupo VIP agora?`,
+                  });
+                  if (ok) act(s, "sub-kick");
+                }}
+                disabled={Boolean(busyId)}
+                className="rounded-lg px-2.5 py-1.5 text-xs text-red-300 hover:bg-red-500/10"
+              >
+                Expulsar
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="mt-2 text-[11px] text-zinc-600">
+        A expiração é automática (o VIP vencido é removido e reconduzido às prévias). Use as ações
+        acima para casos manuais.
+      </p>
+    </div>
   );
 }

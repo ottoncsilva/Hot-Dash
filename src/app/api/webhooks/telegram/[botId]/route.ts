@@ -8,7 +8,7 @@ import QRCode from "qrcode";
 import { listMedia, getMediaRow } from "@/lib/media";
 import { activeProvider } from "@/lib/payments";
 import { recordTransaction, overview } from "@/lib/transactions";
-import { ensureSyncpayWebhookShortToken } from "@/lib/settings";
+import { ensureSyncpayWebhookShortToken, applyDynamicPrice, buttonStyleProps } from "@/lib/settings";
 import { publicOrigin } from "@/lib/publicOrigin";
 import { randomUUID } from "node:crypto";
 
@@ -182,6 +182,7 @@ export async function POST(
               {
                 text: `${plan.name} - ${priceStr}`,
                 callback_data: `buy_plan_${plan.id}`,
+                ...buttonStyleProps("plans"),
               },
             ]);
           });
@@ -190,7 +191,7 @@ export async function POST(
         // Botões Personalizados
         if (customButtons.length > 0) {
           customButtons.forEach((btn) => {
-            inlineKeyboard.push([{ text: btn.text, url: btn.url }]);
+            inlineKeyboard.push([{ text: btn.text, url: btn.url, ...buttonStyleProps("redirect") }]);
           });
         }
 
@@ -199,7 +200,7 @@ export async function POST(
           const supportUrl = bot.supportUsername.startsWith("http")
             ? bot.supportUsername
             : `https://t.me/${bot.supportUsername.replace("@", "")}`;
-          inlineKeyboard.push([{ text: "💬 Suporte / Dúvidas", url: supportUrl }]);
+          inlineKeyboard.push([{ text: "💬 Suporte / Dúvidas", url: supportUrl, ...buttonStyleProps("redirect") }]);
         }
 
         const replyMarkup = inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : undefined;
@@ -331,7 +332,11 @@ export async function POST(
             chatId,
             bot.successMessage.replace(/{link_vip}/gi, sub.inviteLink),
             botaoTexto
-              ? { reply_markup: { inline_keyboard: [[{ text: botaoTexto, url: sub.inviteLink }]] } }
+              ? {
+                  reply_markup: {
+                    inline_keyboard: [[{ text: botaoTexto, url: sub.inviteLink, ...buttonStyleProps("access") }]],
+                  },
+                }
               : {},
           );
         } else {
@@ -408,6 +413,11 @@ export async function POST(
         if (discountPercent > 0 && discountPercent <= 100) {
           amountCents = Math.floor(amountCents * (1 - discountPercent / 100));
         }
+        // PREÇO DINÂMICO: centavos derivados do ID do Telegram. Determinístico,
+        // então o mesmo lead sempre paga o mesmo valor — é isso que permite
+        // casar um PIX recebido com quem devia pagá-lo. Aplicado DEPOIS do
+        // desconto, senão o desconto percentual apagaria a variação.
+        amountCents = applyDynamicPrice(amountCents, from.id);
         // Usa o token gerenciado (o mesmo mostrado na UI e aceito pelo webhook),
         // não o SESSION_SECRET — assim a confirmação autentica mesmo sem a env.
         // E usa a origem PÚBLICA: atrás de proxy/EasyPanel, req.nextUrl.origin
@@ -527,9 +537,9 @@ export async function POST(
         await sendTelegramMessage(bot.botToken, String(message.chat.id), pixCaption, {
           reply_markup: {
             inline_keyboard: [
-              [{ text: btn(bot.pixBtnCheck, PIX_DEFAULTS.btnCheck), callback_data: `pix_check_${subId}` }],
-              [{ text: btn(bot.pixBtnQr, PIX_DEFAULTS.btnQr), callback_data: `pix_qr_${subId}` }],
-              [{ text: btn(bot.pixBtnCopy, PIX_DEFAULTS.btnCopy), callback_data: `pix_copy_${subId}` }],
+              [{ text: btn(bot.pixBtnCheck, PIX_DEFAULTS.btnCheck), callback_data: `pix_check_${subId}`, ...buttonStyleProps("pixCheck") }],
+              [{ text: btn(bot.pixBtnQr, PIX_DEFAULTS.btnQr), callback_data: `pix_qr_${subId}`, ...buttonStyleProps("pixQr") }],
+              [{ text: btn(bot.pixBtnCopy, PIX_DEFAULTS.btnCopy), callback_data: `pix_copy_${subId}`, ...buttonStyleProps("pixCopy") }],
             ],
           },
         });

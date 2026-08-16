@@ -423,31 +423,6 @@ function migrate(d: Database.Database) {
       FOREIGN KEY (bot_id) REFERENCES telegram_bots(id) ON DELETE CASCADE
     );
 
-    -- TRACKEAMENTO: cada link de divulgação ganha um código, que viaja no
-    -- deep-link do bot (t.me/<bot>?start=CODIGO). O código já era gravado no
-    -- lead e copiado para a venda; esta tabela é o que faltava para o operador
-    -- CRIAR e NOMEAR os códigos em vez de inventá-los na mão e depois não
-    -- lembrar o que "ig3" queria dizer.
-    --
-    -- A coluna slug é o redirecionador: a URL curta pública (/r/slug) que se
-    -- põe na bio ou no anúncio. Ela aponta para o bot, mas quem controla o
-    -- destino é este registro — trocar o bot depois não invalida o link já
-    -- publicado.
-    CREATE TABLE IF NOT EXISTS telegram_source_links (
-      id         TEXT PRIMARY KEY,
-      bot_id     TEXT NOT NULL,
-      profile_id TEXT NOT NULL,
-      code       TEXT NOT NULL,
-      name       TEXT NOT NULL,
-      slug       TEXT,
-      created_at INTEGER NOT NULL,
-      UNIQUE (bot_id, code),
-      FOREIGN KEY (bot_id) REFERENCES telegram_bots(id) ON DELETE CASCADE
-    );
-
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_telegram_source_links_slug
-      ON telegram_source_links(slug) WHERE slug IS NOT NULL;
-
     -- Disparos de mensagem em massa (tela Telegram → Mailing).
     CREATE TABLE IF NOT EXISTS telegram_mailings (
       id                TEXT PRIMARY KEY,
@@ -698,6 +673,10 @@ function migrate(d: Database.Database) {
   // (`previews_welcome_message`), então nada muda para quem não mexer na tela.
   ensureColumn(d, "telegram_bots", "previas_welcome_funnel", "TEXT");
   ensureColumn(d, "telegram_bots", "vip_welcome_funnel", "TEXT");
+  // O TRACKEAMENTO foi retirado do produto. A tabela sai junto; as colunas
+  // `source_code` de leads e transações ficam, porque o Funil de Vendas usa a
+  // origem do tráfego e o deep-link continua gravando-a sem custo.
+  d.exec("DROP TABLE IF EXISTS telegram_source_links");
   // Planos: tipo (assinatura recorrente vs pacote/compra única) e o entregável
   // (texto/link enviado ao pagar — o "MEU WHATSAPP" dos pacotes/bônus).
   ensureColumn(d, "telegram_plans", "kind", "TEXT NOT NULL DEFAULT 'subscription'");

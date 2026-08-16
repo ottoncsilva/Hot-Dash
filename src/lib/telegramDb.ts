@@ -680,6 +680,16 @@ export function recordSeenChat(
     .run(botId, String(chat.id), chat.title || null, chat.type, Date.now());
 }
 
+/** Canais/grupos que o MONITOR já consultou. Fonte extra para o "Detectar":
+ *  ele roda com a operação desligada, então às vezes sabe de um chat que o
+ *  webhook nunca viu. */
+export function listMonitoredChats(botId: string): { chatId: string; title?: string }[] {
+  const rows = getDb()
+    .prepare("SELECT chat_id, title FROM telegram_group_stats WHERE bot_id = ?")
+    .all(botId) as { chat_id: string; title: string | null }[];
+  return rows.map((r) => ({ chatId: r.chat_id, title: r.title || undefined }));
+}
+
 export function listSeenChats(botId: string): SeenChat[] {
   const rows = getDb()
     .prepare("SELECT * FROM telegram_seen_chats WHERE bot_id = ? ORDER BY last_seen_at DESC")

@@ -19,6 +19,7 @@ import {
   listSeenChats,
   listMonitoredChats,
   recordSeenChat,
+  buildAccessMessage,
   PIX_DEFAULTS,
   MESSAGE_DEFAULTS,
 } from "@/lib/telegramDb";
@@ -39,8 +40,17 @@ import {
 import { overview } from "@/lib/transactions";
 import { listMedia } from "@/lib/media";
 import { resolvePublicOrigin, webhookOriginProblem } from "@/lib/publicOrigin";
+import { buttonStyleProps } from "@/lib/settings";
+import { MESSAGE_EFFECTS } from "@/lib/telegramEffects";
 
 import { randomUUID } from "node:crypto";
+
+/** Só deixa passar uma chave que existe na lista de efeitos. */
+function efeitoValido(valor: unknown, atual: string | undefined): string | undefined {
+  if (valor === undefined) return atual;
+  const chave = String(valor || "").trim();
+  return MESSAGE_EFFECTS.some((e) => e.key === chave) ? chave : "";
+}
 
 /** Aceita um funil como JSON pronto ou como array, e devolve sempre string. */
 function normFunnel(v: unknown): string | undefined {
@@ -325,6 +335,11 @@ export async function POST(req: NextRequest) {
         idRegistro: body.idRegistro !== undefined ? String(body.idRegistro) : bot.idRegistro,
         successButtonText:
           body.successButtonText !== undefined ? String(body.successButtonText) : bot.successButtonText,
+        // EFEITOS DE MENSAGEM. Chave desconhecida vira "" (sem efeito) em vez
+        // de ir para o Telegram e derrubar a mensagem inteira.
+        effectWelcome: efeitoValido(body.effectWelcome, bot.effectWelcome),
+        effectPix: efeitoValido(body.effectPix, bot.effectPix),
+        effectSuccess: efeitoValido(body.effectSuccess, bot.effectSuccess),
       });
       return NextResponse.json({ ok: true });
     }
@@ -351,6 +366,7 @@ export async function POST(req: NextRequest) {
         pixBtnCopy: body.pixBtnCopy !== undefined ? String(body.pixBtnCopy) : bot.pixBtnCopy,
         pixNotPaidMessage:
           body.pixNotPaidMessage !== undefined ? String(body.pixNotPaidMessage) : bot.pixNotPaidMessage,
+        effectPix: efeitoValido(body.effectPix, bot.effectPix),
       });
       return NextResponse.json({ ok: true });
     }
@@ -724,11 +740,19 @@ export async function POST(req: NextRequest) {
       const invite = await createTelegramInviteLink(bot.botToken, bot.idVip, `VIP_${sub.telegramUserId}`);
       sub.inviteLink = invite.invite_link;
       saveSubscription(sub);
-      await sendTelegramMessage(
-        bot.botToken,
-        String(sub.telegramUserId),
-        `🔗 Aqui está seu link de acesso ao VIP:\n${invite.invite_link}`,
-      ).catch(() => {});
+      // Mesma mensagem da entrega automática (com botão de acesso), para o
+      // cliente não receber dois formatos diferentes do mesmo link.
+      const reenvio = buildAccessMessage(bot, invite.invite_link, buttonStyleProps("access"));
+      try {
+        await sendTelegramMessage(bot.botToken, String(sub.telegramUserId), reenvio.text, reenvio.options);
+      } catch (e) {
+        // O link foi gerado e gravado, mas não chegou. Engolir isso era o que
+        // fazia o operador achar que tinha resolvido.
+        throw new ApiError(
+          400,
+          `Link gerado, mas não foi possível entregá-lo: ${e instanceof Error ? e.message : "falha no envio"}`,
+        );
+      }
       return NextResponse.json({ ok: true, inviteLink: invite.invite_link });
     }
 

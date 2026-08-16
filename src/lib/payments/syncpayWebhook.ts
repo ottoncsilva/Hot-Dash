@@ -136,7 +136,8 @@ export async function processarWebhookSyncPay(
 
     if (updated && updated.becamePaid) {
       // Verifica se existe uma inscrição do Telegram pendente para esta transação
-      const { findSubscriptionByTransaction, saveSubscription, getBotConfig, getPlan } = await import("@/lib/telegramDb");
+      const { findSubscriptionByTransaction, saveSubscription, getBotConfig, getPlan, buildAccessMessage } =
+        await import("@/lib/telegramDb");
       const sub = findSubscriptionByTransaction(updated.transaction.id);
 
       if (sub && sub.status === "pending") {
@@ -238,24 +239,20 @@ export async function processarWebhookSyncPay(
               saveSubscription(sub);
 
               if (invite) {
-                // Botão de acesso (opcional). Com ele o convite vira um botão
-                // clicável em vez de uma URL solta no meio do texto — o link
-                // continua no corpo para quem prefere copiar.
-                const botaoTexto = bot.successButtonText?.trim();
-                const clientMsg = bot.successMessage.replace(/{link_vip}/gi, invite.invite_link);
+                // O link vai SEMPRE — no lugar do {link_vip} quando o texto o
+                // tem, anexado no fim quando não tem — e sempre com o botão de
+                // acesso. Antes, um texto salvo sem o marcador e sem rótulo de
+                // botão fazia o cliente pagar e receber uma mensagem sem
+                // caminho nenhum para o grupo.
+                const { efeitoProps } = await import("@/lib/telegramEffects");
+                const aprovada = buildAccessMessage(bot, invite.invite_link, buttonStyleProps("access"));
                 await sendTelegramMessage(
                   bot.botToken,
                   String(sub.telegramUserId),
-                  clientMsg,
-                  botaoTexto
-                    ? {
-                        reply_markup: {
-                          inline_keyboard: [
-                          [{ text: botaoTexto, url: invite.invite_link, ...buttonStyleProps("access") }],
-                        ],
-                        },
-                      }
-                    : {},
+                  aprovada.text,
+                  // A comemoração é justamente aqui: é a única mensagem do
+                  // funil que o cliente recebe DEPOIS de pagar.
+                  { ...aprovada.options, ...efeitoProps(bot.effectSuccess) },
                 );
               } else {
                 // Sem convite: o pior desfecho seria o silêncio. O cliente é

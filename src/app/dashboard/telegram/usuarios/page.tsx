@@ -13,6 +13,11 @@ import PageHeader from "@/components/PageHeader";
 
 type UserStatus = "bloqueado" | "vip" | "expirado" | "pendente" | "lead";
 
+/**
+ * UMA lista só. Assinante não é uma lista à parte: é o mesmo usuário com a
+ * coluna de status em "VIP" — antes eram duas listas na mesma tela e a mesma
+ * pessoa aparecia nas duas, sem nada dizendo que era a mesma pessoa.
+ */
 type TelegramUser = {
   id: string;
   telegramUserId: number;
@@ -27,20 +32,14 @@ type TelegramUser = {
   sourceCode?: string;
   createdAt: number;
   status: UserStatus;
+  /** Quando existe, a linha ganha as ações de assinatura. */
+  subscriptionId?: string;
+  /** 0 = vitalício. Ausente = nunca assinou. */
+  expiresAt?: number;
+  planName?: string;
 };
 
 type Stats = { total: number; vips: number; expirados: number; leads: number; bloqueados: number };
-/** Assinatura paga. Vem do mesmo bot, e agora mora nesta tela — antes era uma
- *  aba separada em "Bot de vendas", o que obrigava a pular de tela para ver
- *  quem é lead e quem é assinante. */
-type Sub = {
-  id: string;
-  telegramUserId: number;
-  telegramUsername?: string;
-  status: "pending" | "active" | "expired" | "blocked";
-  expiresAt: number;
-  createdAt: number;
-};
 type Filter = "todos" | "vips" | "expirados" | "leads" | "bloqueados";
 
 const FILTERS: { value: Filter; label: string }[] = [
@@ -84,7 +83,6 @@ export default function TelegramUsuariosPage() {
   const [users, setUsers] = useState<TelegramUser[]>([]);
   const [total, setTotal] = useState(0);
   const [stats, setStats] = useState<Stats>({ total: 0, vips: 0, expirados: 0, leads: 0, bloqueados: 0 });
-  const [subs, setSubs] = useState<Sub[]>([]);
 
   const [filter, setFilter] = useState<Filter>("todos");
   const [searchInput, setSearchInput] = useState("");
@@ -116,14 +114,6 @@ export default function TelegramUsuariosPage() {
       setUsers(d.users || []);
       setTotal(d.total || 0);
       setStats(d.stats);
-      // Assinaturas vêm da rota do bot: a lista de usuários e a de assinantes
-      // se completam (quem pagou vs. quem só apareceu), e agora dividem a tela.
-      try {
-        const a = await apiGet<{ subscriptions: Sub[] }>(`/api/telegram?profileId=${profileId}`);
-        setSubs(a.subscriptions || []);
-      } catch {
-        setSubs([]);
-      }
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha ao carregar.", "error");
     } finally {
@@ -181,12 +171,6 @@ export default function TelegramUsuariosPage() {
         <div className="card p-6 text-center text-sm text-zinc-400">
           Este modelo ainda não tem o bot configurado. Vá em <b>Modelos → editar a modelo → Bot do
           Telegram</b> e informe o token e os IDs dos grupos.
-        </div>
-      )}
-
-      {bot && subs.length > 0 && (
-        <div className="mb-3">
-          <SubscribersCard subs={subs} onAction={load} confirm={confirm} />
         </div>
       )}
 
@@ -260,42 +244,14 @@ export default function TelegramUsuariosPage() {
           ) : (
             <div className="mt-3 divide-y divide-white/[0.06]">
               {users.map((u) => (
-                <div key={u.id} className="flex items-center gap-3 py-3">
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/10 text-sm text-zinc-400">
-                    {(displayName(u)[0] || "?").toUpperCase()}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-zinc-100">{displayName(u)}</p>
-                    <p className="truncate font-mono text-[11px] text-zinc-500">
-                      Entrou {new Date(u.createdAt).toLocaleDateString("pt-BR")}
-                      {u.username && ` · @${u.username}`}
-                      {u.inVip && " · no VIP"}
-                      {u.inPrevias && " · nas prévias"}
-                      {!u.canDm && " · sem conversa no privado"}
-                    </p>
-                  </div>
-                  <span
-                    className={`hidden shrink-0 rounded-md border px-2 py-0.5 text-[11px] sm:inline ${STATUS_CLASS[u.status]}`}
-                  >
-                    {STATUS_LABEL[u.status]}
-                  </span>
-                  <button
-                    onClick={() => setDmTarget(u)}
-                    disabled={!u.canDm || u.blocked}
-                    title={u.canDm ? "Enviar mensagem" : "Esta pessoa nunca falou com o bot no privado"}
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 text-zinc-300 transition-colors hover:bg-white/5 disabled:opacity-30"
-                    aria-label="Enviar mensagem"
-                  >
-                    <IconSend size={15} />
-                  </button>
-                  <button
-                    onClick={() => removeUser(u)}
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-red-500/30 text-red-400 transition-colors hover:bg-red-500/10"
-                    aria-label="Remover da lista"
-                  >
-                    <IconClose size={15} />
-                  </button>
-                </div>
+                <UserRow
+                  key={u.id}
+                  u={u}
+                  onDm={() => setDmTarget(u)}
+                  onRemove={() => removeUser(u)}
+                  onAction={load}
+                  confirm={confirm}
+                />
               ))}
             </div>
           )}
@@ -404,95 +360,157 @@ function SendMessageModal({ user, onClose }: { user: TelegramUser | null; onClos
   );
 }
 // ---------------------------------------------------------------------------
-function SubscribersCard({
-  subs,
+/**
+ * A linha da lista. Uma pessoa = uma linha, seja ela lead, VIP ou expirada.
+ *
+ * O que muda conforme o status é o que a linha MOSTRA (vencimento e plano só
+ * existem para quem assinou) e o que ela OFERECE: as ações de assinatura
+ * (reenviar link, estender, expulsar) aparecem só quando há assinatura — antes
+ * moravam numa segunda lista, o que obrigava a procurar a mesma pessoa duas
+ * vezes na mesma tela.
+ */
+function UserRow({
+  u,
+  onDm,
+  onRemove,
   onAction,
   confirm,
 }: {
-  subs: Sub[];
+  u: TelegramUser;
+  onDm: () => void;
+  onRemove: () => void;
   onAction: () => void;
   confirm: (opts: { title: string; message: string }) => Promise<boolean>;
 }) {
-  const [busyId, setBusyId] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [aberto, setAberto] = useState(false);
+  const temAssinatura = Boolean(u.subscriptionId);
 
-  async function act(sub: Sub, action: "sub-resend-link" | "sub-extend" | "sub-kick", extra?: Record<string, unknown>) {
-    setBusyId(sub.id + action);
+  async function act(
+    action: "sub-resend-link" | "sub-extend" | "sub-kick",
+    extra?: Record<string, unknown>,
+  ) {
+    if (!u.subscriptionId) return;
+    setBusy(true);
     try {
-      await apiSend("/api/telegram", "POST", { action, subscriptionId: sub.id, ...extra });
+      await apiSend("/api/telegram", "POST", { action, subscriptionId: u.subscriptionId, ...extra });
       showToast("Feito.", "success");
       onAction();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha.", "error");
     } finally {
-      setBusyId("");
+      setBusy(false);
     }
   }
 
-  const label = (s: Sub["status"]) =>
-    ({ pending: "pendente", active: "ativo", expired: "expirado", blocked: "bloqueado" }[s]);
-  const color = (s: Sub["status"]) =>
-    ({ pending: "text-amber-400", active: "text-emerald-400", expired: "text-zinc-500", blocked: "text-red-400" }[s]);
-
-  const active = subs.filter((s) => s.status === "active").length;
+  // A segunda linha conta a história do acesso: quem paga vê quando vence e o
+  // que comprou; quem nunca comprou vê desde quando está na lista.
+  const detalhe: string[] = [];
+  if (u.status === "vip" || u.status === "expirado") {
+    detalhe.push(
+      u.expiresAt === 0
+        ? "Vitalício"
+        : u.expiresAt
+          ? `${u.status === "vip" ? "Expira" : "Expirou"} ${new Date(u.expiresAt).toLocaleDateString("pt-BR")}`
+          : `Entrou ${new Date(u.createdAt).toLocaleDateString("pt-BR")}`,
+    );
+    if (u.planName) detalhe.push(`⭐ ${u.planName}`);
+  } else {
+    detalhe.push(`Entrou ${new Date(u.createdAt).toLocaleDateString("pt-BR")}`);
+  }
+  if (u.username) detalhe.push(`@${u.username}`);
+  if (u.inPrevias) detalhe.push("prévias");
+  if (!u.canDm) detalhe.push("sem conversa no privado");
 
   return (
-    <div className="card p-4">
-      <div className="flex items-center justify-between">
-        <h2 className="font-display text-lg font-semibold">Assinantes</h2>
-        <span className="chip">{active} ativo(s) · {subs.length} total</span>
+    <div className="py-3">
+      <div className="flex items-center gap-2.5">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/10 text-sm text-zinc-400">
+          {(displayName(u)[0] || "?").toUpperCase()}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-zinc-100">{displayName(u)}</p>
+          <p className="truncate font-mono text-[11px] text-zinc-500">{detalhe.join(" · ")}</p>
+        </div>
+        {/* A COLUNA DE STATUS. Estava escondida no celular (`sm:inline`), que é
+            justamente onde o painel é usado — e sem ela a lista não respondia
+            à única pergunta que importa: essa pessoa paga ou não? */}
+        <span
+          className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] ${STATUS_CLASS[u.status]}`}
+        >
+          {STATUS_LABEL[u.status]}
+        </span>
+        <button
+          onClick={onDm}
+          disabled={!u.canDm || u.blocked}
+          title={u.canDm ? "Enviar mensagem" : "Esta pessoa nunca falou com o bot no privado"}
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 text-zinc-300 transition-colors hover:bg-white/5 disabled:opacity-30"
+          aria-label="Enviar mensagem"
+        >
+          <IconSend size={15} />
+        </button>
+        {temAssinatura ? (
+          <button
+            onClick={() => setAberto((v) => !v)}
+            title="Ações da assinatura"
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg border text-[15px] transition-colors ${
+              aberto
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                : "border-white/10 text-zinc-300 hover:bg-white/5"
+            }`}
+            aria-label="Ações da assinatura"
+          >
+            ⋯
+          </button>
+        ) : (
+          <button
+            onClick={onRemove}
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-red-500/30 text-red-400 transition-colors hover:bg-red-500/10"
+            aria-label="Remover da lista"
+          >
+            <IconClose size={15} />
+          </button>
+        )}
       </div>
-      {subs.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-500">Nenhum assinante ainda.</p>
-      ) : (
-        <div className="mt-3 space-y-2">
-          {subs.map((s) => (
-            <div key={s.id} className="flex flex-wrap items-center gap-2 panel p-2.5">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-zinc-200">
-                  {s.telegramUsername ? `@${s.telegramUsername}` : `ID ${s.telegramUserId}`}
-                </p>
-                <p className="font-mono text-[11px] text-zinc-500">
-                  <span className={color(s.status)}>{label(s.status)}</span>
-                  {s.status === "active" && s.expiresAt > 0
-                    ? ` · vence ${new Date(s.expiresAt).toLocaleDateString("pt-BR")}`
-                    : ""}
-                </p>
-              </div>
-              <button
-                onClick={() => act(s, "sub-resend-link")}
-                disabled={Boolean(busyId)}
-                className="btn-ghost px-2.5 py-1.5 text-xs"
-              >
-                Reenviar link
-              </button>
-              <button
-                onClick={() => act(s, "sub-extend", { days: 30 })}
-                disabled={Boolean(busyId)}
-                className="btn-ghost px-2.5 py-1.5 text-xs"
-              >
-                +30 dias
-              </button>
-              <button
-                onClick={async () => {
-                  const ok = await confirm({
-                    title: "Expulsar do VIP",
-                    message: `Remover ${s.telegramUsername ? "@" + s.telegramUsername : s.telegramUserId} do grupo VIP agora?`,
-                  });
-                  if (ok) act(s, "sub-kick");
-                }}
-                disabled={Boolean(busyId)}
-                className="rounded-lg px-2.5 py-1.5 text-xs text-red-300 hover:bg-red-500/10"
-              >
-                Expulsar
-              </button>
-            </div>
-          ))}
+
+      {temAssinatura && aberto && (
+        <div className="mt-2 flex flex-wrap gap-1.5 pl-[50px]">
+          <button
+            onClick={() => act("sub-resend-link")}
+            disabled={busy}
+            className="btn-ghost px-2.5 py-1.5 text-xs"
+          >
+            Reenviar link
+          </button>
+          <button
+            onClick={() => act("sub-extend", { days: 30 })}
+            disabled={busy}
+            className="btn-ghost px-2.5 py-1.5 text-xs"
+          >
+            +30 dias
+          </button>
+          <button
+            onClick={async () => {
+              const ok = await confirm({
+                title: "Expulsar do VIP",
+                message: `Remover ${displayName(u)} do grupo VIP agora?`,
+              });
+              if (ok) act("sub-kick");
+            }}
+            disabled={busy}
+            className="rounded-lg px-2.5 py-1.5 text-xs text-red-300 hover:bg-red-500/10"
+          >
+            Expulsar
+          </button>
+          <button
+            onClick={onRemove}
+            disabled={busy}
+            className="rounded-lg px-2.5 py-1.5 text-xs text-zinc-400 hover:bg-white/5"
+          >
+            Remover da lista
+          </button>
         </div>
       )}
-      <p className="mt-2 text-[11px] text-zinc-600">
-        A expiração é automática (o VIP vencido é removido e reconduzido às prévias). Use as ações
-        acima para casos manuais.
-      </p>
     </div>
   );
 }

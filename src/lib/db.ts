@@ -680,6 +680,12 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "telegram_bots", "pix_downsell_enabled", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(d, "telegram_bots", "downsell_enabled", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(d, "telegram_bots", "upsell_enabled", "INTEGER NOT NULL DEFAULT 1");
+  // EFEITO DE MENSAGEM (a animação nativa do Telegram) em cada momento do
+  // funil. Guarda a chave ("fire", "party"...), não o id numérico da API.
+  // NULL = sem efeito, que é como o bot sempre se comportou.
+  ensureColumn(d, "telegram_bots", "effect_welcome", "TEXT");
+  ensureColumn(d, "telegram_bots", "effect_pix", "TEXT");
+  ensureColumn(d, "telegram_bots", "effect_success", "TEXT");
   // Progresso do funil de PIX gerado, na própria inscrição pendente.
   ensureColumn(d, "telegram_subscriptions", "pix_step_index", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(d, "telegram_subscriptions", "last_pix_step_at", "INTEGER");
@@ -774,6 +780,7 @@ function migrate(d: Database.Database) {
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);
+  backfillMensagensPadrao(d);
   backfillTelegramUsers(d);
   backfillMediaPostLog(d);
 
@@ -880,6 +887,44 @@ function backfillSyncPayAmounts(d: Database.Database) {
  * novas linhas de lead/assinatura criadas por versões antigas do webhook
  * continuam sendo absorvidas sem precisar de marca de "já rodou".
  */
+/**
+ * Troca as mensagens PLACEHOLDER dos bots que já existiam pelos textos padrão.
+ *
+ * Os bots antigos nasceram com "Bem-vindo" e "Aprovado" — literalmente essas
+ * palavras. A de aprovação é a grave: sem {link_vip} e sem texto de botão, o
+ * cliente pagava e recebia "Aprovado", sem caminho nenhum para o grupo. Os
+ * padrões decentes chegaram depois, mas só valiam para bot NOVO, então quem já
+ * estava no ar continuou com o placeholder.
+ *
+ * A troca só acontece quando o texto é EXATAMENTE o placeholder: qualquer
+ * mensagem escrita pelo operador fica intacta.
+ */
+function backfillMensagensPadrao(d: Database.Database) {
+  const BEM_VINDO =
+    "Oi meu amor 😈\n\nSeja bem-vindo! Aqui embaixo estão as opções pra você entrar no meu VIP e ver tudo o que eu não posso postar por aí 🔥\n\nEscolhe a sua e vem 👇";
+  const APROVADO = "✅ Pagamento aprovado meu amor! Acesse o Grupo VIP aqui:\n\n🔗 {link_vip}";
+  const BOTAO = "🔒 Acessar Conteúdo";
+
+  d.prepare(
+    `UPDATE telegram_bots SET welcome_message = ?
+      WHERE TRIM(welcome_message) IN ('Bem-vindo', 'Bem vindo', 'Bem-vindo!', '')`,
+  ).run(BEM_VINDO);
+
+  d.prepare(
+    `UPDATE telegram_bots SET success_message = ?
+      WHERE TRIM(success_message) IN ('Aprovado', 'Aprovado!', '')`,
+  ).run(APROVADO);
+
+  // Sem rótulo de botão, o acesso ia só como URL solta no texto. Campo vazio
+  // hoje significa "usa o rótulo padrão" (buildAccessMessage sempre monta o
+  // botão), então preenchê-lo só torna visível na tela o que já acontece no
+  // envio — por isso não faz mal isto rodar de novo a cada inicialização.
+  d.prepare(
+    `UPDATE telegram_bots SET success_button_text = ?
+      WHERE success_button_text IS NULL OR TRIM(success_button_text) = ''`,
+  ).run(BOTAO);
+}
+
 function backfillTelegramUsers(d: Database.Database) {
   const now = Date.now();
 

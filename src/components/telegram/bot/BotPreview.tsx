@@ -17,7 +17,32 @@ import { apiSend } from "@/lib/api";
  * enviar (rota `welcome-media`) — se divergisse, o preview mentiria.
  */
 type PreviewMedia = { id: string; kind: "image" | "video"; updatedAt: number };
-type Btn = { text: string; kind: "plan" | "custom" | "support" };
+/** O estilo é o MESMO que vai para o Telegram (Bot API 9.4). */
+export type PreviewStyle = "" | "primary" | "success" | "danger";
+type Btn = { text: string; kind: "plan" | "custom" | "support"; style?: PreviewStyle };
+
+/**
+ * As cores do preview espelham o que o Telegram desenha para cada `style`:
+ * primary = azul, success = verde, danger = vermelho, vazio = o botão neutro.
+ * Se estas classes divergirem do que o app mostra, o preview vira decoração —
+ * é justamente a cor que o operador vem conferir aqui.
+ */
+const CORES: Record<string, string> = {
+  primary: "border-sky-500/40 bg-sky-500/15 text-sky-200",
+  success: "border-emerald-500/40 bg-emerald-500/15 text-emerald-200",
+  danger: "border-red-500/40 bg-red-500/15 text-red-200",
+  "": "border-white/15 bg-white/[0.06] text-zinc-200",
+};
+
+/** Emoji da animação escolhida — o efeito em si é do app, aqui vale a marca. */
+const EFEITO_EMOJI: Record<string, string> = {
+  fire: "🔥",
+  party: "🎉",
+  heart: "❤️",
+  like: "👍",
+  dislike: "👎",
+  poop: "💩",
+};
 
 export default function BotPreview({
   profileId,
@@ -27,6 +52,7 @@ export default function BotPreview({
   welcomeMediaIds,
   welcomeMediaMode,
   buttons,
+  effect,
 }: {
   profileId: string;
   botUsername?: string;
@@ -36,6 +62,8 @@ export default function BotPreview({
   welcomeMediaIds?: string[];
   welcomeMediaMode?: "album" | "separate";
   buttons: Btn[];
+  /** Chave do efeito de mensagem aplicado ao /start. */
+  effect?: string;
 }) {
   const [media, setMedia] = useState<PreviewMedia[]>([]);
   const [total, setTotal] = useState(0);
@@ -158,7 +186,15 @@ export default function BotPreview({
 
         {/* Balão da mensagem. `whitespace-pre-wrap` porque a quebra de linha do
             campo é a mesma que o Telegram mostra. */}
-        <div className="rounded-2xl rounded-tl-sm bg-sky-950/50 p-3">
+        <div className="relative rounded-2xl rounded-tl-sm bg-sky-950/50 p-3">
+          {EFEITO_EMOJI[effect || ""] && (
+            <span
+              className="absolute -right-1 -top-2 rounded-full border border-white/10 bg-ink-850 px-1.5 py-0.5 text-[11px]"
+              title="Efeito de mensagem: a animação roda quando a mensagem chega (só no privado)"
+            >
+              {EFEITO_EMOJI[effect || ""]}
+            </span>
+          )}
           <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-zinc-100">
             {texto || <span className="text-zinc-500">(mensagem de boas-vindas vazia)</span>}
           </p>
@@ -169,7 +205,7 @@ export default function BotPreview({
             {buttons.map((b, i) => (
               <div
                 key={`${b.kind}-${i}`}
-                className="rounded-lg border border-sky-500/25 bg-sky-500/10 px-3 py-2 text-center text-[12px] text-sky-200"
+                className={`rounded-lg border px-3 py-2 text-center text-[12px] ${CORES[b.style || ""] || CORES[""]}`}
               >
                 {b.text}
               </div>

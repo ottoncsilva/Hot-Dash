@@ -54,6 +54,15 @@ export type TelegramBotConfig = {
   downsellEnabled: boolean;
   pixDownsellEnabled: boolean;
   upsellEnabled: boolean;
+  /**
+   * EFEITO DE MENSAGEM (a animação que roda quando a mensagem chega) em cada
+   * um dos três momentos que valem a pena. Guarda a chave da lista de
+   * MESSAGE_EFFECTS, não o id numérico do Telegram: o id é detalhe da API.
+   * Vazio = sem efeito.
+   */
+  effectWelcome?: string;
+  effectPix?: string;
+  effectSuccess?: string;
 };
 
 /** Textos padrão da tela de pagamento — os mesmos que antes viviam fixos no
@@ -107,6 +116,42 @@ export const MESSAGE_DEFAULTS = {
   success: "✅ Pagamento aprovado meu amor! Acesse o Grupo VIP aqui:\n\n🔗 {link_vip}",
   successButton: "🔒 Acessar Conteúdo",
 } as const;
+
+/**
+ * Monta a mensagem de "pagamento aprovado" GARANTINDO que o link do VIP chegue.
+ *
+ * O texto é livre, e era possível salvá-lo sem `{link_vip}` e sem texto de
+ * botão — foi o que aconteceu na prática: o cliente pagava e recebia só
+ * "Aprovado", sem caminho nenhum para o grupo. O convite tinha sido gerado,
+ * mas não ia em lugar nenhum.
+ *
+ * Então aqui o link é obrigatório, não opcional:
+ *   • se o texto tem {link_vip}, ele é trocado ali (o operador manda no lugar);
+ *   • se não tem, o link é ANEXADO no fim;
+ *   • o botão de acesso sempre acompanha, caindo no rótulo padrão quando o
+ *     campo está vazio — um botão a mais nunca custou uma venda, um link a
+ *     menos custa todas.
+ */
+export function buildAccessMessage(
+  bot: Pick<TelegramBotConfig, "successMessage" | "successButtonText">,
+  inviteLink: string,
+  buttonProps: Record<string, unknown> = {},
+): { text: string; options: Record<string, unknown> } {
+  const base = bot.successMessage?.trim() || MESSAGE_DEFAULTS.success;
+  const temMarcador = /{link_vip}/i.test(base);
+  const text = temMarcador
+    ? base.replace(/{link_vip}/gi, inviteLink)
+    : `${base}\n\n🔗 ${inviteLink}`;
+  const botao = bot.successButtonText?.trim() || MESSAGE_DEFAULTS.successButton;
+  return {
+    text,
+    options: {
+      reply_markup: {
+        inline_keyboard: [[{ text: botao, url: inviteLink, ...buttonProps }]],
+      },
+    },
+  };
+}
 
 /**
  * O que o bot faz com um pedido de entrada no grupo:
@@ -258,6 +303,9 @@ function toBotConfig(row: any): TelegramBotConfig {
     downsellEnabled: row.downsell_enabled === undefined || row.downsell_enabled === null ? true : !!row.downsell_enabled,
     pixDownsellEnabled: row.pix_downsell_enabled === undefined || row.pix_downsell_enabled === null ? true : !!row.pix_downsell_enabled,
     upsellEnabled: row.upsell_enabled === undefined || row.upsell_enabled === null ? true : !!row.upsell_enabled,
+    effectWelcome: row.effect_welcome || undefined,
+    effectPix: row.effect_pix || undefined,
+    effectSuccess: row.effect_success || undefined,
   };
 }
 
@@ -290,8 +338,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -325,7 +373,10 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        pix_downsell_funnel = excluded.pix_downsell_funnel,
        downsell_enabled = excluded.downsell_enabled,
        pix_downsell_enabled = excluded.pix_downsell_enabled,
-       upsell_enabled = excluded.upsell_enabled`
+       upsell_enabled = excluded.upsell_enabled,
+       effect_welcome = excluded.effect_welcome,
+       effect_pix = excluded.effect_pix,
+       effect_success = excluded.effect_success`
   ).run(
     id,
     config.profileId,
@@ -362,6 +413,9 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.downsellEnabled === false ? 0 : 1,
     config.pixDownsellEnabled === false ? 0 : 1,
     config.upsellEnabled === false ? 0 : 1,
+    config.effectWelcome?.trim() || null,
+    config.effectPix?.trim() || null,
+    config.effectSuccess?.trim() || null,
     now
   );
   return getBotConfig(id)!;

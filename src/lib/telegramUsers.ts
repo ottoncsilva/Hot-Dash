@@ -40,7 +40,21 @@ export type TelegramUser = {
 /** Rótulo mostrado na lista, na ordem de prioridade em que é decidido. */
 export type TelegramUserStatus = "bloqueado" | "vip" | "expirado" | "pendente" | "lead";
 
-export type TelegramUserWithStatus = TelegramUser & { status: TelegramUserStatus };
+/**
+ * A linha da tela de Usuários. É UMA lista só: a assinatura não tem tela
+ * própria — ela vira a coluna de status e os dados de vencimento aqui dentro.
+ * Antes eram duas listas (usuários e assinantes), e a mesma pessoa aparecia
+ * nas duas sem que nada dissesse que era a mesma pessoa.
+ */
+export type TelegramUserWithStatus = TelegramUser & {
+  status: TelegramUserStatus;
+  /** Assinatura mais relevante (a ativa; senão a mais recente). */
+  subscriptionId?: string;
+  /** 0 = vitalício/pacote (não expira). Ausente = nunca assinou. */
+  expiresAt?: number;
+  /** Nome do plano comprado, quando dá para descobrir pela transação. */
+  planName?: string;
+};
 
 function toUser(r: any): TelegramUser {
   return {
@@ -431,13 +445,29 @@ export function listTelegramUsers(opts: {
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
   const offset = Math.max(opts.offset ?? 0, 0);
 
+  // A assinatura entra na MESMA linha: prefere a ativa e, na falta dela, a mais
+  // recente. É o que permite mostrar vencimento e plano sem uma segunda lista.
+  // O plano vem da descrição da transação ("Assinatura Telegram - X"), que é o
+  // único lugar onde o nome do que foi vendido fica gravado junto da cobrança.
   const rows = db
     .prepare(
       `SELECT u.*,
               ${ACTIVE_VIP}  AS is_vip,
               ${HAS_EXPIRED} AS is_expired,
-              ${HAS_PENDING} AS is_pending
+              ${HAS_PENDING} AS is_pending,
+              s.id         AS sub_id,
+              s.expires_at AS sub_expires_at,
+              p.name       AS plan_name,
+              t.description AS tx_description
          FROM telegram_users u
+         LEFT JOIN telegram_subscriptions s
+                ON s.id = (SELECT s2.id FROM telegram_subscriptions s2
+                            WHERE s2.bot_id = u.bot_id
+                              AND s2.telegram_user_id = u.telegram_user_id
+                            ORDER BY (s2.status = 'active') DESC, s2.created_at DESC
+                            LIMIT 1)
+         LEFT JOIN telegram_plans p ON p.id = s.plan_id
+         LEFT JOIN transactions   t ON t.id = s.transaction_id
         WHERE ${whereSql}
         ORDER BY u.created_at DESC
         LIMIT ? OFFSET ?`,
@@ -454,7 +484,18 @@ export function listTelegramUsers(opts: {
           : r.is_pending
             ? "pendente"
             : "lead";
-    return { ...toUser(r), status };
+    const plano =
+      r.plan_name ||
+      (typeof r.tx_description === "string"
+        ? r.tx_description.replace(/^Assinatura(\s+Telegram)?\s*-?\s*/i, "").trim()
+        : "");
+    return {
+      ...toUser(r),
+      status,
+      subscriptionId: r.sub_id || undefined,
+      expiresAt: r.sub_id ? Number(r.sub_expires_at || 0) : undefined,
+      planName: plano || undefined,
+    };
   });
 
   return { users, total };

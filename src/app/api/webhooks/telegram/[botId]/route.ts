@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, PIX_DEFAULTS } from "@/lib/telegramDb";
+import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, enqueueApproval, PIX_DEFAULTS } from "@/lib/telegramDb";
 import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser } from "@/lib/telegramUsers";
 import { recordGroupMembershipChange } from "@/lib/telegramMonitor";
 import { getMailingOffer } from "@/lib/telegramMailing";
@@ -590,11 +590,40 @@ export async function POST(
             await declineTelegramJoinRequest(bot.botToken, chatId, from.id);
           }
 
-          // Boas-vindas das Prévias (opcional), no privado — só faz sentido
-          // para quem realmente entrou.
-          if (aprovar && isPrevias && bot.previewsWelcomeMessage?.trim()) {
-            const msg = bot.previewsWelcomeMessage.replace(/{nome}/gi, from.first_name || "linda(o)");
-            await sendTelegramMessage(bot.botToken, String(from.id), msg).catch(() => {});
+          // Boas-vindas de quem realmente entrou.
+          //
+          // A SEQUÊNCIA (vários passos, com atraso próprio) é só enfileirada:
+          // o Telegram espera uma resposta rápida deste webhook, e um passo
+          // marcado para "1h depois" não pode ser aguardado aqui. Quem entrega
+          // é o tick de 1 minuto.
+          //
+          // Sem sequência configurada, cai na mensagem única de sempre — então
+          // quem não mexer na tela não vê diferença.
+          if (aprovar) {
+            const grupo = isVip ? "vip" : "previas";
+            const sequencia = isVip ? bot.vipWelcomeFunnel : bot.previasWelcomeFunnel;
+            let temSequencia = false;
+            try {
+              const v = sequencia ? JSON.parse(sequencia) : [];
+              temSequencia = Array.isArray(v) && v.length > 0;
+            } catch {
+              /* JSON quebrado = sem sequência */
+            }
+
+            if (temSequencia) {
+              enqueueApproval({
+                botId: bot.id,
+                telegramUserId: from.id,
+                grupo,
+                // O privado do lead: é para lá que as boas-vindas vão, não
+                // para o grupo.
+                chatId: String(from.id),
+                approvedAt: Date.now(),
+              });
+            } else if (isPrevias && bot.previewsWelcomeMessage?.trim()) {
+              const msg = bot.previewsWelcomeMessage.replace(/{nome}/gi, from.first_name || "linda(o)");
+              await sendTelegramMessage(bot.botToken, String(from.id), msg).catch(() => {});
+            }
           }
         }
       }

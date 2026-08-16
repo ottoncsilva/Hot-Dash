@@ -693,6 +693,23 @@ function migrate(d: Database.Database) {
   // Botões enviados JUNTO com o entregável (JSON [{text,url}]) — é como o
   // "MEU WHATSAPP" chega clicável em vez de um link solto no texto.
   ensureColumn(d, "telegram_plans", "deliverable_buttons", "TEXT");
+  // ORDER BUMP: oferta adicional mostrada DEPOIS de o cliente escolher este
+  // plano e ANTES de gerar o PIX. Aceitar soma o valor à mesma cobrança — é
+  // uma cobrança só, senão o cliente pagaria dois PIX e um deles ficaria em
+  // aberto se ele desistisse no meio.
+  ensureColumn(d, "telegram_plans", "bump_enabled", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(d, "telegram_plans", "bump_name", "TEXT");
+  ensureColumn(d, "telegram_plans", "bump_price_cents", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(d, "telegram_plans", "bump_text", "TEXT");
+  ensureColumn(d, "telegram_plans", "bump_accept_text", "TEXT");
+  ensureColumn(d, "telegram_plans", "bump_decline_text", "TEXT");
+  ensureColumn(d, "telegram_plans", "bump_media_ids", "TEXT");
+  ensureColumn(d, "telegram_plans", "bump_audio_url", "TEXT");
+  ensureColumn(d, "telegram_plans", "bump_deliverable", "TEXT");
+  ensureColumn(d, "telegram_plans", "bump_deliverable_buttons", "TEXT");
+  // A inscrição registra se o bump foi comprado: é o que decide se a entrega
+  // inclui o entregável extra, e quanto do valor pago foi dele.
+  ensureColumn(d, "telegram_subscriptions", "bump_cents", "INTEGER NOT NULL DEFAULT 0");
   // Qual plano/pacote originou a assinatura pendente (resolve duração/entregável
   // na confirmação do pagamento, corrigindo o antigo default de 30 dias).
   ensureColumn(d, "telegram_subscriptions", "plan_id", "TEXT");

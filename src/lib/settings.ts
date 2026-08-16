@@ -617,14 +617,36 @@ export function applyDynamicPrice(amountCents: number, telegramUserId: number): 
  * pagamento merece o verde.
  */
 export type ButtonStyle = "" | "primary" | "success" | "danger";
-export type ButtonRole = "redirect" | "plans" | "pixCheck" | "pixCopy" | "pixQr" | "access";
+export type ButtonRole =
+  | "redirect"
+  | "plans"
+  | "confirmPurchase"
+  | "pixCheck"
+  | "pixCopy"
+  | "pixQr"
+  | "bumpAccept"
+  | "bumpDecline"
+  | "access";
+
+/**
+ * Cor de partida de cada papel. Aceitar/recusar do Order Bump nascem verde e
+ * vermelho porque a leitura é instantânea e universal — mas ficam editáveis,
+ * já que a cor certa depende da paleta de cada operação.
+ */
+const BUTTON_STYLE_DEFAULTS: Partial<Record<ButtonRole, ButtonStyle>> = {
+  bumpAccept: "success",
+  bumpDecline: "danger",
+};
 
 export const BUTTON_ROLES: { key: ButtonRole; label: string; hint: string }[] = [
   { key: "redirect", label: "Botões de redirect", hint: "Links extras do /start (canal grátis, suporte…)" },
-  { key: "plans", label: "Lista de planos", hint: "Botões de escolha de plano (/start, funis, mailing)" },
+  { key: "plans", label: "Lista de planos", hint: "Botões de escolha de plano (/start, funis, mailing). Um plano com cor própria ignora esta." },
+  { key: "confirmPurchase", label: "Confirmar compra", hint: 'Botão "Pagar com Pix", quando houver escolha de método' },
   { key: "pixCheck", label: "Verificar pagamento", hint: 'Botão "Verificar Status do Pagamento"' },
   { key: "pixCopy", label: "Copiar chave Pix", hint: "Botão que reenvia só o código" },
   { key: "pixQr", label: "Mostrar QR Code", hint: "Botão que envia a imagem do QR" },
+  { key: "bumpAccept", label: "Aceitar bump", hint: "Botão de aceite da oferta adicional" },
+  { key: "bumpDecline", label: "Recusar bump", hint: "Botão de recusa da oferta adicional" },
   { key: "access", label: "Acessar conteúdo", hint: "Botão de acesso ao VIP depois do pagamento" },
 ];
 
@@ -648,6 +670,28 @@ export function setButtonStyles(v: ButtonStyles): ButtonStyles {
 
 /** Devolve `{ style }` para espalhar no botão, ou nada quando é o padrão. */
 export function buttonStyleProps(role: ButtonRole): { style?: string } {
-  const v = getButtonStyles()[role];
+  const salvo = getButtonStyles()[role];
+  const v = salvo !== undefined ? salvo : BUTTON_STYLE_DEFAULTS[role];
   return v ? { style: v } : {};
+}
+
+/**
+ * Cor do botão de UM plano.
+ *
+ * A cor escolhida no plano vence a do papel "lista de planos" — é o que
+ * permite destacar a oferta principal no meio das outras. Sem cor no plano,
+ * cai no global.
+ *
+ * O mapa existe porque a tela fala em verde/azul/vermelho (que é como o
+ * operador pensa) e a API do Telegram fala em success/primary/danger.
+ */
+const CORES_DO_PLANO: Record<string, ButtonStyle> = {
+  green: "success",
+  blue: "primary",
+  red: "danger",
+};
+
+export function planButtonStyleProps(highlight?: string): { style?: string } {
+  const doPlano = highlight ? CORES_DO_PLANO[highlight] : undefined;
+  return doPlano ? { style: doPlano } : buttonStyleProps("plans");
 }

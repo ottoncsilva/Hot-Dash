@@ -187,7 +187,7 @@ export async function POST(
                 callback_data: `buy_plan_${plan.id}`,
                 // A cor do PLANO vence a global — é o que destaca a oferta
                 // principal no meio das outras.
-                ...planButtonStyleProps(plan.highlight),
+                ...planButtonStyleProps(bot, plan.highlight),
               },
             ]);
           });
@@ -196,7 +196,7 @@ export async function POST(
         // Botões Personalizados
         if (customButtons.length > 0) {
           customButtons.forEach((btn) => {
-            inlineKeyboard.push([{ text: btn.text, url: btn.url, ...buttonStyleProps("redirect") }]);
+            inlineKeyboard.push([{ text: btn.text, url: btn.url, ...buttonStyleProps(bot, "redirect") }]);
           });
         }
 
@@ -205,7 +205,7 @@ export async function POST(
           const supportUrl = bot.supportUsername.startsWith("http")
             ? bot.supportUsername
             : `https://t.me/${bot.supportUsername.replace("@", "")}`;
-          inlineKeyboard.push([{ text: "💬 Suporte / Dúvidas", url: supportUrl, ...buttonStyleProps("redirect") }]);
+          inlineKeyboard.push([{ text: "💬 Suporte / Dúvidas", url: supportUrl, ...buttonStyleProps(bot, "redirect") }]);
         }
 
         const replyMarkup = inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : undefined;
@@ -291,7 +291,7 @@ export async function POST(
         } else if (sub.inviteLink) {
           // Mesma montagem da entrega original: o link nunca fica de fora,
           // tenha o texto o marcador {link_vip} ou não.
-          const aprovada = buildAccessMessage(bot, sub.inviteLink, buttonStyleProps("access"));
+          const aprovada = buildAccessMessage(bot, sub.inviteLink, buttonStyleProps(bot, "access"));
           await sendTelegramMessage(bot.botToken, chatId, aprovada.text, {
             ...aprovada.options,
             ...efeitoProps(bot.effectSuccess),
@@ -392,12 +392,12 @@ export async function POST(
                   {
                     text: comEmoji(b.acceptText?.trim() || BUMP_DEFAULTS.accept, "✅"),
                     callback_data: `bump_yes_${sufixo}`,
-                    ...buttonStyleProps("bumpAccept"),
+                    ...buttonStyleProps(bot, "bumpAccept"),
                   },
                   {
                     text: comEmoji(b.declineText?.trim() || BUMP_DEFAULTS.decline, "❌"),
                     callback_data: `bump_no_${sufixo}`,
-                    ...buttonStyleProps("bumpDecline"),
+                    ...buttonStyleProps(bot, "bumpDecline"),
                   },
                 ],
               ],
@@ -454,7 +454,7 @@ export async function POST(
         // O bump entra ANTES da variação de centavos: a variação é o último
         // ajuste, para o valor final continuar único por lead.
         if (bumpAceito) amountCents += bumpAceito.priceCents;
-        amountCents = applyDynamicPrice(amountCents, from.id);
+        amountCents = applyDynamicPrice(bot, amountCents, from.id);
         // Usa o token gerenciado (o mesmo mostrado na UI e aceito pelo webhook),
         // não o SESSION_SECRET — assim a confirmação autentica mesmo sem a env.
         // E usa a origem PÚBLICA: atrás de proxy/EasyPanel, req.nextUrl.origin
@@ -575,13 +575,13 @@ export async function POST(
         await sendTelegramMessage(bot.botToken, String(message.chat.id), pixCaption, {
           reply_markup: {
             inline_keyboard: [
-              [{ text: btn(bot.pixBtnCheck, PIX_DEFAULTS.btnCheck), callback_data: `pix_check_${subId}`, ...buttonStyleProps("pixCheck") }],
-              [{ text: btn(bot.pixBtnQr, PIX_DEFAULTS.btnQr), callback_data: `pix_qr_${subId}`, ...buttonStyleProps("pixQr") }],
+              [{ text: btn(bot.pixBtnCheck, PIX_DEFAULTS.btnCheck), callback_data: `pix_check_${subId}`, ...buttonStyleProps(bot, "pixCheck") }],
+              [{ text: btn(bot.pixBtnQr, PIX_DEFAULTS.btnQr), callback_data: `pix_qr_${subId}`, ...buttonStyleProps(bot, "pixQr") }],
               // COPIAR: botão nativo do Telegram — o toque copia o código na
               // hora, sem o bot ter de responder com o <code> e sem o cliente
               // ter de tocar duas vezes. Código longo demais para o botão cai
               // sozinho no caminho antigo (callback).
-              [botaoCopiar(btn(bot.pixBtnCopy, PIX_DEFAULTS.btnCopy), pixCode, `pix_copy_${subId}`, buttonStyleProps("pixCopy"))],
+              [botaoCopiar(btn(bot.pixBtnCopy, PIX_DEFAULTS.btnCopy), pixCode, `pix_copy_${subId}`, buttonStyleProps(bot, "pixCopy"))],
             ],
           },
           // O PIX é o momento de tensão da conversa: o efeito marca a chegada

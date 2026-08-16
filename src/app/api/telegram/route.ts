@@ -40,7 +40,7 @@ import {
 import { overview } from "@/lib/transactions";
 import { listMedia } from "@/lib/media";
 import { resolvePublicOrigin, webhookOriginProblem } from "@/lib/publicOrigin";
-import { buttonStyleProps } from "@/lib/settings";
+import { buttonStyleProps, sanitizeButtonStyles, BUTTON_ROLES } from "@/lib/settings";
 import { MESSAGE_EFFECTS } from "@/lib/telegramEffects";
 import { resolverLinkDoVip, limparLinkDoVipAuto } from "@/lib/vipLink";
 
@@ -172,6 +172,9 @@ export async function GET(req: NextRequest) {
       subscriptions,
       metrics,
       pixDefaults: PIX_DEFAULTS,
+      // Os papéis de botão são fixos do produto (não do modelo) — a tela
+      // precisa deles para desenhar a lista de cores.
+      buttonRoles: BUTTON_ROLES,
     });
   } catch (err) {
     return errorResponse(err);
@@ -680,6 +683,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, grupos });
     }
 
+    // ---- Preço dinâmico e cores dos botões, POR MODELO ----
+    // Nasceram como configuração global do painel e isso estava errado: tudo
+    // no bot de vendas é decidido modelo a modelo. Duas ações separadas porque
+    // são decisões independentes — mexer no preço não é escolher cor.
+    if (action === "save-dynamic-price") {
+      const bot = requireBot(body.profileId);
+      const p = (body.dynamicPrice || {}) as Record<string, unknown>;
+      const cents = Number(p.cents);
+      saveBotConfig({
+        ...bot,
+        dynamicPrice: {
+          enabled: Boolean(p.enabled),
+          cents: Number.isFinite(cents) ? Math.min(Math.max(Math.floor(cents), 1), 100) : 9,
+          direction: p.direction === "up" || p.direction === "down" ? p.direction : "random",
+        },
+      });
+      return NextResponse.json({ ok: true, dynamicPrice: getBotConfig(bot.id)?.dynamicPrice });
+    }
+
+    if (action === "save-button-styles") {
+      const bot = requireBot(body.profileId);
+      // Papel desconhecido e cor inválida são descartados aqui, não no envio:
+      // um `style` inventado faria o Telegram recusar a mensagem inteira.
+      saveBotConfig({ ...bot, buttonStyles: sanitizeButtonStyles(body.buttonStyles) });
+      return NextResponse.json({ ok: true, buttonStyles: getBotConfig(bot.id)?.buttonStyles });
+    }
+
     // ---- Link do VIP, descoberto sozinho ----
     // Devolve o que vale hoje e de onde ele veio. Com `forcar`, redescobre
     // (o botão "Atualizar" da tela do cadastro).
@@ -766,7 +796,7 @@ export async function POST(req: NextRequest) {
       saveSubscription(sub);
       // Mesma mensagem da entrega automática (com botão de acesso), para o
       // cliente não receber dois formatos diferentes do mesmo link.
-      const reenvio = buildAccessMessage(bot, invite.invite_link, buttonStyleProps("access"));
+      const reenvio = buildAccessMessage(bot, invite.invite_link, buttonStyleProps(bot, "access"));
       try {
         await sendTelegramMessage(bot.botToken, String(sub.telegramUserId), reenvio.text, reenvio.options);
       } catch (e) {

@@ -564,32 +564,39 @@ export type DynamicPrice = {
   direction: "up" | "down" | "random";
 };
 
-const DYNAMIC_PRICE_DEFAULT: DynamicPrice = { enabled: false, cents: 9, direction: "random" };
+export const DYNAMIC_PRICE_DEFAULT: DynamicPrice = { enabled: false, cents: 9, direction: "random" };
 
-export function getDynamicPrice(): DynamicPrice {
-  const s = getJson<Partial<DynamicPrice>>("dynamic_price", {});
+/** Lê o preço dinâmico de um bot, corrigindo valor fora de faixa. */
+export function readDynamicPrice(bot: {
+  dynamicPrice?: Partial<DynamicPrice>;
+}): DynamicPrice {
+  const s = bot.dynamicPrice || {};
   const cents = Number(s.cents);
   return {
     enabled: Boolean(s.enabled),
-    cents: Number.isFinite(cents) && cents >= 1 ? Math.min(Math.floor(cents), 100) : DYNAMIC_PRICE_DEFAULT.cents,
+    cents:
+      Number.isFinite(cents) && cents >= 1
+        ? Math.min(Math.floor(cents), 100)
+        : DYNAMIC_PRICE_DEFAULT.cents,
     direction: s.direction === "up" || s.direction === "down" ? s.direction : "random",
   };
-}
-
-export function setDynamicPrice(v: Partial<DynamicPrice>): DynamicPrice {
-  const atual = getDynamicPrice();
-  setJson("dynamic_price", { ...atual, ...v });
-  return getDynamicPrice();
 }
 
 /**
  * Aplica a variação ao valor de uma cobrança.
  *
+ * A configuração vem do BOT DA MODELO, não do painel: preço é decisão de cada
+ * operação, e duas modelos podem ter políticas diferentes.
+ *
  * O piso de 1 centavo existe para uma oferta muito barata com variação grande
  * não virar cobrança de R$ 0,00 — que o gateway recusaria.
  */
-export function applyDynamicPrice(amountCents: number, telegramUserId: number): number {
-  const cfg = getDynamicPrice();
+export function applyDynamicPrice(
+  bot: { dynamicPrice?: Partial<DynamicPrice> },
+  amountCents: number,
+  telegramUserId: number,
+): number {
+  const cfg = readDynamicPrice(bot);
   if (!cfg.enabled || cfg.cents < 1) return amountCents;
 
   // Hash simples e estável: só precisa espalhar, não precisa ser seguro.
@@ -614,7 +621,8 @@ export function applyDynamicPrice(amountCents: number, telegramUserId: number): 
  *
  * Cada PAPEL do fluxo tem o seu, porque a intenção muda: a lista de planos
  * pede destaque, "Copiar Chave Pix" é auxiliar, e o acesso ao VIP depois do
- * pagamento merece o verde.
+ * pagamento merece o verde. E cada MODELO tem a sua paleta — por isso a
+ * escolha mora no bot dela, não numa chave global do painel.
  */
 export type ButtonStyle = "" | "primary" | "success" | "danger";
 export type ButtonRole =
@@ -652,25 +660,24 @@ export const BUTTON_ROLES: { key: ButtonRole; label: string; hint: string }[] = 
 
 export type ButtonStyles = Partial<Record<ButtonRole, ButtonStyle>>;
 
-export function getButtonStyles(): ButtonStyles {
-  return getJson<ButtonStyles>("button_styles", {});
-}
-
-export function setButtonStyles(v: ButtonStyles): ButtonStyles {
+/** Descarta papel desconhecido e cor inválida antes de gravar. */
+export function sanitizeButtonStyles(v: unknown): ButtonStyles {
   const validos: ButtonStyle[] = ["", "primary", "success", "danger"];
   const chaves = new Set(BUTTON_ROLES.map((r) => r.key as string));
   const limpo: ButtonStyles = {};
-  for (const [k, val] of Object.entries(v || {})) {
+  for (const [k, val] of Object.entries((v || {}) as Record<string, unknown>)) {
     if (!chaves.has(k) || !validos.includes(val as ButtonStyle)) continue;
     if (val) limpo[k as ButtonRole] = val as ButtonStyle;
   }
-  setJson("button_styles", limpo);
-  return getButtonStyles();
+  return limpo;
 }
 
 /** Devolve `{ style }` para espalhar no botão, ou nada quando é o padrão. */
-export function buttonStyleProps(role: ButtonRole): { style?: string } {
-  const salvo = getButtonStyles()[role];
+export function buttonStyleProps(
+  bot: { buttonStyles?: ButtonStyles },
+  role: ButtonRole,
+): { style?: string } {
+  const salvo = (bot.buttonStyles || {})[role];
   const v = salvo !== undefined ? salvo : BUTTON_STYLE_DEFAULTS[role];
   return v ? { style: v } : {};
 }
@@ -680,7 +687,7 @@ export function buttonStyleProps(role: ButtonRole): { style?: string } {
  *
  * A cor escolhida no plano vence a do papel "lista de planos" — é o que
  * permite destacar a oferta principal no meio das outras. Sem cor no plano,
- * cai no global.
+ * cai na cor do papel, que é da modelo.
  *
  * O mapa existe porque a tela fala em verde/azul/vermelho (que é como o
  * operador pensa) e a API do Telegram fala em success/primary/danger.
@@ -691,7 +698,11 @@ const CORES_DO_PLANO: Record<string, ButtonStyle> = {
   red: "danger",
 };
 
-export function planButtonStyleProps(highlight?: string): { style?: string } {
+export function planButtonStyleProps(
+  bot: { buttonStyles?: ButtonStyles },
+  highlight?: string,
+): { style?: string } {
   const doPlano = highlight ? CORES_DO_PLANO[highlight] : undefined;
-  return doPlano ? { style: doPlano } : buttonStyleProps("plans");
+  return doPlano ? { style: doPlano } : buttonStyleProps(bot, "plans");
 }
+

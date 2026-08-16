@@ -245,7 +245,7 @@ export async function processarWebhookSyncPay(
                 // botão fazia o cliente pagar e receber uma mensagem sem
                 // caminho nenhum para o grupo.
                 const { efeitoProps } = await import("@/lib/telegramEffects");
-                const aprovada = buildAccessMessage(bot, invite.invite_link, buttonStyleProps("access"));
+                const aprovada = buildAccessMessage(bot, invite.invite_link, buttonStyleProps(bot, "access"));
                 await sendTelegramMessage(
                   bot.botToken,
                   String(sub.telegramUserId),

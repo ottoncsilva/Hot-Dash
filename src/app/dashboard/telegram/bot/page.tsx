@@ -74,9 +74,13 @@ type Bot = {
   effectSuccess?: string;
   previasUseWelcome?: boolean;
   vipUseWelcome?: boolean;
+  dynamicPrice?: DynamicPrice;
+  buttonStyles?: ButtonStyles;
 };
-/** Estilos globais dos botões (Configurações → cores). O preview usa os mesmos. */
+/** Cores dos botões DESTA modelo (não do painel). O preview usa as mesmas. */
 type ButtonStyles = Record<string, "" | "primary" | "success" | "danger">;
+type DynamicPrice = { enabled: boolean; cents: number; direction: "up" | "down" | "random" };
+type ButtonRoleInfo = { key: string; label: string; hint: string };
 type WelcomeStep = {
   delayMinutes: number;
   text: string;
@@ -175,10 +179,8 @@ export default function BotVendasPage() {
   const [efeitoWelcome, setEfeitoWelcome] = useState("");
   const [efeitoPix, setEfeitoPix] = useState("");
   const [efeitoSuccess, setEfeitoSuccess] = useState("");
-  // As CORES dos botões vêm de Configurações, não do bot — mas é aqui que o
-  // operador olha para saber como o /start vai ficar, então o preview lê a
-  // mesma fonte que o envio usa.
-  const [buttonStyles, setButtonStyles] = useState<ButtonStyles>({});
+  // Os papéis de botão são fixos do produto; as CORES vêm do bot da modelo.
+  const [buttonRoles, setButtonRoles] = useState<ButtonRoleInfo[]>([]);
 
   const load = useCallback(async () => {
     if (!profileId) return;
@@ -191,6 +193,7 @@ export default function BotVendasPage() {
         subscriptions: Sub[];
         metrics: Metrics;
         pixDefaults: PixDefaults;
+        buttonRoles: ButtonRoleInfo[];
       }>(`/api/telegram?profileId=${profileId}`);
       setBot(d.bot);
       setPlans(d.plans || []);
@@ -204,13 +207,7 @@ export default function BotVendasPage() {
       setEfeitoWelcome(d.bot?.effectWelcome || "");
       setEfeitoPix(d.bot?.effectPix || "");
       setEfeitoSuccess(d.bot?.effectSuccess || "");
-      try {
-        const cfg = await apiGet<{ buttonStyles: ButtonStyles }>("/api/settings/bot");
-        setButtonStyles(cfg.buttonStyles || {});
-      } catch {
-        // Cores são enfeite do preview: falha aqui não pode travar a tela.
-        setButtonStyles({});
-      }
+      setButtonRoles(d.buttonRoles || []);
     } finally {
       setLoading(false);
     }
@@ -228,11 +225,11 @@ export default function BotVendasPage() {
       .map((p) => ({
         text: `${p.name} - ${(p.priceCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`,
         kind: "plan" as const,
-        style: corDo((p.highlight && CORES_DO_PLANO[p.highlight]) || buttonStyles.plans),
+        style: corDo((p.highlight && CORES_DO_PLANO[p.highlight]) || bot?.buttonStyles?.plans),
       })),
-    ...buttons.map((b) => ({ text: b.text, kind: "custom" as const, style: corDo(buttonStyles.redirect) })),
+    ...buttons.map((b) => ({ text: b.text, kind: "custom" as const, style: corDo(bot?.buttonStyles?.redirect) })),
     ...(bot?.supportUsername
-      ? [{ text: "💬 Suporte / Dúvidas", kind: "support" as const, style: corDo(buttonStyles.redirect) }]
+      ? [{ text: "💬 Suporte / Dúvidas", kind: "support" as const, style: corDo(bot?.buttonStyles?.redirect) }]
       : []),
   ];
 
@@ -328,10 +325,13 @@ export default function BotVendasPage() {
                       o operador para outra página só para escolher uma cor era
                       o motivo de ninguém achá-las. O aviso dentro de cada uma
                       diz o alcance. */}
-                  <PrecoDinamicoRow />
-                  {/* Salvar cor recarrega a tela: o PREVIEW ao lado desenha os
-                      botões com essas cores, e ele mentiria até o próximo F5. */}
-                  <CoresBotoesRow onSaved={load} />
+                  <PrecoDinamicoRow profileId={profileId} bot={bot} onSaved={load} />
+                  <CoresBotoesRow
+                    profileId={profileId}
+                    bot={bot}
+                    roles={buttonRoles}
+                    onSaved={load}
+                  />
                 </>
               )}
               {tab === "planos" && <PlansCard profileId={profileId} plans={plans} onSaved={load} />}
@@ -1873,16 +1873,13 @@ function brl(cents: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Preço dinâmico e cores dos botões
+// Preço dinâmico e cores dos botões — DA MODELO
 //
-// São ajustes GLOBAIS (valem para todas as modelos), mas moram nesta tela
-// porque é aqui que se configura o bot. Ficaram um tempo numa página separada
-// em Configurações e simplesmente não eram encontrados: ninguém sai da tela do
-// bot para procurar a cor de um botão do bot. O aviso dentro de cada linha diz
-// o alcance, que é a informação que faltava — não a distância.
+// Nasceram como configuração global do painel, e isso estava errado: tudo no
+// bot de vendas é decidido modelo a modelo — preço, planos, textos, funis.
+// Duas modelos podem ter paletas e políticas de preço diferentes, e com um
+// valor só uma delas sempre estaria com a configuração da outra.
 // ---------------------------------------------------------------------------
-type DynamicPrice = { enabled: boolean; cents: number; direction: "up" | "down" | "random" };
-type ButtonRoleInfo = { key: string; label: string; hint: string };
 
 /** As três cores que o Telegram aceita (Bot API 9.4), mais o padrão. */
 const CORES_BOTAO: { key: string; label: string; dot: string; ring: string }[] = [
@@ -1892,27 +1889,30 @@ const CORES_BOTAO: { key: string; label: string; dot: string; ring: string }[] =
   { key: "danger", label: "Vermelho", dot: "bg-red-400", ring: "border-red-500/50 text-red-300" },
 ];
 
-const AVISO_GLOBAL =
-  "Vale para TODAS as modelos, não só para esta — é uma configuração do painel.";
+const PRECO_VAZIO: DynamicPrice = { enabled: false, cents: 9, direction: "random" };
 
-function PrecoDinamicoRow() {
-  const [preco, setPreco] = useState<DynamicPrice>({ enabled: false, cents: 9, direction: "random" });
+function PrecoDinamicoRow({
+  profileId,
+  bot,
+  onSaved,
+}: {
+  profileId: string;
+  bot: Bot;
+  onSaved: () => void;
+}) {
+  const [preco, setPreco] = useState<DynamicPrice>(bot.dynamicPrice || PRECO_VAZIO);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    apiGet<{ dynamicPrice: DynamicPrice }>("/api/settings/bot")
-      .then((d) => setPreco(d.dynamicPrice))
-      .catch(() => {});
-  }, []);
 
   async function salvar() {
     setBusy(true);
     try {
-      const d = await apiSend<{ dynamicPrice: DynamicPrice }>("/api/settings/bot", "PATCH", {
+      await apiSend("/api/telegram", "POST", {
+        action: "save-dynamic-price",
+        profileId,
         dynamicPrice: preco,
       });
-      setPreco(d.dynamicPrice);
       showToast("Preço dinâmico salvo.", "success");
+      onSaved();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha.", "error");
     } finally {
@@ -1983,36 +1983,38 @@ function PrecoDinamicoRow() {
         </div>
       )}
 
-      <p className="mt-3 text-[11px] text-amber-400/80">{AVISO_GLOBAL}</p>
-      <button onClick={salvar} disabled={busy} className="btn-primary mt-3">
+      <button onClick={salvar} disabled={busy} className="btn-primary mt-4">
         {busy ? "Salvando..." : "Salvar preço dinâmico"}
       </button>
     </SectionRow>
   );
 }
 
-function CoresBotoesRow({ onSaved }: { onSaved: () => void }) {
-  const [estilos, setEstilos] = useState<Record<string, string>>({});
-  const [roles, setRoles] = useState<ButtonRoleInfo[]>([]);
+function CoresBotoesRow({
+  profileId,
+  bot,
+  roles,
+  onSaved,
+}: {
+  profileId: string;
+  bot: Bot;
+  roles: ButtonRoleInfo[];
+  onSaved: () => void;
+}) {
+  const [estilos, setEstilos] = useState<ButtonStyles>(bot.buttonStyles || {});
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    apiGet<{ buttonStyles: Record<string, string>; roles: ButtonRoleInfo[] }>("/api/settings/bot")
-      .then((d) => {
-        setEstilos(d.buttonStyles || {});
-        setRoles(d.roles || []);
-      })
-      .catch(() => {});
-  }, []);
 
   async function salvar() {
     setBusy(true);
     try {
-      const d = await apiSend<{ buttonStyles: Record<string, string> }>("/api/settings/bot", "PATCH", {
+      await apiSend("/api/telegram", "POST", {
+        action: "save-button-styles",
+        profileId,
         buttonStyles: estilos,
       });
-      setEstilos(d.buttonStyles || {});
       showToast("Cores salvas.", "success");
+      // Recarrega: o PREVIEW ao lado desenha os botões com essas cores e
+      // mentiria até o próximo F5.
       onSaved();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha.", "error");
@@ -2035,9 +2037,10 @@ function CoresBotoesRow({ onSaved }: { onSaved: () => void }) {
       status={comCor > 0 ? { label: `${comCor} com cor`, tone: "ok" } : undefined}
     >
       <p className="text-xs leading-relaxed text-zinc-400">
-        Cor dos botões que o bot mostra dentro do Telegram. Cada papel do fluxo tem a sua, porque a
-        intenção muda: a lista de planos pede destaque, copiar a chave é auxiliar, e o acesso ao VIP
-        depois do pagamento merece o verde. Um plano com cor própria ignora a cor da lista.
+        Cor dos botões que o bot desta modelo mostra dentro do Telegram. Cada papel do fluxo tem a
+        sua, porque a intenção muda: a lista de planos pede destaque, copiar a chave é auxiliar, e o
+        acesso ao VIP depois do pagamento merece o verde. Um plano com cor própria ignora a cor da
+        lista.
       </p>
       <p className="mt-2 rounded-lg border border-indigo-500/25 bg-indigo-500/[0.07] p-2.5 text-[11px] leading-relaxed text-zinc-300">
         A cor chegou na <b>Bot API 9.4</b> (fev/2026) e aparece nos apps atualizados. Em apps antigos
@@ -2057,7 +2060,7 @@ function CoresBotoesRow({ onSaved }: { onSaved: () => void }) {
                   <button
                     key={c.key}
                     type="button"
-                    onClick={() => setEstilos({ ...estilos, [r.key]: c.key })}
+                    onClick={() => setEstilos({ ...estilos, [r.key]: c.key as ButtonStyles[string] })}
                     className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors ${
                       ativo ? `${c.ring} bg-white/5` : "border-white/10 text-zinc-400 hover:text-zinc-200"
                     }`}
@@ -2073,8 +2076,7 @@ function CoresBotoesRow({ onSaved }: { onSaved: () => void }) {
         {roles.length === 0 && <p className="py-6 text-center text-sm text-zinc-500">Carregando…</p>}
       </div>
 
-      <p className="mt-3 text-[11px] text-amber-400/80">{AVISO_GLOBAL}</p>
-      <button onClick={salvar} disabled={busy} className="btn-primary mt-3">
+      <button onClick={salvar} disabled={busy} className="btn-primary mt-4">
         {busy ? "Salvando..." : "Salvar cores"}
       </button>
     </SectionRow>

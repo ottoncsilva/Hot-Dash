@@ -1,7 +1,7 @@
 import "server-only";
 import { getDb } from "@/lib/db";
 import { listProfiles } from "@/lib/profiles";
-import { buttonStyleProps } from "@/lib/settings";
+import { planButtonStyleProps, type ButtonStyles } from "@/lib/settings";
 import {
   getBotConfigByProfile,
   getBotConfig,
@@ -394,9 +394,9 @@ type FunnelStep = {
   buttons?: "none" | "plans";
 };
 
-function buildReplyMarkup(botId: string, discountPercent = 0) {
+function buildReplyMarkup(bot: { id: string; buttonStyles?: ButtonStyles }, discountPercent = 0) {
   // Só os ATIVOS: um plano desligado some do /start, e some dos funis também.
-  const plans = listActivePlans(botId);
+  const plans = listActivePlans(bot.id);
   const inlineKeyboard: any[] = [];
   if (plans.length > 0) {
     plans.forEach((plan) => {
@@ -412,7 +412,7 @@ function buildReplyMarkup(botId: string, discountPercent = 0) {
         {
           text: `${discountPercent > 0 ? `🔥 (-${discountPercent}%) ` : ""}${plan.name} - ${priceStr}`,
           callback_data: `buy_plan_${plan.id}${discountPercent > 0 ? `_${discountPercent}` : ""}`,
-          ...buttonStyleProps("plans"),
+          ...planButtonStyleProps(bot, plan.highlight),
         },
       ]);
     });
@@ -495,7 +495,7 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
         const elapsedMinutes = (now - lead.lastInteractionAt) / (60 * 1000);
 
         if (elapsedMinutes >= step.delayMinutes) {
-          const replyMarkup = buildReplyMarkup(bot.id, step.discountPercent);
+          const replyMarkup = buildReplyMarkup(bot, step.discountPercent);
           await sendFunnelStep(bot.botToken, bot.id, lead.chatId, p.id, step, replyMarkup);
 
           lead.lastInteractionAt = now;
@@ -543,7 +543,7 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
         const desde = row.last_pix_step_at || row.created_at;
         if ((now - desde) / 60000 < step.delayMinutes) continue;
 
-        const markup = buildReplyMarkup(bot.id, step.discountPercent);
+        const markup = buildReplyMarkup(bot, step.discountPercent);
         await sendFunnelStep(bot.botToken, bot.id, String(row.telegram_user_id), p.id, step, markup);
 
         db.prepare(
@@ -595,7 +595,7 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
         const elapsedMinutes = (now - lastActionAt) / (60 * 1000);
 
         if (elapsedMinutes >= step.delayMinutes) {
-          const replyMarkup = buildReplyMarkup(bot.id, step.discountPercent);
+          const replyMarkup = buildReplyMarkup(bot, step.discountPercent);
           await sendFunnelStep(bot.botToken, bot.id, String(sub.telegramUserId), p.id, step, replyMarkup);
 
           sub.lastUpsellAt = now;
@@ -930,7 +930,7 @@ export async function runTelegramApprovalSequences(): Promise<number> {
     if (item.approvedAt + atrasoAcumulado * 60_000 > agora) continue;
 
     const passo = passos[item.stepIndex];
-    const markup = passo.buttons === "plans" ? buildReplyMarkup(bot.id) : undefined;
+    const markup = passo.buttons === "plans" ? buildReplyMarkup(bot) : undefined;
     try {
       await sendFunnelStep(bot.botToken, bot.id, item.chatId, bot.profileId, passo, markup);
       enviados++;

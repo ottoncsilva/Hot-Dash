@@ -685,6 +685,16 @@ function migrate(d: Database.Database) {
   // e manter as duas em sincronia à mão era garantia de divergirem.
   ensureColumn(d, "telegram_bots", "previas_use_welcome", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(d, "telegram_bots", "vip_use_welcome", "INTEGER NOT NULL DEFAULT 0");
+  // PREÇO DINÂMICO e CORES DOS BOTÕES por MODELO. Nasceram como configuração
+  // global do painel, e isso estava errado: tudo no bot de vendas é decidido
+  // modelo a modelo — preço, planos, textos, funis. Duas modelos podem ter
+  // paletas e políticas de preço diferentes, e com um valor só uma delas
+  // sempre estaria com a configuração da outra.
+  ensureColumn(d, "telegram_bots", "dynamic_price_enabled", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(d, "telegram_bots", "dynamic_price_cents", "INTEGER NOT NULL DEFAULT 9");
+  ensureColumn(d, "telegram_bots", "dynamic_price_direction", "TEXT NOT NULL DEFAULT 'random'");
+  /** JSON {papel: cor}. NULL = nenhuma cor escolhida ainda. */
+  ensureColumn(d, "telegram_bots", "button_styles", "TEXT");
   // Terceiro gatilho da RECUPERAÇÃO: quem gerou PIX e não pagou. É um público
   // diferente do downsell geral — já escolheu o plano e chegou na tela de
   // pagamento, então merece outra conversa (e outro desconto).
@@ -793,6 +803,7 @@ function migrate(d: Database.Database) {
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);
   backfillMensagensPadrao(d);
+  backfillConfigPorModelo(d);
   backfillTelegramUsers(d);
   backfillMediaPostLog(d);
 
@@ -935,6 +946,55 @@ function backfillMensagensPadrao(d: Database.Database) {
     `UPDATE telegram_bots SET success_button_text = ?
       WHERE success_button_text IS NULL OR TRIM(success_button_text) = ''`,
   ).run(BOTAO);
+}
+
+/**
+ * Leva o preço dinâmico e as cores dos botões da configuração GLOBAL para o
+ * bot de cada modelo.
+ *
+ * Roda uma vez só (marca `bot_config_por_modelo` em settings). Sem isto, quem
+ * já tinha ligado o preço dinâmico ou escolhido cores veria tudo voltar ao
+ * padrão depois da atualização — a configuração não sumiria do banco, mas
+ * deixaria de ser lida, que na prática é a mesma coisa.
+ */
+function backfillConfigPorModelo(d: Database.Database) {
+  const feito = d.prepare("SELECT value FROM settings WHERE key = ?").get("bot_config_por_modelo");
+  if (feito) return;
+
+  const ler = (chave: string) => {
+    const row = d.prepare("SELECT value FROM settings WHERE key = ?").get(chave) as
+      | { value: string }
+      | undefined;
+    if (!row) return null;
+    try {
+      return JSON.parse(row.value);
+    } catch {
+      return null;
+    }
+  };
+
+  const preco = ler("dynamic_price");
+  if (preco && typeof preco === "object") {
+    const cents = Number(preco.cents);
+    d.prepare(
+      `UPDATE telegram_bots SET dynamic_price_enabled = ?, dynamic_price_cents = ?,
+              dynamic_price_direction = ?`,
+    ).run(
+      preco.enabled ? 1 : 0,
+      Number.isFinite(cents) && cents >= 1 ? Math.min(Math.floor(cents), 100) : 9,
+      preco.direction === "up" || preco.direction === "down" ? preco.direction : "random",
+    );
+  }
+
+  const cores = ler("button_styles");
+  if (cores && typeof cores === "object" && Object.keys(cores).length > 0) {
+    d.prepare("UPDATE telegram_bots SET button_styles = ?").run(JSON.stringify(cores));
+  }
+
+  d.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+    "bot_config_por_modelo",
+    JSON.stringify({ migradoEm: Date.now() }),
+  );
 }
 
 function backfillTelegramUsers(d: Database.Database) {

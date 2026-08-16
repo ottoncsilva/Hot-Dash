@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { sanitizeButtonStyles, type ButtonStyles, type DynamicPrice } from "./settings";
 
 export type TelegramBotConfig = {
   id: string;
@@ -67,6 +68,10 @@ export type TelegramBotConfig = {
    *  (texto, mídias e botões dos planos) antes da sequência própria. */
   previasUseWelcome?: boolean;
   vipUseWelcome?: boolean;
+  /** Variação de centavos por lead — configuração DESTA modelo. */
+  dynamicPrice?: DynamicPrice;
+  /** Cor de cada papel de botão — paleta DESTA modelo. */
+  buttonStyles?: ButtonStyles;
 };
 
 /** Textos padrão da tela de pagamento — os mesmos que antes viviam fixos no
@@ -312,7 +317,27 @@ function toBotConfig(row: any): TelegramBotConfig {
     effectSuccess: row.effect_success || undefined,
     previasUseWelcome: !!row.previas_use_welcome,
     vipUseWelcome: !!row.vip_use_welcome,
+    dynamicPrice: {
+      enabled: !!row.dynamic_price_enabled,
+      cents: Number(row.dynamic_price_cents) || 9,
+      direction:
+        row.dynamic_price_direction === "up" || row.dynamic_price_direction === "down"
+          ? row.dynamic_price_direction
+          : "random",
+    },
+    buttonStyles: parseButtonStyles(row.button_styles),
   };
+}
+
+/** JSON {papel: cor} → paleta. Conteúdo corrompido vira paleta vazia (tudo na
+ *  cor padrão) em vez de derrubar o carregamento do bot inteiro. */
+function parseButtonStyles(raw: unknown): ButtonStyles {
+  if (typeof raw !== "string" || !raw.trim()) return {};
+  try {
+    return sanitizeButtonStyles(JSON.parse(raw));
+  } catch {
+    return {};
+  }
 }
 
 /** JSON de ids da Galeria → lista. Conteúdo corrompido vira lista vazia em vez
@@ -344,8 +369,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -384,7 +409,11 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        effect_pix = excluded.effect_pix,
        effect_success = excluded.effect_success,
        previas_use_welcome = excluded.previas_use_welcome,
-       vip_use_welcome = excluded.vip_use_welcome`
+       vip_use_welcome = excluded.vip_use_welcome,
+       dynamic_price_enabled = excluded.dynamic_price_enabled,
+       dynamic_price_cents = excluded.dynamic_price_cents,
+       dynamic_price_direction = excluded.dynamic_price_direction,
+       button_styles = excluded.button_styles`
   ).run(
     id,
     config.profileId,
@@ -426,6 +455,12 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.effectSuccess?.trim() || null,
     config.previasUseWelcome ? 1 : 0,
     config.vipUseWelcome ? 1 : 0,
+    config.dynamicPrice?.enabled ? 1 : 0,
+    Math.min(Math.max(Math.floor(Number(config.dynamicPrice?.cents) || 9), 1), 100),
+    config.dynamicPrice?.direction === "up" || config.dynamicPrice?.direction === "down"
+      ? config.dynamicPrice.direction
+      : "random",
+    config.buttonStyles ? JSON.stringify(sanitizeButtonStyles(config.buttonStyles)) : null,
     now
   );
   return getBotConfig(id)!;

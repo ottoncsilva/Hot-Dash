@@ -146,8 +146,13 @@ export async function processarWebhookSyncPay(
           // ter vindo de uma OFERTA DE MAILING — nome, preço e duração
           // ajustados só para aquele disparo. Quando existe, ela manda.
           const basePlan = sub.planId ? getPlan(sub.planId) : null;
-          let plan: { name: string; durationDays: number; kind: string; deliverable?: string } | null =
-            basePlan;
+          let plan: {
+            name: string;
+            durationDays: number;
+            kind: string;
+            deliverable?: string;
+            deliverableButtons?: { text: string; url: string }[];
+          } | null = basePlan;
           if (sub.offerId) {
             const { getMailingOffer } = await import("@/lib/telegramMailing");
             const offer = getMailingOffer(sub.offerId);
@@ -158,10 +163,20 @@ export async function processarWebhookSyncPay(
                 kind: offer.kind,
                 // Sem entregável próprio, herda o do plano de origem.
                 deliverable: offer.deliverable || basePlan?.deliverable,
+                deliverableButtons: basePlan?.deliverableButtons,
               };
             }
           }
           const isPackage = plan?.kind === "package";
+          // Botões que acompanham o entregável ("MEU WHATSAPP" etc.). Sem eles
+          // o link ia solto no meio do texto.
+          const botoesEntregavel = plan?.deliverableButtons?.length
+            ? {
+                reply_markup: {
+                  inline_keyboard: plan.deliverableButtons.map((b) => [{ text: b.text, url: b.url }]),
+                },
+              }
+            : {};
 
           try {
             if (isPackage) {
@@ -177,59 +192,108 @@ export async function processarWebhookSyncPay(
               const msg = deliverable
                 ? `✅ <b>Pagamento aprovado!</b>\n\n${deliverable}`
                 : bot.successMessage.replace(/{link_vip}/gi, "");
-              await sendTelegramMessage(bot.botToken, String(sub.telegramUserId), msg);
+              await sendTelegramMessage(bot.botToken, String(sub.telegramUserId), msg, botoesEntregavel);
             } else {
               // ASSINATURA: gera o convite VIP com a duração REAL do plano.
-              const invite = await createTelegramInviteLink(
-                bot.botToken,
-                bot.idVip,
-                `VIP_${sub.telegramUserId}`,
-              );
-              const durationDays = plan?.durationDays || (sub.expiresAt > 0 ? sub.expiresAt : 30);
+              //
+              // `createChatInviteLink` exige que o bot seja ADMINISTRADOR do
+              // grupo com permissão de convidar por link. Quando não é, a
+              // chamada falha — e antes esse erro subia para o catch lá de
+              // baixo, que só escrevia no console: o cliente PAGAVA e não
+              // recebia mensagem nenhuma, enquanto o painel mostrava a venda
+              // como concluída. Agora a falha é isolada aqui, o acesso é
+              // registrado do mesmo jeito e o cliente recebe um aviso em vez
+              // de silêncio.
+              let invite: { invite_link: string } | null = null;
+              let erroConvite: string | null = null;
+              try {
+                invite = await createTelegramInviteLink(
+                  bot.botToken,
+                  bot.idVip,
+                  `VIP_${sub.telegramUserId}`,
+                );
+              } catch (e) {
+                erroConvite = e instanceof Error ? e.message : "Falha ao gerar o convite do VIP.";
+                console.error(
+                  `[hotdash] Convite VIP falhou (bot ${bot.id}, grupo ${bot.idVip}). ` +
+                    `O bot precisa ser ADMIN do grupo com permissão de convidar por link. Erro:`,
+                  erroConvite,
+                );
+              }
+              // VITALÍCIO é `durationDays === 0`, e um `||` aqui o transformaria
+              // em 30 dias — o cliente pagaria pelo vitalício e seria removido
+              // do VIP um mês depois. Por isso a checagem é explícita.
+              const durationDays = plan ? plan.durationDays : 30;
               sub.status = "active";
-              sub.expiresAt = Date.now() + durationDays * 24 * 60 * 60 * 1000;
-              sub.inviteLink = invite.invite_link;
+              // expiresAt = 0 significa "não expira": é o mesmo valor que os
+              // pacotes usam, e a rotina de expiração já ignora (`expires_at > 0`).
+              sub.expiresAt = durationDays > 0 ? Date.now() + durationDays * 24 * 60 * 60 * 1000 : 0;
+              // A assinatura é gravada COM OU SEM convite: o cliente pagou, e o
+              // acesso é dele. Sem link, o botão "Reenviar link" da lista de
+              // assinantes resolve assim que o bot virar admin.
+              if (invite) sub.inviteLink = invite.invite_link;
               sub.lastUpsellAt = Date.now();
               sub.upsellStepIndex = 0;
               saveSubscription(sub);
 
-              // Botão de acesso (opcional). Com ele o convite vira um botão
-              // clicável em vez de uma URL solta no meio do texto — o link
-              // continua no corpo para quem prefere copiar.
-              const botaoTexto = bot.successButtonText?.trim();
-              const clientMsg = bot.successMessage.replace(/{link_vip}/gi, invite.invite_link);
-              await sendTelegramMessage(
-                bot.botToken,
-                String(sub.telegramUserId),
-                clientMsg,
-                botaoTexto
-                  ? {
-                      reply_markup: {
-                        inline_keyboard: [[{ text: botaoTexto, url: invite.invite_link }]],
-                      },
-                    }
-                  : {},
-              );
+              if (invite) {
+                // Botão de acesso (opcional). Com ele o convite vira um botão
+                // clicável em vez de uma URL solta no meio do texto — o link
+                // continua no corpo para quem prefere copiar.
+                const botaoTexto = bot.successButtonText?.trim();
+                const clientMsg = bot.successMessage.replace(/{link_vip}/gi, invite.invite_link);
+                await sendTelegramMessage(
+                  bot.botToken,
+                  String(sub.telegramUserId),
+                  clientMsg,
+                  botaoTexto
+                    ? {
+                        reply_markup: {
+                          inline_keyboard: [[{ text: botaoTexto, url: invite.invite_link }]],
+                        },
+                      }
+                    : {},
+                );
+              } else {
+                // Sem convite: o pior desfecho seria o silêncio. O cliente é
+                // avisado de que o pagamento entrou e o acesso vem em seguida,
+                // e o operador recebe um push para agir.
+                await sendTelegramMessage(
+                  bot.botToken,
+                  String(sub.telegramUserId),
+                  "✅ <b>Pagamento aprovado!</b>\n\nSeu acesso está sendo liberado e o link chega " +
+                    "aqui em instantes. Se demorar, chame o suporte.",
+                ).catch(() => {});
+                try {
+                  const { sendPushEvent } = await import("@/lib/push");
+                  await sendPushEvent(
+                    "sale",
+                    "⚠️ Venda aprovada SEM link do VIP",
+                    "O bot não conseguiu gerar o convite — confira se ele é admin do grupo com permissão de convidar.",
+                    "/dashboard/telegram/bot",
+                  );
+                } catch {
+                  /* push é aviso, não pode derrubar a entrega */
+                }
+              }
 
               // Entregável adicional (bônus da assinatura, ex.: WhatsApp).
               const deliverable = plan?.deliverable?.trim();
               if (deliverable) {
-                await sendTelegramMessage(bot.botToken, String(sub.telegramUserId), deliverable);
+                await sendTelegramMessage(
+                  bot.botToken,
+                  String(sub.telegramUserId),
+                  deliverable,
+                  botoesEntregavel,
+                );
               }
             }
 
-            // Notifica o canal de registro (vale para assinatura e pacote).
-            if (bot.idRegistro) {
-              const valStr = (updated.transaction.amountCents / 100).toLocaleString("pt-BR", {
-                style: "currency",
-                currency: "BRL",
-              });
-              const adminMsg = `🔔 <b>Nova Venda!</b>\n` +
-                `${isPackage ? "Pacote" : "Plano"}: <b>${plan?.name || updated.transaction.description || "VIP"}</b>\n` +
-                `Valor: <b>${valStr}</b>\n` +
-                `Cliente: <b>@${sub.telegramUsername || sub.telegramUserId}</b>`;
-              await sendTelegramMessage(bot.botToken, bot.idRegistro, adminMsg);
-            }
+            // O aviso de venda no CANAL DE REGISTRO saiu a pedido — o recurso
+            // não está em uso por ora, e o campo foi tirado da tela. A coluna
+            // `id_registro` continua no banco de propósito: reativar é devolver
+            // o campo na tela e este bloco. O alerta de venda no celular (push
+            // do PWA, logo abaixo) não depende disso e continua valendo.
           } catch (tErr) {
             console.error("Erro ao processar pagamento no Telegram:", tErr);
           }

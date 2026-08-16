@@ -158,6 +158,30 @@ export async function getTelegramChatMemberCount(
   return typeof r === "number" ? r : 0;
 }
 
+/**
+ * Situação de um usuário (aqui: o próprio bot) dentro de um chat.
+ *
+ * É o que responde "o bot é admin deste grupo?" — a pergunta que importa,
+ * porque sem ser administrador ele não aprova entrada, não gera convite e nem
+ * recebe as mensagens do grupo (o modo privacidade do Telegram esconde delas).
+ *
+ * Funciona só com o token, sem depender do webhook.
+ */
+export async function getTelegramChatMember(
+  botToken: string,
+  chatId: string,
+  userId: number,
+): Promise<{ status?: string } | null> {
+  try {
+    return (await telegramFetch(botToken, "getChatMember", {
+      chat_id: chatId,
+      user_id: userId,
+    })) as { status?: string };
+  } catch {
+    return null;
+  }
+}
+
 /** Dados do chat (título, tipo). Mesma ideia: consulta, não depende do webhook. */
 export async function getTelegramChat(
   botToken: string,

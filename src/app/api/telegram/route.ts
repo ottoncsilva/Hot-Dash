@@ -6,6 +6,7 @@ import {
   getBotConfig,
   saveBotConfig,
   listPlans,
+  planSalesStats,
   savePlan,
   deletePlan,
   listCustomButtons,
@@ -24,6 +25,7 @@ import {
   listSeenChats,
   recordSeenChat,
   PIX_DEFAULTS,
+  MESSAGE_DEFAULTS,
 } from "@/lib/telegramDb";
 import {
   setTelegramWebhook,
@@ -31,6 +33,8 @@ import {
   getTelegramMe,
   getTelegramWebhookInfo,
   getTelegramUpdates,
+  getTelegramChat,
+  getTelegramChatMember,
   telegramWebhookSecret,
   createTelegramInviteLink,
   sendTelegramMessage,
@@ -42,6 +46,16 @@ import { listMedia } from "@/lib/media";
 import { resolvePublicOrigin, webhookOriginProblem } from "@/lib/publicOrigin";
 
 import { randomUUID } from "node:crypto";
+
+/** Planos com o desempenho de cada um anexado — as duas telas que os listam
+ *  querem sempre os dois juntos. */
+function comStats(botId: string) {
+  const stats = planSalesStats(botId);
+  return listPlans(botId).map((p) => ({
+    ...p,
+    sales: stats.get(p.id) || { count: 0, cents: 0 },
+  }));
+}
 
 /** URL que o Telegram deve chamar para este bot, e o diagnóstico da base. */
 function webhookUrlFor(req: NextRequest, botId: string) {
@@ -126,7 +140,7 @@ export async function GET(req: NextRequest) {
     const tags = getDb().prepare("SELECT * FROM tags ORDER BY name").all();
 
     // Dados do bot de vendas (planos, botões, assinantes) — só quando há bot.
-    const plans = bot ? listPlans(bot.id) : [];
+    const plans = bot ? comStats(bot.id) : [];
     const customButtons = bot ? listCustomButtons(bot.id) : [];
     const subscriptions = bot ? listSubscriptions(bot.id) : [];
     // Métricas de venda do modelo (reaproveita o painel financeiro).
@@ -192,8 +206,10 @@ export async function POST(req: NextRequest) {
       // apagado a cada salvamento das credenciais.
       saveBotConfig({
         ...(existing || {
-          welcomeMessage: "Bem-vindo",
-          successMessage: "Aprovado",
+          // Bot novo nasce com mensagens de verdade, não com "Bem-vindo"/"Aprovado".
+          welcomeMessage: MESSAGE_DEFAULTS.welcome,
+          successMessage: MESSAGE_DEFAULTS.success,
+          successButtonText: MESSAGE_DEFAULTS.successButton,
           operationActive: false,
           vipApprovalMode: "subscribers" as const,
           previasApprovalMode: "all" as const,
@@ -338,6 +354,11 @@ export async function POST(req: NextRequest) {
             ? String(body.pixSocialProofText)
             : bot.pixSocialProofText,
         pixAudioUrl: body.pixAudioUrl !== undefined ? String(body.pixAudioUrl) : bot.pixAudioUrl,
+        pixBtnCheck: body.pixBtnCheck !== undefined ? String(body.pixBtnCheck) : bot.pixBtnCheck,
+        pixBtnQr: body.pixBtnQr !== undefined ? String(body.pixBtnQr) : bot.pixBtnQr,
+        pixBtnCopy: body.pixBtnCopy !== undefined ? String(body.pixBtnCopy) : bot.pixBtnCopy,
+        pixNotPaidMessage:
+          body.pixNotPaidMessage !== undefined ? String(body.pixNotPaidMessage) : bot.pixNotPaidMessage,
       });
       return NextResponse.json({ ok: true });
     }
@@ -417,20 +438,43 @@ export async function POST(req: NextRequest) {
       const incoming = Array.isArray(body.plans) ? body.plans : [];
       const existing = listPlans(bot.id);
       const keepIds = new Set<string>();
-      for (const p of incoming) {
+      incoming.forEach((p: Record<string, unknown>, idx: number) => {
         const name = String(p.name || "").trim();
         const priceCents = Math.max(0, Math.round(Number(p.priceCents) || 0));
-        const durationDays = Math.max(1, Math.round(Number(p.durationDays) || 30));
+        // 0 = VITALÍCIO e é válido; por isso o piso é 0, não 1.
+        const durationDays = Math.max(0, Math.round(Number(p.durationDays) || 0));
         const kind = p.kind === "package" ? "package" : "subscription";
         const deliverable = typeof p.deliverable === "string" ? p.deliverable : undefined;
-        if (!name || priceCents <= 0) continue;
+        if (!name || priceCents <= 0) return;
         const id = typeof p.id === "string" && p.id ? p.id : randomUUID();
         keepIds.add(id);
-        savePlan({ id, botId: bot.id, name, priceCents, durationDays, kind, deliverable });
-      }
+
+        const botoes = Array.isArray(p.deliverableButtons)
+          ? (p.deliverableButtons as Record<string, unknown>[])
+              .map((b) => ({ text: String(b?.text || "").trim(), url: String(b?.url || "").trim() }))
+              .filter((b) => b.text && b.url)
+              .slice(0, 6)
+          : undefined;
+
+        savePlan({
+          id,
+          botId: bot.id,
+          name,
+          priceCents,
+          durationDays,
+          kind,
+          deliverable,
+          // A ordem vem da POSIÇÃO na lista enviada — é o que as setas da tela
+          // mexem, sem precisar de um campo de número à mostra.
+          sortOrder: idx,
+          active: p.active !== false,
+          highlight: ["green", "blue", "red"].includes(String(p.highlight)) ? String(p.highlight) : undefined,
+          deliverableButtons: botoes?.length ? botoes : undefined,
+        });
+      });
       // Remove os que sumiram da lista.
       for (const old of existing) if (!keepIds.has(old.id)) deletePlan(old.id);
-      return NextResponse.json({ ok: true, plans: listPlans(bot.id) });
+      return NextResponse.json({ ok: true, plans: comStats(bot.id) });
     }
 
     // ---- Botões personalizados — substitui a lista inteira ----
@@ -524,15 +568,44 @@ export async function POST(req: NextRequest) {
     // aí a resposta explica isso em vez de devolver uma lista vazia sem motivo.
     if (action === "detect-chats") {
       const bot = requireBot(body.profileId);
-      const chats = new Map<string, { chatId: string; title?: string; type?: string }>();
-      for (const c of listSeenChats(bot.id)) chats.set(c.chatId, c);
+
+      // CANDIDATOS, de três origens — a primeira é a que faz o botão servir
+      // logo de cara, e faltava na versão anterior:
+      //
+      //  1. Os IDs que JÁ ESTÃO no cadastro da modelo (VIP e Prévias). O bot
+      //     entrou nesses grupos antes de o Hot-Dash assumir o webhook, então
+      //     nenhum update de entrada chegou aqui e a lista nascia vazia —
+      //     mesmo com o bot dentro do grupo e a conexão funcionando.
+      //  2. Os chats que o webhook já anotou desde o cutover.
+      //  3. A fila do getUpdates, que só é legível quando NÃO há webhook.
+      const candidatos = new Map<string, { chatId: string; title?: string; type?: string }>();
+      const anota = (chatId: string, title?: string, type?: string) => {
+        if (!chatId || chatId === "0") return;
+        const atual = candidatos.get(chatId);
+        candidatos.set(chatId, {
+          chatId,
+          title: title || atual?.title,
+          type: type || atual?.type,
+        });
+      };
+
+      if (bot.idVip) anota(bot.idVip);
+      if (bot.idAquecimento) anota(bot.idAquecimento);
+      for (const c of listSeenChats(bot.id)) anota(c.chatId, c.title, c.type);
 
       let hint: string | undefined;
+      let semWebhook = false;
       try {
         const info = await getTelegramWebhookInfo(bot.botToken);
-        const nosso = webhookUrlFor(req, bot.id).url;
-        if (!info.url) {
-          // Sem webhook: a fila está nossa para ler (sem confirmar nada).
+        semWebhook = !info.url;
+      } catch {
+        /* segue com o que já temos */
+      }
+
+      if (semWebhook) {
+        // Sem webhook registrado a fila é legível. Sem `offset` de propósito:
+        // lemos sem confirmar, para não roubar updates de outro sistema.
+        try {
           for (const u of await getTelegramUpdates(bot.botToken)) {
             const c =
               u.message?.chat ||
@@ -542,29 +615,79 @@ export async function POST(req: NextRequest) {
               u.chat_join_request?.chat;
             if (c?.id && c.type && c.type !== "private") {
               recordSeenChat(bot.id, c);
-              chats.set(String(c.id), { chatId: String(c.id), title: c.title, type: c.type });
+              anota(String(c.id), c.title, c.type);
             }
           }
-          if (chats.size === 0) {
-            hint =
-              "Nenhum grupo encontrado. Envie qualquer mensagem no grupo (com o bot lá dentro) e toque em Detectar de novo.";
-          }
-        } else if (info.url !== nosso && chats.size === 0) {
-          hint =
-            "O bot está apontado para outro sistema, então não dá para ler a fila de mensagens dele. Ligue a operação do Hot-Dash e mande uma mensagem no grupo, ou informe o ID na mão.";
-        } else if (chats.size === 0) {
-          hint =
-            "Ainda não vimos nenhum grupo. Mande uma mensagem no grupo (com o bot lá) e toque em Detectar de novo.";
+        } catch {
+          /* getUpdates é um bônus aqui, não o caminho principal */
         }
-      } catch (e) {
-        hint = e instanceof Error ? e.message : "Falha ao consultar o Telegram.";
       }
 
-      return NextResponse.json({
-        ok: true,
-        chats: Array.from(chats.values()),
-        hint,
-      });
+      // Agora RESOLVE cada candidato com o token: título de verdade e, o que
+      // mais importa, se o bot é ADMIN ali. Sem ser admin ele não aprova
+      // entrada nem gera convite — então mostrar isso é mais útil que só
+      // listar um ID.
+      const me = await getTelegramMe(bot.botToken).catch(() => null);
+      const chats = await Promise.all(
+        Array.from(candidatos.values()).map(async (c) => {
+          const info = await getTelegramChat(bot.botToken, c.chatId).catch(() => null);
+          const membro = me
+            ? await getTelegramChatMember(bot.botToken, c.chatId, me.id)
+            : null;
+          const status = membro?.status;
+          return {
+            chatId: c.chatId,
+            title: info?.title || c.title,
+            type: info?.type || c.type,
+            // `creator` é dono; `administrator` é admin comum. Os dois servem.
+            isAdmin: status === "administrator" || status === "creator",
+            // Sem status nenhum, o bot não está no grupo (ou o ID está errado).
+            reachable: Boolean(info) || Boolean(status),
+            status,
+          };
+        }),
+      );
+
+      if (chats.length === 0) {
+        hint =
+          "Nenhum grupo conhecido ainda. Preencha os IDs do VIP e das Prévias no cadastro da modelo, ou mande uma mensagem no grupo com o bot dentro e toque em Detectar de novo.";
+      } else if (chats.every((c) => !c.isAdmin)) {
+        hint =
+          "O bot não é administrador de nenhum destes grupos. Sem isso ele não aprova entrada nem gera o convite do VIP.";
+      }
+
+      return NextResponse.json({ ok: true, chats, hint });
+    }
+
+    // ---- O bot consegue mesmo operar os grupos? ----
+    // Checa o que a venda vai precisar ANTES de a venda acontecer: sem ser
+    // admin do VIP com permissão de convidar, o `createChatInviteLink` falha
+    // na confirmação do pagamento — o cliente paga e fica sem o link.
+    if (action === "group-health") {
+      const bot = requireBot(body.profileId);
+      const me = await getTelegramMe(bot.botToken).catch(() => null);
+      if (!me) {
+        return NextResponse.json({ ok: false, message: "Não foi possível falar com o bot (token inválido?)." });
+      }
+      const checar = async (chatId: string, rotulo: string) => {
+        if (!chatId) return { rotulo, chatId, ok: false, motivo: "sem ID configurado" };
+        const info = await getTelegramChat(bot.botToken, chatId).catch(() => null);
+        if (!info) return { rotulo, chatId, ok: false, motivo: "o bot não enxerga este grupo (ID errado ou removido)" };
+        const membro = await getTelegramChatMember(bot.botToken, chatId, me.id);
+        const admin = membro?.status === "administrator" || membro?.status === "creator";
+        return {
+          rotulo,
+          chatId,
+          title: info.title,
+          ok: admin,
+          motivo: admin ? undefined : "o bot está no grupo mas NÃO é administrador",
+        };
+      };
+      const grupos = [
+        await checar(bot.idVip, "Grupo VIP"),
+        await checar(bot.idAquecimento, "Grupo de Prévias"),
+      ];
+      return NextResponse.json({ ok: true, grupos });
     }
 
     // ---- Mídias que batem com as etiquetas de boas-vindas ----

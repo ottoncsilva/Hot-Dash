@@ -19,6 +19,8 @@ import {
   IconTrash,
   IconCopy,
   IconUndo,
+  IconChevronUp,
+  IconChevronDown,
 } from "@/components/icons";
 import PageHeader from "@/components/PageHeader";
 import SectionRow, { resumo } from "@/components/telegram/bot/SectionRow";
@@ -55,10 +57,21 @@ type Bot = {
   pixSocialProof: boolean;
   pixSocialProofText?: string;
   pixAudioUrl?: string;
+  pixBtnCheck?: string;
+  pixBtnQr?: string;
+  pixBtnCopy?: string;
+  pixNotPaidMessage?: string;
 };
 type SeenChat = { chatId: string; title?: string; type?: string };
 type ApprovalMode = "subscribers" | "all" | "manual";
-type PixDefaults = { generatingMessage: string; caption: string };
+type PixDefaults = {
+  generatingMessage: string;
+  caption: string;
+  btnCheck: string;
+  btnQr: string;
+  btnCopy: string;
+  notPaidMessage: string;
+};
 type LinkStats = { starts: number; pixGenerated: number; pixPaid: number; paidCents: number };
 type SourceLink = {
   id: string;
@@ -73,9 +86,15 @@ type Plan = {
   id: string;
   name: string;
   priceCents: number;
+  /** 0 = vitalício. */
   durationDays: number;
   kind: "subscription" | "package";
   deliverable?: string;
+  sortOrder?: number;
+  active?: boolean;
+  highlight?: string;
+  deliverableButtons?: { text: string; url: string }[];
+  sales?: { count: number; cents: number };
 };
 type PeriodStats = { paidCents: number; paidCount: number; pendingCents: number; pendingCount: number; avgTicketCents: number };
 type Metrics = { today: PeriodStats; month: PeriodStats; total: PeriodStats };
@@ -351,8 +370,25 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
   // consulta MESMO COM A OPERAÇÃO DESLIGADA: é o que deixa o operador ver que
   // a base está errada antes de tentar ligar e tomar o erro cru do Telegram.
   const [origin, setOrigin] = useState<{ url?: string; problem?: string | null } | null>(null);
+  // Saúde dos grupos: o bot é admin onde precisa ser? Sem isso ele não gera o
+  // convite do VIP, e a falha só apareceria depois de alguém pagar.
+  const [grupos, setGrupos] = useState<
+    { rotulo: string; chatId: string; title?: string; ok: boolean; motivo?: string }[] | null
+  >(null);
 
   const active = bot.operationActive;
+
+  const checkGrupos = useCallback(async () => {
+    try {
+      const r = await apiSend<{ ok: boolean; grupos?: typeof grupos }>("/api/telegram", "POST", {
+        action: "group-health",
+        profileId,
+      });
+      setGrupos(r.grupos || null);
+    } catch {
+      setGrupos(null);
+    }
+  }, [profileId]);
 
   const checkOrigin = useCallback(async () => {
     try {
@@ -384,6 +420,10 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
   useEffect(() => {
     checkOrigin();
   }, [checkOrigin]);
+
+  useEffect(() => {
+    checkGrupos();
+  }, [checkGrupos]);
 
   useEffect(() => {
     if (active) checkStatus();
@@ -470,6 +510,33 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
         <Info label="Grupo VIP" value={bot.idVip || "—"} />
         <Info label="Grupo Prévias" value={bot.idAquecimento || "—"} />
       </div>
+      {/* Sem ser ADMIN do VIP o bot não gera o convite — e a falha só
+          apareceria depois de alguém pagar. Por isso a checagem fica à vista. */}
+      {grupos && grupos.some((g) => !g.ok) && (
+        <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.07] p-3.5">
+          <p className="text-sm font-semibold text-amber-300">
+            O bot ainda não consegue operar todos os grupos
+          </p>
+          <ul className="mt-1.5 space-y-1 text-xs text-zinc-300">
+            {grupos.map((g) => (
+              <li key={g.rotulo} className="flex flex-wrap items-baseline gap-x-1.5">
+                <span className={g.ok ? "text-emerald-400" : "text-amber-400"}>
+                  {g.ok ? "✓" : "✕"}
+                </span>
+                <b>{g.rotulo}</b>
+                {g.title && <span className="text-zinc-500">({g.title})</span>}
+                {!g.ok && <span className="text-amber-300">— {g.motivo}</span>}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">
+            Promova o bot a <b>administrador</b> nos grupos, com permissão de{" "}
+            <b>convidar por link</b> e <b>remover membros</b>. Sem isso ele não gera o convite do
+            VIP depois do pagamento nem aprova entradas.
+          </p>
+        </div>
+      )}
+
       {origin?.url && (
         <div className="mt-2 panel px-3 py-2">
           <p className="eyebrow">URL do webhook (o Telegram chama este endereço)</p>
@@ -769,6 +836,10 @@ function PixRow({
   const [prova, setProva] = useState(Boolean(bot.pixSocialProof));
   const [provaTexto, setProvaTexto] = useState(bot.pixSocialProofText || "");
   const [audio, setAudio] = useState(bot.pixAudioUrl || "");
+  const [btnCheck, setBtnCheck] = useState(bot.pixBtnCheck || "");
+  const [btnQr, setBtnQr] = useState(bot.pixBtnQr || "");
+  const [btnCopy, setBtnCopy] = useState(bot.pixBtnCopy || "");
+  const [naoPago, setNaoPago] = useState(bot.pixNotPaidMessage || "");
   const [busy, setBusy] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const provaRef = useRef<HTMLTextAreaElement>(null);
@@ -784,6 +855,10 @@ function PixRow({
         pixSocialProof: prova,
         pixSocialProofText: provaTexto,
         pixAudioUrl: audio,
+        pixBtnCheck: btnCheck,
+        pixBtnQr: btnQr,
+        pixBtnCopy: btnCopy,
+        pixNotPaidMessage: naoPago,
       });
       showToast("Tela de pagamento salva.", "success");
       onSaved();
@@ -874,6 +949,45 @@ function PixRow({
         )}
       </div>
 
+      <label className="eyebrow mt-5 block">Botões que acompanham o PIX</label>
+      <p className="mb-1.5 mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+        A mensagem vai como <b>texto</b>, não como legenda de foto: só assim o Telegram faz
+        &quot;toque para copiar&quot; no código, e a legenda de foto cortaria a chave (limite de
+        1024 caracteres). O QR fica atrás do botão.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <input
+          className="input text-xs"
+          placeholder={pixDefaults?.btnCheck}
+          value={btnCheck}
+          onChange={(e) => setBtnCheck(e.target.value)}
+        />
+        <input
+          className="input text-xs"
+          placeholder={pixDefaults?.btnQr}
+          value={btnQr}
+          onChange={(e) => setBtnQr(e.target.value)}
+        />
+        <input
+          className="input text-xs"
+          placeholder={pixDefaults?.btnCopy}
+          value={btnCopy}
+          onChange={(e) => setBtnCopy(e.target.value)}
+        />
+      </div>
+
+      <label className="eyebrow mt-4 block">Resposta quando o pagamento ainda não consta</label>
+      <textarea
+        className="input mt-1.5 min-h-[60px]"
+        placeholder={pixDefaults?.notPaidMessage}
+        value={naoPago}
+        onChange={(e) => setNaoPago(e.target.value)}
+      />
+      <p className="mt-1 text-[11px] text-zinc-500">
+        Enviada quando o cliente toca em <b>Verificar Status</b> e a confirmação do gateway ainda
+        não chegou. Se já constar paga, o bot reenvia o acesso.
+      </p>
+
       <label className="eyebrow mt-4 block">Áudio do PIX (URL pública .ogg)</label>
       <input
         className="input mt-1.5 font-mono text-xs"
@@ -897,6 +1011,10 @@ function PixRow({
           onClick={() => {
             setGerando("");
             setLegenda("");
+            setBtnCheck("");
+            setBtnQr("");
+            setBtnCopy("");
+            setNaoPago("");
           }}
           className="btn-ghost"
         >
@@ -912,7 +1030,6 @@ const PROVA_PADRAO = "🔥 {vendas_hoje} pessoa(s) garantiram o acesso hoje.";
 function ExtrasRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; onSaved: () => void }) {
   const [previews, setPreviews] = useState(bot.previewsWelcomeMessage || "");
   const [support, setSupport] = useState(bot.supportUsername || "");
-  const [registro, setRegistro] = useState(bot.idRegistro || "");
   const [busy, setBusy] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -922,7 +1039,6 @@ function ExtrasRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; o
       await salvarMensagens(profileId, {
         previewsWelcomeMessage: previews,
         supportUsername: support,
-        idRegistro: registro,
       });
       showToast("Salvo.", "success");
       onSaved();
@@ -936,12 +1052,11 @@ function ExtrasRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; o
   return (
     <SectionRow
       icon={<IconSend size={16} />}
-      title="Prévias, suporte e canal de vendas"
+      title="Prévias e suporte"
       summary={
         [
           previews.trim() && "boas-vindas das prévias",
           support.trim() && `suporte ${support}`,
-          registro.trim() && "canal de vendas",
         ]
           .filter(Boolean)
           .join(" · ") || "nada configurado"
@@ -964,27 +1079,14 @@ function ExtrasRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; o
         Só chega se o lead já tiver dado /start no bot — antes disso o Telegram proíbe a mensagem.
       </p>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div>
-          <label className="eyebrow block">Suporte (@usuário ou link)</label>
-          <input className="input mt-1.5" value={support} onChange={(e) => setSupport(e.target.value)} />
-          <p className="mt-1 text-[11px] text-zinc-500">Vira um botão no fim do /start.</p>
-        </div>
-        <div>
-          <label className="eyebrow block">Canal de vendas (ID)</label>
-          <input
-            className="input mt-1.5 font-mono"
-            placeholder="-100..."
-            value={registro}
-            onChange={(e) => setRegistro(e.target.value)}
-          />
-          <p className="mt-1 text-[11px] text-zinc-500">
-            Um canal só seu onde o bot anota cada venda. Ele precisa ser membro.
-          </p>
-          <div className="mt-1.5">
-            <DetectChat profileId={profileId} onPick={setRegistro} />
-          </div>
-        </div>
+      {/* O canal de vendas saiu da tela a pedido — não está em uso por ora. O
+          valor eventualmente já salvo continua no banco e a notificação parou
+          de ser enviada, então devolver o campo aqui é o bastante para
+          reativar. */}
+      <div className="mt-4">
+        <label className="eyebrow block">Suporte (@usuário ou link)</label>
+        <input className="input mt-1.5" value={support} onChange={(e) => setSupport(e.target.value)} />
+        <p className="mt-1 text-[11px] text-zinc-500">Vira um botão no fim do /start.</p>
       </div>
 
       <button onClick={save} disabled={busy} className="btn-primary mt-4">
@@ -997,29 +1099,73 @@ function ExtrasRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; o
 // ---------------------------------------------------------------------------
 // Planos / Ofertas
 // ---------------------------------------------------------------------------
+const PERIODOS: { label: string; days: number }[] = [
+  { label: "Semanal", days: 7 },
+  { label: "Mensal", days: 30 },
+  { label: "Trimestral", days: 90 },
+  { label: "Semestral", days: 180 },
+  { label: "Anual", days: 365 },
+  { label: "Vitalício", days: 0 },
+];
+
+function periodoLabel(days: number): string {
+  if (days <= 0) return "Vitalício";
+  return PERIODOS.find((p) => p.days === days)?.label || `${days} dias`;
+}
+
+const CORES: { key: string; label: string; dot: string; ring: string }[] = [
+  { key: "", label: "Padrão", dot: "bg-zinc-500", ring: "border-white/10" },
+  { key: "green", label: "Verde", dot: "bg-emerald-400", ring: "border-emerald-500/50" },
+  { key: "blue", label: "Azul", dot: "bg-indigo-400", ring: "border-indigo-500/50" },
+  { key: "red", label: "Vermelho", dot: "bg-red-400", ring: "border-red-500/50" },
+];
+
+type PlanRow = {
+  id?: string;
+  name: string;
+  price: string;
+  durationDays: number;
+  kind: "subscription" | "package";
+  deliverable: string;
+  active: boolean;
+  highlight: string;
+  deliverableButtons: { text: string; url: string }[];
+  sales?: { count: number; cents: number };
+};
+
 function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Plan[]; onSaved: () => void }) {
-  type Row = {
-    id?: string;
-    name: string;
-    price: string;
-    durationDays: string;
-    kind: "subscription" | "package";
-    deliverable: string;
-  };
-  const [rows, setRows] = useState<Row[]>(
+  const [rows, setRows] = useState<PlanRow[]>(
     plans.map((p) => ({
       id: p.id,
       name: p.name,
       price: (p.priceCents / 100).toFixed(2),
-      durationDays: String(p.durationDays),
+      durationDays: p.durationDays,
       kind: p.kind || "subscription",
       deliverable: p.deliverable || "",
+      active: p.active !== false,
+      highlight: p.highlight || "",
+      deliverableButtons: p.deliverableButtons || [],
+      sales: p.sales,
     })),
   );
+  const [aberto, setAberto] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
-  function update(i: number, patch: Partial<Row>) {
+  function update(i: number, patch: Partial<PlanRow>) {
     setRows((r) => r.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
+  }
+
+  /** Move um plano na lista. A POSIÇÃO é a ordem dos botões no /start — é por
+   *  isso que ela é salva, e não um campo de número à mostra. */
+  function mover(i: number, delta: number) {
+    setRows((r) => {
+      const j = i + delta;
+      if (j < 0 || j >= r.length) return r;
+      const copia = [...r];
+      [copia[i], copia[j]] = [copia[j], copia[i]];
+      return copia;
+    });
+    setAberto((a) => (a === i ? i + delta : a === i + delta ? i : a));
   }
 
   async function save() {
@@ -1030,13 +1176,36 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
           id: r.id,
           name: r.name.trim(),
           priceCents: Math.round(parseFloat(r.price.replace(",", ".")) * 100) || 0,
-          durationDays: parseInt(r.durationDays) || 30,
+          durationDays: r.durationDays,
           kind: r.kind,
           deliverable: r.deliverable.trim() || undefined,
+          active: r.active,
+          highlight: r.highlight || undefined,
+          deliverableButtons: r.deliverableButtons.filter((b) => b.text.trim() && b.url.trim()),
         }))
         .filter((r) => r.name && r.priceCents > 0);
-      await apiSend("/api/telegram", "POST", { action: "save-plans", profileId, plans: payload });
+      const res = await apiSend<{ ok: boolean; plans: Plan[] }>("/api/telegram", "POST", {
+        action: "save-plans",
+        profileId,
+        plans: payload,
+      });
       showToast("Ofertas salvas.", "success");
+      if (res.plans) {
+        setRows(
+          res.plans.map((p) => ({
+            id: p.id,
+            name: p.name,
+            price: (p.priceCents / 100).toFixed(2),
+            durationDays: p.durationDays,
+            kind: p.kind || "subscription",
+            deliverable: p.deliverable || "",
+            active: p.active !== false,
+            highlight: p.highlight || "",
+            deliverableButtons: p.deliverableButtons || [],
+            sales: p.sales,
+          })),
+        );
+      }
       onSaved();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha.", "error");
@@ -1045,79 +1214,282 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
     }
   }
 
+  const assinaturas = rows.filter((r) => r.kind === "subscription").length;
+  const pacotes = rows.filter((r) => r.kind === "package").length;
+
   return (
-    <div className="card p-4">
-      <h2 className="font-display text-lg font-semibold">Ofertas / Planos</h2>
-      <p className="mt-1 text-xs text-zinc-500">
-        Os botões que o bot mostra no /start e nos funis. <b>Assinatura</b> dá acesso VIP por N dias;{" "}
-        <b>Pacote</b> é compra única (entrega um conteúdo/link).
-      </p>
-      <div className="mt-3 space-y-2">
-        {rows.map((r, i) => (
-          <div key={i} className="panel p-2.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={r.kind}
-                onChange={(e) => update(i, { kind: e.target.value as Row["kind"] })}
-                className="input w-32 shrink-0"
-              >
-                <option value="subscription">Assinatura</option>
-                <option value="package">Pacote</option>
-              </select>
-              <input
-                className="input min-w-[120px] flex-1"
-                placeholder="Nome da oferta"
-                value={r.name}
-                onChange={(e) => update(i, { name: e.target.value })}
-              />
-              <div className="flex items-center gap-1">
-                <span className="text-xs text-zinc-500">R$</span>
-                <input
-                  className="input w-24"
-                  placeholder="0,00"
-                  value={r.price}
-                  onChange={(e) => update(i, { price: e.target.value })}
-                />
+    <div className="space-y-3">
+      <div className="card p-4">
+        <p className="text-xs leading-relaxed text-zinc-400">
+          <b className="text-white">Assinaturas</b> dão acesso ao VIP por um período (semanal,
+          mensal, anual… ou vitalício). <b className="text-white">Pacotes</b> são produtos avulsos,
+          fora do VIP — packs, conteúdo especial, chamada. Os dois aparecem juntos para o cliente no{" "}
+          <code>/start</code>, na ordem desta lista.
+        </p>
+        <div className="mt-2 flex gap-4 text-[11px] text-zinc-500">
+          <span>
+            <b className="text-zinc-300">{assinaturas}</b> assinatura(s)
+          </span>
+          <span>
+            <b className="text-zinc-300">{pacotes}</b> pacote(s)
+          </span>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {rows.map((r, i) => {
+          const cor = CORES.find((c) => c.key === r.highlight) || CORES[0];
+          const estaAberto = aberto === i;
+          return (
+            <div
+              key={r.id || `novo-${i}`}
+              className={`card overflow-hidden border ${estaAberto ? "border-emerald-500/25" : cor.ring} ${
+                r.active ? "" : "opacity-55"
+              }`}
+            >
+              {/* Cabeçalho: o que dá para ler sem abrir. */}
+              <div className="flex items-center gap-2 p-3">
+                <button
+                  type="button"
+                  onClick={() => setAberto(estaAberto ? null : i)}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-white">
+                    {r.highlight && <span className={`h-2 w-2 shrink-0 rounded-full ${cor.dot}`} />}
+                    {r.name || <span className="text-zinc-500">(sem nome)</span>}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-zinc-500">
+                    <span className="text-emerald-400">
+                      {money(Math.round(parseFloat(r.price.replace(",", ".")) * 100) || 0)}
+                    </span>
+                    {" · "}
+                    {r.kind === "package" ? "Pacote" : periodoLabel(r.durationDays)}
+                    {!r.active && " · desligado"}
+                  </p>
+                  {r.sales && r.sales.count > 0 && (
+                    <span className="mt-1 inline-block rounded-md border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                      {r.sales.count} venda(s) · {money(r.sales.cents)}
+                    </span>
+                  )}
+                </button>
+
+                <div className="flex shrink-0 flex-col gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => mover(i, -1)}
+                    disabled={i === 0}
+                    className="grid h-5 w-6 place-items-center rounded text-zinc-500 hover:bg-white/10 hover:text-white disabled:opacity-25"
+                    aria-label="Subir"
+                  >
+                    <IconChevronUp size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => mover(i, 1)}
+                    disabled={i === rows.length - 1}
+                    className="grid h-5 w-6 place-items-center rounded text-zinc-500 hover:bg-white/10 hover:text-white disabled:opacity-25"
+                    aria-label="Descer"
+                  >
+                    <IconChevronDown size={13} />
+                  </button>
+                </div>
+
+                {/* Ligar/desligar: some dos botões do bot, mas fica no painel
+                    com o histórico de vendas. Antes, tirar do ar era apagar. */}
+                <button
+                  type="button"
+                  onClick={() => update(i, { active: !r.active })}
+                  title={r.active ? "Desligar (some do bot)" : "Ligar"}
+                  className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg border ${
+                    r.active
+                      ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
+                      : "border-white/10 text-zinc-600"
+                  }`}
+                >
+                  <IconCheck size={15} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRows((rr) => rr.filter((_, idx) => idx !== i));
+                    setAberto(null);
+                  }}
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/10 text-zinc-500 hover:border-red-500/40 hover:text-red-400"
+                  aria-label="Remover"
+                >
+                  <IconClose size={15} />
+                </button>
               </div>
-              {r.kind === "subscription" && (
-                <div className="flex items-center gap-1">
-                  <input
-                    className="input w-16"
-                    value={r.durationDays}
-                    onChange={(e) => update(i, { durationDays: e.target.value })}
+
+              {estaAberto && (
+                <div className="border-t border-white/10 p-3">
+                  <div className="grid gap-2 sm:grid-cols-[1fr_120px]">
+                    <input
+                      className="input"
+                      placeholder="Nome do plano"
+                      value={r.name}
+                      onChange={(e) => update(i, { name: e.target.value })}
+                    />
+                    <input
+                      className="input"
+                      placeholder="0,00"
+                      inputMode="decimal"
+                      value={r.price}
+                      onChange={(e) => update(i, { price: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <select
+                      className="input"
+                      value={r.kind}
+                      onChange={(e) => update(i, { kind: e.target.value as PlanRow["kind"] })}
+                    >
+                      <option value="subscription">Assinatura (acesso ao VIP)</option>
+                      <option value="package">Pacote (produto avulso)</option>
+                    </select>
+                    {r.kind === "subscription" && (
+                      <select
+                        className="input"
+                        value={String(r.durationDays)}
+                        onChange={(e) => update(i, { durationDays: Number(e.target.value) })}
+                      >
+                        {PERIODOS.map((p) => (
+                          <option key={p.label} value={p.days}>
+                            {p.label}
+                            {p.days > 0 ? ` (${p.days} dias)` : " (não expira)"}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
+                  <label className="eyebrow mt-3 block">
+                    Entregável · enviado ao pagar{" "}
+                    {r.kind === "package" ? "(obrigatório no pacote)" : "(opcional)"}
+                  </label>
+                  <textarea
+                    className="input mt-1.5 min-h-[70px]"
+                    placeholder={
+                      r.kind === "package"
+                        ? "Link ou texto do que o cliente comprou."
+                        : "Bônus junto do acesso. Vazio usa só a mensagem de aprovação."
+                    }
+                    value={r.deliverable}
+                    onChange={(e) => update(i, { deliverable: e.target.value })}
                   />
-                  <span className="text-xs text-zinc-500">dias</span>
+
+                  <label className="eyebrow mt-3 block">Cor de destaque na lista</label>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {CORES.map((c) => (
+                      <button
+                        key={c.key}
+                        type="button"
+                        onClick={() => update(i, { highlight: c.key })}
+                        className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors ${
+                          r.highlight === c.key
+                            ? `${c.ring} bg-white/5 text-white`
+                            : "border-white/10 text-zinc-400 hover:text-zinc-200"
+                        }`}
+                      >
+                        <span className={`h-2 w-2 rounded-full ${c.dot}`} />
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <label className="eyebrow mt-3 block">Botões do entregável</label>
+                  <p className="mb-1.5 mt-0.5 text-[11px] text-zinc-500">
+                    Vão junto da entrega, clicáveis — em vez do link solto no texto.
+                  </p>
+                  <div className="space-y-1.5">
+                    {r.deliverableButtons.map((b, bi) => (
+                      <div key={bi} className="grid gap-1.5 sm:grid-cols-[1fr_1fr_auto]">
+                        <input
+                          className="input text-xs"
+                          placeholder="Texto do botão"
+                          value={b.text}
+                          onChange={(e) =>
+                            update(i, {
+                              deliverableButtons: r.deliverableButtons.map((x, xi) =>
+                                xi === bi ? { ...x, text: e.target.value } : x,
+                              ),
+                            })
+                          }
+                        />
+                        <input
+                          className="input font-mono text-xs"
+                          placeholder="https://"
+                          value={b.url}
+                          onChange={(e) =>
+                            update(i, {
+                              deliverableButtons: r.deliverableButtons.map((x, xi) =>
+                                xi === bi ? { ...x, url: e.target.value } : x,
+                              ),
+                            })
+                          }
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            update(i, {
+                              deliverableButtons: r.deliverableButtons.filter((_, xi) => xi !== bi),
+                            })
+                          }
+                          className="btn-ghost px-2.5"
+                          aria-label="Remover botão"
+                        >
+                          <IconClose size={13} />
+                        </button>
+                      </div>
+                    ))}
+                    {r.deliverableButtons.length < 6 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          update(i, {
+                            deliverableButtons: [...r.deliverableButtons, { text: "", url: "" }],
+                          })
+                        }
+                        className="btn-ghost px-2.5 py-1 text-xs"
+                      >
+                        <IconPlus size={13} /> Botão
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
-              <button
-                onClick={() => setRows((rr) => rr.filter((_, idx) => idx !== i))}
-                className="grid h-8 w-8 place-items-center rounded text-zinc-500 hover:bg-white/10 hover:text-red-400"
-                aria-label="Remover"
-              >
-                <IconClose size={15} />
-              </button>
             </div>
-            <input
-              className="input mt-2 w-full"
-              placeholder={
-                r.kind === "package"
-                  ? "Entregável: link/texto enviado ao pagar (obrigatório no pacote)"
-                  : "Bônus ao pagar (opcional): ex. link do WhatsApp"
-              }
-              value={r.deliverable}
-              onChange={(e) => update(i, { deliverable: e.target.value })}
-            />
-          </div>
-        ))}
+          );
+        })}
+        {rows.length === 0 && (
+          <p className="card p-6 text-center text-sm text-zinc-500">
+            Nenhuma oferta ainda. Sem pelo menos uma, o <code>/start</code> sai sem botão de compra.
+          </p>
+        )}
       </div>
-      <div className="mt-3 flex gap-2">
+
+      <div className="flex flex-wrap gap-2">
         <button
-          onClick={() =>
-            setRows((r) => [...r, { name: "", price: "", durationDays: "30", kind: "subscription", deliverable: "" }])
-          }
+          onClick={() => {
+            setRows((r) => [
+              ...r,
+              {
+                name: "",
+                price: "",
+                durationDays: 30,
+                kind: "subscription",
+                deliverable: "",
+                active: true,
+                highlight: "",
+                deliverableButtons: [],
+              },
+            ]);
+            setAberto(rows.length);
+          }}
           className="btn-ghost"
         >
-          + Adicionar oferta
+          <IconPlus size={14} /> Adicionar oferta
         </button>
         <button onClick={save} disabled={busy} className="btn-primary">
           {busy ? "Salvando..." : "Salvar ofertas"}

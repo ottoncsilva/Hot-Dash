@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getBotConfig, listPlans, listCustomButtons, saveSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, PIX_DEFAULTS } from "@/lib/telegramDb";
+import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, PIX_DEFAULTS } from "@/lib/telegramDb";
 import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser } from "@/lib/telegramUsers";
 import { recordGroupMembershipChange } from "@/lib/telegramMonitor";
 import { getMailingOffer } from "@/lib/telegramMailing";
@@ -164,7 +164,9 @@ export async function POST(
           });
         }
 
-        const plans = listPlans(bot.id);
+        // Só os ATIVOS: um plano desligado some dos botões mas continua no
+        // painel, com o histórico de vendas.
+        const plans = listActivePlans(bot.id);
         const customButtons = listCustomButtons(bot.id);
 
         const inlineKeyboard: any[] = [];
@@ -268,6 +270,79 @@ export async function POST(
     // ---- Clique nos botões de compra (Callback Query) ----
     if (update.callback_query) {
       const { id, data, from, message } = update.callback_query;
+
+      // ---- Botões da tela do PIX ----
+      // Os três agem sobre uma cobrança JÁ criada, por isso carregam o id da
+      // inscrição: sem ele, ver o QR exigiria pedir um PIX novo e o cliente
+      // ficaria com duas cobranças abertas.
+      const pixAcao = typeof data === "string" && data.match(/^pix_(check|qr|copy)_(.+)$/);
+      if (pixAcao) {
+        const [, acao, subId] = pixAcao;
+        const sub = getSubscription(subId);
+        const chatId = String(message.chat.id);
+
+        if (!sub || sub.telegramUserId !== from.id) {
+          await sendTelegramMessage(bot.botToken, chatId, "⚠️ Cobrança não encontrada.");
+          return NextResponse.json({ ok: true });
+        }
+
+        if (acao === "qr") {
+          if (!sub.pixCode) {
+            await sendTelegramMessage(bot.botToken, chatId, "⚠️ QR Code indisponível para esta cobrança.");
+          } else {
+            try {
+              const qr = await QRCode.toBuffer(sub.pixCode, { width: 512, margin: 1 });
+              await sendTelegramPhotoBuffer(bot.botToken, chatId, qr, "📸 Escaneie no app do seu banco.");
+            } catch {
+              await sendTelegramMessage(bot.botToken, chatId, "⚠️ Não consegui gerar o QR Code agora.");
+            }
+          }
+          return NextResponse.json({ ok: true });
+        }
+
+        if (acao === "copy") {
+          // O código sozinho, num <code>: assim o toque copia SÓ a chave, sem
+          // levar junto o texto da oferta.
+          await sendTelegramMessage(
+            bot.botToken,
+            chatId,
+            sub.pixCode
+              ? `👇 Toque para copiar:\n\n<code>${sub.pixCode}</code>`
+              : "⚠️ Código indisponível para esta cobrança.",
+          );
+          return NextResponse.json({ ok: true });
+        }
+
+        // "Verificar Status": a fonte de verdade é a NOSSA transação, que o
+        // webhook do gateway atualiza. Se já consta paga, a entrega também já
+        // aconteceu por lá — aqui o que falta é reenviar o acesso para quem
+        // perdeu a mensagem.
+        const paga = sub.status === "active";
+        if (!paga) {
+          await sendTelegramMessage(
+            bot.botToken,
+            chatId,
+            bot.pixNotPaidMessage?.trim() || PIX_DEFAULTS.notPaidMessage,
+          );
+        } else if (sub.inviteLink) {
+          const botaoTexto = bot.successButtonText?.trim();
+          await sendTelegramMessage(
+            bot.botToken,
+            chatId,
+            bot.successMessage.replace(/{link_vip}/gi, sub.inviteLink),
+            botaoTexto
+              ? { reply_markup: { inline_keyboard: [[{ text: botaoTexto, url: sub.inviteLink }]] } }
+              : {},
+          );
+        } else {
+          await sendTelegramMessage(
+            bot.botToken,
+            chatId,
+            "✅ Pagamento confirmado! Seu acesso está sendo liberado — se o link não chegar em instantes, chame o suporte.",
+          );
+        }
+        return NextResponse.json({ ok: true });
+      }
 
       const isPlanBuy = typeof data === "string" && data.startsWith("buy_plan_");
       // Oferta de um MAILING: mesmo fluxo do plano, mas com nome/preço/duração
@@ -387,8 +462,9 @@ export async function POST(
 
         // Registra inscrição pendente (guarda planId/offerId p/ resolver
         // duração e entregável na confirmação do pagamento).
+        const subId = randomUUID();
         saveSubscription({
-          id: randomUUID(),
+          id: subId,
           botId: bot.id,
           transactionId: tx.id,
           planId: planId || undefined,
@@ -400,6 +476,9 @@ export async function POST(
           lastUpsellAt: undefined,
           upsellStepIndex: 0,
           createdAt: Date.now(),
+          // Guardado para os botões "Mostrar QR Code" e "Copiar Chave Pix"
+          // funcionarem depois, sem precisar gerar uma cobrança nova.
+          pixCode: charge.pixCode || undefined,
         });
 
         // Envia o PIX: QR Code (imagem) + código copia-e-cola na legenda. Se a
@@ -435,19 +514,25 @@ export async function POST(
             pixCaption = `${linha}\n\n${pixCaption}`;
           }
         }
-        let sentPix = false;
-        if (pixCode) {
-          try {
-            const qrBuffer = await QRCode.toBuffer(pixCode, { width: 512, margin: 1 });
-            await sendTelegramPhotoBuffer(bot.botToken, String(message.chat.id), qrBuffer, pixCaption);
-            sentPix = true;
-          } catch {
-            // cai para o texto abaixo
-          }
-        }
-        if (!sentPix) {
-          await sendTelegramMessage(bot.botToken, String(message.chat.id), pixCaption);
-        }
+        // A tela do PIX vai como TEXTO, não como legenda de foto.
+        //
+        // A diferença é prática: o Telegram só faz "toque para copiar" no
+        // conteúdo de um <code>, e legenda de foto tem limite de 1024
+        // caracteres — o copia-e-cola do PIX sozinho já passa de 200, e com o
+        // texto da oferta o corte vinha em cima justamente do código. O QR
+        // continua disponível, mas atrás de um botão, que é o que também
+        // deixa a mensagem curta o suficiente para o código aparecer inteiro
+        // sem rolagem.
+        const btn = (t: string | undefined, padrao: string) => (t?.trim() || padrao);
+        await sendTelegramMessage(bot.botToken, String(message.chat.id), pixCaption, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: btn(bot.pixBtnCheck, PIX_DEFAULTS.btnCheck), callback_data: `pix_check_${subId}` }],
+              [{ text: btn(bot.pixBtnQr, PIX_DEFAULTS.btnQr), callback_data: `pix_qr_${subId}` }],
+              [{ text: btn(bot.pixBtnCopy, PIX_DEFAULTS.btnCopy), callback_data: `pix_copy_${subId}` }],
+            ],
+          },
+        });
 
         // Áudio opcional, DEPOIS do PIX: o código copia-e-cola é o que o
         // cliente veio buscar e não pode ficar atrás de um áudio. Best-effort

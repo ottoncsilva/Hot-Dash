@@ -48,6 +48,12 @@ export type TelegramBotConfig = {
   previasWelcomeFunnel?: string;
   /** Idem para o VIP. */
   vipWelcomeFunnel?: string;
+  /** Recuperação de quem GEROU PIX e não pagou (JSON de passos). */
+  pixDownsellFunnel?: string;
+  /** Liga/desliga de cada uma das três sequências de recuperação. */
+  downsellEnabled: boolean;
+  pixDownsellEnabled: boolean;
+  upsellEnabled: boolean;
 };
 
 /** Textos padrão da tela de pagamento — os mesmos que antes viviam fixos no
@@ -205,6 +211,9 @@ export type TelegramSubscription = {
   pixCode?: string;
   /** Quanto do valor pago foi do Order Bump. 0 = o cliente recusou. */
   bumpCents?: number;
+  /** Progresso na sequência de "PIX gerado e não pago". */
+  pixStepIndex?: number;
+  lastPixStepAt?: number;
 };
 
 /** Linha do banco → config do bot. Um lugar só: as duas consultas abaixo
@@ -243,6 +252,12 @@ function toBotConfig(row: any): TelegramBotConfig {
     pixNotPaidMessage: row.pix_not_paid_message || undefined,
     previasWelcomeFunnel: row.previas_welcome_funnel || undefined,
     vipWelcomeFunnel: row.vip_welcome_funnel || undefined,
+    pixDownsellFunnel: row.pix_downsell_funnel || undefined,
+    // Sem valor gravado = LIGADO: é o comportamento de antes destes campos
+    // existirem, quando bastava ter passos configurados para o funil rodar.
+    downsellEnabled: row.downsell_enabled === undefined || row.downsell_enabled === null ? true : !!row.downsell_enabled,
+    pixDownsellEnabled: row.pix_downsell_enabled === undefined || row.pix_downsell_enabled === null ? true : !!row.pix_downsell_enabled,
+    upsellEnabled: row.upsell_enabled === undefined || row.upsell_enabled === null ? true : !!row.upsell_enabled,
   };
 }
 
@@ -275,8 +290,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -306,7 +321,11 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        pix_btn_copy = excluded.pix_btn_copy,
        pix_not_paid_message = excluded.pix_not_paid_message,
        previas_welcome_funnel = excluded.previas_welcome_funnel,
-       vip_welcome_funnel = excluded.vip_welcome_funnel`
+       vip_welcome_funnel = excluded.vip_welcome_funnel,
+       pix_downsell_funnel = excluded.pix_downsell_funnel,
+       downsell_enabled = excluded.downsell_enabled,
+       pix_downsell_enabled = excluded.pix_downsell_enabled,
+       upsell_enabled = excluded.upsell_enabled`
   ).run(
     id,
     config.profileId,
@@ -339,6 +358,10 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.pixNotPaidMessage?.trim() || null,
     config.previasWelcomeFunnel?.trim() || null,
     config.vipWelcomeFunnel?.trim() || null,
+    config.pixDownsellFunnel?.trim() || null,
+    config.downsellEnabled === false ? 0 : 1,
+    config.pixDownsellEnabled === false ? 0 : 1,
+    config.upsellEnabled === false ? 0 : 1,
     now
   );
   return getBotConfig(id)!;
@@ -509,6 +532,8 @@ function toSubscription(r: any): TelegramSubscription {
     createdAt: r.created_at,
     pixCode: r.pix_code || undefined,
     bumpCents: r.bump_cents || 0,
+    pixStepIndex: r.pix_step_index || 0,
+    lastPixStepAt: r.last_pix_step_at || undefined,
   };
 }
 
@@ -555,8 +580,8 @@ export function findSubscriptionByTransaction(transactionId: string): TelegramSu
 
 export function saveSubscription(sub: TelegramSubscription): void {
   getDb().prepare(
-    `INSERT INTO telegram_subscriptions (id, bot_id, transaction_id, plan_id, offer_id, telegram_user_id, telegram_username, invite_link, status, expires_at, last_upsell_at, upsell_step_index, created_at, pix_code, bump_cents)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_subscriptions (id, bot_id, transaction_id, plan_id, offer_id, telegram_user_id, telegram_username, invite_link, status, expires_at, last_upsell_at, upsell_step_index, created_at, pix_code, bump_cents, pix_step_index, last_pix_step_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        status = excluded.status,
        expires_at = excluded.expires_at,
@@ -567,7 +592,9 @@ export function saveSubscription(sub: TelegramSubscription): void {
        plan_id = excluded.plan_id,
        offer_id = excluded.offer_id,
        pix_code = excluded.pix_code,
-       bump_cents = excluded.bump_cents`
+       bump_cents = excluded.bump_cents,
+       pix_step_index = excluded.pix_step_index,
+       last_pix_step_at = excluded.last_pix_step_at`
   ).run(
     sub.id,
     sub.botId,
@@ -584,6 +611,8 @@ export function saveSubscription(sub: TelegramSubscription): void {
     sub.createdAt,
     sub.pixCode || null,
     Math.max(0, Math.round(sub.bumpCents || 0)),
+    Math.max(0, Math.round(sub.pixStepIndex || 0)),
+    sub.lastPixStepAt || null,
   );
 }
 

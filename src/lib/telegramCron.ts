@@ -471,7 +471,7 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
       // JSON inválido
     }
 
-    if (downsellFunnel.length > 0) {
+    if (downsellFunnel.length > 0 && bot.downsellEnabled !== false) {
       const leads = listLeadsForDownsell().filter((l) => l.profileId === p.id);
       for (const lead of leads) {
         // Verifica se já não pagou
@@ -506,6 +506,51 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
       }
     }
 
+    // 1b. PIX GERADO E NÃO PAGO — o terceiro gatilho da recuperação.
+    //
+    // Público diferente do downsell geral: essa pessoa já escolheu o plano e
+    // chegou na tela de pagamento. Falta menos, e por isso a conversa (e o
+    // desconto) podem ser outros. O gatilho é a inscrição PENDENTE, que é
+    // exatamente o registro de "gerou PIX e não confirmou".
+    let pixFunnel: FunnelStep[] = [];
+    try {
+      if (bot.pixDownsellFunnel) pixFunnel = JSON.parse(bot.pixDownsellFunnel);
+    } catch {
+      /* JSON inválido = sem funil */
+    }
+
+    if (pixFunnel.length > 0 && bot.pixDownsellEnabled !== false) {
+      const pendentes = db
+        .prepare("SELECT * FROM telegram_subscriptions WHERE bot_id = ? AND status = 'pending'")
+        .all(bot.id) as any[];
+
+      for (const row of pendentes) {
+        // Pagou por outra cobrança no meio do caminho: sai da recuperação.
+        if (findActiveSubscription(bot.id, row.telegram_user_id)) continue;
+
+        let stepIndex = row.pix_step_index || 0;
+        if (stepIndex >= pixFunnel.length) {
+          const ultimo = pixFunnel[pixFunnel.length - 1];
+          if (ultimo.isLoop) stepIndex = pixFunnel.length - 1;
+          else continue;
+        }
+
+        const step = pixFunnel[stepIndex];
+        // Conta desde o último passo enviado; na primeira vez, desde a criação
+        // da cobrança — que é o momento em que ele viu o PIX e não pagou.
+        const desde = row.last_pix_step_at || row.created_at;
+        if ((now - desde) / 60000 < step.delayMinutes) continue;
+
+        const markup = buildReplyMarkup(bot.id, step.discountPercent);
+        await sendFunnelStep(bot.botToken, String(row.telegram_user_id), p.id, step, markup);
+
+        db.prepare(
+          "UPDATE telegram_subscriptions SET pix_step_index = ?, last_pix_step_at = ? WHERE id = ?",
+        ).run(step.isLoop && stepIndex === pixFunnel.length - 1 ? stepIndex : stepIndex + 1, now, row.id);
+        downsellCount++;
+      }
+    }
+
     // 2. Processar Upsell (Pós-Venda)
     let upsellFunnel: FunnelStep[] = [];
     try {
@@ -514,7 +559,7 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
       // JSON inválido
     }
 
-    if (upsellFunnel.length > 0) {
+    if (upsellFunnel.length > 0 && bot.upsellEnabled !== false) {
       const activeSubs = db
         .prepare("SELECT * FROM telegram_subscriptions WHERE bot_id = ? AND status = 'active'")
         .all(bot.id) as any[];

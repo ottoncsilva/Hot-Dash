@@ -63,6 +63,10 @@ type Bot = {
   pixNotPaidMessage?: string;
   previasWelcomeFunnel?: string;
   vipWelcomeFunnel?: string;
+  pixDownsellFunnel?: string;
+  downsellEnabled?: boolean;
+  pixDownsellEnabled?: boolean;
+  upsellEnabled?: boolean;
 };
 type WelcomeStep = {
   delayMinutes: number;
@@ -1539,7 +1543,11 @@ function FunnelCard({
   onSaved: () => void;
 }) {
   const [downsell, setDownsell] = useState<FunnelStep[]>(parseFunnel(bot.downsellFunnel));
+  const [pixDownsell, setPixDownsell] = useState<FunnelStep[]>(parseFunnel(bot.pixDownsellFunnel));
   const [upsell, setUpsell] = useState<FunnelStep[]>(parseFunnel(bot.upsellFunnel));
+  const [onDownsell, setOnDownsell] = useState(bot.downsellEnabled !== false);
+  const [onPix, setOnPix] = useState(bot.pixDownsellEnabled !== false);
+  const [onUpsell, setOnUpsell] = useState(bot.upsellEnabled !== false);
   const [busy, setBusy] = useState(false);
 
   async function save() {
@@ -1549,7 +1557,11 @@ function FunnelCard({
         action: "save-funnels",
         profileId,
         downsellFunnel: JSON.stringify(downsell),
+        pixDownsellFunnel: JSON.stringify(pixDownsell),
         upsellFunnel: JSON.stringify(upsell),
+        downsellEnabled: onDownsell,
+        pixDownsellEnabled: onPix,
+        upsellEnabled: onUpsell,
       });
       showToast("Funis salvos.", "success");
       onSaved();
@@ -1561,15 +1573,48 @@ function FunnelCard({
   }
 
   return (
-    <div className="card p-4">
-      <h2 className="font-display text-lg font-semibold">Funis de venda</h2>
-      <p className="mt-1 text-xs text-zinc-500">
-        <b>Downsell</b>: mensagens para quem deu /start e não pagou. <b>Upsell</b>: pós-venda para
-        quem já é assinante. Cada etapa dispara após o tempo indicado.
-      </p>
+    <div className="space-y-3">
+      <div className="card p-4">
+        <h2 className="font-display text-lg font-semibold">Recuperação</h2>
+        <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+          Três gatilhos diferentes, com sequências separadas. Cada etapa dispara depois do tempo
+          indicado, contado a partir da anterior — e a sequência <b>para sozinha</b> assim que a
+          pessoa muda de estado (pagou, no caso dos downsells).
+        </p>
+      </div>
 
-      <FunnelEditor title="Downsell (remarketing)" steps={downsell} setSteps={setDownsell} tags={tags} />
-      <FunnelEditor title="Upsell (pós-venda)" steps={upsell} setSteps={setUpsell} tags={tags} />
+      <FunilRetratil
+        titulo="Downsell geral"
+        resumo="Quem deu /start e ainda não comprou"
+        aviso="Começa a contar do último contato do lead com o bot. Para de vez quando o pagamento é confirmado."
+        ativo={onDownsell}
+        setAtivo={setOnDownsell}
+        steps={downsell}
+        setSteps={setDownsell}
+        tags={tags}
+      />
+
+      <FunilRetratil
+        titulo="Downsell de PIX gerado"
+        resumo="Quem chegou a gerar o PIX e não pagou"
+        aviso="Público diferente do geral: essa pessoa já escolheu o plano e viu a tela de pagamento — falta menos, então costuma valer outra conversa e outro desconto. Conta a partir da criação da cobrança e para quando ela é paga."
+        ativo={onPix}
+        setAtivo={setOnPix}
+        steps={pixDownsell}
+        setSteps={setPixDownsell}
+        tags={tags}
+      />
+
+      <FunilRetratil
+        titulo="Upsell"
+        resumo="Pós-venda para quem já é assinante"
+        aviso="Conta a partir da confirmação do pagamento. Serve para oferecer o plano maior, um pacote ou a renovação."
+        ativo={onUpsell}
+        setAtivo={setOnUpsell}
+        steps={upsell}
+        setSteps={setUpsell}
+        tags={tags}
+      />
 
       <button onClick={save} disabled={busy} className="btn-primary mt-4">
         {busy ? "Salvando..." : "Salvar funis"}
@@ -1618,6 +1663,15 @@ function FunnelEditor({
                 />
                 repetir (loop)
               </label>
+              {/* Duplicar poupa refazer texto, mídia e desconto quando a
+                  mensagem seguinte é uma variação da anterior — que é o caso
+                  na maior parte das sequências de recuperação. */}
+              <button
+                onClick={() => setSteps([...steps.slice(0, i + 1), { ...s }, ...steps.slice(i + 1)])}
+                className="rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/10 hover:text-white"
+              >
+                Duplicar
+              </button>
               <button
                 onClick={() => setSteps(steps.filter((_, idx) => idx !== i))}
                 className="grid h-7 w-7 place-items-center rounded text-zinc-500 hover:bg-white/10 hover:text-red-400"
@@ -2205,6 +2259,81 @@ function BumpEditor({
                 <IconPlus size={13} /> Botão
               </button>
             )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Uma das três sequências de recuperação, em bloco retrátil.
+ *
+ * Retrátil porque são três sequências de várias mensagens cada: abertas ao
+ * mesmo tempo, a aba viraria uma rolagem em que não dá para ver o conjunto.
+ * Fechado, o cabeçalho já diz o essencial — o gatilho, se está ligado e
+ * quantas mensagens tem.
+ */
+function FunilRetratil({
+  titulo,
+  resumo,
+  aviso,
+  ativo,
+  setAtivo,
+  steps,
+  setSteps,
+  tags,
+}: {
+  titulo: string;
+  resumo: string;
+  aviso: string;
+  ativo: boolean;
+  setAtivo: (v: boolean) => void;
+  steps: FunnelStep[];
+  setSteps: (s: FunnelStep[]) => void;
+  tags: Tag[];
+}) {
+  const [aberto, setAberto] = useState(false);
+
+  return (
+    <div className={`card overflow-hidden ${aberto ? "border-emerald-500/25" : ""}`}>
+      <div className="flex items-center gap-3 p-4">
+        <button type="button" onClick={() => setAberto((v) => !v)} className="min-w-0 flex-1 text-left">
+          <p className="flex items-center gap-2 text-sm font-semibold text-white">
+            {titulo}
+            <span
+              className={`chip border text-[10px] ${
+                ativo
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                  : "border-white/10 text-zinc-500"
+              }`}
+            >
+              {ativo ? "ativo" : "desligado"}
+            </span>
+          </p>
+          <p className="mt-0.5 truncate text-xs text-zinc-500">
+            {resumo} · {steps.length} mensagem(ns)
+          </p>
+        </button>
+        <Switch checked={ativo} onChange={setAtivo} ariaLabel={`Ativar ${titulo}`} />
+        <button
+          type="button"
+          onClick={() => setAberto((v) => !v)}
+          className="btn-ghost shrink-0 px-2.5 py-1.5 text-xs"
+          aria-expanded={aberto}
+        >
+          {aberto ? "Fechar" : "Abrir"}
+          {aberto ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+        </button>
+      </div>
+
+      {aberto && (
+        <div className="border-t border-white/10 p-4">
+          <p className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-2.5 text-[11px] leading-relaxed text-amber-200/90">
+            {aviso}
+          </p>
+          <div className="mt-1">
+            <FunnelEditor title="" steps={steps} setSteps={setSteps} tags={tags} />
           </div>
         </div>
       )}

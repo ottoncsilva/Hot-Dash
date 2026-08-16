@@ -8,6 +8,7 @@ import {
   getLatestPreviasJob,
 } from "@/lib/previasGenerator";
 import { cancelActiveJob } from "@/lib/generationJobs";
+import { resolverLinkDoVip } from "@/lib/vipLink";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,13 +44,18 @@ export async function POST(req: NextRequest) {
     }
 
     // Um terço do dia das Prévias é post de CONVERSÃO: a copy chama pro VIP e o
-    // envio anexa o link. Sem o link cadastrado esses posts saem convidando para
-    // lugar nenhum — melhor não gerar e dizer o que falta.
-    if (!profile.bioVipLink) {
+    // envio anexa o link. Sem link, esses posts sairiam convidando para lugar
+    // nenhum — mas o painel não precisa mais PEDIR o link: ele o descobre a
+    // partir do bot e do grupo VIP (ver lib/vipLink.ts). Só desiste quando nem
+    // a descoberta funciona, e aí diz o motivo real em vez de mandar preencher
+    // um campo que ele mesmo saberia preencher.
+    const vip = await resolverLinkDoVip(profile.id);
+    if (!vip.link) {
       return NextResponse.json(
         {
           error:
-            "Nenhum link do VIP configurado para este perfil. Cadastre-o antes de gerar — os posts de conversão das Prévias dependem dele.",
+            (vip.problem || "Não foi possível descobrir o link do VIP.") +
+            " Você também pode preenchê-lo à mão no cadastro da modelo.",
         },
         { status: 400 },
       );

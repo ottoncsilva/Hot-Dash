@@ -49,6 +49,9 @@ export type Profile = {
   bioUnique?: string;
   bioPersonality?: "santinha" | "safadinha" | "explicita";
   bioVipLink?: string;
+  /** Link do VIP descoberto sozinho (lib/vipLink.ts). O manual acima manda. */
+  vipLinkAuto?: string;
+  vipLinkAutoSource?: string;
   /** Link do WhatsApp particular — vai no botão dos posts VIP marcados (LTV). */
   bioWhatsappLink?: string;
   /** Texto do botão do WhatsApp nos posts VIP (padrão "meu whatsapp particular"). */

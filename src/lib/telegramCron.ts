@@ -42,6 +42,7 @@ import {
   type Mailing,
 } from "@/lib/telegramMailing";
 import { updatePost } from "@/lib/posts";
+import { linkDoVip } from "@/lib/vipLink";
 import { listMedia, getMediaRow } from "@/lib/media";
 import { audienceFromPostType, logMediaPosted, pickReplacementMedia } from "@/lib/mediaUsage";
 import { getProfile } from "@/lib/profiles";
@@ -225,8 +226,10 @@ export async function runTelegramAutopost(): Promise<number> {
       //  • VIP: botão do WhatsApp particular (puxa o lead pro WhatsApp p/ LTV).
       //    Só quando o post estiver MARCADO (cta=1) e o link estiver configurado
       //    — o padrão do VIP é SEM link (cta=NULL/0).
-      const wantsVipCta =
-        isWarmup && Boolean(profile.bioVipLink) && (isMediaPost || post.cta !== 0);
+      // O link do VIP: o que o operador escreveu ou, na falta dele, o que o
+      // painel descobriu sozinho a partir do bot/grupo (lib/vipLink.ts).
+      const vipLink = linkDoVip(profile);
+      const wantsVipCta = isWarmup && Boolean(vipLink) && (isMediaPost || post.cta !== 0);
       // Destino do convite do VIP: o WhatsApp escolhido no post (Método MK ou
       // troca no calendário) e, quando ele não tem escolha própria, o "WhatsApp
       // particular" do cadastro — que é como todo post funcionava antes.
@@ -236,21 +239,21 @@ export async function runTelegramAutopost(): Promise<number> {
       let replyMarkup: { inline_keyboard: { text: string; url: string }[][] } | undefined;
       let finalCaption = escapeHtmlAllowingLinks(post.caption || "");
 
-      if (wantsVipCta && profile.bioVipLink) {
+      if (wantsVipCta && vipLink) {
         // Os dois ao mesmo tempo: o BOTÃO inline (uma frase) e as 3 linhas de
         // HIPERLINK no fim da legenda (outras frases da mesma lista).
         const ctaButtonText = pickCtaButtonText(ctaList);
         if (ctaButtonText) {
-          replyMarkup = { inline_keyboard: [[{ text: ctaButtonText, url: profile.bioVipLink }]] };
+          replyMarkup = { inline_keyboard: [[{ text: ctaButtonText, url: vipLink }]] };
         }
         // O gerador já grava as 3 linhas na legenda dos posts de mídia, para
         // você poder revisá-las no calendário. Aqui só completa quem ainda não
         // tem — post manual, ou agendado antes dessa mudança —, senão o convite
         // sairia duplicado.
-        if (!captionHasLink(post.caption || "", profile.bioVipLink)) {
+        if (!captionHasLink(post.caption || "", vipLink)) {
           finalCaption = buildWarmupCaption(
             post.caption || "",
-            profile.bioVipLink,
+            vipLink,
             pickCtaLinkTexts(ctaList, 3),
           );
         }

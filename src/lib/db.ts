@@ -602,6 +602,12 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "transactions", "fee_cents", "INTEGER");
   ensureColumn(d, "transactions", "split_cents", "INTEGER");
   ensureColumn(d, "profiles", "bio_vip_link", "TEXT");
+  // LINK DO VIP DESCOBERTO SOZINHO (ver lib/vipLink.ts) e de onde ele veio.
+  // Fica separado do `bio_vip_link` de propósito: o campo do operador continua
+  // mandando, e a tela precisa saber distinguir o que ela achou do que foi
+  // escrito à mão. Vazio = ainda não foi descoberto.
+  ensureColumn(d, "profiles", "vip_link_auto", "TEXT");
+  ensureColumn(d, "profiles", "vip_link_auto_source", "TEXT");
   // Link de SAÍDA do VIP (WhatsApp particular) + texto do botão. Usado nos posts
   // do grupo VIP marcados para levar o link, para puxar o lead pro WhatsApp (LTV).
   ensureColumn(d, "profiles", "bio_whatsapp_link", "TEXT");

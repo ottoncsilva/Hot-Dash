@@ -16,6 +16,7 @@ import {
 } from "./generationJobs";
 import { getProfile } from "./profiles";
 import { getBotConfigByProfile } from "./telegramDb";
+import { linkDoVip } from "./vipLink";
 import { listMedia, getMediaRow, renderVisionImageBase64 } from "./media";
 import { createMediaQueue, getMediaPostCounts, getScheduledMediaUses } from "./mediaUsage";
 import { generateCaption, callAiRaw, isSystemicAiError, SystemicAiError } from "./ai";
@@ -467,9 +468,10 @@ async function processBatch(row: JobRow): Promise<number> {
         // GRAVADAS na legenda — assim aparecem no editor do calendário e podem
         // ser revisadas antes de ir ao ar. Post sem mídia recebe o convite só
         // no envio.
+        const vipLink = linkDoVip(profile);
         const caption =
-          p.media && profile.bioVipLink
-            ? appendCtaLines(r.ok.caption, profile.bioVipLink, pickCtaLinkTexts(ctaList, 3))
+          p.media && vipLink
+            ? appendCtaLines(r.ok.caption, vipLink, pickCtaLinkTexts(ctaList, 3))
             : r.ok.caption;
 
         createPost({

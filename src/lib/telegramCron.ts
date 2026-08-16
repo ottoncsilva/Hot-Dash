@@ -27,6 +27,7 @@ import {
 import {
   listAudienceRecipients,
   getTelegramUsersByIds,
+  getTelegramUser,
   setTelegramUserBlocked,
 } from "@/lib/telegramUsers";
 import {
@@ -43,6 +44,7 @@ import {
 } from "@/lib/telegramMailing";
 import { updatePost } from "@/lib/posts";
 import { linkDoVip } from "@/lib/vipLink";
+import { enviarMensagemDoBot } from "@/lib/telegramSend";
 import { listMedia, getMediaRow } from "@/lib/media";
 import { audienceFromPostType, logMediaPosted, pickReplacementMedia } from "@/lib/mediaUsage";
 import { getProfile } from "@/lib/profiles";
@@ -382,6 +384,10 @@ type FunnelStep = {
   delayMinutes: number;
   text: string;
   discountPercent?: number;
+  /** Mídias ESCOLHIDAS a dedo, na ordem de envio. É o que a tela edita hoje. */
+  mediaIds?: string[];
+  mediaMode?: "album" | "separate";
+  /** Etiquetas — legado. Saiu da tela; ver lib/telegramSend.ts. */
   mediaTags?: string;
   isLoop?: boolean; // Se for true na última etapa, repete pra sempre.
   /** Só na sequência de aprovação: "plans" põe os botões de compra no passo. */
@@ -416,40 +422,33 @@ function buildReplyMarkup(botId: string, discountPercent = 0) {
 
 async function sendFunnelStep(
   botToken: string,
+  botId: string,
   chatId: string,
   profileId: string,
   step: FunnelStep,
   replyMarkup: any,
 ) {
-  let sentWithMedia = false;
-  if (step.mediaTags) {
-    const tagsArray = step.mediaTags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
-    if (tagsArray.length > 0) {
-      const allMedia = listMedia(profileId);
-      const candidates = allMedia.filter((m) =>
-        m.tags.some((t) => tagsArray.includes(t.name.toLowerCase())),
-      );
-      if (candidates.length > 0) {
-        const randomMedia = candidates[Math.floor(Math.random() * candidates.length)];
-        const row = getMediaRow(randomMedia.id);
-        if (row) {
-          try {
-            await sendTelegramMedia(botToken, chatId, row.path, step.text, { reply_markup: replyMarkup });
-            sentWithMedia = true;
-          } catch (e) {
-            console.error(`Erro ao enviar mídia de funil para ${chatId}:`, e);
-          }
-        }
-      }
-    }
-  }
+  // {nome} era oferecido na tela e NÃO era trocado no envio: o lead recebia a
+  // mensagem com a chave literal no meio do texto. No privado o chat_id é o
+  // próprio id do usuário, então o nome sai da lista de usuários.
+  const pessoa = getTelegramUser(`${botId}_${chatId}`);
+  const texto = (step.text || "").replace(/{nome}/gi, pessoa?.firstName || "linda(o)");
 
-  if (!sentWithMedia) {
-    try {
-      await sendTelegramMessage(botToken, chatId, step.text, { reply_markup: replyMarkup });
-    } catch (e) {
-      console.error(`Erro ao enviar msg de funil para ${chatId}:`, e);
-    }
+  // Mesmo caminho de envio do /start: mídias escolhidas, em álbum ou uma por
+  // mensagem. Antes daqui só saía UMA mídia, sorteada por etiqueta.
+  try {
+    await enviarMensagemDoBot({
+      botToken,
+      chatId,
+      profileId,
+      text: texto,
+      mediaIds: step.mediaIds,
+      mode: step.mediaMode,
+      mediaTags: step.mediaTags,
+      replyMarkup,
+    });
+  } catch (e) {
+    console.error(`Erro ao enviar passo de funil para ${chatId}:`, e);
   }
 }
 
@@ -497,7 +496,7 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
 
         if (elapsedMinutes >= step.delayMinutes) {
           const replyMarkup = buildReplyMarkup(bot.id, step.discountPercent);
-          await sendFunnelStep(bot.botToken, lead.chatId, p.id, step, replyMarkup);
+          await sendFunnelStep(bot.botToken, bot.id, lead.chatId, p.id, step, replyMarkup);
 
           lead.lastInteractionAt = now;
           if (stepIndex === lead.downsellStepIndex && !step.isLoop) {
@@ -545,7 +544,7 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
         if ((now - desde) / 60000 < step.delayMinutes) continue;
 
         const markup = buildReplyMarkup(bot.id, step.discountPercent);
-        await sendFunnelStep(bot.botToken, String(row.telegram_user_id), p.id, step, markup);
+        await sendFunnelStep(bot.botToken, bot.id, String(row.telegram_user_id), p.id, step, markup);
 
         db.prepare(
           "UPDATE telegram_subscriptions SET pix_step_index = ?, last_pix_step_at = ? WHERE id = ?",
@@ -597,7 +596,7 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
 
         if (elapsedMinutes >= step.delayMinutes) {
           const replyMarkup = buildReplyMarkup(bot.id, step.discountPercent);
-          await sendFunnelStep(bot.botToken, String(sub.telegramUserId), p.id, step, replyMarkup);
+          await sendFunnelStep(bot.botToken, bot.id, String(sub.telegramUserId), p.id, step, replyMarkup);
 
           sub.lastUpsellAt = now;
           if (stepIndex === sub.upsellStepIndex && !step.isLoop) {
@@ -900,6 +899,25 @@ export async function runTelegramApprovalSequences(): Promise<number> {
       /* JSON quebrado: trata como sequência vazia em vez de derrubar o tick */
     }
 
+    // "Usar a mesma mensagem de boas-vindas": ela entra como PASSO ZERO, na
+    // frente da sequência própria. Vira um passo comum de propósito — assim o
+    // atraso acumulado, o avanço e o fim da fila continuam funcionando sem
+    // nenhum caso especial, e ainda dá para escrever passos depois dela.
+    const usaBoasVindas = item.grupo === "vip" ? bot.vipUseWelcome : bot.previasUseWelcome;
+    if (usaBoasVindas) {
+      passos = [
+        {
+          delayMinutes: 0,
+          text: bot.welcomeMessage,
+          mediaIds: bot.welcomeMediaIds,
+          mediaMode: bot.welcomeMediaMode,
+          mediaTags: bot.welcomeMediaTags,
+          buttons: "plans",
+        },
+        ...passos,
+      ];
+    }
+
     if (item.stepIndex >= passos.length) {
       dequeueApproval(item);
       continue;
@@ -914,7 +932,7 @@ export async function runTelegramApprovalSequences(): Promise<number> {
     const passo = passos[item.stepIndex];
     const markup = passo.buttons === "plans" ? buildReplyMarkup(bot.id) : undefined;
     try {
-      await sendFunnelStep(bot.botToken, item.chatId, bot.profileId, passo, markup);
+      await sendFunnelStep(bot.botToken, bot.id, item.chatId, bot.profileId, passo, markup);
       enviados++;
     } catch (e) {
       console.error("[hotdash] Falha na sequência de aprovação:", e);

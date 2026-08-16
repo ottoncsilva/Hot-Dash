@@ -1,6 +1,7 @@
 import "server-only";
 import { getDb } from "@/lib/db";
 import { listProfiles } from "@/lib/profiles";
+import { buttonStyleProps } from "@/lib/settings";
 import {
   getBotConfigByProfile,
   getBotConfig,
@@ -402,6 +403,7 @@ function buildReplyMarkup(botId: string, discountPercent = 0) {
         {
           text: `${discountPercent > 0 ? `🔥 (-${discountPercent}%) ` : ""}${plan.name} - ${priceStr}`,
           callback_data: `buy_plan_${plan.id}${discountPercent > 0 ? `_${discountPercent}` : ""}`,
+          ...buttonStyleProps("plans"),
         },
       ]);
     });

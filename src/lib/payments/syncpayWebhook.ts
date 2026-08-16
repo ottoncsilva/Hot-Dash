@@ -1,6 +1,7 @@
 import "server-only";
 import { normalizeStatus, recordTransaction, updateStatusByRef } from "@/lib/transactions";
 import { logWebhookEvent } from "@/lib/webhookLog";
+import { buttonStyleProps } from "@/lib/settings";
 
 /**
  * Webhook da SyncPay. Recebe os eventos da conta e atualiza o Financeiro.
@@ -249,7 +250,9 @@ export async function processarWebhookSyncPay(
                   botaoTexto
                     ? {
                         reply_markup: {
-                          inline_keyboard: [[{ text: botaoTexto, url: invite.invite_link }]],
+                          inline_keyboard: [
+                          [{ text: botaoTexto, url: invite.invite_link, ...buttonStyleProps("access") }],
+                        ],
                         },
                       }
                     : {},

@@ -80,16 +80,6 @@ type PixDefaults = {
   btnCopy: string;
   notPaidMessage: string;
 };
-type LinkStats = { starts: number; pixGenerated: number; pixPaid: number; paidCents: number };
-type SourceLink = {
-  id: string;
-  code: string;
-  name: string;
-  slug?: string;
-  createdAt: number;
-  stats: LinkStats;
-};
-type OrphanCode = { code: string; stats: LinkStats };
 type Plan = {
   id: string;
   name: string;
@@ -136,8 +126,6 @@ export default function BotVendasPage() {
   const [subs, setSubs] = useState<Sub[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [sourceLinks, setSourceLinks] = useState<SourceLink[]>([]);
-  const [orphanCodes, setOrphanCodes] = useState<OrphanCode[]>([]);
   const [pixDefaults, setPixDefaults] = useState<PixDefaults | null>(null);
   const [tab, setTab] = useState<TabKey>("config");
 
@@ -160,8 +148,6 @@ export default function BotVendasPage() {
         subscriptions: Sub[];
         availableTags: Tag[];
         metrics: Metrics;
-        sourceLinks: SourceLink[];
-        orphanCodes: OrphanCode[];
         pixDefaults: PixDefaults;
       }>(`/api/telegram?profileId=${profileId}`);
       setBot(d.bot);
@@ -170,8 +156,6 @@ export default function BotVendasPage() {
       setSubs(d.subscriptions || []);
       setTags(d.availableTags || []);
       setMetrics(d.metrics || null);
-      setSourceLinks(d.sourceLinks || []);
-      setOrphanCodes(d.orphanCodes || []);
       setPixDefaults(d.pixDefaults || null);
       setWelcome(d.bot?.welcomeMessage || "");
       setWelcomeTags(d.bot?.welcomeMediaTags || "");
@@ -290,18 +274,6 @@ export default function BotVendasPage() {
               {tab === "aprovacao" && (
                 <ApprovalCard profileId={profileId} bot={bot} tags={tags} onSaved={load} />
               )}
-              {tab === "trackeamento" && (
-                <TrackingCard
-                  profileId={profileId}
-                  bot={bot}
-                  links={sourceLinks}
-                  orphans={orphanCodes}
-                  onSaved={load}
-                />
-              )}
-              {tab === "assinantes" && (
-                <SubscribersCard subs={subs} onAction={load} confirm={confirm} />
-              )}
             </div>
 
             {mostraPreview && (
@@ -327,8 +299,6 @@ const TABS = [
   { key: "planos", label: "Planos" },
   { key: "recuperacao", label: "Recuperação" },
   { key: "aprovacao", label: "Aprovação Automática" },
-  { key: "trackeamento", label: "Trackeamento" },
-  { key: "assinantes", label: "Assinantes" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -1733,103 +1703,17 @@ function ButtonsCard({
 
 // ---------------------------------------------------------------------------
 // Assinantes
-// ---------------------------------------------------------------------------
-function SubscribersCard({
-  subs,
-  onAction,
-  confirm,
-}: {
-  subs: Sub[];
-  onAction: () => void;
-  confirm: (opts: { title: string; message: string }) => Promise<boolean>;
-}) {
-  const [busyId, setBusyId] = useState<string>("");
-
-  async function act(sub: Sub, action: "sub-resend-link" | "sub-extend" | "sub-kick", extra?: Record<string, unknown>) {
-    setBusyId(sub.id + action);
-    try {
-      await apiSend("/api/telegram", "POST", { action, subscriptionId: sub.id, ...extra });
-      showToast("Feito.", "success");
-      onAction();
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Falha.", "error");
-    } finally {
-      setBusyId("");
-    }
+function parseSteps(json?: string): WelcomeStep[] {
+  if (!json) return [];
+  try {
+    const v = JSON.parse(json);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
   }
-
-  const label = (s: Sub["status"]) =>
-    ({ pending: "pendente", active: "ativo", expired: "expirado", blocked: "bloqueado" }[s]);
-  const color = (s: Sub["status"]) =>
-    ({ pending: "text-amber-400", active: "text-emerald-400", expired: "text-zinc-500", blocked: "text-red-400" }[s]);
-
-  const active = subs.filter((s) => s.status === "active").length;
-
-  return (
-    <div className="card p-4">
-      <div className="flex items-center justify-between">
-        <h2 className="font-display text-lg font-semibold">Assinantes</h2>
-        <span className="chip">{active} ativo(s) · {subs.length} total</span>
-      </div>
-      {subs.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-500">Nenhum assinante ainda.</p>
-      ) : (
-        <div className="mt-3 space-y-2">
-          {subs.map((s) => (
-            <div key={s.id} className="flex flex-wrap items-center gap-2 panel p-2.5">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-zinc-200">
-                  {s.telegramUsername ? `@${s.telegramUsername}` : `ID ${s.telegramUserId}`}
-                </p>
-                <p className="font-mono text-[11px] text-zinc-500">
-                  <span className={color(s.status)}>{label(s.status)}</span>
-                  {s.status === "active" && s.expiresAt > 0
-                    ? ` · vence ${new Date(s.expiresAt).toLocaleDateString("pt-BR")}`
-                    : ""}
-                </p>
-              </div>
-              <button
-                onClick={() => act(s, "sub-resend-link")}
-                disabled={Boolean(busyId)}
-                className="btn-ghost px-2.5 py-1.5 text-xs"
-              >
-                Reenviar link
-              </button>
-              <button
-                onClick={() => act(s, "sub-extend", { days: 30 })}
-                disabled={Boolean(busyId)}
-                className="btn-ghost px-2.5 py-1.5 text-xs"
-              >
-                +30 dias
-              </button>
-              <button
-                onClick={async () => {
-                  const ok = await confirm({
-                    title: "Expulsar do VIP",
-                    message: `Remover ${s.telegramUsername ? "@" + s.telegramUsername : s.telegramUserId} do grupo VIP agora?`,
-                  });
-                  if (ok) act(s, "sub-kick");
-                }}
-                disabled={Boolean(busyId)}
-                className="rounded-lg px-2.5 py-1.5 text-xs text-red-300 hover:bg-red-500/10"
-              >
-                Expulsar
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      <p className="mt-2 text-[11px] text-zinc-600">
-        A expiração é automática (o VIP vencido é removido e reconduzido às prévias). Use as ações
-        acima para casos manuais.
-      </p>
-    </div>
-  );
 }
 
-// ---------------------------------------------------------------------------
-// Aprovação Automática — a regra de quem entra em cada grupo
-// ---------------------------------------------------------------------------
+/** O que o bot faz com cada pedido de entrada. Espelha os modos do servidor. */
 const MODOS: { key: ApprovalMode; label: string; desc: string }[] = [
   {
     key: "subscribers",
@@ -1847,18 +1731,6 @@ const MODOS: { key: ApprovalMode; label: string; desc: string }[] = [
     desc: "O bot não decide: o pedido espera na fila do Telegram para você aprovar na mão.",
   },
 ];
-
-/** JSON guardado → lista de passos. Conteúdo quebrado vira lista vazia em vez
- *  de derrubar a aba inteira. */
-function parseSteps(json?: string): WelcomeStep[] {
-  if (!json) return [];
-  try {
-    const v = JSON.parse(json);
-    return Array.isArray(v) ? v : [];
-  } catch {
-    return [];
-  }
-}
 
 function ApprovalCard({
   profileId,
@@ -1988,219 +1860,17 @@ function GrupoAprovacao({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Trackeamento — links de divulgação e o que cada um trouxe
-// ---------------------------------------------------------------------------
-function TrackingCard({
-  profileId,
-  bot,
-  links,
-  orphans,
-  onSaved,
-}: {
-  profileId: string;
-  bot: Bot;
-  links: SourceLink[];
-  orphans: OrphanCode[];
-  onSaved: () => void;
-}) {
-  type Row = { id?: string; name: string; code: string; slug: string; createdAt?: number; stats?: LinkStats };
-  const [rows, setRows] = useState<Row[]>(
-    links.map((l) => ({
-      id: l.id,
-      name: l.name,
-      code: l.code,
-      slug: l.slug || "",
-      createdAt: l.createdAt,
-      stats: l.stats,
-    })),
-  );
-  const [busy, setBusy] = useState(false);
-
-  function update(i: number, patch: Partial<Row>) {
-    setRows((r) => r.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
-  }
-
-  async function save() {
-    setBusy(true);
-    try {
-      const r = await apiSend<{ ok: boolean; sourceLinks: SourceLink[] }>(
-        "/api/telegram",
-        "POST",
-        { action: "save-source-links", profileId, links: rows },
-      );
-      setRows(
-        (r.sourceLinks || []).map((l) => ({
-          id: l.id,
-          name: l.name,
-          code: l.code,
-          slug: l.slug || "",
-          createdAt: l.createdAt,
-          stats: l.stats,
-        })),
-      );
-      showToast("Links salvos.", "success");
-      onSaved();
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Falha.", "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="card p-4">
-        <h2 className="font-display text-lg font-semibold">Trackeamento</h2>
-        <p className="mt-1 text-xs text-zinc-500">
-          Um link por origem de tráfego. O <b>código</b> viaja no deep-link do bot e fica gravado no
-          lead e na venda — é o que responde qual divulgação trouxe o dinheiro. O{" "}
-          <b>redirecionador</b> é a URL curta que você publica: o destino continua sob seu controle,
-          então trocar o bot depois não invalida o que já foi divulgado.
-        </p>
-
-        <div className="mt-3 space-y-2">
-          {rows.map((r, i) => (
-            <div key={r.id || i} className="panel p-3">
-              <div className="grid gap-2 sm:grid-cols-[1fr_150px_150px_auto]">
-                <input
-                  className="input"
-                  placeholder="Nome (ex.: bio do Instagram)"
-                  value={r.name}
-                  onChange={(e) => update(i, { name: e.target.value })}
-                />
-                <input
-                  className="input font-mono text-xs"
-                  placeholder="codigo"
-                  value={r.code}
-                  onChange={(e) => update(i, { code: e.target.value.replace(/[^\w-]/g, "") })}
-                />
-                <input
-                  className="input font-mono text-xs"
-                  placeholder="url-curta"
-                  value={r.slug}
-                  onChange={(e) =>
-                    update(i, { slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })
-                  }
-                />
-                <button
-                  onClick={() => setRows((rr) => rr.filter((_, idx) => idx !== i))}
-                  className="btn-ghost px-2.5"
-                  aria-label="Remover link"
-                >
-                  <IconTrash size={14} />
-                </button>
-              </div>
-
-              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-zinc-500">
-                {bot.botUsername && r.code && (
-                  <CopiavelLink texto={`https://t.me/${bot.botUsername}?start=${r.code}`} />
-                )}
-                {r.slug && <CopiavelLink texto={`/r/${r.slug}`} relativo />}
-              </div>
-
-              {r.stats && (
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
-                  <span className="text-zinc-400">
-                    <b className="text-white">{r.stats.starts}</b> /start
-                  </span>
-                  <span className="text-zinc-400">
-                    <b className="text-white">{r.stats.pixGenerated}</b> PIX gerado(s)
-                  </span>
-                  <span className="text-zinc-400">
-                    <b className="text-white">{r.stats.pixPaid}</b> pago(s)
-                  </span>
-                  <span className="text-emerald-400">{money(r.stats.paidCents)}</span>
-                </div>
-              )}
-            </div>
-          ))}
-          {rows.length === 0 && (
-            <p className="py-6 text-center text-sm text-zinc-500">
-              Nenhum link ainda. Crie um para cada lugar onde você divulga o bot.
-            </p>
-          )}
-        </div>
-
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            onClick={() => setRows((r) => [...r, { name: "", code: "", slug: "" }])}
-            className="btn-ghost"
-          >
-            <IconPlus size={14} /> Novo link
-          </button>
-          <button onClick={save} disabled={busy} className="btn-primary">
-            {busy ? "Salvando..." : "Salvar links"}
-          </button>
-        </div>
-
-        {!bot.botUsername && (
-          <p className="mt-3 text-xs text-amber-400">
-            O @username do bot ainda não foi resolvido — ligue a operação uma vez para o Hot-Dash
-            descobri-lo, e os links completos aparecem aqui.
-          </p>
-        )}
-      </div>
-
-      {orphans.length > 0 && (
-        <div className="card p-4">
-          <h3 className="text-sm font-semibold text-white">Códigos já usados, sem cadastro</h3>
-          <p className="mt-1 text-xs text-zinc-500">
-            Apareceram em leads ou vendas mas não estão na lista acima — links criados à mão antes
-            desta tela existir. Cadastre para dar um nome a eles.
-          </p>
-          <div className="mt-3 space-y-1.5">
-            {orphans.map((o) => (
-              <div
-                key={o.code}
-                className="flex flex-wrap items-center justify-between gap-2 panel px-3 py-2"
-              >
-                <code className="text-xs text-zinc-200">{o.code}</code>
-                <div className="flex flex-wrap items-center gap-x-3 text-[11px] text-zinc-500">
-                  <span>{o.stats.starts} /start</span>
-                  <span>{o.stats.pixPaid} pago(s)</span>
-                  <span className="text-emerald-400">{money(o.stats.paidCents)}</span>
-                  <button
-                    onClick={() =>
-                      setRows((r) => [...r, { name: o.code, code: o.code, slug: "" }])
-                    }
-                    className="btn-ghost px-2 py-1 text-[11px]"
-                  >
-                    Cadastrar
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /** Mostra uma URL com botão de copiar. Links relativos ganham a origem do
  *  navegador na hora de copiar — é o endereço que o operador vai colar fora. */
-function CopiavelLink({ texto, relativo }: { texto: string; relativo?: boolean }) {
-  const [copiado, setCopiado] = useState(false);
-  return (
-    <button
-      type="button"
-      onClick={async () => {
-        const url = relativo ? `${window.location.origin}${texto}` : texto;
-        try {
-          await navigator.clipboard.writeText(url);
-          setCopiado(true);
-          setTimeout(() => setCopiado(false), 1500);
-        } catch {
-          showToast("Não foi possível copiar.", "error");
-        }
-      }}
-      className="inline-flex items-center gap-1 font-mono text-[11px] text-sky-400 transition-colors hover:text-sky-300"
-    >
-      <IconCopy size={12} /> {copiado ? "copiado!" : texto}
-    </button>
-  );
-}
+const ATRASOS = [
+  { min: 0, label: "Imediato" },
+  { min: 2, label: "2 min depois" },
+  { min: 10, label: "10 min depois" },
+  { min: 30, label: "30 min depois" },
+  { min: 60, label: "1 hora depois" },
+  { min: 180, label: "3 horas depois" },
+  { min: 1440, label: "1 dia depois" },
+];
 
 /**
  * Editor da SEQUÊNCIA de boas-vindas de um grupo.
@@ -2213,16 +1883,6 @@ function CopiavelLink({ texto, relativo }: { texto: string; relativo?: boolean }
  * O atraso é ACUMULADO desde a entrada: passos de 0 e 10 saem na hora e 10
  * minutos depois. Vazio = nada é enviado (a aprovação continua acontecendo).
  */
-const ATRASOS = [
-  { min: 0, label: "Imediato" },
-  { min: 2, label: "2 min depois" },
-  { min: 10, label: "10 min depois" },
-  { min: 30, label: "30 min depois" },
-  { min: 60, label: "1 hora depois" },
-  { min: 180, label: "3 horas depois" },
-  { min: 1440, label: "1 dia depois" },
-];
-
 function WelcomeSequence({
   titulo,
   steps,

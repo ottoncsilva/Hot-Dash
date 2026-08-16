@@ -540,3 +540,114 @@ export function setReusableBlocks(blocks: ReusableBlock[]): void {
   setJson("reusable_blocks", blocks);
 }
 
+
+
+// ---- Bot de vendas: preço dinâmico e estilo dos botões ----------------------
+
+/**
+ * PREÇO DINÂMICO (variação de centavos por lead).
+ *
+ * Gera um valor único por cliente somando/subtraindo centavos derivados do ID
+ * do Telegram. Como a conta é determinística, o MESMO lead recebe SEMPRE o
+ * mesmo valor — o que permite casar um PIX recebido com quem devia pagá-lo,
+ * mesmo quando o comprovante não traz mais nada. É o que dificulta o estorno
+ * indevido e o "paguei sim" de quem não pagou.
+ *
+ * `cents` é o teto da variação (1 a 100). `direction`:
+ *   up     → sempre soma;
+ *   down   → sempre subtrai (nunca abaixo de 1 centavo);
+ *   random → o próprio sentido vem do hash, então continua fixo por lead.
+ */
+export type DynamicPrice = {
+  enabled: boolean;
+  cents: number;
+  direction: "up" | "down" | "random";
+};
+
+const DYNAMIC_PRICE_DEFAULT: DynamicPrice = { enabled: false, cents: 9, direction: "random" };
+
+export function getDynamicPrice(): DynamicPrice {
+  const s = getJson<Partial<DynamicPrice>>("dynamic_price", {});
+  const cents = Number(s.cents);
+  return {
+    enabled: Boolean(s.enabled),
+    cents: Number.isFinite(cents) && cents >= 1 ? Math.min(Math.floor(cents), 100) : DYNAMIC_PRICE_DEFAULT.cents,
+    direction: s.direction === "up" || s.direction === "down" ? s.direction : "random",
+  };
+}
+
+export function setDynamicPrice(v: Partial<DynamicPrice>): DynamicPrice {
+  const atual = getDynamicPrice();
+  setJson("dynamic_price", { ...atual, ...v });
+  return getDynamicPrice();
+}
+
+/**
+ * Aplica a variação ao valor de uma cobrança.
+ *
+ * O piso de 1 centavo existe para uma oferta muito barata com variação grande
+ * não virar cobrança de R$ 0,00 — que o gateway recusaria.
+ */
+export function applyDynamicPrice(amountCents: number, telegramUserId: number): number {
+  const cfg = getDynamicPrice();
+  if (!cfg.enabled || cfg.cents < 1) return amountCents;
+
+  // Hash simples e estável: só precisa espalhar, não precisa ser seguro.
+  let h = 0;
+  const chave = String(telegramUserId);
+  for (let i = 0; i < chave.length; i++) h = (h * 31 + chave.charCodeAt(i)) >>> 0;
+
+  const delta = (h % cfg.cents) + 1; // 1..cents, nunca zero (senão não varia)
+  const soma =
+    cfg.direction === "up" ? true : cfg.direction === "down" ? false : (h >>> 8) % 2 === 0;
+
+  return Math.max(1, soma ? amountCents + delta : amountCents - delta);
+}
+
+/**
+ * ESTILO DOS BOTÕES (Bot API 9.4, fev/2026).
+ *
+ * O Telegram aceita `style` no botão inline: "primary" (azul), "success"
+ * (verde) e "danger" (vermelho). Apps antigos ignoram o campo e mostram o
+ * botão na cor padrão — o texto e a ação seguem funcionando, então não há
+ * risco em ligar.
+ *
+ * Cada PAPEL do fluxo tem o seu, porque a intenção muda: a lista de planos
+ * pede destaque, "Copiar Chave Pix" é auxiliar, e o acesso ao VIP depois do
+ * pagamento merece o verde.
+ */
+export type ButtonStyle = "" | "primary" | "success" | "danger";
+export type ButtonRole = "redirect" | "plans" | "pixCheck" | "pixCopy" | "pixQr" | "access";
+
+export const BUTTON_ROLES: { key: ButtonRole; label: string; hint: string }[] = [
+  { key: "redirect", label: "Botões de redirect", hint: "Links extras do /start (canal grátis, suporte…)" },
+  { key: "plans", label: "Lista de planos", hint: "Botões de escolha de plano (/start, funis, mailing)" },
+  { key: "pixCheck", label: "Verificar pagamento", hint: 'Botão "Verificar Status do Pagamento"' },
+  { key: "pixCopy", label: "Copiar chave Pix", hint: "Botão que reenvia só o código" },
+  { key: "pixQr", label: "Mostrar QR Code", hint: "Botão que envia a imagem do QR" },
+  { key: "access", label: "Acessar conteúdo", hint: "Botão de acesso ao VIP depois do pagamento" },
+];
+
+export type ButtonStyles = Partial<Record<ButtonRole, ButtonStyle>>;
+
+export function getButtonStyles(): ButtonStyles {
+  return getJson<ButtonStyles>("button_styles", {});
+}
+
+export function setButtonStyles(v: ButtonStyles): ButtonStyles {
+  const validos: ButtonStyle[] = ["", "primary", "success", "danger"];
+  const chaves = new Set(BUTTON_ROLES.map((r) => r.key as string));
+  const limpo: ButtonStyles = {};
+  for (const [k, val] of Object.entries(v || {})) {
+    if (!chaves.has(k) || !validos.includes(val as ButtonStyle)) continue;
+    if (val) limpo[k as ButtonRole] = val as ButtonStyle;
+  }
+  setJson("button_styles", limpo);
+  return getButtonStyles();
+}
+
+/** Devolve `{ style }` para espalhar no botão, ou nada quando é o padrão. */
+export function buttonStyleProps(role: ButtonRole): { style?: string } {
+  const v = getButtonStyles()[role];
+  return v ? { style: v } : {};
+}

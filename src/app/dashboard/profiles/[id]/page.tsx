@@ -454,7 +454,7 @@ export default function ProfileDetailPage() {
                     </p>
                     {hasToken && (
                       <div className="mt-1.5">
-                        <DetectChat profileId={id} onPick={setBotIdVip} />
+                        <DetectChat profileId={id} onPick={setBotIdVip} atual={botIdVip} />
                       </div>
                     )}
                   </div>
@@ -471,7 +471,7 @@ export default function ProfileDetailPage() {
                     </p>
                     {hasToken && (
                       <div className="mt-1.5">
-                        <DetectChat profileId={id} onPick={setBotIdPrevias} />
+                        <DetectChat profileId={id} onPick={setBotIdPrevias} atual={botIdPrevias} />
                       </div>
                     )}
                   </div>

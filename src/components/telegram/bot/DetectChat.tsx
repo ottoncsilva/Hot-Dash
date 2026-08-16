@@ -32,9 +32,14 @@ type Chat = {
 export default function DetectChat({
   profileId,
   onPick,
+  /** O que está digitado no campo. Vai junto para o servidor poder conferir se
+   *  o bot é admin num ID ainda NÃO salvo — sem isso só dava para descobrir
+   *  depois de gravar. */
+  atual,
 }: {
   profileId: string;
   onPick: (chatId: string) => void;
+  atual?: string;
 }) {
   const [chats, setChats] = useState<Chat[] | null>(null);
   const [hint, setHint] = useState<string | undefined>();
@@ -46,7 +51,7 @@ export default function DetectChat({
       const r = await apiSend<{ ok: boolean; chats: Chat[]; hint?: string }>(
         "/api/telegram",
         "POST",
-        { action: "detect-chats", profileId },
+        { action: "detect-chats", profileId, extraChatId: atual || undefined },
       );
       setChats(r.chats || []);
       setHint(r.hint);
@@ -59,9 +64,16 @@ export default function DetectChat({
 
   return (
     <div>
-      <button type="button" onClick={detectar} disabled={busy} className="btn-ghost px-2.5 py-1.5 text-xs">
-        <IconSearch size={14} /> {busy ? "Procurando..." : "Detectar"}
-      </button>
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={detectar} disabled={busy} className="btn-ghost px-2.5 py-1.5 text-xs">
+          <IconSearch size={14} /> {busy ? "Procurando..." : "Detectar"}
+        </button>
+        {chats !== null && (
+          <button type="button" onClick={detectar} disabled={busy} className="btn-ghost px-2 py-1.5 text-xs">
+            Atualizar
+          </button>
+        )}
+      </div>
 
       {chats !== null && (
         <div className="mt-2 rounded-xl border border-white/10 bg-ink-850 p-2">
@@ -87,6 +99,7 @@ export default function DetectChat({
                         {c.title || (c.reachable ? "(sem título)" : "grupo não encontrado")}
                       </span>
                       <span className="block truncate font-mono text-[10px] text-zinc-500">
+                        {c.type === "channel" ? "canal" : c.type === "private" ? "privado" : "grupo"} ·{" "}
                         {c.chatId}
                       </span>
                     </span>

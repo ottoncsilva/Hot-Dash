@@ -42,6 +42,7 @@ import { listMedia } from "@/lib/media";
 import { resolvePublicOrigin, webhookOriginProblem } from "@/lib/publicOrigin";
 import { buttonStyleProps } from "@/lib/settings";
 import { MESSAGE_EFFECTS } from "@/lib/telegramEffects";
+import { resolverLinkDoVip, limparLinkDoVipAuto } from "@/lib/vipLink";
 
 import { randomUUID } from "node:crypto";
 
@@ -233,7 +234,12 @@ export async function POST(req: NextRequest) {
           if (cur) saveBotConfig({ ...cur, botUsername: webhook.username });
         }
       }
-      return NextResponse.json({ ok: true, webhook });
+      // Trocou o token ou o grupo ⇒ o link do VIP descoberto antes pode estar
+      // apontando para a operação errada. Esquece e redescobre agora, com as
+      // credenciais novas — falha aqui não pode derrubar o salvamento.
+      limparLinkDoVipAuto(profileId);
+      const vipLink = await resolverLinkDoVip(profileId).catch(() => null);
+      return NextResponse.json({ ok: true, webhook, vipLink });
     }
 
     if (action === "save-telegram-config") {
@@ -668,6 +674,16 @@ export async function POST(req: NextRequest) {
         await checar(bot.idAquecimento, "Grupo de Prévias"),
       ];
       return NextResponse.json({ ok: true, grupos });
+    }
+
+    // ---- Link do VIP, descoberto sozinho ----
+    // Devolve o que vale hoje e de onde ele veio. Com `forcar`, redescobre
+    // (o botão "Atualizar" da tela do cadastro).
+    if (action === "vip-link") {
+      const profileId = String(body.profileId || "");
+      if (!profileId) throw new ApiError(400, "Informe a modelo.");
+      const r = await resolverLinkDoVip(profileId, Boolean(body.forcar));
+      return NextResponse.json({ ok: Boolean(r.link), ...r });
     }
 
     // ---- Mídias que batem com as etiquetas de boas-vindas ----

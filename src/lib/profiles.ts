@@ -29,6 +29,8 @@ type ProfileRow = {
   bio_unique: string | null;
   bio_personality: string | null;
   bio_vip_link: string | null;
+  vip_link_auto: string | null;
+  vip_link_auto_source: string | null;
   bio_whatsapp_link: string | null;
   bio_whatsapp_button: string | null;
   bio_telegram_link: string | null;
@@ -70,6 +72,8 @@ function profileToClient(p: ProfileRow): Profile {
     bioUnique: p.bio_unique || undefined,
     bioPersonality: (p.bio_personality as any) || "safadinha",
     bioVipLink: p.bio_vip_link || undefined,
+    vipLinkAuto: p.vip_link_auto || undefined,
+    vipLinkAutoSource: p.vip_link_auto_source || undefined,
     bioWhatsappLink: p.bio_whatsapp_link || undefined,
     bioWhatsappButton: p.bio_whatsapp_button || undefined,
     bioTelegramLink: p.bio_telegram_link || undefined,

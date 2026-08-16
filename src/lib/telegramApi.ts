@@ -186,12 +186,16 @@ export async function getTelegramChatMember(
 export async function getTelegramChat(
   botToken: string,
   chatId: string,
-): Promise<{ id: number; title?: string; type?: string; username?: string }> {
+): Promise<{ id: number; title?: string; type?: string; username?: string; invite_link?: string }> {
+  // `invite_link` é o LINK PRIMÁRIO que este bot já tem no chat. Vem de graça
+  // aqui e é a forma que a documentação indica para um bot obter o próprio
+  // link sem passar pelo exportChatInviteLink — que revogaria o link anterior.
   return (await telegramFetch(botToken, "getChat", { chat_id: chatId })) as {
     id: number;
     title?: string;
     type?: string;
     username?: string;
+    invite_link?: string;
   };
 }
 

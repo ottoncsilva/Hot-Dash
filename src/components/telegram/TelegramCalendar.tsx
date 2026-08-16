@@ -232,7 +232,9 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
     if (telegramType(post) === "VIP") {
       return { on: post.cta === true && Boolean(waTarget(post)), label: "WhatsApp" };
     }
-    return { on: post.cta !== false && Boolean(prof?.bioVipLink), label: "VIP" };
+    // O link do VIP pode ter sido preenchido à mão OU descoberto pelo painel
+    // (lib/vipLink.ts) — os dois valem, e é o que o envio usa.
+    return { on: post.cta !== false && Boolean(prof?.bioVipLink || prof?.vipLinkAuto), label: "VIP" };
   }
 
   const filtered = useMemo(() => {
@@ -625,7 +627,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                   </div>
                 );
               }
-              const hasLink = editingPost.cta !== false && Boolean(prof?.bioVipLink);
+              const hasLink = editingPost.cta !== false && Boolean(prof?.bioVipLink || prof?.vipLinkAuto);
               return (
                 <div className={`shrink-0 px-4 py-2 text-xs font-semibold ${hasLink ? "bg-emerald-500/10 text-emerald-300" : "bg-white/[0.03] text-zinc-400"}`}>
                   {hasLink ? "🔗 Vai com o botão/link do VIP" : "— Sem link (humanização/engajamento)"}

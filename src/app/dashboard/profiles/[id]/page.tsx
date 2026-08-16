@@ -27,6 +27,15 @@ import {
   type SocialNetwork,
 } from "@/lib/types";
 import { buildSocialUrl, networkMeta } from "@/lib/socialLinks";
+
+/** De onde veio o link do VIP descoberto (espelha VIP_LINK_SOURCE_LABEL). */
+const VIP_SOURCE_LABEL: Record<string, string> = {
+  manual: "preenchido por você",
+  bot: "conversa do bot",
+  vip_publico: "@ público do grupo VIP",
+  vip_convite: "convite do grupo VIP",
+  vip_novo_convite: "convite criado agora para o grupo VIP",
+};
 import { showToast } from "@/lib/toast";
 import DetectChat from "@/components/telegram/bot/DetectChat";
 
@@ -42,6 +51,10 @@ export default function ProfileDetailPage() {
   const [bioUnique, setBioUnique] = useState("");
   const [bioPersonality, setBioPersonality] = useState<"santinha" | "safadinha" | "explicita">("safadinha");
   const [bioVipLink, setBioVipLink] = useState("");
+  // O link do VIP que o painel DESCOBRIU sozinho (bot/grupo). Só serve para
+  // mostrar na tela: quem manda no envio é o campo acima, quando preenchido.
+  const [vipAuto, setVipAuto] = useState<{ link: string; source?: string; problem?: string } | null>(null);
+  const [vipBusy, setVipBusy] = useState(false);
   const [bioWhatsappLink, setBioWhatsappLink] = useState("");
   const [bioWhatsappButton, setBioWhatsappButton] = useState("");
   const [bioTelegramLink, setBioTelegramLink] = useState("");
@@ -88,6 +101,19 @@ export default function ProfileDetailPage() {
         setBotToken("");
         setBotIdVip(tg.bot?.idVip || "");
         setBotIdPrevias(tg.bot?.idAquecimento || "");
+        // Descobre o link do VIP (com cache no servidor: só fala com o
+        // Telegram na primeira vez).
+        try {
+          setVipAuto(
+            await apiSend<{ link: string; source?: string; problem?: string }>(
+              "/api/telegram",
+              "POST",
+              { action: "vip-link", profileId: id },
+            ),
+          );
+        } catch {
+          setVipAuto(null);
+        }
         setBotOrig({ token: "", vip: tg.bot?.idVip || "", prev: tg.bot?.idAquecimento || "" });
       } catch {
         /* sem bot ainda */
@@ -333,13 +359,59 @@ export default function ProfileDetailPage() {
             </div>
 
             <div>
-              <label className="eyebrow mb-1.5 block">Link do VIP / Bot <span className="text-zinc-500 font-normal">(entra nos botões da copy)</span></label>
+              <label className="eyebrow mb-1.5 block">
+                Link do VIP / Bot{" "}
+                <span className="font-normal text-zinc-500">(entra nos botões da copy)</span>
+              </label>
+              {/* O campo virou OPCIONAL: o painel descobre este link sozinho a
+                  partir do token do bot e do grupo VIP. Preencher aqui só serve
+                  para mandar o lead para outro lugar. */}
               <input
                 className="input"
-                placeholder="Ex: https://t.me/..."
+                placeholder={vipAuto?.link || "Ex: https://t.me/..."}
                 value={bioVipLink}
                 onChange={(e) => setBioVipLink(e.target.value)}
               />
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                {vipAuto?.link ? (
+                  <p className="text-[11px] text-zinc-500">
+                    {bioVipLink.trim() ? (
+                      <>Sem este campo, seria usado: </>
+                    ) : (
+                      <>Descoberto sozinho: </>
+                    )}
+                    <span className="font-mono text-zinc-300">{vipAuto.link}</span>
+                    {vipAuto.source && <> · {VIP_SOURCE_LABEL[vipAuto.source] || vipAuto.source}</>}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-amber-400">
+                    {vipAuto?.problem || "Ainda não foi possível descobrir o link — preencha acima."}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  disabled={vipBusy}
+                  onClick={async () => {
+                    setVipBusy(true);
+                    try {
+                      setVipAuto(
+                        await apiSend("/api/telegram", "POST", {
+                          action: "vip-link",
+                          profileId: id,
+                          forcar: true,
+                        }),
+                      );
+                    } catch (e) {
+                      showToast(e instanceof Error ? e.message : "Falha.", "error");
+                    } finally {
+                      setVipBusy(false);
+                    }
+                  }}
+                  className="btn-ghost px-2 py-1 text-[11px]"
+                >
+                  {vipBusy ? "Procurando..." : "Procurar de novo"}
+                </button>
+              </div>
             </div>
 
             {/* Links de SAÍDA do VIP. São dois destinos possíveis para o mesmo

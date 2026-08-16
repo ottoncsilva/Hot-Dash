@@ -33,10 +33,37 @@ compartilhados com a *Automação de postagens*.
      topo). Só aí o Hot-Dash assume o webhook e faz o **cutover** do ApexVips na
      hora. Desligar libera o bot de volta. Esse liga/desliga é o controle do
      cutover — salvar o autopost sozinho **não** rouba o webhook do ApexVips.
-7. Em **Editar Perfil** da modelo, preencha o **Link do Bot/Assinatura VIP**
-   (usado como CTA nos posts de prévias).
+7. O **Link do VIP / Bot** (o CTA dos posts de prévias) é **descoberto sozinho**
+   — não precisa preencher. Veja abaixo como. Preencha o campo em **Editar
+   Perfil** só se quiser mandar o lead para outro destino.
 8. Aponte o link das prévias (no slt.bio/Instagram) para o convite do grupo de
    prévias — o bot passa a aceitar os novos leads automaticamente.
+
+## O link do VIP é descoberto sozinho
+
+O painel já tem tudo o que é preciso para achar esse link — o token do bot e o
+ID do grupo VIP —, então ele não pede que você o digite. A ordem é de funil,
+não de conveniência (`src/lib/vipLink.ts`):
+
+1. **O bot** (`t.me/<usuário do bot>`). É o destino certo para uma prévia: o
+   lead chega no bot, vê os planos e paga. Mandá-lo direto para o grupo VIP
+   seria entregar o produto de graça.
+2. **O @ público do grupo VIP**, quando ele tem um.
+3. **O convite primário do VIP**, lido pelo `getChat`.
+4. **Um convite novo**, criado com `createChatInviteLink`.
+
+O resultado fica guardado no perfil, então o Telegram só é consultado na
+primeira vez. Trocar o token ou o ID do grupo apaga o que foi descoberto e
+refaz a busca; o botão *Procurar de novo*, no cadastro da modelo, força a
+mesma coisa.
+
+> **`exportChatInviteLink` não é usado, e não pode passar a ser.** A
+> documentação é explícita: *"generate a new primary invite link for a chat;
+> any previously generated primary link is revoked"* — ele invalidaria todo
+> link já distribuído. O `getChat` devolve o mesmo link primário sem revogar
+> nada (*"it will need to generate its own link using exportChatInviteLink or
+> by calling the getChat method"*), e o `createChatInviteLink` cria um link
+> **adicional**, também sem revogar nada.
 
 ## Teste ponta a ponta
 

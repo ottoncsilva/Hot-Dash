@@ -21,9 +21,8 @@ import {
   IconUndo,
   IconChevronUp,
   IconChevronDown,
-  IconSettings,
+  IconSparkle,
 } from "@/components/icons";
-import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import SectionRow, { resumo } from "@/components/telegram/bot/SectionRow";
 import VarChips from "@/components/telegram/bot/VarChips";
@@ -324,27 +323,15 @@ export default function BotVendasPage() {
                   <PixRow profileId={profileId} bot={bot} pixDefaults={pixDefaults} onSaved={load} />
                   <ExtrasRow profileId={profileId} bot={bot} onSaved={load} />
                   <ButtonsCard profileId={profileId} buttons={buttons} onSaved={load} />
-                  {/* Preço dinâmico e cores valem para TODAS as modelos, então
-                      moram em Configurações. Só que é aqui que se procura por
-                      eles — daí o atalho, em vez de mais um lugar para editar
-                      a mesma coisa. */}
-                  <Link
-                    href="/dashboard/settings/bot"
-                    className="card flex items-center gap-3 p-4 transition-colors hover:border-white/20"
-                  >
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-300">
-                      <IconSettings size={18} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-semibold text-zinc-100">
-                        Preço dinâmico e cores dos botões
-                      </span>
-                      <span className="block text-[11px] text-zinc-500">
-                        Em Configurações — valem para todas as modelos de uma vez.
-                      </span>
-                    </span>
-                    <span className="shrink-0 text-zinc-500">›</span>
-                  </Link>
+                  {/* Estas duas valem para TODAS as modelos, e mesmo assim
+                      moram aqui: é nesta tela que se configura o bot, e mandar
+                      o operador para outra página só para escolher uma cor era
+                      o motivo de ninguém achá-las. O aviso dentro de cada uma
+                      diz o alcance. */}
+                  <PrecoDinamicoRow />
+                  {/* Salvar cor recarrega a tela: o PREVIEW ao lado desenha os
+                      botões com essas cores, e ele mentiria até o próximo F5. */}
+                  <CoresBotoesRow onSaved={load} />
                 </>
               )}
               {tab === "planos" && <PlansCard profileId={profileId} plans={plans} onSaved={load} />}
@@ -1883,6 +1870,215 @@ function FunnelEditor({
 /** Centavos → R$ 0,00. */
 function brl(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+// ---------------------------------------------------------------------------
+// Preço dinâmico e cores dos botões
+//
+// São ajustes GLOBAIS (valem para todas as modelos), mas moram nesta tela
+// porque é aqui que se configura o bot. Ficaram um tempo numa página separada
+// em Configurações e simplesmente não eram encontrados: ninguém sai da tela do
+// bot para procurar a cor de um botão do bot. O aviso dentro de cada linha diz
+// o alcance, que é a informação que faltava — não a distância.
+// ---------------------------------------------------------------------------
+type DynamicPrice = { enabled: boolean; cents: number; direction: "up" | "down" | "random" };
+type ButtonRoleInfo = { key: string; label: string; hint: string };
+
+/** As três cores que o Telegram aceita (Bot API 9.4), mais o padrão. */
+const CORES_BOTAO: { key: string; label: string; dot: string; ring: string }[] = [
+  { key: "", label: "Padrão", dot: "bg-zinc-500", ring: "border-white/10 text-zinc-300" },
+  { key: "primary", label: "Azul", dot: "bg-indigo-400", ring: "border-indigo-500/50 text-indigo-300" },
+  { key: "success", label: "Verde", dot: "bg-emerald-400", ring: "border-emerald-500/50 text-emerald-300" },
+  { key: "danger", label: "Vermelho", dot: "bg-red-400", ring: "border-red-500/50 text-red-300" },
+];
+
+const AVISO_GLOBAL =
+  "Vale para TODAS as modelos, não só para esta — é uma configuração do painel.";
+
+function PrecoDinamicoRow() {
+  const [preco, setPreco] = useState<DynamicPrice>({ enabled: false, cents: 9, direction: "random" });
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    apiGet<{ dynamicPrice: DynamicPrice }>("/api/settings/bot")
+      .then((d) => setPreco(d.dynamicPrice))
+      .catch(() => {});
+  }, []);
+
+  async function salvar() {
+    setBusy(true);
+    try {
+      const d = await apiSend<{ dynamicPrice: DynamicPrice }>("/api/settings/bot", "PATCH", {
+        dynamicPrice: preco,
+      });
+      setPreco(d.dynamicPrice);
+      showToast("Preço dinâmico salvo.", "success");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const direcao =
+    preco.direction === "up" ? "para cima" : preco.direction === "down" ? "para baixo" : "aleatório";
+
+  return (
+    <SectionRow
+      icon={<IconPayments size={16} />}
+      title="Preço dinâmico"
+      summary={
+        preco.enabled
+          ? `Ligado · até ${preco.cents} centavo(s) · ${direcao}`
+          : "Desligado — todo mundo paga o mesmo valor"
+      }
+      status={preco.enabled ? { label: "ligado", tone: "ok" } : undefined}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <p className="min-w-0 text-xs leading-relaxed text-zinc-400">
+          Soma ou subtrai alguns centavos do valor, de forma <b>única por cliente</b>. A conta vem do
+          ID do Telegram, então o mesmo lead recebe sempre o mesmo valor — é isso que permite casar
+          um PIX recebido com quem devia pagá-lo, mesmo quando o comprovante não traz mais nada.
+          Dificulta o estorno indevido e o &quot;já paguei&quot; de quem não pagou.
+        </p>
+        <Switch
+          checked={preco.enabled}
+          onChange={(v) => setPreco({ ...preco, enabled: v })}
+          ariaLabel="Preço dinâmico"
+        />
+      </div>
+
+      {preco.enabled && (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="eyebrow block">Variação em centavos</label>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              className="input mt-1.5"
+              value={preco.cents}
+              onChange={(e) => setPreco({ ...preco, cents: Number(e.target.value) })}
+            />
+            <p className="mt-1 text-[11px] text-zinc-500">De 1 até 100 centavos.</p>
+          </div>
+          <div>
+            <label className="eyebrow block">Direção da variação</label>
+            <select
+              className="input mt-1.5"
+              value={preco.direction}
+              onChange={(e) =>
+                setPreco({ ...preco, direction: e.target.value as DynamicPrice["direction"] })
+              }
+            >
+              <option value="random">Aleatório (fixo por lead)</option>
+              <option value="up">Sempre para cima</option>
+              <option value="down">Sempre para baixo</option>
+            </select>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              No aleatório o sentido também vem do ID, então não muda entre as tentativas do mesmo
+              cliente.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-3 text-[11px] text-amber-400/80">{AVISO_GLOBAL}</p>
+      <button onClick={salvar} disabled={busy} className="btn-primary mt-3">
+        {busy ? "Salvando..." : "Salvar preço dinâmico"}
+      </button>
+    </SectionRow>
+  );
+}
+
+function CoresBotoesRow({ onSaved }: { onSaved: () => void }) {
+  const [estilos, setEstilos] = useState<Record<string, string>>({});
+  const [roles, setRoles] = useState<ButtonRoleInfo[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    apiGet<{ buttonStyles: Record<string, string>; roles: ButtonRoleInfo[] }>("/api/settings/bot")
+      .then((d) => {
+        setEstilos(d.buttonStyles || {});
+        setRoles(d.roles || []);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function salvar() {
+    setBusy(true);
+    try {
+      const d = await apiSend<{ buttonStyles: Record<string, string> }>("/api/settings/bot", "PATCH", {
+        buttonStyles: estilos,
+      });
+      setEstilos(d.buttonStyles || {});
+      showToast("Cores salvas.", "success");
+      onSaved();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const comCor = roles.filter((r) => estilos[r.key]).length;
+
+  return (
+    <SectionRow
+      icon={<IconSparkle size={16} />}
+      title="Cores dos botões"
+      summary={
+        comCor > 0
+          ? `${comCor} de ${roles.length} papéis com cor própria`
+          : "Todos na cor padrão do Telegram"
+      }
+      status={comCor > 0 ? { label: `${comCor} com cor`, tone: "ok" } : undefined}
+    >
+      <p className="text-xs leading-relaxed text-zinc-400">
+        Cor dos botões que o bot mostra dentro do Telegram. Cada papel do fluxo tem a sua, porque a
+        intenção muda: a lista de planos pede destaque, copiar a chave é auxiliar, e o acesso ao VIP
+        depois do pagamento merece o verde. Um plano com cor própria ignora a cor da lista.
+      </p>
+      <p className="mt-2 rounded-lg border border-indigo-500/25 bg-indigo-500/[0.07] p-2.5 text-[11px] leading-relaxed text-zinc-300">
+        A cor chegou na <b>Bot API 9.4</b> (fev/2026) e aparece nos apps atualizados. Em apps antigos
+        o botão sai na cor padrão — o texto e a ação continuam funcionando, então não há risco em
+        ligar.
+      </p>
+
+      <div className="mt-4 space-y-3">
+        {roles.map((r) => (
+          <div key={r.key} className="panel p-3">
+            <p className="text-sm font-semibold text-white">{r.label}</p>
+            <p className="mt-0.5 text-[11px] text-zinc-500">{r.hint}</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {CORES_BOTAO.map((c) => {
+                const ativo = (estilos[r.key] || "") === c.key;
+                return (
+                  <button
+                    key={c.key}
+                    type="button"
+                    onClick={() => setEstilos({ ...estilos, [r.key]: c.key })}
+                    className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors ${
+                      ativo ? `${c.ring} bg-white/5` : "border-white/10 text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    <span className={`h-2 w-2 rounded-full ${c.dot}`} />
+                    {c.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        {roles.length === 0 && <p className="py-6 text-center text-sm text-zinc-500">Carregando…</p>}
+      </div>
+
+      <p className="mt-3 text-[11px] text-amber-400/80">{AVISO_GLOBAL}</p>
+      <button onClick={salvar} disabled={busy} className="btn-primary mt-3">
+        {busy ? "Salvando..." : "Salvar cores"}
+      </button>
+    </SectionRow>
+  );
 }
 
 // ---------------------------------------------------------------------------

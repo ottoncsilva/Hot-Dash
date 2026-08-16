@@ -93,7 +93,21 @@ type Plan = {
   highlight?: string;
   deliverableButtons?: { text: string; url: string }[];
   sales?: { count: number; cents: number };
+  bump?: Bump;
 };
+type Bump = {
+  enabled: boolean;
+  name: string;
+  priceCents: number;
+  text: string;
+  acceptText?: string;
+  declineText?: string;
+  mediaIds?: string[];
+  audioUrl?: string;
+  deliverable?: string;
+  deliverableButtons?: { text: string; url: string }[];
+};
+const BUMP_VAZIO: Bump = { enabled: false, name: "", priceCents: 0, text: "" };
 type PeriodStats = { paidCents: number; paidCount: number; pendingCents: number; pendingCount: number; avgTicketCents: number };
 type Metrics = { today: PeriodStats; month: PeriodStats; total: PeriodStats };
 type CustomButton = { id: string; text: string; url: string; sortOrder: number };
@@ -1109,6 +1123,7 @@ type PlanRow = {
   highlight: string;
   deliverableButtons: { text: string; url: string }[];
   sales?: { count: number; cents: number };
+  bump: Bump;
 };
 
 function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Plan[]; onSaved: () => void }) {
@@ -1124,6 +1139,7 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
       highlight: p.highlight || "",
       deliverableButtons: p.deliverableButtons || [],
       sales: p.sales,
+      bump: p.bump || { ...BUMP_VAZIO },
     })),
   );
   const [aberto, setAberto] = useState<number | null>(null);
@@ -1160,6 +1176,12 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
           active: r.active,
           highlight: r.highlight || undefined,
           deliverableButtons: r.deliverableButtons.filter((b) => b.text.trim() && b.url.trim()),
+          bump: {
+            ...r.bump,
+            deliverableButtons: (r.bump.deliverableButtons || []).filter(
+              (b) => b.text.trim() && b.url.trim(),
+            ),
+          },
         }))
         .filter((r) => r.name && r.priceCents > 0);
       const res = await apiSend<{ ok: boolean; plans: Plan[] }>("/api/telegram", "POST", {
@@ -1181,6 +1203,7 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
             highlight: p.highlight || "",
             deliverableButtons: p.deliverableButtons || [],
             sales: p.sales,
+            bump: p.bump || { ...BUMP_VAZIO },
           })),
         );
       }
@@ -1235,6 +1258,11 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
                   <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-white">
                     {r.highlight && <span className={`h-2 w-2 shrink-0 rounded-full ${cor.dot}`} />}
                     {r.name || <span className="text-zinc-500">(sem nome)</span>}
+                    {r.bump.enabled && (
+                      <span className="shrink-0 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300">
+                        + bump
+                      </span>
+                    )}
                   </p>
                   <p className="mt-0.5 truncate text-xs text-zinc-500">
                     <span className="text-emerald-400">
@@ -1435,6 +1463,14 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
                       </button>
                     )}
                   </div>
+
+                  <BumpEditor
+                    profileId={profileId}
+                    plano={r.name || "este plano"}
+                    precoPlano={Math.round(parseFloat(r.price.replace(",", ".")) * 100) || 0}
+                    bump={r.bump}
+                    setBump={(b) => update(i, { bump: b })}
+                  />
                 </div>
               )}
             </div>
@@ -1461,6 +1497,7 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
                 active: true,
                 highlight: "",
                 deliverableButtons: [],
+                bump: { ...BUMP_VAZIO },
               },
             ]);
             setAberto(rows.length);
@@ -1968,6 +2005,209 @@ function WelcomeSequence({
       >
         <IconPlus size={13} /> Mensagem
       </button>
+    </div>
+  );
+}
+
+/**
+ * ORDER BUMP de um plano — a oferta extra mostrada entre escolher o plano e
+ * gerar o PIX.
+ *
+ * O aceite SOMA o valor à mesma cobrança, em vez de criar uma segunda: dois
+ * PIX deixariam um em aberto se o cliente desistisse no meio, e o painel
+ * mostraria uma venda pendente que nunca fecharia.
+ */
+function BumpEditor({
+  profileId,
+  plano,
+  precoPlano,
+  bump,
+  setBump,
+}: {
+  profileId: string;
+  plano: string;
+  precoPlano: number;
+  bump: Bump;
+  setBump: (b: Bump) => void;
+}) {
+  const areaRef = useRef<HTMLTextAreaElement>(null);
+  const set = (patch: Partial<Bump>) => setBump({ ...bump, ...patch });
+  const total = precoPlano + bump.priceCents;
+
+  return (
+    <div className="mt-4 border-t border-white/10 pt-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-white">Order Bump</p>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+            Oferta extra mostrada depois de escolher este plano e antes de gerar o PIX. O aceite
+            soma ao <b>mesmo</b> pagamento.
+          </p>
+        </div>
+        <Switch
+          checked={bump.enabled}
+          onChange={(v) => set({ enabled: v })}
+          ariaLabel="Ativar Order Bump"
+        />
+      </div>
+
+      {bump.enabled && (
+        <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/[0.04] p-3">
+          <div className="grid gap-2 sm:grid-cols-[1fr_120px]">
+            <input
+              className="input"
+              placeholder="Nome do Order Bump"
+              value={bump.name}
+              onChange={(e) => set({ name: e.target.value })}
+            />
+            <input
+              className="input"
+              placeholder="Valor"
+              inputMode="decimal"
+              value={bump.priceCents ? (bump.priceCents / 100).toFixed(2) : ""}
+              onChange={(e) =>
+                set({ priceCents: Math.round(parseFloat(e.target.value.replace(",", ".")) * 100) || 0 })
+              }
+            />
+          </div>
+          {bump.priceCents > 0 && precoPlano > 0 && (
+            <p className="mt-1 text-[11px] text-zinc-500">
+              O cliente pagaria <b className="text-emerald-400">{money(total)}</b> ao aceitar
+              ({money(precoPlano)} do plano + {money(bump.priceCents)} do bump).
+            </p>
+          )}
+
+          <label className="eyebrow mt-3 block">Texto da oferta</label>
+          <textarea
+            ref={areaRef}
+            className="input mt-1.5 min-h-[80px]"
+            placeholder="Explique o que é a oferta e por que vale a pena…"
+            value={bump.text}
+            onChange={(e) => set({ text: e.target.value })}
+          />
+          <VarChips
+            vars={[
+              ["{selected_plan_name}", "nome do plano escolhido"],
+              ["{order_bump_name}", "nome desta oferta"],
+              ["{order_bump_value}", "valor desta oferta"],
+              ["{total_value}", "plano + oferta, já somados"],
+            ]}
+            targetRef={areaRef}
+            onChange={(v) => set({ text: v })}
+          />
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <div>
+              <label className="eyebrow block">Texto do botão aceitar</label>
+              <input
+                className="input mt-1.5"
+                placeholder="Aceitar"
+                value={bump.acceptText || ""}
+                onChange={(e) => set({ acceptText: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="eyebrow block">Texto do botão recusar</label>
+              <input
+                className="input mt-1.5"
+                placeholder="Recusar"
+                value={bump.declineText || ""}
+                onChange={(e) => set({ declineText: e.target.value })}
+              />
+            </div>
+          </div>
+          <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+            Aparecem lado a lado, sem mostrar o preço. O aceitar ganha ✅ e o recusar ❌
+            automaticamente — se você já puser um emoji no texto, ele é mantido como está. A cor sai
+            de <b>Configurações → Bot de vendas</b>.
+          </p>
+
+          <label className="eyebrow mt-3 block">Mídia da oferta (opcional)</label>
+          <div className="mt-1.5">
+            <MediaPicker
+              profileId={profileId}
+              selected={bump.mediaIds || []}
+              onChange={(ids) => set({ mediaIds: ids })}
+              max={10}
+            />
+          </div>
+
+          <label className="eyebrow mt-3 block">Áudio da oferta (URL pública .ogg)</label>
+          <input
+            className="input mt-1.5 font-mono text-xs"
+            placeholder="https://… .ogg"
+            value={bump.audioUrl || ""}
+            onChange={(e) => set({ audioUrl: e.target.value })}
+          />
+
+          <label className="eyebrow mt-3 block">Entregável da oferta</label>
+          <textarea
+            className="input mt-1.5 min-h-[70px]"
+            placeholder="O que o cliente recebe ao pagar com a oferta aceita."
+            value={bump.deliverable || ""}
+            onChange={(e) => set({ deliverable: e.target.value })}
+          />
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Enviado <b>depois</b> do acesso principal — o cliente veio pelo plano, o extra não pode
+            chegar antes.
+          </p>
+
+          <label className="eyebrow mt-3 block">Botões do entregável da oferta</label>
+          <div className="mt-1.5 space-y-1.5">
+            {(bump.deliverableButtons || []).map((b, bi) => (
+              <div key={bi} className="grid gap-1.5 sm:grid-cols-[1fr_1fr_auto]">
+                <input
+                  className="input text-xs"
+                  placeholder="Texto do botão"
+                  value={b.text}
+                  onChange={(e) =>
+                    set({
+                      deliverableButtons: (bump.deliverableButtons || []).map((x, xi) =>
+                        xi === bi ? { ...x, text: e.target.value } : x,
+                      ),
+                    })
+                  }
+                />
+                <input
+                  className="input font-mono text-xs"
+                  placeholder="https://"
+                  value={b.url}
+                  onChange={(e) =>
+                    set({
+                      deliverableButtons: (bump.deliverableButtons || []).map((x, xi) =>
+                        xi === bi ? { ...x, url: e.target.value } : x,
+                      ),
+                    })
+                  }
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    set({
+                      deliverableButtons: (bump.deliverableButtons || []).filter((_, xi) => xi !== bi),
+                    })
+                  }
+                  className="btn-ghost px-2.5"
+                  aria-label="Remover botão"
+                >
+                  <IconClose size={13} />
+                </button>
+              </div>
+            ))}
+            {(bump.deliverableButtons || []).length < 6 && (
+              <button
+                type="button"
+                onClick={() =>
+                  set({ deliverableButtons: [...(bump.deliverableButtons || []), { text: "", url: "" }] })
+                }
+                className="btn-ghost px-2.5 py-1 text-xs"
+              >
+                <IconPlus size={13} /> Botão
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, enqueueApproval, PIX_DEFAULTS } from "@/lib/telegramDb";
+import type { TelegramPlan } from "@/lib/telegramDb";
+import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, enqueueApproval, BUMP_DEFAULTS, PIX_DEFAULTS } from "@/lib/telegramDb";
 import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser } from "@/lib/telegramUsers";
 import { recordGroupMembershipChange } from "@/lib/telegramMonitor";
 import { getMailingOffer } from "@/lib/telegramMailing";
@@ -8,7 +9,7 @@ import QRCode from "qrcode";
 import { listMedia, getMediaRow } from "@/lib/media";
 import { activeProvider } from "@/lib/payments";
 import { recordTransaction, overview } from "@/lib/transactions";
-import { ensureSyncpayWebhookShortToken, applyDynamicPrice, buttonStyleProps } from "@/lib/settings";
+import { ensureSyncpayWebhookShortToken, applyDynamicPrice, buttonStyleProps, planButtonStyleProps } from "@/lib/settings";
 import { publicOrigin } from "@/lib/publicOrigin";
 import { randomUUID } from "node:crypto";
 
@@ -182,7 +183,9 @@ export async function POST(
               {
                 text: `${plan.name} - ${priceStr}`,
                 callback_data: `buy_plan_${plan.id}`,
-                ...buttonStyleProps("plans"),
+                // A cor do PLANO vence a global — é o que destaca a oferta
+                // principal no meio das outras.
+                ...planButtonStyleProps(plan.highlight),
               },
             ]);
           });
@@ -354,15 +357,32 @@ export async function POST(
       // ajustados só para aquele disparo (o plano original fica intacto).
       const isOfferBuy = typeof data === "string" && data.startsWith("buy_offer_");
 
-      if (isPlanBuy || isOfferBuy) {
+      // ---- Order Bump: a oferta que aparece entre escolher o plano e gerar
+      // o PIX. `bump_yes_` / `bump_no_` carregam o mesmo par (plano, desconto)
+      // do clique original, para o fluxo seguir de onde parou.
+      const bumpAcao = typeof data === "string" && data.match(/^bump_(yes|no)_(.+)$/);
+      let bumpAceito: TelegramPlan["bump"] | null = null;
+      let dataEfetivo = data;
+      if (bumpAcao) {
+        const [, resposta, resto] = bumpAcao;
+        dataEfetivo = `buy_plan_${resto}`;
+        if (resposta === "yes") {
+          const p = getPlan(resto.split("_")[0]);
+          if (p?.bump?.enabled && p.bump.priceCents > 0) bumpAceito = p.bump;
+        }
+      }
+
+      const isPlanBuyEfetivo = typeof dataEfetivo === "string" && dataEfetivo.startsWith("buy_plan_");
+
+      if (isPlanBuyEfetivo || isOfferBuy) {
         let planId = "";
         let offerId = "";
         let itemName = "";
         let basePriceCents = 0;
         let discountPercent = 0;
 
-        if (isPlanBuy) {
-          const parts = data.replace("buy_plan_", "").split("_");
+        if (isPlanBuyEfetivo) {
+          const parts = dataEfetivo.replace("buy_plan_", "").split("_");
           planId = parts[0];
           discountPercent = parseInt(parts[1]) || 0;
           const plan = getPlan(planId);
@@ -392,6 +412,66 @@ export async function POST(
           basePriceCents = offer.priceCents;
         }
 
+        // Primeiro clique num plano COM bump: oferece, e para por aqui. O PIX
+        // só é gerado depois da resposta — gerar antes criaria uma cobrança
+        // que precisaria ser refeita se ele aceitasse.
+        if (isPlanBuy && !bumpAcao && planId) {
+          const plano = getPlan(planId);
+          const b = plano?.bump;
+          if (b?.enabled && b.priceCents > 0 && b.text.trim()) {
+            const total = basePriceCents + b.priceCents;
+            const money = (c: number) =>
+              (c / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+            const texto = b.text
+              .replace(/{selected_plan_name}/gi, itemName)
+              .replace(/{order_bump_name}/gi, b.name)
+              .replace(/{order_bump_value}/gi, money(b.priceCents))
+              .replace(/{total_value}/gi, money(total));
+
+            // O sufixo do callback repete plano+desconto do clique original.
+            const sufixo = `${planId}${discountPercent > 0 ? `_${discountPercent}` : ""}`;
+            // Emoji automático, a menos que o operador já tenha posto um.
+            const comEmoji = (t: string, e: string) => (/\p{Extended_Pictographic}/u.test(t) ? t : `${e} ${t}`);
+            const markup = {
+              inline_keyboard: [
+                [
+                  {
+                    text: comEmoji(b.acceptText?.trim() || BUMP_DEFAULTS.accept, "✅"),
+                    callback_data: `bump_yes_${sufixo}`,
+                    ...buttonStyleProps("bumpAccept"),
+                  },
+                  {
+                    text: comEmoji(b.declineText?.trim() || BUMP_DEFAULTS.decline, "❌"),
+                    callback_data: `bump_no_${sufixo}`,
+                    ...buttonStyleProps("bumpDecline"),
+                  },
+                ],
+              ],
+            };
+
+            const midias = (b.mediaIds || [])
+              .map((id) => getMediaRow(id))
+              .filter((r): r is NonNullable<typeof r> => Boolean(r))
+              .map((r) => r.path);
+
+            if (midias.length > 1) {
+              await sendTelegramMediaGroup(bot.botToken, String(message.chat.id), midias);
+              await sendTelegramMessage(bot.botToken, String(message.chat.id), texto, { reply_markup: markup });
+            } else if (midias.length === 1) {
+              await sendTelegramMedia(bot.botToken, String(message.chat.id), midias[0], texto, {
+                reply_markup: markup,
+              });
+            } else {
+              await sendTelegramMessage(bot.botToken, String(message.chat.id), texto, { reply_markup: markup });
+            }
+
+            if (b.audioUrl?.trim()) {
+              await sendTelegramVoiceUrl(bot.botToken, String(message.chat.id), b.audioUrl.trim());
+            }
+            return NextResponse.json({ ok: true });
+          }
+        }
+
         const provider = activeProvider();
         if (!provider) {
           await sendTelegramMessage(
@@ -417,6 +497,9 @@ export async function POST(
         // então o mesmo lead sempre paga o mesmo valor — é isso que permite
         // casar um PIX recebido com quem devia pagá-lo. Aplicado DEPOIS do
         // desconto, senão o desconto percentual apagaria a variação.
+        // O bump entra ANTES da variação de centavos: a variação é o último
+        // ajuste, para o valor final continuar único por lead.
+        if (bumpAceito) amountCents += bumpAceito.priceCents;
         amountCents = applyDynamicPrice(amountCents, from.id);
         // Usa o token gerenciado (o mesmo mostrado na UI e aceito pelo webhook),
         // não o SESSION_SECRET — assim a confirmação autentica mesmo sem a env.
@@ -489,6 +572,7 @@ export async function POST(
           // Guardado para os botões "Mostrar QR Code" e "Copiar Chave Pix"
           // funcionarem depois, sem precisar gerar uma cobrança nova.
           pixCode: charge.pixCode || undefined,
+          bumpCents: bumpAceito?.priceCents || 0,
         });
 
         // Envia o PIX: QR Code (imagem) + código copia-e-cola na legenda. Se a

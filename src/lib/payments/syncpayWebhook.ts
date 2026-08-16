@@ -297,6 +297,26 @@ export async function processarWebhookSyncPay(
             // `id_registro` continua no banco de propósito: reativar é devolver
             // o campo na tela e este bloco. O alerta de venda no celular (push
             // do PWA, logo abaixo) não depende disso e continua valendo.
+            // ENTREGA DO ORDER BUMP. Vai por último, depois do acesso
+            // principal: o cliente comprou os dois, mas veio pelo plano — o
+            // extra não pode chegar antes do que ele foi buscar.
+            if ((sub.bumpCents || 0) > 0 && basePlan?.bump?.deliverable?.trim()) {
+              const b = basePlan.bump;
+              await sendTelegramMessage(
+                bot.botToken,
+                String(sub.telegramUserId),
+                b.deliverable!.trim(),
+                b.deliverableButtons?.length
+                  ? {
+                      reply_markup: {
+                        inline_keyboard: b.deliverableButtons.map((x) => [
+                          { text: x.text, url: x.url },
+                        ]),
+                      },
+                    }
+                  : {},
+              ).catch(() => {});
+            }
           } catch (tErr) {
             console.error("Erro ao processar pagamento no Telegram:", tErr);
           }

@@ -136,7 +136,32 @@ export type TelegramPlan = {
   highlight?: string;
   /** Botões enviados junto do entregável. */
   deliverableButtons?: { text: string; url: string }[];
+  /** Oferta adicional mostrada antes de gerar o PIX deste plano. */
+  bump?: OrderBump;
 };
+
+/**
+ * ORDER BUMP — a oferta que aparece depois de escolher o plano.
+ *
+ * Aceitar SOMA o valor à mesma cobrança, em vez de criar uma segunda: dois PIX
+ * deixariam um deles em aberto se o cliente desistisse no meio, e o painel
+ * mostraria uma venda pendente que nunca fecharia.
+ */
+export type OrderBump = {
+  enabled: boolean;
+  name: string;
+  priceCents: number;
+  /** Aceita {selected_plan_name}, {order_bump_name}, {order_bump_value}, {total_value}. */
+  text: string;
+  acceptText?: string;
+  declineText?: string;
+  mediaIds?: string[];
+  audioUrl?: string;
+  deliverable?: string;
+  deliverableButtons?: { text: string; url: string }[];
+};
+
+export const BUMP_DEFAULTS = { accept: "Aceitar", decline: "Recusar" } as const;
 
 /**
  * Períodos com nome, no lugar de digitar dias na mão.
@@ -178,6 +203,8 @@ export type TelegramSubscription = {
   createdAt: number;
   /** Copia-e-cola do PIX, para os botões de QR/copiar funcionarem depois. */
   pixCode?: string;
+  /** Quanto do valor pago foi do Order Bump. 0 = o cliente recusou. */
+  bumpCents?: number;
 };
 
 /** Linha do banco → config do bot. Um lugar só: as duas consultas abaixo
@@ -321,25 +348,41 @@ export function deleteBotConfig(profileId: string): void {
   getDb().prepare("DELETE FROM telegram_bots WHERE profile_id = ?").run(profileId);
 }
 
-function toPlan(r: any): TelegramPlan {
-  let botoes: { text: string; url: string }[] | undefined;
-  if (typeof r.deliverable_buttons === "string" && r.deliverable_buttons.trim()) {
-    try {
-      const v = JSON.parse(r.deliverable_buttons);
-      if (Array.isArray(v)) {
-        botoes = v
-          .filter((b: any) => b && typeof b.text === "string" && typeof b.url === "string")
-          .map((b: any) => ({ text: b.text, url: b.url }));
-      }
-    } catch {
-      /* JSON corrompido não pode derrubar o carregamento do bot inteiro */
-    }
+/** JSON de botões → lista. Corrompido vira `undefined` em vez de derrubar o
+ *  carregamento do bot inteiro. */
+function parseButtons(raw: unknown): { text: string; url: string }[] | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  try {
+    const v = JSON.parse(raw);
+    if (!Array.isArray(v)) return undefined;
+    return v
+      .filter((b: any) => b && typeof b.text === "string" && typeof b.url === "string")
+      .map((b: any) => ({ text: b.text, url: b.url }));
+  } catch {
+    return undefined;
   }
+}
+
+function toPlan(r: any): TelegramPlan {
+  const botoes = parseButtons(r.deliverable_buttons);
+  const bumpBotoes = parseButtons(r.bump_deliverable_buttons);
   return {
     id: r.id,
     botId: r.bot_id,
     name: r.name,
     priceCents: r.price_cents,
+    bump: {
+      enabled: !!r.bump_enabled,
+      name: r.bump_name || "",
+      priceCents: r.bump_price_cents || 0,
+      text: r.bump_text || "",
+      acceptText: r.bump_accept_text || undefined,
+      declineText: r.bump_decline_text || undefined,
+      mediaIds: parseIds(r.bump_media_ids),
+      audioUrl: r.bump_audio_url || undefined,
+      deliverable: r.bump_deliverable || undefined,
+      deliverableButtons: bumpBotoes?.length ? bumpBotoes : undefined,
+    },
     durationDays: r.duration_days,
     kind: r.kind === "package" ? "package" : "subscription",
     deliverable: r.deliverable || undefined,
@@ -372,8 +415,8 @@ export function getPlan(id: string): TelegramPlan | null {
 export function savePlan(plan: TelegramPlan): void {
   const now = Date.now();
   getDb().prepare(
-    `INSERT INTO telegram_plans (id, bot_id, name, price_cents, duration_days, kind, deliverable, sort_order, active, highlight, deliverable_buttons, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_plans (id, bot_id, name, price_cents, duration_days, kind, deliverable, sort_order, active, highlight, deliverable_buttons, bump_enabled, bump_name, bump_price_cents, bump_text, bump_accept_text, bump_decline_text, bump_media_ids, bump_audio_url, bump_deliverable, bump_deliverable_buttons, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        price_cents = excluded.price_cents,
@@ -383,7 +426,17 @@ export function savePlan(plan: TelegramPlan): void {
        sort_order = excluded.sort_order,
        active = excluded.active,
        highlight = excluded.highlight,
-       deliverable_buttons = excluded.deliverable_buttons`
+       deliverable_buttons = excluded.deliverable_buttons,
+       bump_enabled = excluded.bump_enabled,
+       bump_name = excluded.bump_name,
+       bump_price_cents = excluded.bump_price_cents,
+       bump_text = excluded.bump_text,
+       bump_accept_text = excluded.bump_accept_text,
+       bump_decline_text = excluded.bump_decline_text,
+       bump_media_ids = excluded.bump_media_ids,
+       bump_audio_url = excluded.bump_audio_url,
+       bump_deliverable = excluded.bump_deliverable,
+       bump_deliverable_buttons = excluded.bump_deliverable_buttons`
   ).run(
     plan.id,
     plan.botId,
@@ -396,6 +449,18 @@ export function savePlan(plan: TelegramPlan): void {
     plan.active === false ? 0 : 1,
     plan.highlight || null,
     plan.deliverableButtons?.length ? JSON.stringify(plan.deliverableButtons.slice(0, 6)) : null,
+    plan.bump?.enabled ? 1 : 0,
+    plan.bump?.name?.trim() || null,
+    Math.max(0, Math.round(plan.bump?.priceCents || 0)),
+    plan.bump?.text?.trim() || null,
+    plan.bump?.acceptText?.trim() || null,
+    plan.bump?.declineText?.trim() || null,
+    plan.bump?.mediaIds?.length ? JSON.stringify(plan.bump.mediaIds.slice(0, 10)) : null,
+    plan.bump?.audioUrl?.trim() || null,
+    plan.bump?.deliverable?.trim() || null,
+    plan.bump?.deliverableButtons?.length
+      ? JSON.stringify(plan.bump.deliverableButtons.slice(0, 6))
+      : null,
     now,
   );
 }
@@ -443,6 +508,7 @@ function toSubscription(r: any): TelegramSubscription {
     upsellStepIndex: r.upsell_step_index,
     createdAt: r.created_at,
     pixCode: r.pix_code || undefined,
+    bumpCents: r.bump_cents || 0,
   };
 }
 
@@ -489,8 +555,8 @@ export function findSubscriptionByTransaction(transactionId: string): TelegramSu
 
 export function saveSubscription(sub: TelegramSubscription): void {
   getDb().prepare(
-    `INSERT INTO telegram_subscriptions (id, bot_id, transaction_id, plan_id, offer_id, telegram_user_id, telegram_username, invite_link, status, expires_at, last_upsell_at, upsell_step_index, created_at, pix_code)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_subscriptions (id, bot_id, transaction_id, plan_id, offer_id, telegram_user_id, telegram_username, invite_link, status, expires_at, last_upsell_at, upsell_step_index, created_at, pix_code, bump_cents)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        status = excluded.status,
        expires_at = excluded.expires_at,
@@ -500,7 +566,8 @@ export function saveSubscription(sub: TelegramSubscription): void {
        upsell_step_index = excluded.upsell_step_index,
        plan_id = excluded.plan_id,
        offer_id = excluded.offer_id,
-       pix_code = excluded.pix_code`
+       pix_code = excluded.pix_code,
+       bump_cents = excluded.bump_cents`
   ).run(
     sub.id,
     sub.botId,
@@ -516,6 +583,7 @@ export function saveSubscription(sub: TelegramSubscription): void {
     sub.upsellStepIndex,
     sub.createdAt,
     sub.pixCode || null,
+    Math.max(0, Math.round(sub.bumpCents || 0)),
   );
 }
 

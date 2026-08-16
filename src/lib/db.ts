@@ -666,10 +666,28 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "telegram_bots", "pix_social_proof_text", "TEXT");
   // Áudio (URL pública OGG/OPUS) enviado junto do PIX, como mensagem de voz.
   ensureColumn(d, "telegram_bots", "pix_audio_url", "TEXT");
+  // Textos dos tres botoes que acompanham o PIX e a resposta do "Verificar
+  // Status" quando a confirmacao ainda nao chegou. NULL = usa o padrao.
+  ensureColumn(d, "telegram_bots", "pix_btn_check", "TEXT");
+  ensureColumn(d, "telegram_bots", "pix_btn_qr", "TEXT");
+  ensureColumn(d, "telegram_bots", "pix_btn_copy", "TEXT");
+  ensureColumn(d, "telegram_bots", "pix_not_paid_message", "TEXT");
   // Planos: tipo (assinatura recorrente vs pacote/compra única) e o entregável
   // (texto/link enviado ao pagar — o "MEU WHATSAPP" dos pacotes/bônus).
   ensureColumn(d, "telegram_plans", "kind", "TEXT NOT NULL DEFAULT 'subscription'");
   ensureColumn(d, "telegram_plans", "deliverable", "TEXT");
+  // Ordem em que os planos aparecem no /start. Sem isto a lista saía na ordem
+  // que o SQLite devolvesse, e não dava para pôr a oferta principal em cima.
+  ensureColumn(d, "telegram_plans", "sort_order", "INTEGER NOT NULL DEFAULT 0");
+  // Plano DESLIGADO some dos botões do bot mas continua no painel, com o
+  // histórico de vendas — antes, tirar uma oferta do ar exigia apagá-la.
+  ensureColumn(d, "telegram_plans", "active", "INTEGER NOT NULL DEFAULT 1");
+  // Cor de destaque do botão na lista: "", green, blue, red. Serve para a
+  // oferta principal saltar aos olhos no meio das outras.
+  ensureColumn(d, "telegram_plans", "highlight", "TEXT");
+  // Botões enviados JUNTO com o entregável (JSON [{text,url}]) — é como o
+  // "MEU WHATSAPP" chega clicável em vez de um link solto no texto.
+  ensureColumn(d, "telegram_plans", "deliverable_buttons", "TEXT");
   // Qual plano/pacote originou a assinatura pendente (resolve duração/entregável
   // na confirmação do pagamento, corrigindo o antigo default de 30 dias).
   ensureColumn(d, "telegram_subscriptions", "plan_id", "TEXT");
@@ -716,6 +734,11 @@ function migrate(d: Database.Database) {
   // para aquele disparo). Quando presente, manda na confirmação do pagamento
   // no lugar do plano original.
   ensureColumn(d, "telegram_subscriptions", "offer_id", "TEXT");
+  // Código copia-e-cola do PIX desta cobrança. Guardado porque os botões
+  // "Mostrar QR Code" e "Copiar Chave Pix" precisam dele DEPOIS que a mensagem
+  // já foi enviada — sem isso o cliente teria de pedir um PIX novo só para ver
+  // o QR, gerando cobrança duplicada.
+  ensureColumn(d, "telegram_subscriptions", "pix_code", "TEXT");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);

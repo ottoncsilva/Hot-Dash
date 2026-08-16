@@ -38,6 +38,12 @@ export type TelegramBotConfig = {
   pixSocialProofText?: string;
   /** URL pública de um OGG/OPUS enviado como mensagem de voz junto do PIX. */
   pixAudioUrl?: string;
+  /** Textos dos botões do PIX. Vazio = padrão. */
+  pixBtnCheck?: string;
+  pixBtnQr?: string;
+  pixBtnCopy?: string;
+  /** Resposta do "Verificar Status" quando ainda não consta como pago. */
+  pixNotPaidMessage?: string;
 };
 
 /** Textos padrão da tela de pagamento — os mesmos que antes viviam fixos no
@@ -55,11 +61,41 @@ export const PIX_DEFAULTS = {
    * simplesmente não é enviada.
    */
   socialProofText: "🔥 {vendas_hoje} pessoa(s) garantiram o acesso hoje.",
+  /**
+   * A tela do PIX. O `<code>` do copia-e-cola é o que faz o Telegram copiar o
+   * código inteiro com UM toque — por isso a instrução "toque na chave acima"
+   * só funciona com ele.
+   */
   caption:
-    `🔑 <b>PIX gerado!</b>\n\n` +
-    `📸 Escaneie o QR acima <b>ou</b> copie o código abaixo no seu app do banco:\n\n` +
+    `🌟 Você selecionou o seguinte plano:\n\n` +
+    `🎁 Plano: <b>{plano}</b>\n` +
+    `💰 Valor: <b>{valor}</b>\n\n` +
+    `💠 Pagamento via Pix – Copia e Cola (ou QR Code, dependendo do seu banco):\n\n` +
     `<code>{pix_code}</code>\n\n` +
-    `<i>A confirmação é imediata. Após pagar, você recebe o acesso automaticamente.</i>`,
+    `👆 Toque na chave PIX acima para copiá-la 💖\n\n` +
+    `‼️ Depois de pagar, é só clicar no botão abaixo pra confirmar seu pagamento e liberar seu acesso amor, vem logo tô te esperando 👇✨`,
+  /** Textos dos três botões que acompanham o PIX. */
+  btnCheck: "Verificar Status do Pagamento",
+  btnQr: "Mostrar QR Code",
+  btnCopy: "Copiar Chave Pix",
+  /** Resposta do "Verificar Status" quando a confirmação ainda não chegou. */
+  notPaidMessage:
+    "Ainda não identificamos seu pagamento. Se você já pagou, aguarde alguns instantes e tente novamente.",
+} as const;
+
+/**
+ * Mensagens de partida de um bot NOVO. Antes eram "Bem-vindo" e "Aprovado" —
+ * literalmente essas duas palavras, que ninguém deixaria no ar mas que também
+ * não avisavam que precisavam ser trocadas.
+ *
+ * A de aprovação já vem com {link_vip}: sem ele, o cliente paga e não recebe
+ * caminho nenhum para o grupo.
+ */
+export const MESSAGE_DEFAULTS = {
+  welcome:
+    "Oi meu amor 😈\n\nSeja bem-vindo! Aqui embaixo estão as opções pra você entrar no meu VIP e ver tudo o que eu não posso postar por aí 🔥\n\nEscolhe a sua e vem 👇",
+  success: "✅ Pagamento aprovado meu amor! Acesse o Grupo VIP aqui:\n\n🔗 {link_vip}",
+  successButton: "🔒 Acessar Conteúdo",
 } as const;
 
 /**
@@ -82,12 +118,44 @@ export type TelegramPlan = {
   botId: string;
   name: string;
   priceCents: number;
+  /** Dias de acesso. 0 = VITALÍCIO (nunca expira). */
   durationDays: number;
   /** "subscription" = dá acesso VIP por N dias; "package" = compra única. */
   kind: "subscription" | "package";
   /** Conteúdo/link entregue ao pagar (bônus da assinatura ou item do pacote). */
   deliverable?: string;
+  /** Posição na lista de botões do /start (menor primeiro). */
+  sortOrder: number;
+  /** Desligado some dos botões do bot, mas continua no painel com o histórico. */
+  active: boolean;
+  /** Cor de destaque na lista do painel: "" | green | blue | red. */
+  highlight?: string;
+  /** Botões enviados junto do entregável. */
+  deliverableButtons?: { text: string; url: string }[];
 };
+
+/**
+ * Períodos com nome, no lugar de digitar dias na mão.
+ *
+ * `days: 0` é o VITALÍCIO: a confirmação do pagamento trata 0 como "não
+ * expira", e a rotina de expiração o ignora — é o mesmo caminho que os pacotes
+ * de compra única já usavam.
+ */
+export const PLAN_PERIODS: { key: string; label: string; days: number }[] = [
+  { key: "weekly", label: "Semanal", days: 7 },
+  { key: "monthly", label: "Mensal", days: 30 },
+  { key: "quarterly", label: "Trimestral", days: 90 },
+  { key: "semiannual", label: "Semestral", days: 180 },
+  { key: "annual", label: "Anual", days: 365 },
+  { key: "lifetime", label: "Vitalício", days: 0 },
+];
+
+/** Nome do período a partir dos dias (para a lista do painel). */
+export function planPeriodLabel(days: number): string {
+  if (days <= 0) return "Vitalício";
+  const exato = PLAN_PERIODS.find((p) => p.days === days);
+  return exato ? exato.label : `${days} dias`;
+}
 
 export type TelegramSubscription = {
   id: string;
@@ -104,6 +172,8 @@ export type TelegramSubscription = {
   lastUpsellAt?: number;
   upsellStepIndex: number;
   createdAt: number;
+  /** Copia-e-cola do PIX, para os botões de QR/copiar funcionarem depois. */
+  pixCode?: string;
 };
 
 /** Linha do banco → config do bot. Um lugar só: as duas consultas abaixo
@@ -136,6 +206,10 @@ function toBotConfig(row: any): TelegramBotConfig {
     pixSocialProof: !!row.pix_social_proof,
     pixSocialProofText: row.pix_social_proof_text || undefined,
     pixAudioUrl: row.pix_audio_url || undefined,
+    pixBtnCheck: row.pix_btn_check || undefined,
+    pixBtnQr: row.pix_btn_qr || undefined,
+    pixBtnCopy: row.pix_btn_copy || undefined,
+    pixNotPaidMessage: row.pix_not_paid_message || undefined,
   };
 }
 
@@ -168,8 +242,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -193,7 +267,11 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        welcome_media_mode = excluded.welcome_media_mode,
        pix_social_proof = excluded.pix_social_proof,
        pix_social_proof_text = excluded.pix_social_proof_text,
-       pix_audio_url = excluded.pix_audio_url`
+       pix_audio_url = excluded.pix_audio_url,
+       pix_btn_check = excluded.pix_btn_check,
+       pix_btn_qr = excluded.pix_btn_qr,
+       pix_btn_copy = excluded.pix_btn_copy,
+       pix_not_paid_message = excluded.pix_not_paid_message`
   ).run(
     id,
     config.profileId,
@@ -220,6 +298,10 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.pixSocialProof ? 1 : 0,
     config.pixSocialProofText?.trim() || null,
     config.pixAudioUrl?.trim() || null,
+    config.pixBtnCheck?.trim() || null,
+    config.pixBtnQr?.trim() || null,
+    config.pixBtnCopy?.trim() || null,
+    config.pixNotPaidMessage?.trim() || null,
     now
   );
   return getBotConfig(id)!;
@@ -230,6 +312,19 @@ export function deleteBotConfig(profileId: string): void {
 }
 
 function toPlan(r: any): TelegramPlan {
+  let botoes: { text: string; url: string }[] | undefined;
+  if (typeof r.deliverable_buttons === "string" && r.deliverable_buttons.trim()) {
+    try {
+      const v = JSON.parse(r.deliverable_buttons);
+      if (Array.isArray(v)) {
+        botoes = v
+          .filter((b: any) => b && typeof b.text === "string" && typeof b.url === "string")
+          .map((b: any) => ({ text: b.text, url: b.url }));
+      }
+    } catch {
+      /* JSON corrompido não pode derrubar o carregamento do bot inteiro */
+    }
+  }
   return {
     id: r.id,
     botId: r.bot_id,
@@ -238,12 +333,25 @@ function toPlan(r: any): TelegramPlan {
     durationDays: r.duration_days,
     kind: r.kind === "package" ? "package" : "subscription",
     deliverable: r.deliverable || undefined,
+    sortOrder: r.sort_order ?? 0,
+    active: r.active === undefined || r.active === null ? true : !!r.active,
+    highlight: r.highlight || undefined,
+    deliverableButtons: botoes?.length ? botoes : undefined,
   };
 }
 
+/** Todos os planos do bot, na ordem escolhida — inclui os desligados, porque o
+ *  PAINEL precisa vê-los. Quem monta os botões do bot usa `listActivePlans`. */
 export function listPlans(botId: string): TelegramPlan[] {
-  const rows = getDb().prepare("SELECT * FROM telegram_plans WHERE bot_id = ?").all(botId) as any[];
+  const rows = getDb()
+    .prepare("SELECT * FROM telegram_plans WHERE bot_id = ? ORDER BY sort_order, rowid")
+    .all(botId) as any[];
   return rows.map(toPlan);
+}
+
+/** Só o que o cliente deve ver no /start e nos funis. */
+export function listActivePlans(botId: string): TelegramPlan[] {
+  return listPlans(botId).filter((p) => p.active);
 }
 
 export function getPlan(id: string): TelegramPlan | null {
@@ -254,24 +362,55 @@ export function getPlan(id: string): TelegramPlan | null {
 export function savePlan(plan: TelegramPlan): void {
   const now = Date.now();
   getDb().prepare(
-    `INSERT INTO telegram_plans (id, bot_id, name, price_cents, duration_days, kind, deliverable, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_plans (id, bot_id, name, price_cents, duration_days, kind, deliverable, sort_order, active, highlight, deliverable_buttons, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        price_cents = excluded.price_cents,
        duration_days = excluded.duration_days,
        kind = excluded.kind,
-       deliverable = excluded.deliverable`
+       deliverable = excluded.deliverable,
+       sort_order = excluded.sort_order,
+       active = excluded.active,
+       highlight = excluded.highlight,
+       deliverable_buttons = excluded.deliverable_buttons`
   ).run(
     plan.id,
     plan.botId,
     plan.name,
     plan.priceCents,
-    plan.durationDays,
+    Math.max(0, Math.round(plan.durationDays) || 0),
     plan.kind || "subscription",
     plan.deliverable || null,
+    plan.sortOrder ?? 0,
+    plan.active === false ? 0 : 1,
+    plan.highlight || null,
+    plan.deliverableButtons?.length ? JSON.stringify(plan.deliverableButtons.slice(0, 6)) : null,
     now,
   );
+}
+
+/**
+ * Quantas vendas PAGAS cada plano fez e quanto trouxe, em UMA consulta para o
+ * bot inteiro — a lista de planos precisa disso para todos de uma vez.
+ *
+ * Passa por `telegram_subscriptions` (que guarda o plano comprado) e cruza com
+ * `transactions` (que guarda o dinheiro e o status). É a mesma origem do painel
+ * financeiro, então os números batem com o resto do sistema.
+ */
+export function planSalesStats(botId: string): Map<string, { count: number; cents: number }> {
+  const rows = getDb()
+    .prepare(
+      `SELECT s.plan_id AS planId, COUNT(*) AS c, SUM(t.amount_cents) AS cents
+         FROM telegram_subscriptions s
+         JOIN transactions t ON t.id = s.transaction_id
+        WHERE s.bot_id = ? AND s.plan_id IS NOT NULL AND t.status = 'paid'
+        GROUP BY s.plan_id`,
+    )
+    .all(botId) as { planId: string; c: number; cents: number | null }[];
+  const out = new Map<string, { count: number; cents: number }>();
+  for (const r of rows) out.set(r.planId, { count: r.c, cents: r.cents || 0 });
+  return out;
 }
 
 export function deletePlan(id: string): void {
@@ -293,6 +432,7 @@ function toSubscription(r: any): TelegramSubscription {
     lastUpsellAt: r.last_upsell_at || undefined,
     upsellStepIndex: r.upsell_step_index,
     createdAt: r.created_at,
+    pixCode: r.pix_code || undefined,
   };
 }
 
@@ -339,8 +479,8 @@ export function findSubscriptionByTransaction(transactionId: string): TelegramSu
 
 export function saveSubscription(sub: TelegramSubscription): void {
   getDb().prepare(
-    `INSERT INTO telegram_subscriptions (id, bot_id, transaction_id, plan_id, offer_id, telegram_user_id, telegram_username, invite_link, status, expires_at, last_upsell_at, upsell_step_index, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_subscriptions (id, bot_id, transaction_id, plan_id, offer_id, telegram_user_id, telegram_username, invite_link, status, expires_at, last_upsell_at, upsell_step_index, created_at, pix_code)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        status = excluded.status,
        expires_at = excluded.expires_at,
@@ -349,7 +489,8 @@ export function saveSubscription(sub: TelegramSubscription): void {
        last_upsell_at = excluded.last_upsell_at,
        upsell_step_index = excluded.upsell_step_index,
        plan_id = excluded.plan_id,
-       offer_id = excluded.offer_id`
+       offer_id = excluded.offer_id,
+       pix_code = excluded.pix_code`
   ).run(
     sub.id,
     sub.botId,
@@ -363,7 +504,8 @@ export function saveSubscription(sub: TelegramSubscription): void {
     sub.expiresAt,
     sub.lastUpsellAt || null,
     sub.upsellStepIndex,
-    sub.createdAt
+    sub.createdAt,
+    sub.pixCode || null,
   );
 }
 

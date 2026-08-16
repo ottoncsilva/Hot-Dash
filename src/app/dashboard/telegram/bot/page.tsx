@@ -25,7 +25,7 @@ import {
 import PageHeader from "@/components/PageHeader";
 import SectionRow, { resumo } from "@/components/telegram/bot/SectionRow";
 import VarChips from "@/components/telegram/bot/VarChips";
-import BotPreview from "@/components/telegram/bot/BotPreview";
+import BotPreview, { type PreviewStyle } from "@/components/telegram/bot/BotPreview";
 import FormatToolbar from "@/components/telegram/bot/FormatToolbar";
 import MediaPicker from "@/components/telegram/bot/MediaPicker";
 import DetectChat from "@/components/telegram/bot/DetectChat";
@@ -67,7 +67,12 @@ type Bot = {
   downsellEnabled?: boolean;
   pixDownsellEnabled?: boolean;
   upsellEnabled?: boolean;
+  effectWelcome?: string;
+  effectPix?: string;
+  effectSuccess?: string;
 };
+/** Estilos globais dos botões (Configurações → cores). O preview usa os mesmos. */
+type ButtonStyles = Record<string, "" | "primary" | "success" | "danger">;
 type WelcomeStep = {
   delayMinutes: number;
   text: string;
@@ -154,6 +159,14 @@ export default function BotVendasPage() {
   const [welcomeTags, setWelcomeTags] = useState("");
   const [welcomeIds, setWelcomeIds] = useState<string[]>([]);
   const [welcomeMode, setWelcomeMode] = useState<"album" | "separate">("album");
+  // Efeitos de mensagem — editados aqui porque o preview precisa acompanhar.
+  const [efeitoWelcome, setEfeitoWelcome] = useState("");
+  const [efeitoPix, setEfeitoPix] = useState("");
+  const [efeitoSuccess, setEfeitoSuccess] = useState("");
+  // As CORES dos botões vêm de Configurações, não do bot — mas é aqui que o
+  // operador olha para saber como o /start vai ficar, então o preview lê a
+  // mesma fonte que o envio usa.
+  const [buttonStyles, setButtonStyles] = useState<ButtonStyles>({});
 
   const load = useCallback(async () => {
     if (!profileId) return;
@@ -179,6 +192,16 @@ export default function BotVendasPage() {
       setWelcomeTags(d.bot?.welcomeMediaTags || "");
       setWelcomeIds(d.bot?.welcomeMediaIds || []);
       setWelcomeMode(d.bot?.welcomeMediaMode || "album");
+      setEfeitoWelcome(d.bot?.effectWelcome || "");
+      setEfeitoPix(d.bot?.effectPix || "");
+      setEfeitoSuccess(d.bot?.effectSuccess || "");
+      try {
+        const cfg = await apiGet<{ buttonStyles: ButtonStyles }>("/api/settings/bot");
+        setButtonStyles(cfg.buttonStyles || {});
+      } catch {
+        // Cores são enfeite do preview: falha aqui não pode travar a tela.
+        setButtonStyles({});
+      }
     } finally {
       setLoading(false);
     }
@@ -186,13 +209,22 @@ export default function BotVendasPage() {
 
   // O preview só faz sentido nas abas que mudam o que o lead vê no /start.
   const mostraPreview = tab === "config" || tab === "planos";
+  // A cor de cada botão segue a MESMA regra do envio (planButtonStyleProps):
+  // a cor do plano manda; sem ela, vale o estilo do papel "plans".
+  const CORES_DO_PLANO: ButtonStyles = { green: "success", blue: "primary", red: "danger" };
+  const corDo = (v: string | undefined): PreviewStyle => (v as PreviewStyle) || "";
   const previewButtons = [
-    ...plans.map((p) => ({
-      text: `${p.name} - ${(p.priceCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`,
-      kind: "plan" as const,
-    })),
-    ...buttons.map((b) => ({ text: b.text, kind: "custom" as const })),
-    ...(bot?.supportUsername ? [{ text: "💬 Suporte / Dúvidas", kind: "support" as const }] : []),
+    ...plans
+      .filter((p) => p.active !== false)
+      .map((p) => ({
+        text: `${p.name} - ${(p.priceCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`,
+        kind: "plan" as const,
+        style: corDo((p.highlight && CORES_DO_PLANO[p.highlight]) || buttonStyles.plans),
+      })),
+    ...buttons.map((b) => ({ text: b.text, kind: "custom" as const, style: corDo(buttonStyles.redirect) })),
+    ...(bot?.supportUsername
+      ? [{ text: "💬 Suporte / Dúvidas", kind: "support" as const, style: corDo(buttonStyles.redirect) }]
+      : []),
   ];
 
   useEffect(() => {
@@ -277,6 +309,8 @@ export default function BotVendasPage() {
                     setMediaIds={setWelcomeIds}
                     mode={welcomeMode}
                     setMode={setWelcomeMode}
+                    efeito={efeitoWelcome}
+                    setEfeito={setEfeitoWelcome}
                     onSaved={load}
                   />
                   <SuccessRow profileId={profileId} bot={bot} onSaved={load} />
@@ -303,6 +337,7 @@ export default function BotVendasPage() {
                 welcomeMediaIds={welcomeIds}
                 welcomeMediaMode={welcomeMode}
                 buttons={previewButtons}
+                effect={efeitoWelcome}
               />
             )}
           </div>
@@ -591,6 +626,61 @@ async function salvarMensagens(profileId: string, patch: Record<string, string>)
   await apiSend("/api/telegram", "POST", { action: "save-bot-messages", profileId, ...patch });
 }
 
+/**
+ * EFEITO DE MENSAGEM: a animação nativa que o Telegram roda quando a mensagem
+ * chega. É do aplicativo, então aqui só dá para escolher qual — o preview
+ * marca a escolha com o emoji, mas quem anima é o Telegram.
+ *
+ * Vale só em CONVERSA PRIVADA, que é onde o bot de vendas fala com o lead o
+ * tempo todo. Num grupo o Telegram recusaria a mensagem inteira, por isso o
+ * envio reenvia sem o efeito se ele for barrado.
+ */
+const EFEITOS: { key: string; label: string; emoji: string }[] = [
+  { key: "", label: "Sem efeito", emoji: "—" },
+  { key: "fire", label: "Fogo", emoji: "🔥" },
+  { key: "party", label: "Comemoração", emoji: "🎉" },
+  { key: "heart", label: "Coração", emoji: "❤️" },
+  { key: "like", label: "Joinha", emoji: "👍" },
+  { key: "dislike", label: "Negativo", emoji: "👎" },
+  { key: "poop", label: "Cocô", emoji: "💩" },
+];
+
+function EfeitoPicker({
+  valor,
+  onChange,
+  hint,
+}: {
+  valor: string;
+  onChange: (v: string) => void;
+  hint?: string;
+}) {
+  return (
+    <div className="mt-4">
+      <label className="eyebrow block">Efeito de mensagem</label>
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        {EFEITOS.map((e) => (
+          <button
+            key={e.key}
+            type="button"
+            onClick={() => onChange(e.key)}
+            title={e.label}
+            className={`rounded-lg border px-2.5 py-1.5 text-sm transition-colors ${
+              valor === e.key
+                ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
+                : "border-white/10 bg-ink-850 text-zinc-400 hover:border-white/20"
+            }`}
+          >
+            {e.emoji} <span className="text-[11px]">{e.label}</span>
+          </button>
+        ))}
+      </div>
+      <p className="mt-1 text-[11px] text-zinc-500">
+        {hint || "A animação roda quando a mensagem chega. Só funciona no privado."}
+      </p>
+    </div>
+  );
+}
+
 function WelcomeRow({
   profileId,
   bot,
@@ -603,6 +693,8 @@ function WelcomeRow({
   setMediaIds,
   mode,
   setMode,
+  efeito,
+  setEfeito,
   onSaved,
 }: {
   profileId: string;
@@ -616,6 +708,8 @@ function WelcomeRow({
   setMediaIds: (v: string[]) => void;
   mode: "album" | "separate";
   setMode: (v: "album" | "separate") => void;
+  efeito: string;
+  setEfeito: (v: string) => void;
   onSaved: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -631,6 +725,7 @@ function WelcomeRow({
         welcomeMediaTags: welcomeTags,
         welcomeMediaIds: mediaIds,
         welcomeMediaMode: mode,
+        effectWelcome: efeito,
       });
       showToast("Boas-vindas salvas.", "success");
       onSaved();
@@ -741,6 +836,8 @@ function WelcomeRow({
         </div>
       )}
 
+      <EfeitoPicker valor={efeito} onChange={setEfeito} />
+
       <button onClick={save} disabled={busy} className="btn-primary mt-4">
         {busy ? "Salvando..." : "Salvar mensagem"}
       </button>
@@ -751,17 +848,24 @@ function WelcomeRow({
 function SuccessRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; onSaved: () => void }) {
   const [texto, setTexto] = useState(bot.successMessage || "");
   const [botao, setBotao] = useState(bot.successButtonText || "");
+  const [efeito, setEfeito] = useState(bot.effectSuccess || "");
   const [busy, setBusy] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Sem {link_vip} no texto E sem botão, o cliente paga e não recebe caminho
-  // nenhum para o grupo. É o pior defeito silencioso do fluxo — vira aviso.
-  const semAcesso = !/{link_vip}/i.test(texto) && !botao.trim();
+  // Sem {link_vip} escrito no texto, o envio ANEXA o link no fim e sempre põe o
+  // botão de acesso — o cliente nunca fica sem caminho para o grupo. Ainda
+  // assim o aviso continua, porque o texto sai diferente do que está escrito
+  // aqui, e é melhor o operador saber disso antes da primeira venda.
+  const semMarcador = !/{link_vip}/i.test(texto);
 
   async function save() {
     setBusy(true);
     try {
-      await salvarMensagens(profileId, { successMessage: texto, successButtonText: botao });
+      await salvarMensagens(profileId, {
+        successMessage: texto,
+        successButtonText: botao,
+        effectSuccess: efeito,
+      });
       showToast("Mensagem de aprovação salva.", "success");
       onSaved();
     } catch (e) {
@@ -776,7 +880,7 @@ function SuccessRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; 
       icon={<IconCheck size={16} />}
       title="Mensagem de pagamento aprovado"
       summary={resumo(bot.successMessage) || "(vazia)"}
-      status={semAcesso ? { label: "sem link do VIP", tone: "error" } : undefined}
+      status={semMarcador ? { label: "link anexado no fim", tone: "warn" } : undefined}
     >
       <label className="eyebrow block">Enviada assim que o PIX é confirmado</label>
       <textarea
@@ -799,15 +903,22 @@ function SuccessRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; 
         onChange={(e) => setBotao(e.target.value)}
       />
       <p className="mt-1 text-[11px] text-zinc-500">
-        Preenchido, o convite vira um botão clicável. Vazio, o link só aparece no texto — e aí{" "}
-        <b>{"{link_vip}"}</b> precisa estar escrito acima.
+        O botão de acesso vai <b>sempre</b>. Vazio, ele sai com o texto padrão
+        (&quot;{"🔒 Acessar Conteúdo"}&quot;).
       </p>
 
-      {semAcesso && (
-        <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/[0.07] p-2.5 text-xs text-red-300">
-          Do jeito que está, quem pagar não recebe o link nem o botão do VIP.
+      {semMarcador && (
+        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-2.5 text-xs text-amber-300">
+          Sem <b>{"{link_vip}"}</b> no texto, o link do VIP é anexado no fim da mensagem. Escreva a
+          variável onde você quiser que ele apareça para mandar no lugar dele.
         </p>
       )}
+
+      <EfeitoPicker
+        valor={efeito}
+        onChange={setEfeito}
+        hint="É a única mensagem que o cliente recebe DEPOIS de pagar — vale comemorar."
+      />
 
       <button onClick={save} disabled={busy} className="btn-primary mt-4">
         {busy ? "Salvando..." : "Salvar mensagem"}
@@ -836,6 +947,7 @@ function PixRow({
   const [btnQr, setBtnQr] = useState(bot.pixBtnQr || "");
   const [btnCopy, setBtnCopy] = useState(bot.pixBtnCopy || "");
   const [naoPago, setNaoPago] = useState(bot.pixNotPaidMessage || "");
+  const [efeito, setEfeito] = useState(bot.effectPix || "");
   const [busy, setBusy] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const provaRef = useRef<HTMLTextAreaElement>(null);
@@ -855,6 +967,7 @@ function PixRow({
         pixBtnQr: btnQr,
         pixBtnCopy: btnCopy,
         pixNotPaidMessage: naoPago,
+        effectPix: efeito,
       });
       showToast("Tela de pagamento salva.", "success");
       onSaved();
@@ -998,6 +1111,12 @@ function PixRow({
         comum, sem a bolha de áudio.
       </p>
 
+      <EfeitoPicker
+        valor={efeito}
+        onChange={setEfeito}
+        hint="Marca a chegada da cobrança em vez de ela passar como mais uma mensagem."
+      />
+
       <div className="mt-4 flex flex-wrap gap-2">
         <button onClick={save} disabled={busy} className="btn-primary">
           {busy ? "Salvando..." : "Salvar"}
@@ -1011,6 +1130,7 @@ function PixRow({
             setBtnQr("");
             setBtnCopy("");
             setNaoPago("");
+            setEfeito("");
           }}
           className="btn-ghost"
         >

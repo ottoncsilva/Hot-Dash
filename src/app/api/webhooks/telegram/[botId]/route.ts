@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { TelegramPlan } from "@/lib/telegramDb";
-import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, enqueueApproval, BUMP_DEFAULTS, PIX_DEFAULTS } from "@/lib/telegramDb";
+import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, enqueueApproval, buildAccessMessage, BUMP_DEFAULTS, PIX_DEFAULTS } from "@/lib/telegramDb";
 import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser } from "@/lib/telegramUsers";
 import { recordGroupMembershipChange } from "@/lib/telegramMonitor";
 import { getMailingOffer } from "@/lib/telegramMailing";
@@ -11,6 +11,7 @@ import { activeProvider } from "@/lib/payments";
 import { recordTransaction, overview } from "@/lib/transactions";
 import { ensureSyncpayWebhookShortToken, applyDynamicPrice, buttonStyleProps, planButtonStyleProps } from "@/lib/settings";
 import { publicOrigin } from "@/lib/publicOrigin";
+import { botaoCopiar, efeitoProps } from "@/lib/telegramEffects";
 import { randomUUID } from "node:crypto";
 
 export const runtime = "nodejs";
@@ -242,6 +243,7 @@ export async function POST(
             await sendTelegramMediaGroup(bot.botToken, String(chat.id), caminhos);
             await sendTelegramMessage(bot.botToken, String(chat.id), welcomeText, {
               reply_markup: replyMarkup,
+              ...efeitoProps(bot.effectWelcome),
             });
           }
           sentWithMedia = true;
@@ -264,8 +266,13 @@ export async function POST(
         }
 
         if (!sentWithMedia) {
+          // O efeito acompanha a MENSAGEM DE TEXTO. Nos caminhos com mídia ele
+          // fica de fora de propósito: o envio de mídia é multipart e não tem
+          // o mesmo reenvio-sem-efeito de segurança, e uma foto que não chega
+          // é pior que uma animação que não roda.
           await sendTelegramMessage(bot.botToken, String(chat.id), welcomeText, {
             reply_markup: replyMarkup,
+            ...efeitoProps(bot.effectWelcome),
           });
         }
       }
@@ -329,19 +336,13 @@ export async function POST(
             bot.pixNotPaidMessage?.trim() || PIX_DEFAULTS.notPaidMessage,
           );
         } else if (sub.inviteLink) {
-          const botaoTexto = bot.successButtonText?.trim();
-          await sendTelegramMessage(
-            bot.botToken,
-            chatId,
-            bot.successMessage.replace(/{link_vip}/gi, sub.inviteLink),
-            botaoTexto
-              ? {
-                  reply_markup: {
-                    inline_keyboard: [[{ text: botaoTexto, url: sub.inviteLink, ...buttonStyleProps("access") }]],
-                  },
-                }
-              : {},
-          );
+          // Mesma montagem da entrega original: o link nunca fica de fora,
+          // tenha o texto o marcador {link_vip} ou não.
+          const aprovada = buildAccessMessage(bot, sub.inviteLink, buttonStyleProps("access"));
+          await sendTelegramMessage(bot.botToken, chatId, aprovada.text, {
+            ...aprovada.options,
+            ...efeitoProps(bot.effectSuccess),
+          });
         } else {
           await sendTelegramMessage(
             bot.botToken,
@@ -623,9 +624,16 @@ export async function POST(
             inline_keyboard: [
               [{ text: btn(bot.pixBtnCheck, PIX_DEFAULTS.btnCheck), callback_data: `pix_check_${subId}`, ...buttonStyleProps("pixCheck") }],
               [{ text: btn(bot.pixBtnQr, PIX_DEFAULTS.btnQr), callback_data: `pix_qr_${subId}`, ...buttonStyleProps("pixQr") }],
-              [{ text: btn(bot.pixBtnCopy, PIX_DEFAULTS.btnCopy), callback_data: `pix_copy_${subId}`, ...buttonStyleProps("pixCopy") }],
+              // COPIAR: botão nativo do Telegram — o toque copia o código na
+              // hora, sem o bot ter de responder com o <code> e sem o cliente
+              // ter de tocar duas vezes. Código longo demais para o botão cai
+              // sozinho no caminho antigo (callback).
+              [botaoCopiar(btn(bot.pixBtnCopy, PIX_DEFAULTS.btnCopy), pixCode, `pix_copy_${subId}`, buttonStyleProps("pixCopy"))],
             ],
           },
+          // O PIX é o momento de tensão da conversa: o efeito marca a chegada
+          // da cobrança em vez de ela passar como mais uma mensagem.
+          ...efeitoProps(bot.effectPix),
         });
 
         // Áudio opcional, DEPOIS do PIX: o código copia-e-cola é o que o

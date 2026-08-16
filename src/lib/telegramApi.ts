@@ -201,6 +201,27 @@ export async function sendTelegramMessage(
   text: string,
   options: Record<string, unknown> = {}
 ): Promise<unknown> {
+  try {
+    return await enviarMensagem(botToken, chatId, text, options);
+  } catch (e) {
+    // EFEITO DE MENSAGEM só vale em conversa privada, e o Telegram recusa a
+    // mensagem inteira quando não vale — um enfeite não pode custar a entrega
+    // do link do VIP. Então, se o efeito for o problema, reenvia sem ele.
+    const msg = e instanceof Error ? e.message : "";
+    if (options.message_effect_id && /effect/i.test(msg)) {
+      const { message_effect_id: _ignorado, ...semEfeito } = options;
+      return enviarMensagem(botToken, chatId, text, semEfeito);
+    }
+    throw e;
+  }
+}
+
+function enviarMensagem(
+  botToken: string,
+  chatId: string,
+  text: string,
+  options: Record<string, unknown>,
+): Promise<unknown> {
   return telegramFetch(botToken, "sendMessage", {
     chat_id: chatId,
     text,

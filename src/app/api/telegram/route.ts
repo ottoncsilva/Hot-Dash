@@ -47,6 +47,17 @@ import { resolvePublicOrigin, webhookOriginProblem } from "@/lib/publicOrigin";
 
 import { randomUUID } from "node:crypto";
 
+/** Aceita um funil como JSON pronto ou como array, e devolve sempre string. */
+function normFunnel(v: unknown): string | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v === "string") return v;
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Planos com o desempenho de cada um anexado — as duas telas que os listam
  *  querem sempre os dois juntos. */
 function comStats(botId: string) {
@@ -370,6 +381,13 @@ export async function POST(req: NextRequest) {
         ...bot,
         vipApprovalMode: toApprovalMode(body.vipApprovalMode, bot.vipApprovalMode),
         previasApprovalMode: toApprovalMode(body.previasApprovalMode, bot.previasApprovalMode),
+        // Sequências de boas-vindas: aceita JSON já pronto ou o array cru.
+        previasWelcomeFunnel: normFunnel(body.previasWelcomeFunnel) ?? bot.previasWelcomeFunnel,
+        vipWelcomeFunnel: normFunnel(body.vipWelcomeFunnel) ?? bot.vipWelcomeFunnel,
+        previewsWelcomeMessage:
+          body.previewsWelcomeMessage !== undefined
+            ? String(body.previewsWelcomeMessage)
+            : bot.previewsWelcomeMessage,
       });
       return NextResponse.json({ ok: true });
     }

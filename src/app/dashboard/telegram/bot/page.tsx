@@ -61,6 +61,14 @@ type Bot = {
   pixBtnQr?: string;
   pixBtnCopy?: string;
   pixNotPaidMessage?: string;
+  previasWelcomeFunnel?: string;
+  vipWelcomeFunnel?: string;
+};
+type WelcomeStep = {
+  delayMinutes: number;
+  text: string;
+  mediaTags?: string;
+  buttons?: "none" | "plans";
 };
 type SeenChat = { chatId: string; title?: string; type?: string };
 type ApprovalMode = "subscribers" | "all" | "manual";
@@ -280,7 +288,7 @@ export default function BotVendasPage() {
                 <FunnelCard profileId={profileId} bot={bot} tags={tags} onSaved={load} />
               )}
               {tab === "aprovacao" && (
-                <ApprovalCard profileId={profileId} bot={bot} onSaved={load} />
+                <ApprovalCard profileId={profileId} bot={bot} tags={tags} onSaved={load} />
               )}
               {tab === "trackeamento" && (
                 <TrackingCard
@@ -1840,9 +1848,33 @@ const MODOS: { key: ApprovalMode; label: string; desc: string }[] = [
   },
 ];
 
-function ApprovalCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot; onSaved: () => void }) {
+/** JSON guardado → lista de passos. Conteúdo quebrado vira lista vazia em vez
+ *  de derrubar a aba inteira. */
+function parseSteps(json?: string): WelcomeStep[] {
+  if (!json) return [];
+  try {
+    const v = JSON.parse(json);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+function ApprovalCard({
+  profileId,
+  bot,
+  tags,
+  onSaved,
+}: {
+  profileId: string;
+  bot: Bot;
+  tags: Tag[];
+  onSaved: () => void;
+}) {
   const [vip, setVip] = useState<ApprovalMode>(bot.vipApprovalMode || "subscribers");
   const [previas, setPrevias] = useState<ApprovalMode>(bot.previasApprovalMode || "all");
+  const [seqPrevias, setSeqPrevias] = useState<WelcomeStep[]>(parseSteps(bot.previasWelcomeFunnel));
+  const [seqVip, setSeqVip] = useState<WelcomeStep[]>(parseSteps(bot.vipWelcomeFunnel));
   const [busy, setBusy] = useState(false);
 
   async function save() {
@@ -1853,8 +1885,10 @@ function ApprovalCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot
         profileId,
         vipApprovalMode: vip,
         previasApprovalMode: previas,
+        previasWelcomeFunnel: seqPrevias,
+        vipWelcomeFunnel: seqVip,
       });
-      showToast("Regras de aprovação salvas.", "success");
+      showToast("Aprovação salva.", "success");
       onSaved();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha.", "error");
@@ -1883,6 +1917,19 @@ function ApprovalCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot
         subtitulo={bot.idAquecimento || "sem ID configurado"}
         valor={previas}
         onChange={setPrevias}
+      />
+
+      <WelcomeSequence
+        titulo="Boas-vindas ao entrar nas Prévias"
+        steps={seqPrevias}
+        setSteps={setSeqPrevias}
+        tags={tags}
+      />
+      <WelcomeSequence
+        titulo="Boas-vindas ao entrar no VIP"
+        steps={seqVip}
+        setSteps={setSeqVip}
+        tags={tags}
       />
 
       <p className="mt-4 rounded-lg border border-white/10 bg-ink-850 p-3 text-xs text-zinc-400">
@@ -2152,5 +2199,115 @@ function CopiavelLink({ texto, relativo }: { texto: string; relativo?: boolean }
     >
       <IconCopy size={12} /> {copiado ? "copiado!" : texto}
     </button>
+  );
+}
+
+/**
+ * Editor da SEQUÊNCIA de boas-vindas de um grupo.
+ *
+ * Parecido com o editor de funil, mas sem desconto nem loop: aqui não se está
+ * perseguindo quem não comprou, e sim recebendo quem acabou de entrar. Em
+ * compensação tem o modo de botão, para decidir se aquele passo já mostra as
+ * ofertas ou é só conversa.
+ *
+ * O atraso é ACUMULADO desde a entrada: passos de 0 e 10 saem na hora e 10
+ * minutos depois. Vazio = nada é enviado (a aprovação continua acontecendo).
+ */
+const ATRASOS = [
+  { min: 0, label: "Imediato" },
+  { min: 2, label: "2 min depois" },
+  { min: 10, label: "10 min depois" },
+  { min: 30, label: "30 min depois" },
+  { min: 60, label: "1 hora depois" },
+  { min: 180, label: "3 horas depois" },
+  { min: 1440, label: "1 dia depois" },
+];
+
+function WelcomeSequence({
+  titulo,
+  steps,
+  setSteps,
+  tags,
+}: {
+  titulo: string;
+  steps: WelcomeStep[];
+  setSteps: (s: WelcomeStep[]) => void;
+  tags: Tag[];
+}) {
+  function update(i: number, patch: Partial<WelcomeStep>) {
+    setSteps(steps.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
+  }
+
+  return (
+    <div className="mt-5">
+      <p className="text-sm font-semibold text-white">{titulo}</p>
+      <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+        Enviadas no <b>privado</b> de quem foi aprovado. Só chegam se a pessoa já tiver dado{" "}
+        <code>/start</code> no bot — antes disso o Telegram proíbe a mensagem. Deixe vazio para não
+        enviar nada.
+      </p>
+
+      <div className="mt-2 space-y-2">
+        {steps.map((s, i) => (
+          <div key={i} className="panel p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="chip">Mensagem {i + 1}</span>
+              <select
+                className="input h-8 w-auto py-0 text-xs"
+                value={String(s.delayMinutes ?? 0)}
+                onChange={(e) => update(i, { delayMinutes: Number(e.target.value) })}
+              >
+                {ATRASOS.map((a) => (
+                  <option key={a.min} value={a.min}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="input h-8 w-auto py-0 text-xs"
+                value={s.buttons || "none"}
+                onChange={(e) => update(i, { buttons: e.target.value as WelcomeStep["buttons"] })}
+              >
+                <option value="none">Sem botões</option>
+                <option value="plans">Com os planos</option>
+              </select>
+              <button
+                onClick={() => setSteps(steps.filter((_, idx) => idx !== i))}
+                className="ml-auto grid h-7 w-7 place-items-center rounded text-zinc-500 hover:bg-white/10 hover:text-red-400"
+                aria-label="Remover mensagem"
+              >
+                <IconClose size={14} />
+              </button>
+            </div>
+
+            <textarea
+              className="input mt-2 min-h-[70px]"
+              placeholder="Texto da mensagem · use {nome}"
+              value={s.text}
+              onChange={(e) => update(i, { text: e.target.value })}
+            />
+
+            <input
+              className="input mt-2 text-xs"
+              placeholder="Etiquetas da mídia (opcional) — ex.: previa, quente"
+              value={s.mediaTags || ""}
+              onChange={(e) => update(i, { mediaTags: e.target.value })}
+            />
+            {tags.length > 0 && (
+              <p className="mt-1 text-[11px] text-zinc-500">
+                Disponíveis: {tags.map((t) => t.name).join(", ")}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <button
+        onClick={() => setSteps([...steps, { delayMinutes: steps.length === 0 ? 0 : 10, text: "", buttons: "none" }])}
+        className="btn-ghost mt-2 px-2.5 py-1 text-xs"
+      >
+        <IconPlus size={13} /> Mensagem
+      </button>
+    </div>
   );
 }

@@ -29,6 +29,7 @@ export async function register() {
       runTelegramFunnels,
       runTelegramMailings,
       runTelegramEviction,
+      runTelegramApprovalSequences,
     } = await import("@/lib/telegramCron");
     // Monitor dos grupos: consulta a API do Telegram e por isso funciona com a
     // operação do bot desligada, quando nenhum update chega pelo webhook.
@@ -74,6 +75,12 @@ export async function register() {
           await runTelegramEviction();
         } catch (err) {
           console.error("[hotdash] Erro no cron (expiração Telegram):", err);
+        }
+        try {
+          const n = await runTelegramApprovalSequences();
+          if (n > 0) console.log(`[hotdash] boas-vindas pós-aprovação: ${n} mensagem(ns).`);
+        } catch (err) {
+          console.error("[hotdash] Erro no cron (sequência de aprovação):", err);
         }
         try {
           await runTelegramGroupMonitor();

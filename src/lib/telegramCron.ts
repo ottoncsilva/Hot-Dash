@@ -7,7 +7,10 @@ import {
   listLeadsForDownsell,
   findActiveSubscription,
   upsertTelegramLead,
-  listPlans,
+  listActivePlans,
+  listApprovalQueue,
+  advanceApproval,
+  dequeueApproval,
   saveSubscription,
   type TelegramSubscription,
 } from "@/lib/telegramDb";
@@ -377,10 +380,13 @@ type FunnelStep = {
   discountPercent?: number;
   mediaTags?: string;
   isLoop?: boolean; // Se for true na última etapa, repete pra sempre.
+  /** Só na sequência de aprovação: "plans" põe os botões de compra no passo. */
+  buttons?: "none" | "plans";
 };
 
 function buildReplyMarkup(botId: string, discountPercent = 0) {
-  const plans = listPlans(botId);
+  // Só os ATIVOS: um plano desligado some do /start, e some dos funis também.
+  const plans = listActivePlans(botId);
   const inlineKeyboard: any[] = [];
   if (plans.length > 0) {
     plans.forEach((plan) => {
@@ -807,4 +813,67 @@ export async function runTelegramEviction(): Promise<number> {
   }
 
   return evictedCount;
+}
+
+
+/**
+ * SEQUÊNCIA DE BOAS-VINDAS de quem foi aprovado num grupo.
+ *
+ * A aprovação em si acontece no webhook, que precisa responder rápido ao
+ * Telegram — por isso ela só enfileira, e a entrega dos passos (que pode levar
+ * horas, se o operador puser atraso) mora aqui, no tick de 1 minuto.
+ *
+ * O atraso é ACUMULADO desde a aprovação: um passo com 10 min e outro com 30
+ * saem aos 10 e aos 40 minutos, não aos 10 e 30. É como os funis já contam, e
+ * é o que a tela promete ao dizer "10 min depois de entrar".
+ */
+export async function runTelegramApprovalSequences(): Promise<number> {
+  const fila = listApprovalQueue();
+  if (fila.length === 0) return 0;
+
+  const agora = Date.now();
+  let enviados = 0;
+
+  for (const item of fila) {
+    const bot = getBotConfig(item.botId);
+    if (!bot || !bot.operationActive) {
+      dequeueApproval(item);
+      continue;
+    }
+
+    const cru = item.grupo === "vip" ? bot.vipWelcomeFunnel : bot.previasWelcomeFunnel;
+    let passos: FunnelStep[] = [];
+    try {
+      const v = cru ? JSON.parse(cru) : [];
+      if (Array.isArray(v)) passos = v;
+    } catch {
+      /* JSON quebrado: trata como sequência vazia em vez de derrubar o tick */
+    }
+
+    if (item.stepIndex >= passos.length) {
+      dequeueApproval(item);
+      continue;
+    }
+
+    // Quando o passo atual vence: soma os atrasos de todos até ele.
+    const atrasoAcumulado = passos
+      .slice(0, item.stepIndex + 1)
+      .reduce((soma, p) => soma + Math.max(0, Number(p.delayMinutes) || 0), 0);
+    if (item.approvedAt + atrasoAcumulado * 60_000 > agora) continue;
+
+    const passo = passos[item.stepIndex];
+    const markup = passo.buttons === "plans" ? buildReplyMarkup(bot.id) : undefined;
+    try {
+      await sendFunnelStep(bot.botToken, item.chatId, bot.profileId, passo, markup);
+      enviados++;
+    } catch (e) {
+      console.error("[hotdash] Falha na sequência de aprovação:", e);
+    }
+
+    const proximo = item.stepIndex + 1;
+    if (proximo >= passos.length) dequeueApproval(item);
+    else advanceApproval(item, proximo);
+  }
+
+  return enviados;
 }

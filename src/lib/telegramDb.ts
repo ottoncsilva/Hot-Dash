@@ -44,6 +44,10 @@ export type TelegramBotConfig = {
   pixBtnCopy?: string;
   /** Resposta do "Verificar Status" quando ainda não consta como pago. */
   pixNotPaidMessage?: string;
+  /** Sequência de boas-vindas ao ser aprovado nas Prévias (JSON de passos). */
+  previasWelcomeFunnel?: string;
+  /** Idem para o VIP. */
+  vipWelcomeFunnel?: string;
 };
 
 /** Textos padrão da tela de pagamento — os mesmos que antes viviam fixos no
@@ -210,6 +214,8 @@ function toBotConfig(row: any): TelegramBotConfig {
     pixBtnQr: row.pix_btn_qr || undefined,
     pixBtnCopy: row.pix_btn_copy || undefined,
     pixNotPaidMessage: row.pix_not_paid_message || undefined,
+    previasWelcomeFunnel: row.previas_welcome_funnel || undefined,
+    vipWelcomeFunnel: row.vip_welcome_funnel || undefined,
   };
 }
 
@@ -242,8 +248,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -271,7 +277,9 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        pix_btn_check = excluded.pix_btn_check,
        pix_btn_qr = excluded.pix_btn_qr,
        pix_btn_copy = excluded.pix_btn_copy,
-       pix_not_paid_message = excluded.pix_not_paid_message`
+       pix_not_paid_message = excluded.pix_not_paid_message,
+       previas_welcome_funnel = excluded.previas_welcome_funnel,
+       vip_welcome_funnel = excluded.vip_welcome_funnel`
   ).run(
     id,
     config.profileId,
@@ -302,6 +310,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.pixBtnQr?.trim() || null,
     config.pixBtnCopy?.trim() || null,
     config.pixNotPaidMessage?.trim() || null,
+    config.previasWelcomeFunnel?.trim() || null,
+    config.vipWelcomeFunnel?.trim() || null,
     now
   );
   return getBotConfig(id)!;
@@ -814,4 +824,59 @@ export function listLeadsForDownsell(): TelegramLead[] {
     downsellStepIndex: r.downsell_step_index,
     createdAt: r.created_at,
   }));
+}
+
+// ---- Fila da sequência de boas-vindas pós-aprovação ----
+export type ApprovalQueueRow = {
+  botId: string;
+  telegramUserId: number;
+  grupo: "vip" | "previas";
+  chatId: string;
+  approvedAt: number;
+  stepIndex: number;
+};
+
+/**
+ * Põe (ou reinicia) alguém na sequência de boas-vindas de um grupo.
+ *
+ * `INSERT OR REPLACE` de propósito: se a pessoa sair e entrar de novo, ela
+ * recebe a sequência do começo em vez de continuar de onde parou meses atrás.
+ */
+export function enqueueApproval(row: Omit<ApprovalQueueRow, "stepIndex">): void {
+  getDb()
+    .prepare(
+      `INSERT OR REPLACE INTO telegram_approval_queue
+         (bot_id, telegram_user_id, grupo, chat_id, approved_at, step_index)
+       VALUES (?, ?, ?, ?, ?, 0)`,
+    )
+    .run(row.botId, row.telegramUserId, row.grupo, row.chatId, row.approvedAt);
+}
+
+export function listApprovalQueue(): ApprovalQueueRow[] {
+  const rows = getDb().prepare("SELECT * FROM telegram_approval_queue").all() as any[];
+  return rows.map((r) => ({
+    botId: r.bot_id,
+    telegramUserId: r.telegram_user_id,
+    grupo: r.grupo === "vip" ? "vip" : "previas",
+    chatId: r.chat_id,
+    approvedAt: r.approved_at,
+    stepIndex: r.step_index,
+  }));
+}
+
+export function advanceApproval(row: ApprovalQueueRow, proximo: number): void {
+  getDb()
+    .prepare(
+      `UPDATE telegram_approval_queue SET step_index = ?
+        WHERE bot_id = ? AND telegram_user_id = ? AND grupo = ?`,
+    )
+    .run(proximo, row.botId, row.telegramUserId, row.grupo);
+}
+
+export function dequeueApproval(row: ApprovalQueueRow): void {
+  getDb()
+    .prepare(
+      "DELETE FROM telegram_approval_queue WHERE bot_id = ? AND telegram_user_id = ? AND grupo = ?",
+    )
+    .run(row.botId, row.telegramUserId, row.grupo);
 }

@@ -384,6 +384,27 @@ function migrate(d: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_telegram_users_bot ON telegram_users(bot_id);
 
+    -- FILA DA SEQUÊNCIA DE BOAS-VINDAS de quem foi aprovado num grupo.
+    --
+    -- A aprovação enviava UMA mensagem, na hora. Uma sequência com atrasos
+    -- ("agora", "10 min depois", "1h depois") não cabe no handler do webhook,
+    -- que precisa responder rápido ao Telegram — então cada aprovação vira uma
+    -- linha aqui e o tick de 1 minuto entrega os passos na hora certa.
+    --
+    -- A coluna step_index é o próximo passo a enviar; a linha é apagada
+    -- quando a sequência acaba. A chave inclui o grupo porque a mesma pessoa
+    -- pode entrar nas Prévias e depois no VIP, com sequências diferentes.
+    CREATE TABLE IF NOT EXISTS telegram_approval_queue (
+      bot_id           TEXT NOT NULL,
+      telegram_user_id INTEGER NOT NULL,
+      grupo            TEXT NOT NULL,   -- 'vip' | 'previas'
+      chat_id          TEXT NOT NULL,   -- privado do lead (destino das mensagens)
+      approved_at      INTEGER NOT NULL,
+      step_index       INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (bot_id, telegram_user_id, grupo),
+      FOREIGN KEY (bot_id) REFERENCES telegram_bots(id) ON DELETE CASCADE
+    );
+
     -- CHATS QUE O BOT JÁ VIU. Serve para o botão "Detectar": em vez de o
     -- operador caçar o ID numérico do grupo (-100...) em algum outro app, ele
     -- escolhe da lista de grupos onde o bot está.
@@ -672,6 +693,11 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "telegram_bots", "pix_btn_qr", "TEXT");
   ensureColumn(d, "telegram_bots", "pix_btn_copy", "TEXT");
   ensureColumn(d, "telegram_bots", "pix_not_paid_message", "TEXT");
+  // Sequência de boas-vindas de quem é APROVADO em cada grupo (JSON de passos,
+  // no mesmo formato dos funis). Vazio = cai na mensagem única de sempre
+  // (`previews_welcome_message`), então nada muda para quem não mexer na tela.
+  ensureColumn(d, "telegram_bots", "previas_welcome_funnel", "TEXT");
+  ensureColumn(d, "telegram_bots", "vip_welcome_funnel", "TEXT");
   // Planos: tipo (assinatura recorrente vs pacote/compra única) e o entregável
   // (texto/link enviado ao pagar — o "MEU WHATSAPP" dos pacotes/bônus).
   ensureColumn(d, "telegram_plans", "kind", "TEXT NOT NULL DEFAULT 'subscription'");

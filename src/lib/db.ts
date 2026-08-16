@@ -673,6 +673,16 @@ function migrate(d: Database.Database) {
   // (`previews_welcome_message`), então nada muda para quem não mexer na tela.
   ensureColumn(d, "telegram_bots", "previas_welcome_funnel", "TEXT");
   ensureColumn(d, "telegram_bots", "vip_welcome_funnel", "TEXT");
+  // Terceiro gatilho da RECUPERAÇÃO: quem gerou PIX e não pagou. É um público
+  // diferente do downsell geral — já escolheu o plano e chegou na tela de
+  // pagamento, então merece outra conversa (e outro desconto).
+  ensureColumn(d, "telegram_bots", "pix_downsell_funnel", "TEXT");
+  ensureColumn(d, "telegram_bots", "pix_downsell_enabled", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(d, "telegram_bots", "downsell_enabled", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(d, "telegram_bots", "upsell_enabled", "INTEGER NOT NULL DEFAULT 1");
+  // Progresso do funil de PIX gerado, na própria inscrição pendente.
+  ensureColumn(d, "telegram_subscriptions", "pix_step_index", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(d, "telegram_subscriptions", "last_pix_step_at", "INTEGER");
   // O TRACKEAMENTO foi retirado do produto. A tabela sai junto; as colunas
   // `source_code` de leads e transações ficam, porque o Funil de Vendas usa a
   // origem do tráfego e o deep-link continua gravando-a sem custo.

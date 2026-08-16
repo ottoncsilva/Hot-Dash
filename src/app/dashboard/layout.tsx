@@ -62,11 +62,6 @@ const SETTINGS_SUBSECTIONS: { label: string; anchor: string }[] = [
   { label: "Etiquetas", anchor: "etiquetas" },
   { label: "Status de modelos", anchor: "status" },
   { label: "Pagamentos", anchor: "pagamentos" },
-  // NÃO chamar de "Bot de vendas": existe um item com esse nome exato em
-  // Telegram → Bot de vendas, e o operador abria sempre o outro — a tela de
-  // preço dinâmico e cores existia e era inalcançável na prática. O rótulo
-  // aqui diz o que a tela FAZ, não a que módulo ela pertence.
-  { label: "Preço dinâmico e cores", anchor: "bot" },
   { label: "Conexão com IA", anchor: "ia" },
   { label: "WhatsApp (Evolution)", anchor: "whatsapp" },
   { label: "Segurança", anchor: "seguranca" },

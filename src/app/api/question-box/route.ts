@@ -43,7 +43,10 @@ export async function POST(req: NextRequest) {
     if (action === "generate") {
       const profile = await getProfile(String(body.profileId || ""));
       if (!profile) throw new ApiError(404, "Modelo não encontrada.");
-      const r = await gerarIdeias(profile, tipo(body.kind), String(body.theme || ""));
+      const escolhidos = Array.isArray(body.providers)
+        ? body.providers.filter((x: unknown): x is string => typeof x === "string")
+        : undefined;
+      const r = await gerarIdeias(profile, tipo(body.kind), String(body.theme || ""), escolhidos);
       return NextResponse.json(r);
     }
 

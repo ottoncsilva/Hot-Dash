@@ -845,6 +845,10 @@ function migrate(d: Database.Database) {
   // que mais muda o resultado, então fica gravado em cada ideia — sem isso a
   // lista mistura personagens e não dá para saber qual pediu o quê.
   ensureColumn(d, "question_box_items", "theme", "TEXT");
+  // Duração estimada do vídeo, em segundos. Quem monta o dia de stories precisa
+  // saber se a ideia é de 8s ou de 40s antes de gravar — é o que decide quantas
+  // cabem na sequência.
+  ensureColumn(d, "question_box_items", "seconds", "INTEGER");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);

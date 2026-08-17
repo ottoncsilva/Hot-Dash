@@ -26,6 +26,9 @@ import type { Profile } from "./types";
 
 export type QuestionBoxKind = "caixinha" | "duplo_sentido";
 
+/** Os provedores que escrevem a caixinha, na ordem em que a tela os mostra. */
+export const PROVEDORES: AiProvider[] = ["grok", "gemini", "openai"];
+
 export const QUESTION_BOX_KINDS: { key: QuestionBoxKind; label: string; hint: string }[] = [
   {
     key: "caixinha",
@@ -47,6 +50,8 @@ export type QuestionBoxItem = {
   idea?: string;
   /** Personagem daquela leva ("massagista morena de 20 anos"). */
   theme?: string;
+  /** Duração estimada do vídeo, em segundos. */
+  seconds?: number;
   provider?: string;
   used: boolean;
   usedAt?: number;
@@ -60,6 +65,7 @@ type Row = {
   text: string;
   idea: string | null;
   theme: string | null;
+  seconds: number | null;
   provider: string | null;
   used: number;
   used_at: number | null;
@@ -74,6 +80,7 @@ function toClient(r: Row): QuestionBoxItem {
     text: r.text,
     idea: r.idea || undefined,
     theme: r.theme || undefined,
+    seconds: r.seconds || undefined,
     provider: r.provider || undefined,
     used: r.used === 1,
     usedAt: r.used_at || undefined,
@@ -121,6 +128,7 @@ export function addQuestionBoxItem(
     text: text.trim(),
     idea: (idea || "").trim() || null,
     theme: (tema || "").trim() || null,
+    seconds: segundosDoTexto(text, idea),
     provider: "manual",
     used: 0,
     used_at: null,
@@ -128,12 +136,12 @@ export function addQuestionBoxItem(
   };
   getDb()
     .prepare(
-      `INSERT INTO question_box_items (id, profile_id, kind, text, idea, theme, provider, used, used_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO question_box_items (id, profile_id, kind, text, idea, theme, seconds, provider, used, used_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       item.id, item.profile_id, item.kind, item.text, item.idea, item.theme,
-      item.provider, item.used, item.used_at, item.created_at,
+      item.seconds, item.provider, item.used, item.used_at, item.created_at,
     );
   return toClient(item);
 }
@@ -173,6 +181,23 @@ function chave(texto: string): string {
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * Duração estimada do vídeo a partir do TEXTO — a reserva de quando a IA não
+ * manda o número, ou manda um absurdo.
+ *
+ * A conta é a velocidade de fala: ~2,5 palavras por segundo em conversa
+ * brasileira normal, mais 3 segundos fixos para o começo (ela lendo a pergunta
+ * na tela, a reação) e o fim (a pausa antes de cortar). O piso de 6s existe
+ * porque story mais curto que isso ninguém termina de ler.
+ *
+ * Ficar sem número não é opção: quem monta a sequência do dia precisa saber se
+ * a ideia é de 8s ou de 40s ANTES de gravar.
+ */
+function segundosDoTexto(pergunta: string, resposta?: string): number {
+  const palavras = `${pergunta} ${resposta || ""}`.trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(6, Math.min(90, Math.round(palavras / 2.5) + 3));
 }
 
 /** Personagem, no mesmo detalhamento que o Método MK usa. */
@@ -273,12 +298,18 @@ function prompt(p: Profile, kind: QuestionBoxKind, tema: string, evitar: string[
         `- "pergunta": escrita como um SEGUIDOR HOMEM mandaria — curioso, direto, do jeito dele, sem ` +
         `formalidade e sem capricho de pontuação. É ele quem escreve, não ela.\n` +
         `- "resposta": ela respondendo. Divertida, picante, com DUPLO SENTIDO construído sobre as ` +
-        `metáforas do personagem. Termine com UM emoji leve: 💋 😏 🔥 💦 🍑 😌\n` +
+        `metáforas do personagem. DIRETA: a graça já na primeira frase, sem introdução, sem ` +
+        `explicar a piada e sem enrolar para chegar no ponto. No máximo duas frases curtas. ` +
+        `Termine com UM emoji leve: 💋 😏 🔥 💦 🍑 😌\n` +
+        `- "segundos": quantos segundos o vídeo dessa resposta dura, gravado em ritmo de conversa ` +
+        `(ela lendo a pergunta na tela, reagindo e respondendo). Só o número.\n` +
         `- TAMANHO: pergunta + resposta somadas entre ${TAMANHO_MIN} e ${TAMANHO_MAX} caracteres. ` +
         `NUNCA passe de ${TAMANHO_MAX} — é a régua da caixinha, e resposta que não cabe na tela não ` +
         `é lida.\n\n` +
         `REFERÊNCIA DE ESTILO (é o TOM que se copia, nunca o assunto — estes são de outras personas):\n` +
-        EXEMPLOS_CAIXINHA.map(([q, a]) => `P: ${q}\nR: ${a}`).join("\n\n")
+        EXEMPLOS_CAIXINHA.map(
+          ([q, a]) => `P: ${q}\nR: ${a}\nsegundos: ${segundosDoTexto(q, a)}`,
+        ).join("\n\n")
       : `\n\nTAREFA: escreva ${POR_PROVEDOR} FRASES DE DUPLO SENTIDO para vídeo curto.\n` +
         `A frase tem que ter DUAS leituras honestas: uma inocente, que é a que a legenda entrega, e ` +
         `outra safada, que aparece sozinha na cabeça de quem assiste. A graça é o público sacar; ` +
@@ -287,6 +318,7 @@ function prompt(p: Profile, kind: QuestionBoxKind, tema: string, evitar: string[
         `(😏 🔥 💋 💦 🍑).\n` +
         `- "virada": o que aparece na TELA que faz a segunda leitura acontecer (o objeto na mão, o ` +
         `corte, a roupa, a pausa, a reação). Uma ou duas frases.\n` +
+        `- "segundos": quantos segundos o vídeo dura, do começo da frase até a virada. Só o número.\n` +
         `Boas fontes de duplo sentido: comida, esporte/academia, trabalho doméstico, dirigir, ` +
         `tecnologia, animal de estimação — e o universo do personagem desta leva. Fuja do trocadilho ` +
         `batido de banana e pepino.`;
@@ -296,8 +328,8 @@ function prompt(p: Profile, kind: QuestionBoxKind, tema: string, evitar: string[
   // enquanto uma repetição a mais o filtro da volta ainda segura.
   const formato =
     kind === "caixinha"
-      ? `{"items":[{"pergunta":"...","resposta":"..."}]}`
-      : `{"items":[{"frase":"...","virada":"..."}]}`;
+      ? `{"items":[{"pergunta":"...","resposta":"...","segundos":12}]}`
+      : `{"items":[{"frase":"...","virada":"...","segundos":10}]}`;
 
   return (
     base +
@@ -321,7 +353,13 @@ function texto(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-function parseItens(raw: string): { text: string; idea: string }[] {
+/** Segundos, com sanidade: fora de 3–120 é chute do modelo, não estimativa. */
+function segundos(v: unknown): number {
+  const n = typeof v === "number" ? v : parseInt(String(v ?? ""), 10);
+  return Number.isFinite(n) && n >= 3 && n <= 120 ? Math.round(n) : 0;
+}
+
+function parseItens(raw: string): { text: string; idea: string; segundos: number }[] {
   let dados: unknown;
   try {
     dados = JSON.parse(raw);
@@ -341,9 +379,14 @@ function parseItens(raw: string): { text: string; idea: string }[] {
     .map((x: Record<string, unknown>) => ({
       text: texto(x?.pergunta) || texto(x?.frase) || texto(x?.text),
       idea: texto(x?.resposta) || texto(x?.virada) || texto(x?.idea),
+      segundos: segundos(x?.segundos ?? x?.seconds ?? x?.duracao),
     }))
     .filter((x) => x.text.length > 0)
-    .map((x) => ({ text: x.text.slice(0, 400), idea: x.idea.slice(0, 600) }));
+    .map((x) => ({
+      text: x.text.slice(0, 400),
+      idea: x.idea.slice(0, 600),
+      segundos: x.segundos,
+    }));
 }
 
 export type GeracaoResultado = {
@@ -364,13 +407,18 @@ export async function gerarIdeias(
   profile: Profile,
   kind: QuestionBoxKind,
   tema = "",
+  escolhidos?: string[],
 ): Promise<GeracaoResultado> {
-  const provedores: AiProvider[] = (["grok", "gemini", "openai"] as AiProvider[]).filter(
-    (p) => getAiCredentials(p, "caixinha") !== null,
+  // Quem a tela pediu, cruzado com quem está de fato conectado — pedir a um
+  // provedor sem chave só produziria um erro por leva. Sem escolha, valem os
+  // três.
+  const pedidos = escolhidos?.length ? escolhidos : PROVEDORES;
+  const provedores: AiProvider[] = PROVEDORES.filter(
+    (p) => pedidos.includes(p) && getAiCredentials(p, "caixinha") !== null,
   );
   if (provedores.length === 0) {
     throw new Error(
-      "Nenhum provedor de IA conectado. Ative um em Configurações → Conexão com IA.",
+      "Nenhum provedor de IA conectado entre os escolhidos. Ative um em Configurações → Conexão com IA.",
     );
   }
 
@@ -404,8 +452,8 @@ export async function gerarIdeias(
 
   const db = getDb();
   const insert = db.prepare(
-    `INSERT INTO question_box_items (id, profile_id, kind, text, idea, theme, provider, used, used_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, ?)`,
+    `INSERT INTO question_box_items (id, profile_id, kind, text, idea, theme, seconds, provider, used, used_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?)`,
   );
 
   const novos: QuestionBoxItem[] = [];
@@ -424,9 +472,10 @@ export async function gerarIdeias(
       if (!k || vistos.has(k)) continue;
       vistos.add(k);
       const id = randomUUID();
+      const segundos = item.segundos || segundosDoTexto(item.text, item.idea);
       insert.run(
         id, profile.id, kind, item.text, item.idea || null,
-        tema.trim() || null, r.provider, agora,
+        tema.trim() || null, segundos, r.provider, agora,
       );
       novos.push({
         id,
@@ -435,6 +484,7 @@ export async function gerarIdeias(
         text: item.text,
         idea: item.idea || undefined,
         theme: tema.trim() || undefined,
+        seconds: segundos,
         provider: r.provider,
         used: false,
         createdAt: agora,

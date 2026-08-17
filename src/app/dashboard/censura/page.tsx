@@ -22,13 +22,27 @@ import PageHeader from "@/components/PageHeader";
 const MAX_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? "200");
 const MAX_DIM = 2000;
 const IMG_EXTS = [".jpg", ".jpeg", ".png", ".webp", ".bmp"];
+const VIDEO_EXTS = [".mp4", ".mov", ".webm", ".m4v"];
+/** Vídeo de prévia é curto por definição, e a rota impõe o mesmo limite. */
+const VIDEO_SEG_MAX = 30;
 
 type Status = "pendente" | "processando" | "pronto" | "erro";
 
 type SaveState = "idle" | "salvando" | "salvo" | "erro";
 
+/**
+ * Um item da fila. Imagem e VÍDEO convivem na mesma lista porque é assim que
+ * o material chega — um ensaio tem foto e vídeo juntos, e obrigar a separar em
+ * duas telas era trabalho que a tela criava, não que existia.
+ *
+ * O que muda entre os dois é onde o trabalho acontece: a imagem é editada no
+ * canvas do navegador (dá para arrastar o emoji com a mão) e o vídeo é
+ * remontado no servidor, porque o navegador não tem ffmpeg. Por isso o vídeo
+ * volta pronto, sem ajuste manual — e a tela diz isso no cartão.
+ */
 type Job = {
   id: string;
+  kind: "image" | "video";
   file: File;
   url: string;
   img: HTMLImageElement | null;
@@ -38,6 +52,13 @@ type Job = {
   regionsCount: number;
   objects: EditorObject[];
   save: SaveState;
+  /** Só vídeo: o mp4 censurado que voltou do servidor. */
+  resultUrl?: string;
+  resultBlob?: Blob;
+  /** Só vídeo: duração e diagnóstico da detecção. */
+  duracao?: number;
+  partesCobertas?: BodyPart[];
+  amostras?: number;
 };
 
 function cappedDims(img: HTMLImageElement) {
@@ -63,6 +84,11 @@ export default function CensuraPage() {
   const [minScore, setMinScore] = useState(0.2);
   const [padding, setPadding] = useState(0.2);
   const [emojiScale, setEmojiScale] = useState(0.45);
+  // Só para VÍDEO: borrão do quadro inteiro (teaser) ou emoji nas partes.
+  // A escolha é da leva, não de cada arquivo — quem carrega dez vídeos quer o
+  // mesmo tratamento nos dez.
+  const [modoVideo, setModoVideo] = useState<"borrao" | "emoji">("borrao");
+  const [intensidadeVideo, setIntensidadeVideo] = useState(0.65);
 
   // Modelo do menu — aqui ela é o DESTINO opcional do salvamento, não o
   // contexto da tela: censurar e baixar funcionam sem escolher nenhuma.
@@ -71,7 +97,10 @@ export default function CensuraPage() {
   // Libera os object URLs ao desmontar.
   useEffect(() => {
     return () => {
-      jobs.forEach((j) => URL.revokeObjectURL(j.url));
+      jobs.forEach((j) => {
+      URL.revokeObjectURL(j.url);
+      if (j.resultUrl) URL.revokeObjectURL(j.resultUrl);
+    });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -82,10 +111,12 @@ export default function CensuraPage() {
     const next: Job[] = [];
     for (const file of Array.from(files)) {
       const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
-      if (!IMG_EXTS.includes(ext) || file.size > maxBytes) continue;
+      const ehVideo = VIDEO_EXTS.includes(ext);
+      if ((!IMG_EXTS.includes(ext) && !ehVideo) || file.size > maxBytes) continue;
       const url = URL.createObjectURL(file);
       const job: Job = {
         id: crypto.randomUUID(),
+        kind: ehVideo ? "video" : "image",
         file,
         url,
         img: null,
@@ -96,6 +127,17 @@ export default function CensuraPage() {
         save: "idle",
       };
       next.push(job);
+      if (ehVideo) {
+        // Duração: é o que decide se o vídeo passa do limite, e só o navegador
+        // sabe dizer sem baixar o arquivo de novo no servidor.
+        const v = document.createElement("video");
+        v.preload = "metadata";
+        v.onloadedmetadata = () => {
+          setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, duracao: v.duration } : j)));
+        };
+        v.src = url;
+        continue;
+      }
       // Carrega a imagem para o canvas.
       const img = new Image();
       img.onload = () => {
@@ -109,7 +151,10 @@ export default function CensuraPage() {
   function removeJob(id: string) {
     setJobs((prev) => {
       const j = prev.find((x) => x.id === id);
-      if (j) URL.revokeObjectURL(j.url);
+      if (j) {
+        URL.revokeObjectURL(j.url);
+        if (j.resultUrl) URL.revokeObjectURL(j.resultUrl);
+      }
       delete canvasRefs.current[id];
       return prev.filter((x) => x.id !== id);
     });
@@ -149,11 +194,71 @@ export default function CensuraPage() {
   }
 
   async function detectAll() {
-    const targets = jobs.filter((j) => j.img);
+    // Imagem precisa estar carregada no canvas; vídeo não usa canvas nenhum.
+    const targets = jobs.filter((j) => (j.kind === "video" ? true : Boolean(j.img)));
     if (targets.length === 0) return;
     setBusy(true);
     for (const job of targets) {
       setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: "processando", error: undefined } : j)));
+
+      // ---- VÍDEO: o trabalho todo é no servidor, e volta o mp4 pronto -----
+      if (job.kind === "video") {
+        try {
+          if ((job.duracao ?? 0) > VIDEO_SEG_MAX + 0.5) {
+            throw new Error(
+              `Vídeo de ${job.duracao?.toFixed(0)}s — o limite é ${VIDEO_SEG_MAX}s. Corte antes no editor de vídeo.`,
+            );
+          }
+          const form = new FormData();
+          form.append("file", job.file);
+          form.append("modo", modoVideo);
+          if (modoVideo === "borrao") {
+            form.append("intensidade", String(intensidadeVideo));
+          } else {
+            form.append("emojis", JSON.stringify(partEmoji));
+            form.append("escala", String(emojiScale + 1));
+            form.append("borrarPorBaixo", "1");
+          }
+          const res = await fetch("/api/ai/censor-video", { method: "POST", body: form });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || "Falha ao processar o vídeo.");
+          }
+          const blob = await res.blob();
+          const partes = (res.headers.get("x-censura-partes") || "")
+            .split(",")
+            .filter(Boolean) as BodyPart[];
+          const amostras = Number(res.headers.get("x-censura-amostras")) || 0;
+          setJobs((prev) =>
+            prev.map((j) =>
+              j.id === job.id
+                ? {
+                    ...j,
+                    status: "pronto",
+                    detected: true,
+                    regionsCount: partes.length,
+                    resultUrl: URL.createObjectURL(blob),
+                    resultBlob: blob,
+                    partesCobertas: partes,
+                    amostras,
+                    save: "idle",
+                  }
+                : j,
+            ),
+          );
+        } catch (e) {
+          setJobs((prev) =>
+            prev.map((j) =>
+              j.id === job.id
+                ? { ...j, status: "erro", error: e instanceof Error ? e.message : "Falha." }
+                : j,
+            ),
+          );
+        }
+        continue;
+      }
+
+      // ---- IMAGEM: detecta e monta os emojis no canvas do navegador -------
       try {
         const form = new FormData();
         form.append("file", job.file);
@@ -198,20 +303,38 @@ export default function CensuraPage() {
 
   /** Exporta o canvas de um job e envia para a galeria do perfil escolhido.
    *  A rota /api/profiles/[id]/media já remove os metadados no upload. */
+  /**
+   * Manda o resultado para a galeria da modelo.
+   *
+   * A origem do arquivo muda com o tipo: a FOTO sai do canvas (o operador pode
+   * ter arrastado o emoji, e o que vale é o que está na tela); o VÍDEO já veio
+   * pronto do servidor. Se isto olhasse só o canvas, o vídeo seria ignorado em
+   * silêncio — censurado na tela e nunca salvo.
+   */
   async function saveJobToGallery(job: Job): Promise<boolean> {
-    const handle = canvasRefs.current[job.id];
-    if (!handle || !saveProfileId) return false;
+    if (!saveProfileId) return false;
+    const baseName = job.file.name.replace(/\.[^./\\]+$/, "");
+
+    let arquivo: File;
+    if (job.kind === "video") {
+      if (!job.resultBlob) return false;
+      arquivo = new File([job.resultBlob], `${baseName}-censurado.mp4`, { type: "video/mp4" });
+    } else {
+      const handle = canvasRefs.current[job.id];
+      if (!handle) return false;
+      const blob = await handle.export();
+      arquivo = new File([blob], `${baseName}-censurada.png`, { type: "image/png" });
+    }
+
     setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, save: "salvando" } : j)));
     try {
-      const blob = await handle.export();
-      const baseName = job.file.name.replace(/\.[^./\\]+$/, "");
       const form = new FormData();
-      form.append("file", new File([blob], `${baseName}-censurada.png`, { type: "image/png" }));
+      form.append("file", arquivo);
       form.append("tags", "Censurada");
       await apiUpload(`/api/profiles/${saveProfileId}/media`, form);
       setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, save: "salvo" } : j)));
       return true;
-    } catch (e) {
+    } catch {
       setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, save: "erro" } : j)));
       return false;
     }
@@ -225,9 +348,14 @@ export default function CensuraPage() {
       showToast("Escolha uma modelo no menu antes de enviar para a galeria.", "warning");
       return;
     }
-    const targets = jobs.filter((j) => j.img && j.status === "pronto" && j.save !== "salvo");
+    const targets = jobs.filter(
+      (j) =>
+        j.status === "pronto" &&
+        j.save !== "salvo" &&
+        (j.kind === "video" ? Boolean(j.resultBlob) : Boolean(j.img)),
+    );
     if (targets.length === 0) {
-      showToast("Nenhuma foto pronta para enviar. Clique em 'Detectar e editar' primeiro.", "warning");
+      showToast("Nada pronto para enviar. Clique em 'Detectar e editar' primeiro.", "warning");
       return;
     }
     setSavingAll(true);
@@ -238,11 +366,13 @@ export default function CensuraPage() {
     setSavingAll(false);
     const modelo = profile?.name || "a galeria";
     if (ok === targets.length) {
-      showToast(`${ok} foto(s) censurada(s) enviada(s) para ${modelo}.`, "success");
+      showToast(`${ok} arquivo(s) censurado(s) enviado(s) para ${modelo}.`, "success");
     } else {
       showToast(`Enviadas ${ok}/${targets.length}. Algumas falharam — tente de novo.`, "error");
     }
   }
+
+  const temVideo = jobs.some((j) => j.kind === "video");
 
   const stats = {
     carregadas: jobs.length,
@@ -257,12 +387,13 @@ export default function CensuraPage() {
         <PageHeader
           title={
             <span className="flex items-center gap-2">
-              <IconBlur size={22} /> Censura de imagem com IA
+              <IconBlur size={22} /> Censura com IA
             </span>
           }
-          description="Detecta partes explícitas e cobre com emoji automaticamente. Ajuste à mão e baixe."
+          description="Detecta partes explícitas e cobre automaticamente. Foto sai pronta na tela; vídeo é processado no servidor."
         />
       </div>
+
 
       {/* Cards de status */}
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -308,7 +439,7 @@ export default function CensuraPage() {
             <input
               ref={inputRef}
               type="file"
-              accept={IMG_EXTS.join(",")}
+              accept={[...IMG_EXTS, ...VIDEO_EXTS].join(",")}
               multiple
               className="hidden"
               onChange={(e) => addFiles(e.target.files)}
@@ -358,6 +489,67 @@ export default function CensuraPage() {
             ))}
           </div>
 
+          {/* Vídeos da leva. Só aparece quando há vídeo na fila: quem só
+              carregou fotos não tem por que ver escolha de vídeo. */}
+          {temVideo && (
+            <div className="mt-5 rounded-xl border border-white/10 bg-ink-850 p-3">
+              <p className="eyebrow">Vídeos desta leva</p>
+              <div className="mt-2 space-y-1.5">
+                {(
+                  [
+                    ["borrao", "Borrão total", "Teaser: o vídeo inteiro fica ilegível. Não usa IA — nada escapa."],
+                    ["emoji", "Emoji nas partes", "O vídeo segue assistível e só as partes ficam cobertas. Usa IA quadro a quadro."],
+                  ] as ["borrao" | "emoji", string, string][]
+                ).map(([k, titulo, desc]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setModoVideo(k)}
+                    className={`w-full rounded-lg border p-2.5 text-left transition-colors ${
+                      modoVideo === k
+                        ? "border-emerald-500/40 bg-emerald-500/[0.07]"
+                        : "border-white/10 hover:border-white/20"
+                    }`}
+                  >
+                    <p className={`text-xs font-semibold ${modoVideo === k ? "text-emerald-300" : "text-zinc-200"}`}>
+                      {titulo}
+                    </p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{desc}</p>
+                  </button>
+                ))}
+              </div>
+              {modoVideo === "borrao" && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between">
+                    <span className="eyebrow">Intensidade</span>
+                    <span className="font-mono text-[11px] text-zinc-400">
+                      {Math.round(intensidadeVideo * 100)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.2}
+                    max={1}
+                    step={0.05}
+                    value={intensidadeVideo}
+                    onChange={(e) => setIntensidadeVideo(Number(e.target.value))}
+                    className="mt-1.5 w-full accent-white"
+                  />
+                  <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                    Acima de uns 80% o quadro só fica mais escuro, não mais escondido — quem
+                    esconde é o desfoque.
+                  </p>
+                </div>
+              )}
+              {modoVideo === "emoji" && (
+                <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+                  Usa os mesmos emojis escolhidos acima. O vídeo volta pronto — diferente da foto,
+                  não dá para arrastar o emoji com a mão, porque quem monta é o servidor.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Sliders */}
           <div className="mt-4 space-y-3">
             <Slider label="Sensibilidade" value={minScore} min={0.1} max={0.9} step={0.05} onChange={setMinScore} />
@@ -401,7 +593,7 @@ export default function CensuraPage() {
               >
                 {savingAll
                   ? "Enviando..."
-                  : `Enviar censuradas para a galeria${stats.prontas ? ` (${stats.prontas})` : ""}`}
+                  : `Enviar censurados para a galeria${stats.prontas ? ` (${stats.prontas})` : ""}`}
               </button>
               <p className="mt-2 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                 <IconLock size={12} /> Metadados removidos ao salvar
@@ -417,8 +609,9 @@ export default function CensuraPage() {
               <IconBlur size={30} />
               <p className="mt-3 font-display text-lg text-zinc-300">Editor de censura</p>
               <p className="mt-1 max-w-sm text-sm text-zinc-500">
-                Carregue as fotos e clique em <b>Detectar e editar</b>. Todas aparecem aqui, uma
-                embaixo da outra, prontas para ajustar.
+                Carregue fotos e vídeos — pode ser tudo junto — e clique em{" "}
+                <b>Detectar e editar</b>. Aparecem aqui, um embaixo do outro, na ordem em que
+                foram carregados.
               </p>
             </div>
           )}
@@ -429,7 +622,12 @@ export default function CensuraPage() {
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-200">
                   {job.file.name}
                 </span>
-                {job.status === "pronto" && (
+                {job.kind === "video" && (
+                  <span className="chip shrink-0">
+                    vídeo{job.duracao != null && ` · ${job.duracao.toFixed(1)}s`}
+                  </span>
+                )}
+                {job.status === "pronto" && job.kind === "image" && (
                   <span className="chip">{job.regionsCount} regiã(o/es)</span>
                 )}
               </div>
@@ -440,7 +638,13 @@ export default function CensuraPage() {
                 </p>
               )}
 
-              {job.img ? (
+              {job.kind === "video" ? (
+                <VideoJobCard
+                  job={job}
+                  podeSalvar={Boolean(saveProfileId)}
+                  onSalvar={() => saveJobToGallery(job)}
+                />
+              ) : job.img ? (
                 <>
                   <CensorCanvas
                     ref={(h) => {
@@ -488,6 +692,98 @@ export default function CensuraPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * O cartão de um VÍDEO na fila.
+ *
+ * Diferente da foto, aqui não há canvas nem ajuste manual: o vídeo é remontado
+ * no servidor e volta pronto. O que a tela deve, então, é (a) mostrar antes e
+ * depois lado a lado, e (b) contar o que a IA achou — um vídeo em que ela não
+ * encontrou nada volta INTACTO, e sem essa linha seria indistinguível de um
+ * censurado.
+ */
+function VideoJobCard({
+  job,
+  podeSalvar,
+  onSalvar,
+}: {
+  job: Job;
+  podeSalvar: boolean;
+  onSalvar: () => void;
+}) {
+  const nada = job.status === "pronto" && (job.partesCobertas?.length ?? 0) === 0;
+
+  return (
+    <>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <p className="eyebrow mb-1.5">Original</p>
+          <video src={job.url} controls playsInline className="w-full rounded-xl bg-black" />
+        </div>
+        <div>
+          <p className="eyebrow mb-1.5">Censurado</p>
+          {job.resultUrl ? (
+            <video src={job.resultUrl} controls playsInline className="w-full rounded-xl bg-black" />
+          ) : (
+            <div className="grid h-full min-h-[160px] w-full place-items-center rounded-xl border border-dashed border-white/10 text-[11px] text-zinc-600">
+              {job.status === "processando" ? "processando..." : "ainda não processado"}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {nada && (
+        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-2.5 text-[11px] leading-relaxed text-amber-300">
+          A IA não encontrou nenhuma das partes escolhidas em {job.amostras} quadro(s) analisado(s)
+          — este vídeo voltou <b>sem alteração</b>. Use o borrão total, ou confira se a parte certa
+          está marcada.
+        </p>
+      )}
+
+      {job.status === "pronto" && !nada && job.partesCobertas && (
+        <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
+          Coberto:{" "}
+          <b className="text-zinc-300">
+            {job.partesCobertas.map((p) => BODY_PART_LABELS[p] || p).join(", ")}
+          </b>
+          . Onde a detecção falhou, o emoji foi mantido na última posição e a região continuou
+          borrada. Confira os trechos com movimento rápido antes de postar.
+        </p>
+      )}
+
+      {job.resultUrl && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <a
+            href={job.resultUrl}
+            download={`${job.file.name.replace(/\.[^./\\]+$/, "")}-censurado.mp4`}
+            className="btn-ghost px-3 py-2 text-sm"
+          >
+            <IconDownload size={15} /> Baixar
+          </a>
+          {podeSalvar && (
+            <button
+              onClick={onSalvar}
+              disabled={job.save === "salvando"}
+              className="btn-primary px-3 py-2 text-sm"
+            >
+              {job.save === "salvando"
+                ? "Salvando..."
+                : job.save === "salvo"
+                  ? "Salvar de novo"
+                  : "Salvar na galeria"}
+            </button>
+          )}
+          {job.save === "salvo" && (
+            <span className="inline-flex items-center gap-1 text-xs text-emerald-400">
+              <IconCheck size={14} /> Na galeria
+            </span>
+          )}
+          {job.save === "erro" && <span className="text-xs text-red-400">Falha ao salvar</span>}
+        </div>
+      )}
+    </>
   );
 }
 

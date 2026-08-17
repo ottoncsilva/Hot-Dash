@@ -37,8 +37,19 @@ export type TelegramUser = {
   createdAt: number;
 };
 
-/** Rótulo mostrado na lista, na ordem de prioridade em que é decidido. */
-export type TelegramUserStatus = "bloqueado" | "vip" | "expirado" | "pendente" | "lead";
+/**
+ * Rótulo da lista, na ordem de prioridade em que é decidido.
+ *
+ * Quem gerou PIX e não pagou é LEAD, não uma categoria à parte: continua sendo
+ * alguém que ainda não comprou. Como "pendente" ficava fora dos quatro
+ * cartões, uma lista com duas pessoas nesse estado mostrava Total 2 e todos os
+ * cartões zerados. Agora os quatro somam o total.
+ *
+ * A informação não se perde: a linha diz "PIX gerado" no detalhe, e o Mailing
+ * continua tendo o público "Pendentes" separado — lá a distinção muda a
+ * conversa, aqui não muda o que a pessoa é.
+ */
+export type TelegramUserStatus = "bloqueado" | "vip" | "expirado" | "lead";
 
 /**
  * A linha da tela de Usuários. É UMA lista só: a assinatura não tem tela
@@ -54,6 +65,8 @@ export type TelegramUserWithStatus = TelegramUser & {
   expiresAt?: number;
   /** Nome do plano comprado, quando dá para descobrir pela transação. */
   planName?: string;
+  /** Gerou PIX e não pagou. Não muda o status (é lead), mas vale mostrar. */
+  pixPendente?: boolean;
   /** O prazo venceu e o bot ainda NÃO conseguiu tirar a pessoa do VIP. Ele
    *  continua tentando sozinho; a marca existe para isso não ficar só num
    *  push que pode passar despercebido. */
@@ -208,6 +221,9 @@ export const AUDIENCES = [
   "expirados",
   "pendentes",
   "compradores",
+  "recorrentes",
+  "pacotes",
+  "order_bump",
   "previas",
   "grupo_vip",
 ] as const;
@@ -221,6 +237,9 @@ export const AUDIENCE_LABELS: Record<Audience, string> = {
   expirados: "Expirados",
   pendentes: "Pendentes",
   compradores: "Compradores",
+  recorrentes: "Recorrentes",
+  pacotes: "Pacotes",
+  order_bump: "Order Bump",
   previas: "Prévias",
   grupo_vip: "Grupo VIP",
 };
@@ -232,6 +251,9 @@ export const AUDIENCE_HINTS: Record<Audience, string> = {
   expirados: "Assinatura VIP vencida.",
   pendentes: "Gerou PIX e não pagou.",
   compradores: "Já pagou pelo menos uma vez.",
+  recorrentes: "Comprou mais de uma vez.",
+  pacotes: "Comprou um pacote (compra única).",
+  order_bump: "Aceitou uma oferta adicional na hora de pagar.",
   previas: "Está no grupo de prévias.",
   grupo_vip: "Está dentro do grupo VIP.",
 };
@@ -260,6 +282,22 @@ const HAS_PENDING = `EXISTS (SELECT 1 FROM telegram_subscriptions s
 const HAS_ANY_SUB = `EXISTS (SELECT 1 FROM telegram_subscriptions s
    WHERE s.bot_id = u.bot_id AND s.telegram_user_id = u.telegram_user_id)`;
 
+/** Comprou MAIS DE UMA vez — o público que já provou que renova. */
+const RECORRENTE = `(SELECT COUNT(*) FROM telegram_subscriptions s
+   WHERE s.bot_id = u.bot_id AND s.telegram_user_id = u.telegram_user_id
+     AND s.status IN ('active', 'expired')) > 1`;
+
+/** Comprou um PACOTE (compra única). `plan_id` é o que diz o tipo. */
+const COMPROU_PACOTE = `EXISTS (SELECT 1 FROM telegram_subscriptions s
+   JOIN telegram_plans p ON p.id = s.plan_id
+   WHERE s.bot_id = u.bot_id AND s.telegram_user_id = u.telegram_user_id
+     AND s.status IN ('active', 'expired') AND p.kind = 'package')`;
+
+/** Aceitou o order bump em alguma compra — bump_cents > 0 é o registro disso. */
+const ACEITOU_BUMP = `EXISTS (SELECT 1 FROM telegram_subscriptions s
+   WHERE s.bot_id = u.bot_id AND s.telegram_user_id = u.telegram_user_id
+     AND s.status IN ('active', 'expired') AND COALESCE(s.bump_cents, 0) > 0)`;
+
 /** Devolve o trecho WHERE (sem o "WHERE") e os parâmetros do público pedido. */
 function audienceClause(audience: Audience, now: number): { sql: string; params: unknown[] } {
   switch (audience) {
@@ -273,6 +311,12 @@ function audienceClause(audience: Audience, now: number): { sql: string; params:
       return { sql: `${HAS_PENDING} AND NOT ${ACTIVE_VIP}`, params: [now] };
     case "compradores":
       return { sql: EVER_PAID, params: [] };
+    case "recorrentes":
+      return { sql: RECORRENTE, params: [] };
+    case "pacotes":
+      return { sql: COMPROU_PACOTE, params: [] };
+    case "order_bump":
+      return { sql: ACEITOU_BUMP, params: [] };
     case "previas":
       return { sql: "u.in_previas = 1", params: [] };
     case "grupo_vip":
@@ -351,7 +395,9 @@ export function userStats(botId: string): {
     total: one("1 = 1"),
     vips: one(`u.blocked = 0 AND ${ACTIVE_VIP}`, [now]),
     expirados: one(`u.blocked = 0 AND ${HAS_EXPIRED} AND NOT ${ACTIVE_VIP}`, [now]),
-    leads: one(`u.blocked = 0 AND NOT ${HAS_ANY_SUB}`),
+    // Lead = não é VIP nem expirado. Inclui quem gerou PIX e não pagou, que
+    // antes não entrava em cartão nenhum e sumia da conta.
+    leads: one(`u.blocked = 0 AND NOT ${ACTIVE_VIP} AND NOT ${HAS_EXPIRED}`, [now]),
     bloqueados: one("u.blocked = 1"),
   };
 }
@@ -386,7 +432,7 @@ export function userStatsAll(profileId?: string): {
     total: one("1 = 1"),
     vips: one(`u.blocked = 0 AND ${ACTIVE_VIP}`, [now]),
     expirados: one(`u.blocked = 0 AND ${HAS_EXPIRED} AND NOT ${ACTIVE_VIP}`, [now]),
-    leads: one(`u.blocked = 0 AND NOT ${HAS_ANY_SUB}`),
+    leads: one(`u.blocked = 0 AND NOT ${ACTIVE_VIP} AND NOT ${HAS_EXPIRED}`, [now]),
     bloqueados: one("u.blocked = 1"),
   };
 }
@@ -421,7 +467,8 @@ export function listTelegramUsers(opts: {
       params.push(now);
       break;
     case "leads":
-      where.push(`u.blocked = 0 AND NOT ${HAS_ANY_SUB}`);
+      where.push(`u.blocked = 0 AND NOT ${ACTIVE_VIP} AND NOT ${HAS_EXPIRED}`);
+      params.push(now);
       break;
     case "bloqueados":
       where.push("u.blocked = 1");
@@ -486,9 +533,7 @@ export function listTelegramUsers(opts: {
         ? "vip"
         : r.is_expired
           ? "expirado"
-          : r.is_pending
-            ? "pendente"
-            : "lead";
+          : "lead";
     const plano =
       r.plan_name ||
       (typeof r.tx_description === "string"
@@ -501,6 +546,7 @@ export function listTelegramUsers(opts: {
       expiresAt: r.sub_id ? Number(r.sub_expires_at || 0) : undefined,
       planName: plano || undefined,
       removalPending: Boolean(r.sub_removal_pending),
+      pixPendente: Boolean(r.is_pending) && status === "lead",
     };
   });
 

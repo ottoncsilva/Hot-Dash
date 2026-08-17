@@ -66,7 +66,12 @@ function readMailingInput(body: any, botId: string, profileId: string) {
     .filter((b: { text: string; url: string }) => b.text && b.url);
 
   // Sem texto, sem mídia e sem oferta não há mensagem para enviar.
-  if (!message && !String(body.mediaTags || "").trim() && offers.length === 0) {
+  const mediaIds = Array.isArray(body.mediaIds)
+    ? body.mediaIds.filter((v: unknown) => typeof v === "string" && v).slice(0, 10)
+    : [];
+  // Um disparo precisa levar ALGUMA coisa: texto, mídia ou oferta. Só áudio
+  // não conta — voz sem contexto no privado de quem não pediu é ruído.
+  if (!message && mediaIds.length === 0 && !String(body.mediaTags || "").trim() && offers.length === 0) {
     throw new ApiError(400, "Escreva a mensagem, escolha uma mídia ou adicione uma oferta.");
   }
 
@@ -76,7 +81,10 @@ function readMailingInput(body: any, botId: string, profileId: string) {
     name,
     message,
     audiences: normalizeAudiences(body.audiences),
+    mediaIds: mediaIds.length > 0 ? mediaIds : undefined,
+    mediaMode: (body.mediaMode === "separate" ? "separate" : "album") as "album" | "separate",
     mediaTags: String(body.mediaTags || "").trim() || undefined,
+    audioUrl: String(body.audioUrl || "").trim() || undefined,
     buttons,
     scheduleType,
     scheduleTimes: String(body.scheduleTimes || "").trim() || undefined,

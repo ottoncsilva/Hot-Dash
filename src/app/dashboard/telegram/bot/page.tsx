@@ -26,7 +26,10 @@ import {
 import PageHeader from "@/components/PageHeader";
 import SectionRow, { resumo } from "@/components/telegram/bot/SectionRow";
 import VarChips from "@/components/telegram/bot/VarChips";
-import BotPreview, { PreviewBalao, type PreviewStyle } from "@/components/telegram/bot/BotPreview";
+import BotPreview, {
+  SequencePreview,
+  type PreviewStyle,
+} from "@/components/telegram/bot/BotPreview";
 import FormatToolbar from "@/components/telegram/bot/FormatToolbar";
 import MediaPicker from "@/components/telegram/bot/MediaPicker";
 import MessageEditor, { VARS_PADRAO } from "@/components/telegram/bot/MessageEditor";
@@ -198,6 +201,18 @@ export default function BotVendasPage() {
   // Os papéis de botão são fixos do produto; as CORES vêm do bot da modelo.
   const [buttonRoles, setButtonRoles] = useState<ButtonRoleInfo[]>([]);
 
+  // APROVAÇÃO AUTOMÁTICA. Mora aqui pelo mesmo motivo das boas-vindas: o
+  // preview do aparelho é irmão do formulário, não filho dele, e precisa
+  // acompanhar cada tecla digitada nas sequências.
+  const [aprVip, setAprVip] = useState<ApprovalMode>("subscribers");
+  const [aprPrevias, setAprPrevias] = useState<ApprovalMode>("all");
+  const [seqPrevias, setSeqPrevias] = useState<WelcomeStep[]>([]);
+  const [seqVip, setSeqVip] = useState<WelcomeStep[]>([]);
+  const [usaPrevias, setUsaPrevias] = useState(false);
+  const [usaVip, setUsaVip] = useState(false);
+  /** Qual das duas sequências o preview desenha. */
+  const [grupoPreview, setGrupoPreview] = useState<"previas" | "vip">("previas");
+
   const load = useCallback(async () => {
     if (!profileId) return;
     setLoading(true);
@@ -222,13 +237,20 @@ export default function BotVendasPage() {
       setEfeitoPix(d.bot?.effectPix || "");
       setEfeitoSuccess(d.bot?.effectSuccess || "");
       setButtonRoles(d.buttonRoles || []);
+      setAprVip(d.bot?.vipApprovalMode || "subscribers");
+      setAprPrevias(d.bot?.previasApprovalMode || "all");
+      setSeqPrevias(parseSteps(d.bot?.previasWelcomeFunnel));
+      setSeqVip(parseSteps(d.bot?.vipWelcomeFunnel));
+      setUsaPrevias(Boolean(d.bot?.previasUseWelcome));
+      setUsaVip(Boolean(d.bot?.vipUseWelcome));
     } finally {
       setLoading(false);
     }
   }, [profileId]);
 
-  // O preview só faz sentido nas abas que mudam o que o lead vê no /start.
-  const mostraPreview = tab === "config" || tab === "planos";
+  // O preview só faz sentido nas abas que mudam o que o lead RECEBE — o /start
+  // e as boas-vindas de quem foi aprovado num grupo.
+  const mostraPreview = tab === "config" || tab === "planos" || tab === "aprovacao";
   // A cor de cada botão segue a MESMA regra do envio (planButtonStyleProps):
   // a cor do plano manda; sem ela, vale o estilo do papel "plans".
   const CORES_DO_PLANO: ButtonStyles = { green: "success", blue: "primary", red: "danger" };
@@ -353,20 +375,74 @@ export default function BotVendasPage() {
                 <FunnelCard profileId={profileId} bot={bot} planos={plans} onSaved={load} />
               )}
               {tab === "aprovacao" && (
-                <ApprovalCard profileId={profileId} bot={bot} planos={previewButtons} onSaved={load} />
+                <ApprovalCard
+                  profileId={profileId}
+                  bot={bot}
+                  vip={aprVip}
+                  setVip={setAprVip}
+                  previas={aprPrevias}
+                  setPrevias={setAprPrevias}
+                  seqPrevias={seqPrevias}
+                  setSeqPrevias={setSeqPrevias}
+                  seqVip={seqVip}
+                  setSeqVip={setSeqVip}
+                  usaPrevias={usaPrevias}
+                  setUsaPrevias={setUsaPrevias}
+                  usaVip={usaVip}
+                  setUsaVip={setUsaVip}
+                  onSaved={load}
+                />
               )}
             </div>
 
-            {mostraPreview && (
-              <BotPreview
-                botUsername={bot.botUsername}
-                welcomeMessage={welcome}
-                welcomeMediaIds={welcomeIds}
-                welcomeMediaMode={welcomeMode}
-                buttons={previewButtons}
-                effect={efeitoWelcome}
-              />
-            )}
+            {/* O preview da aprovação desenha a CONVERSA de quem acabou de ser
+                aprovado; o das outras abas, o /start. É o mesmo aparelho e o
+                mesmo seletor — o que muda é a mensagem que se está escrevendo. */}
+            {mostraPreview &&
+              (tab === "aprovacao" ? (
+                <SequencePreview
+                  botUsername={bot.botUsername}
+                  titulo={grupoPreview === "previas" ? "Entrou nas Prévias" : "Entrou no VIP"}
+                  usarBoasVindas={grupoPreview === "previas" ? usaPrevias : usaVip}
+                  boasVindas={welcome}
+                  boasVindasMedia={welcomeIds}
+                  boasVindasModo={welcomeMode}
+                  passos={grupoPreview === "previas" ? seqPrevias : seqVip}
+                  planos={previewButtons}
+                  cabecalho={
+                    <div className="mb-2 flex w-full max-w-[300px] gap-1 rounded-lg bg-white/5 p-1">
+                      {(
+                        [
+                          ["previas", "Prévias"],
+                          ["vip", "VIP"],
+                        ] as const
+                      ).map(([k, label]) => (
+                        <button
+                          key={k}
+                          type="button"
+                          onClick={() => setGrupoPreview(k)}
+                          className={`flex-1 rounded-md px-2 py-1 text-xs transition-colors ${
+                            grupoPreview === k
+                              ? "bg-white/10 font-semibold text-white"
+                              : "text-zinc-400 hover:text-zinc-200"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  }
+                />
+              ) : (
+                <BotPreview
+                  botUsername={bot.botUsername}
+                  welcomeMessage={welcome}
+                  welcomeMediaIds={welcomeIds}
+                  welcomeMediaMode={welcomeMode}
+                  buttons={previewButtons}
+                  effect={efeitoWelcome}
+                />
+              ))}
           </div>
         </div>
       )}
@@ -2342,25 +2418,46 @@ const MODOS: { key: ApprovalMode; label: string; desc: string }[] = [
   },
 ];
 
+/**
+ * Regras de aprovação e as duas sequências de boas-vindas.
+ *
+ * O estado mora na PÁGINA (ver BotVendasPage), não aqui: o preview do aparelho
+ * é irmão deste cartão, e precisa redesenhar a cada tecla. Guardar as
+ * sequências aqui dentro deixaria o preview sempre uma edição atrás.
+ */
 function ApprovalCard({
   profileId,
   bot,
-  planos,
+  vip,
+  setVip,
+  previas,
+  setPrevias,
+  seqPrevias,
+  setSeqPrevias,
+  seqVip,
+  setSeqVip,
+  usaPrevias,
+  setUsaPrevias,
+  usaVip,
+  setUsaVip,
   onSaved,
 }: {
   profileId: string;
   bot: Bot;
-  /** Os botões dos planos, como o preview desenha — para a linha "usar a
-   *  mensagem de boas-vindas" mostrar exatamente o que vai ser enviado. */
-  planos: Btn[];
+  vip: ApprovalMode;
+  setVip: (v: ApprovalMode) => void;
+  previas: ApprovalMode;
+  setPrevias: (v: ApprovalMode) => void;
+  seqPrevias: WelcomeStep[];
+  setSeqPrevias: (s: WelcomeStep[]) => void;
+  seqVip: WelcomeStep[];
+  setSeqVip: (s: WelcomeStep[]) => void;
+  usaPrevias: boolean;
+  setUsaPrevias: (v: boolean) => void;
+  usaVip: boolean;
+  setUsaVip: (v: boolean) => void;
   onSaved: () => void;
 }) {
-  const [vip, setVip] = useState<ApprovalMode>(bot.vipApprovalMode || "subscribers");
-  const [previas, setPrevias] = useState<ApprovalMode>(bot.previasApprovalMode || "all");
-  const [seqPrevias, setSeqPrevias] = useState<WelcomeStep[]>(parseSteps(bot.previasWelcomeFunnel));
-  const [seqVip, setSeqVip] = useState<WelcomeStep[]>(parseSteps(bot.vipWelcomeFunnel));
-  const [usaPrevias, setUsaPrevias] = useState(Boolean(bot.previasUseWelcome));
-  const [usaVip, setUsaVip] = useState(Boolean(bot.vipUseWelcome));
   const [busy, setBusy] = useState(false);
 
   async function save() {
@@ -2414,10 +2511,6 @@ function ApprovalCard({
         setSteps={setSeqPrevias}
         usarBoasVindas={usaPrevias}
         setUsarBoasVindas={setUsaPrevias}
-        boasVindas={bot.welcomeMessage}
-        boasVindasMedia={bot.welcomeMediaIds || []}
-        boasVindasModo={bot.welcomeMediaMode}
-        planos={planos}
         botUsername={bot.botUsername}
       />
       <WelcomeSequence
@@ -2427,10 +2520,6 @@ function ApprovalCard({
         setSteps={setSeqVip}
         usarBoasVindas={usaVip}
         setUsarBoasVindas={setUsaVip}
-        boasVindas={bot.welcomeMessage}
-        boasVindasMedia={bot.welcomeMediaIds || []}
-        boasVindasModo={bot.welcomeMediaMode}
-        planos={planos}
         botUsername={bot.botUsername}
       />
 
@@ -2520,10 +2609,6 @@ function WelcomeSequence({
   setSteps,
   usarBoasVindas,
   setUsarBoasVindas,
-  boasVindas,
-  boasVindasMedia,
-  boasVindasModo,
-  planos,
   botUsername,
 }: {
   profileId: string;
@@ -2532,11 +2617,6 @@ function WelcomeSequence({
   setSteps: (s: WelcomeStep[]) => void;
   usarBoasVindas: boolean;
   setUsarBoasVindas: (v: boolean) => void;
-  /** O que a mensagem de boas-vindas tem hoje — para mostrar no preview. */
-  boasVindas: string;
-  boasVindasMedia: string[];
-  boasVindasModo: "album" | "separate";
-  planos: Btn[];
   /** @ do bot desta modelo — monta o link padrão do botão próprio. */
   botUsername?: string;
 }) {
@@ -2573,19 +2653,10 @@ function WelcomeSequence({
         </div>
 
         {usarBoasVindas && (
-          <div className="mt-3">
-            <p className="eyebrow mb-1.5">O que vai ser enviado</p>
-            <PreviewBalao
-              mediaIds={boasVindasMedia}
-              mode={boasVindasModo}
-              text={boasVindas}
-              buttons={planos}
-              vazio="(mensagem de boas-vindas vazia)"
-            />
-            <p className="mt-1.5 text-[11px] text-zinc-500">
-              As mensagens abaixo continuam valendo e saem <b>depois</b> desta.
-            </p>
-          </div>
+          <p className="mt-2 text-[11px] text-zinc-500">
+            As mensagens abaixo continuam valendo e saem <b>depois</b> desta. Veja a conversa
+            inteira no celular ao lado.
+          </p>
         )}
       </div>
 

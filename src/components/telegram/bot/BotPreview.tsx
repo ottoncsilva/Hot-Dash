@@ -1,35 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import {
+  APARELHOS,
+  APARELHO_PADRAO,
+  CHROME,
+  FONTES,
+  alturaDaConversa,
+  useAparelho,
+  type Aparelho,
+} from "./aparelhos";
 
 /**
- * PREVIEW AO VIVO do /start, dentro de uma tela de celular DE VERDADE.
+ * PREVIEW AO VIVO das mensagens do bot, dentro de uma tela de celular DE VERDADE.
  *
  * Não é enfeite: o que o operador precisa saber é o que cabe na primeira tela
  * do lead — onde a mensagem corta, se os botões aparecem sem rolar, se a foto
  * empurra tudo para baixo. Num painel largo, um preview solto sempre parece
  * confortável; no celular do lead, não é.
  *
- * Por isso as medidas são as do aparelho, não aproximações: 390×844 pt do
- * iPhone 12/13/14 (a linha comum, não Max nem Plus), com as áreas seguras e a
- * altura real de cada barra do Telegram descontadas. O que sobra é a janela de
- * conversa honesta.
+ * Por isso as medidas são as do aparelho, não aproximações, e o aparelho é
+ * ESCOLHIDO (ver aparelhos.ts): as áreas seguras e a altura de cada barra do
+ * Telegram são descontadas de acordo com o modelo, e o que sobra é a janela de
+ * conversa honesta daquele celular.
  */
-
-/** iPhone 12/13/14: 390×844 pontos, densidade 3×. */
-const TELA = { largura: 390, altura: 844 };
-
-/**
- * Alturas em pontos, medidas no aparelho.
- *
- * `seguraTopo` é a área do notch (47pt no 12/13/14); `seguraBase` é a faixa do
- * indicador de home (34pt). O cabeçalho de conversa do Telegram tem 44pt e a
- * barra de digitação, 50pt. Somadas, comem 175pt dos 844 — mais de um quinto
- * da tela, que é exatamente o erro que um preview sem moldura esconde.
- */
-const ALTURAS = { seguraTopo: 47, cabecalho: 44, digitacao: 50, seguraBase: 34 };
-const ALTURA_CONVERSA =
-  TELA.altura - ALTURAS.seguraTopo - ALTURAS.cabecalho - ALTURAS.digitacao - ALTURAS.seguraBase;
 
 /** O estilo é o MESMO que vai para o Telegram (Bot API 9.4). */
 export type PreviewStyle = "" | "primary" | "success" | "danger";
@@ -58,6 +52,17 @@ const EFEITO_EMOJI: Record<string, string> = {
   poop: "💩",
 };
 
+/**
+ * O aparelho escolhido, para quem desenha o CONTEÚDO.
+ *
+ * O balão e o botão precisam do tamanho de fonte da plataforma (o Telegram do
+ * Android desenha a mensagem 1pt menor que o do iOS, e é isso que decide onde a
+ * linha quebra), mas eles são usados soltos em outras telas — a linha "usar a
+ * mensagem de boas-vindas", por exemplo. Contexto com padrão resolve os dois
+ * casos sem obrigar cada chamada a repassar o aparelho.
+ */
+const AparelhoCtx = createContext<Aparelho>(APARELHO_PADRAO);
+
 export default function BotPreview({
   botUsername,
   welcomeMessage,
@@ -76,33 +81,15 @@ export default function BotPreview({
   effect?: string;
 }) {
   const ids = welcomeMediaIds || [];
-  const conversaRef = useRef<HTMLDivElement>(null);
-  const [passaDaTela, setPassaDaTela] = useState(false);
-  // Quais rótulos o Telegram vai cortar. Guardado por texto, não por índice:
-  // reordenar os planos não pode fazer o aviso apontar para o botão errado.
-  const [cortados, setCortados] = useState<string[]>([]);
-  const marcarCorte = useCallback((texto: string, cortado: boolean) => {
-    setCortados((antes) => {
-      const tem = antes.includes(texto);
-      if (cortado === tem) return antes;
-      return cortado ? [...antes, texto] : antes.filter((t) => t !== texto);
-    });
-  }, []);
-
-  // Passou da primeira tela? É a pergunta que o preview existe para responder,
-  // e ela só pode ser medida DEPOIS de o conteúdo renderizar.
-  const medir = useCallback(() => {
-    const el = conversaRef.current;
-    if (el) setPassaDaTela(el.scrollHeight > el.clientHeight + 2);
-  }, []);
-  useEffect(() => {
-    medir();
-    const t = setTimeout(medir, 400); // as miniaturas chegam depois
-    return () => clearTimeout(t);
-  }, [medir, welcomeMessage, welcomeMediaIds, welcomeMediaMode, buttons.length]);
+  const { conversaRef, passaDaTela, medir, cortados, marcarCorte } = useMedidas([
+    welcomeMessage,
+    ids.join(","),
+    welcomeMediaMode,
+    buttons.length,
+  ]);
 
   return (
-    <Aparelho
+    <Celular
       titulo={botUsername ? `@${botUsername}` : "seu bot"}
       inicial={(botUsername || "b").charAt(0).toUpperCase()}
       rodape={
@@ -111,13 +98,7 @@ export default function BotPreview({
           : "Tudo cabe na primeira tela."
       }
       rodapeAlerta={passaDaTela}
-      aviso={
-        cortados.length > 0
-          ? `O Telegram corta rótulo de botão em UMA linha, com reticências — não quebra em duas. ` +
-            `Vai sair cortado: ${cortados.map((t) => `"${t}"`).join(", ")}. ` +
-            `Encurte para o preço não sumir.`
-          : undefined
-      }
+      aviso={avisoDeCorte(cortados)}
     >
       <div ref={conversaRef} className="h-full overflow-y-auto px-3 py-3" onLoad={medir}>
         <p className="mx-auto mb-2 w-fit rounded-full bg-white/10 px-2 py-0.5 text-[12px] text-zinc-300">
@@ -141,8 +122,211 @@ export default function BotPreview({
           </p>
         )}
       </div>
-    </Aparelho>
+    </Celular>
   );
+}
+
+/**
+ * PREVIEW DA SEQUÊNCIA de boas-vindas da Aprovação Automática.
+ *
+ * A tela de aprovação monta uma CONVERSA, não uma mensagem: a de boas-vindas
+ * (quando reaproveitada) e depois cada passo, cada um com o seu atraso. Sem ver
+ * isso num aparelho, o operador escreve quatro mensagens que sozinhas parecem
+ * curtas e o lead recebe um muro de texto.
+ *
+ * O atraso aparece como separador entre os balões porque ele é parte do que se
+ * está configurando: "imediato, +10 min, +1 h" é a diferença entre uma recepção
+ * e uma metralhadora.
+ */
+export type PreviewPasso = {
+  delayMinutes?: number;
+  text: string;
+  mediaIds?: string[];
+  mediaMode?: "album" | "separate";
+  /** Os mesmos modos do editor: sem botões, com os planos, ou próprios. */
+  buttons?: "none" | "plans" | "custom";
+  customButtons?: { text: string; url: string }[];
+};
+
+export function SequencePreview({
+  botUsername,
+  titulo,
+  usarBoasVindas,
+  boasVindas,
+  boasVindasMedia,
+  boasVindasModo,
+  passos,
+  planos,
+  cabecalho,
+}: {
+  botUsername?: string;
+  /** Qual sequência está desenhada — vira o rótulo de cima. */
+  titulo: string;
+  usarBoasVindas: boolean;
+  boasVindas: string;
+  boasVindasMedia: string[];
+  boasVindasModo?: "album" | "separate";
+  passos: PreviewPasso[];
+  /** Os botões dos planos, para os passos com `buttons: "plans"`. */
+  planos: Btn[];
+  /** Seletor de qual grupo mostrar, desenhado acima do aparelho. */
+  cabecalho?: React.ReactNode;
+}) {
+  const { conversaRef, passaDaTela, medir, cortados, marcarCorte } = useMedidas([
+    usarBoasVindas,
+    boasVindas,
+    JSON.stringify(passos),
+    planos.length,
+  ]);
+
+  const nenhuma = !usarBoasVindas && passos.length === 0;
+  // O atraso de cada passo é ACUMULADO desde a entrada no grupo — é assim que o
+  // servidor agenda, e mostrar o número do campo (que é o acumulado, não o
+  // intervalo) evita o operador achar que "10" significa "10 min depois da
+  // anterior".
+  let acumulado = 0;
+
+  return (
+    <Celular
+      titulo={botUsername ? `@${botUsername}` : "seu bot"}
+      inicial={(botUsername || "b").charAt(0).toUpperCase()}
+      // Aqui a régua NÃO é a mesma do /start. As mensagens chegam em horários
+      // diferentes, então passar de uma tela somadas não é defeito — o que
+      // importa é o tamanho de cada uma. Por isso o rodapé informa, e só fica
+      // amarelo quando não há mensagem nenhuma configurada, que é erro de fato.
+      rodape={
+        nenhuma
+          ? "Nada configurado: quem for aprovado entra no grupo e não recebe mensagem nenhuma."
+          : passaDaTela
+            ? "Somadas, as mensagens passam de uma tela — cada uma chega no seu horário."
+            : "A conversa inteira cabe em uma tela."
+      }
+      rodapeAlerta={nenhuma}
+      aviso={avisoDeCorte(cortados)}
+      cabecalho={cabecalho}
+    >
+      <div ref={conversaRef} className="h-full overflow-y-auto px-3 py-3" onLoad={medir}>
+        <p className="mx-auto mb-2 w-fit rounded-full bg-white/10 px-2 py-0.5 text-[12px] text-zinc-300">
+          {titulo}
+        </p>
+
+        {usarBoasVindas && (
+          <>
+            <Momento label="Ao ser aprovado" />
+            <PreviewBalao
+              mediaIds={boasVindasMedia}
+              mode={boasVindasModo}
+              text={boasVindas}
+              buttons={planos}
+              vazio="(mensagem de boas-vindas vazia)"
+              onMedia={medir}
+              onCortado={marcarCorte}
+            />
+          </>
+        )}
+
+        {passos.map((p, i) => {
+          acumulado = p.delayMinutes ?? 0;
+          const botoes: Btn[] =
+            p.buttons === "plans"
+              ? planos
+              : p.buttons === "custom"
+                ? (p.customButtons || [])
+                    .filter((b) => b.text.trim())
+                    .map((b) => ({ text: b.text, kind: "custom" as const }))
+                : [];
+          return (
+            <div key={i}>
+              <Momento label={rotuloDeAtraso(acumulado)} />
+              <PreviewBalao
+                mediaIds={p.mediaIds || []}
+                mode={p.mediaMode}
+                text={p.text}
+                buttons={botoes}
+                vazio="(mensagem vazia)"
+                onMedia={medir}
+                onCortado={marcarCorte}
+              />
+            </div>
+          );
+        })}
+
+        {nenhuma && (
+          <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-2 text-center text-[11px] text-amber-300">
+            Nenhuma mensagem configurada para este grupo.
+          </p>
+        )}
+      </div>
+    </Celular>
+  );
+}
+
+/** Separador de tempo entre os balões, no estilo da data do Telegram. */
+function Momento({ label }: { label: string }) {
+  return (
+    <p className="mx-auto my-2 w-fit rounded-full bg-black/40 px-2 py-0.5 text-[11px] text-zinc-400">
+      {label}
+    </p>
+  );
+}
+
+/** "Imediato", "+10 min", "+3 h", "+2 dias" — sempre a partir da entrada. */
+function rotuloDeAtraso(min: number): string {
+  if (min <= 0) return "Imediato";
+  if (min < 60) return `+${min} min`;
+  if (min < 1440) {
+    const h = min / 60;
+    return `+${Number.isInteger(h) ? h : h.toFixed(1)} h`;
+  }
+  const d = min / 1440;
+  return `+${Number.isInteger(d) ? d : d.toFixed(1)} ${d === 1 ? "dia" : "dias"}`;
+}
+
+function avisoDeCorte(cortados: string[]): string | undefined {
+  if (cortados.length === 0) return undefined;
+  return (
+    "O Telegram corta rótulo de botão em UMA linha, com reticências — não quebra em duas. " +
+    `Vai sair cortado: ${cortados.map((t) => `"${t}"`).join(", ")}. ` +
+    "Encurte para o preço não sumir."
+  );
+}
+
+/**
+ * As duas medidas que o preview existe para dar: passou da primeira tela, e
+ * quais rótulos o Telegram vai cortar.
+ *
+ * Vive num hook porque as duas telas fazem a mesma pergunta — e porque a
+ * medição só pode acontecer DEPOIS de o conteúdo renderizar, o que é fácil de
+ * errar de formas diferentes em cada cópia.
+ */
+function useMedidas(deps: unknown[]) {
+  const conversaRef = useRef<HTMLDivElement>(null);
+  const [passaDaTela, setPassaDaTela] = useState(false);
+  // Guardado por texto, não por índice: reordenar os planos não pode fazer o
+  // aviso apontar para o botão errado.
+  const [cortados, setCortados] = useState<string[]>([]);
+
+  const marcarCorte = useCallback((texto: string, cortado: boolean) => {
+    setCortados((antes) => {
+      const tem = antes.includes(texto);
+      if (cortado === tem) return antes;
+      return cortado ? [...antes, texto] : antes.filter((t) => t !== texto);
+    });
+  }, []);
+
+  const medir = useCallback(() => {
+    const el = conversaRef.current;
+    if (el) setPassaDaTela(el.scrollHeight > el.clientHeight + 2);
+  }, []);
+
+  useEffect(() => {
+    medir();
+    const t = setTimeout(medir, 400); // as miniaturas chegam depois
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [medir, ...deps]);
+
+  return { conversaRef, passaDaTela, medir, cortados, marcarCorte };
 }
 
 /**
@@ -155,7 +339,8 @@ export default function BotPreview({
  *
  * Por isso o corte é reproduzido aqui (uma linha, com ellipsis) e, quando
  * acontece, o botão fica marcado: a tela precisa mostrar o estrago, não
- * escondê-lo com uma segunda linha que o app não tem.
+ * escondê-lo com uma segunda linha que o app não tem. Trocar de aparelho muda
+ * a resposta, e é exatamente para isso que se troca de aparelho.
  */
 function BotaoDoTeclado({
   botao,
@@ -164,6 +349,7 @@ function BotaoDoTeclado({
   botao: Btn;
   onCortado?: (texto: string, cortado: boolean) => void;
 }) {
+  const aparelho = useContext(AparelhoCtx);
   const ref = useRef<HTMLSpanElement>(null);
   const [cortado, setCortado] = useState(false);
 
@@ -174,7 +360,9 @@ function BotaoDoTeclado({
     const passou = el.scrollWidth > el.clientWidth + 1;
     setCortado(passou);
     onCortado?.(botao.text, passou);
-  }, [botao.text, onCortado]);
+    // A largura do botão vem da largura da TELA: o mesmo rótulo cabe no Pro Max
+    // e corta no Galaxy, então trocar de aparelho tem que remedir.
+  }, [botao.text, onCortado, aparelho.id]);
 
   return (
     <div
@@ -186,7 +374,7 @@ function BotaoDoTeclado({
       <span
         ref={ref}
         className="block overflow-hidden text-ellipsis whitespace-nowrap text-center"
-        style={{ fontSize: 15 }}
+        style={{ fontSize: FONTES[aparelho.plataforma].botao }}
       >
         {botao.text}
       </span>
@@ -195,19 +383,20 @@ function BotaoDoTeclado({
 }
 
 /**
- * A MOLDURA do aparelho.
+ * A MOLDURA do aparelho, com o seletor de modelo.
  *
- * Desenha em pontos (1pt = 1px de CSS, que é a unidade em que o iOS mede a
- * tela) e depois encolhe o conjunto inteiro com `scale` para caber na coluna e
- * na janela. Encolher no fim preserva as proporções: 100% ou 62%, o que se vê
- * continua sendo a mesma tela, e o texto ocupa a mesma fatia dela.
+ * Desenha em pontos (1pt = 1px de CSS, que é a unidade em que o iOS e o Android
+ * medem a tela) e depois encolhe o conjunto inteiro com `scale` para caber na
+ * coluna e na janela. Encolher no fim preserva as proporções: 100% ou 62%, o
+ * que se vê continua sendo a mesma tela, e o texto ocupa a mesma fatia dela.
  */
-function Aparelho({
+function Celular({
   titulo,
   inicial,
   rodape,
   rodapeAlerta,
   aviso,
+  cabecalho,
   children,
 }: {
   titulo: string;
@@ -216,120 +405,189 @@ function Aparelho({
   rodapeAlerta: boolean;
   /** Problema concreto encontrado no que está desenhado. */
   aviso?: string;
+  /** Controle extra da tela que hospeda o preview (ex.: qual grupo mostrar). */
+  cabecalho?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const [aparelho, escolherAparelho] = useAparelho();
+  const chrome = CHROME[aparelho.plataforma];
+  const alturaConversa = alturaDaConversa(aparelho);
+  const larguraTotal = aparelho.largura + aparelho.moldura * 2;
+  const alturaTotal = aparelho.altura + aparelho.moldura * 2;
+
   const caixaRef = useRef<HTMLDivElement>(null);
   const [escala, setEscala] = useState(1);
 
   useEffect(() => {
     function ajustar() {
-      const largura = caixaRef.current?.clientWidth || TELA.largura;
-      // 24pt de folga da moldura de cada lado, e 140px reservados no eixo
-      // vertical para o cabeçalho do cartão e a legenda de baixo.
-      const porLargura = largura / (TELA.largura + 24);
-      const porAltura = (window.innerHeight - 140) / (TELA.altura + 24);
+      const largura = caixaRef.current?.clientWidth || larguraTotal;
+      // 180px reservados no eixo vertical para o seletor, a legenda e o aviso.
+      const porLargura = largura / larguraTotal;
+      const porAltura = (window.innerHeight - 180) / alturaTotal;
       setEscala(Math.min(1, porLargura, porAltura));
     }
     ajustar();
     window.addEventListener("resize", ajustar);
     return () => window.removeEventListener("resize", ajustar);
-  }, []);
+  }, [larguraTotal, alturaTotal]);
 
   return (
-    <div className="sticky top-4">
-      <div ref={caixaRef} className="flex flex-col items-center">
-        <div
-          style={{
-            width: (TELA.largura + 24) * escala,
-            height: (TELA.altura + 24) * escala,
-          }}
-        >
-          <div
-            style={{
-              width: TELA.largura + 24,
-              height: TELA.altura + 24,
-              transform: `scale(${escala})`,
-              transformOrigin: "top left",
-            }}
+    <AparelhoCtx.Provider value={aparelho}>
+      <div className="sticky top-4">
+        <div ref={caixaRef} className="flex flex-col items-center">
+          {cabecalho}
+
+          {/* O seletor fica ACIMA do aparelho: é a primeira decisão do preview
+              ("no celular de quem?"), não um detalhe de rodapé. */}
+          <select
+            className="input mb-2 h-8 w-full max-w-[300px] py-0 text-xs"
+            value={aparelho.id}
+            onChange={(e) => escolherAparelho(e.target.value)}
+            aria-label="Aparelho do preview"
           >
-            {/* Bezel: 12pt de moldura preta em volta da tela. */}
-            <div className="h-full w-full rounded-[59px] bg-black p-3 shadow-2xl ring-1 ring-white/10">
+            {APARELHOS.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.nome} · {a.largura}×{a.altura}
+              </option>
+            ))}
+          </select>
+
+          <div style={{ width: larguraTotal * escala, height: alturaTotal * escala }}>
+            <div
+              style={{
+                width: larguraTotal,
+                height: alturaTotal,
+                transform: `scale(${escala})`,
+                transformOrigin: "top left",
+              }}
+            >
+              {/* Moldura preta em volta da tela — mais fina no Android. */}
               <div
-                className="relative overflow-hidden rounded-[47px] bg-[#0e1621]"
-                style={{ width: TELA.largura, height: TELA.altura }}
+                className="h-full w-full bg-black shadow-2xl ring-1 ring-white/10"
+                style={{
+                  borderRadius: aparelho.raio + aparelho.moldura,
+                  padding: aparelho.moldura,
+                }}
               >
-                {/* Barra de status + notch */}
                 <div
-                  className="relative flex items-end justify-between px-7 pb-1.5"
-                  style={{ height: ALTURAS.seguraTopo }}
+                  className="relative overflow-hidden bg-[#0e1621]"
+                  style={{
+                    width: aparelho.largura,
+                    height: aparelho.altura,
+                    borderRadius: aparelho.raio,
+                  }}
                 >
-                  <span className="text-[15px] font-semibold text-white">9:41</span>
-                  <div className="absolute left-1/2 top-0 h-[30px] w-[157px] -translate-x-1/2 rounded-b-[18px] bg-black" />
-                  <span className="flex items-center gap-1 text-[12px] text-white">
-                    ▮▮▮ <span className="text-[11px]">WiFi</span>
-                    <span className="ml-0.5 inline-block h-[11px] w-[22px] rounded-[3px] border border-white/70 p-[1.5px]">
-                      <span className="block h-full w-3/4 rounded-[1px] bg-white" />
+                  <BarraDeStatus aparelho={aparelho} />
+
+                  {/* Cabeçalho da conversa */}
+                  <div
+                    className="flex items-center gap-2 border-b border-white/10 bg-[#17212b] px-3"
+                    style={{ height: chrome.cabecalho }}
+                  >
+                    <span className="text-[20px] leading-none text-[#5eb5f7]">
+                      {aparelho.plataforma === "ios" ? "‹" : "←"}
                     </span>
-                  </span>
-                </div>
-
-                {/* Cabeçalho da conversa */}
-                <div
-                  className="flex items-center gap-2 border-b border-white/10 bg-[#17212b] px-3"
-                  style={{ height: ALTURAS.cabecalho }}
-                >
-                  <span className="text-[20px] leading-none text-[#5eb5f7]">‹</span>
-                  <div className="grid h-8 w-8 place-items-center rounded-full bg-sky-500/30 text-[13px] font-semibold text-sky-100">
-                    {inicial}
+                    <div className="grid h-8 w-8 place-items-center rounded-full bg-sky-500/30 text-[13px] font-semibold text-sky-100">
+                      {inicial}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[15px] font-semibold leading-tight text-white">
+                        {titulo}
+                      </p>
+                      <p className="text-[12px] leading-tight text-zinc-400">bot</p>
+                    </div>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[15px] font-semibold leading-tight text-white">{titulo}</p>
-                    <p className="text-[12px] leading-tight text-zinc-400">bot</p>
+
+                  {/* A conversa. Esta altura é a que decide o que cabe. */}
+                  <div style={{ height: alturaConversa }}>{children}</div>
+
+                  {/* Barra de digitação */}
+                  <div
+                    className="flex items-center gap-2 border-t border-white/10 bg-[#17212b] px-3"
+                    style={{ height: chrome.digitacao }}
+                  >
+                    <span className="text-[18px] text-zinc-500">📎</span>
+                    <span className="flex-1 text-[15px] text-zinc-500">Mensagem</span>
+                    <span className="text-[18px] text-zinc-500">🎤</span>
                   </div>
-                </div>
 
-                {/* A conversa. Esta altura é a que decide o que cabe. */}
-                <div style={{ height: ALTURA_CONVERSA }}>{children}</div>
-
-                {/* Barra de digitação */}
-                <div
-                  className="flex items-center gap-2 border-t border-white/10 bg-[#17212b] px-3"
-                  style={{ height: ALTURAS.digitacao }}
-                >
-                  <span className="text-[18px] text-zinc-500">📎</span>
-                  <span className="flex-1 text-[15px] text-zinc-500">Mensagem</span>
-                  <span className="text-[18px] text-zinc-500">🎤</span>
-                </div>
-
-                {/* Indicador de home */}
-                <div
-                  className="flex items-center justify-center"
-                  style={{ height: ALTURAS.seguraBase }}
-                >
-                  <span className="h-[5px] w-[134px] rounded-full bg-white/60" />
+                  {/* Indicador de home (iOS) ou barra de gestos (Android) */}
+                  <div
+                    className="flex items-center justify-center"
+                    style={{ height: chrome.seguraBase }}
+                  >
+                    <span
+                      className="rounded-full bg-white/60"
+                      style={{
+                        height: aparelho.plataforma === "ios" ? 5 : 4,
+                        width: aparelho.plataforma === "ios" ? 134 : 108,
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <p
-          className={`mt-2 max-w-[300px] text-center text-[11px] leading-relaxed ${
-            rodapeAlerta ? "text-amber-400" : "text-zinc-500"
-          }`}
-        >
-          {rodape}
-        </p>
-        <p className="mt-0.5 font-mono text-[10px] text-zinc-600">
-          iPhone 12/13/14 · 390×844 pt{escala < 1 && ` · exibido a ${Math.round(escala * 100)}%`}
-        </p>
-
-        {aviso && (
-          <p className="mt-2 max-w-[380px] rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-2.5 text-[11px] leading-relaxed text-amber-300">
-            {aviso}
+          <p
+            className={`mt-2 max-w-[300px] text-center text-[11px] leading-relaxed ${
+              rodapeAlerta ? "text-amber-400" : "text-zinc-500"
+            }`}
+          >
+            {rodape}
           </p>
-        )}
+          <p className="mt-0.5 font-mono text-[10px] text-zinc-600">
+            {aparelho.nome} · {aparelho.largura}×{aparelho.altura}{" "}
+            {aparelho.plataforma === "ios" ? "pt" : "dp"}
+            {escala < 1 && ` · exibido a ${Math.round(escala * 100)}%`}
+          </p>
+
+          {aviso && (
+            <p className="mt-2 max-w-[380px] rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-2.5 text-[11px] leading-relaxed text-amber-300">
+              {aviso}
+            </p>
+          )}
+        </div>
       </div>
+    </AparelhoCtx.Provider>
+  );
+}
+
+/**
+ * Barra de status com o recorte do topo.
+ *
+ * O recorte não é enfeite: no iPhone com notch ele reserva 47pt e na ilha, 59 —
+ * doze pontos que saem da conversa. Desenhá-lo do jeito certo é o que faz a
+ * altura restante ser crível.
+ */
+function BarraDeStatus({ aparelho }: { aparelho: Aparelho }) {
+  const ios = aparelho.plataforma === "ios";
+  return (
+    <div
+      className={`relative flex items-end justify-between ${ios ? "px-7 pb-1.5" : "px-4 pb-0.5"}`}
+      style={{ height: aparelho.seguraTopo }}
+    >
+      <span className={`font-semibold text-white ${ios ? "text-[15px]" : "text-[11px]"}`}>9:41</span>
+
+      {aparelho.topo === "notch" && (
+        <div className="absolute left-1/2 top-0 h-[30px] w-[157px] -translate-x-1/2 rounded-b-[18px] bg-black" />
+      )}
+      {aparelho.topo === "ilha" && (
+        <div className="absolute left-1/2 top-[11px] h-[37px] w-[125px] -translate-x-1/2 rounded-full bg-black" />
+      )}
+      {aparelho.topo === "furo" && (
+        <div className="absolute left-1/2 top-[7px] h-[10px] w-[10px] -translate-x-1/2 rounded-full bg-black" />
+      )}
+
+      <span className={`flex items-center gap-1 text-white ${ios ? "text-[12px]" : "text-[10px]"}`}>
+        ▮▮▮ <span className={ios ? "text-[11px]" : "text-[9px]"}>WiFi</span>
+        <span
+          className="ml-0.5 inline-block rounded-[3px] border border-white/70 p-[1.5px]"
+          style={{ height: ios ? 11 : 9, width: ios ? 22 : 18 }}
+        >
+          <span className="block h-full w-3/4 rounded-[1px] bg-white" />
+        </span>
+      </span>
     </div>
   );
 }
@@ -341,8 +599,9 @@ function Aparelho({
  * mesma coisa passo a passo: uma mensagem só. Se cada tela desenhasse o seu
  * próprio balão, "ver como fica" significaria coisas diferentes em cada uma.
  *
- * O tamanho do texto é o do Telegram no iOS (17pt), não o da nossa interface:
- * é ele que decide quantas linhas a mensagem ocupa no celular do lead.
+ * O tamanho do texto é o do Telegram no aparelho escolhido (17pt no iOS, 16 no
+ * Android), não o da nossa interface: é ele que decide quantas linhas a
+ * mensagem ocupa no celular do lead.
  */
 export function PreviewBalao({
   mediaIds,
@@ -365,6 +624,8 @@ export function PreviewBalao({
   /** Avisa que um botão não coube numa linha e vai sair cortado. */
   onCortado?: (texto: string, cortado: boolean) => void;
 }) {
+  const aparelho = useContext(AparelhoCtx);
+  const fontes = FONTES[aparelho.plataforma];
   // Separadas = o texto e os botões vão na ÚLTIMA mídia; em álbum eles vêm
   // numa mensagem própria logo abaixo. É diferença que o lead enxerga, não só
   // detalhe de como o servidor envia.
@@ -408,11 +669,11 @@ export function PreviewBalao({
             {EFEITO_EMOJI[effect || ""]}
           </span>
         )}
-        {/* 17px é o corpo de texto do Telegram no iOS. `whitespace-pre-wrap`
-            porque a quebra de linha do campo é a mesma que o app mostra. */}
+        {/* `whitespace-pre-wrap` porque a quebra de linha do campo é a mesma que
+            o app mostra. */}
         <p
           className="whitespace-pre-wrap break-words text-white"
-          style={{ fontSize: 17, lineHeight: "22px" }}
+          style={{ fontSize: fontes.texto, lineHeight: `${fontes.linha}px` }}
         >
           {texto || <span className="text-zinc-500">{vazio}</span>}
         </p>

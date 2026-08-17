@@ -4,6 +4,7 @@ import { getDb } from "./db";
 import { callAiRaw } from "./ai";
 import { getAiCredentials, type AiProvider } from "./settings";
 import type { Profile } from "./types";
+import { CAIXINHAS_VALIDADAS, type ExemploCaixinha } from "./caixinhaExemplos";
 
 /**
  * CAIXINHA DE PERGUNTAS — banco de ideias de conteúdo do Instagram, por modelo.
@@ -227,38 +228,30 @@ export function personaDaModelo(p: Profile): string {
 }
 
 /**
- * REFERÊNCIA DE ESTILO — pares que já rodaram bem no perfil.
+ * Sorteia exemplos da lista validada (lib/caixinhaExemplos.ts) para o pedido.
  *
- * Few-shot: descrever o tom em adjetivos ("provocante, ingênua") produz texto
- * genérico; mostrar quatro exemplos produz o tom. São de personas diferentes de
- * propósito (massagista, ruiva), para o modelo copiar o JEITO e não o assunto —
- * com uma persona só ele devolve variações do exemplo.
- *
- * O limite de caracteres também é ensinado aqui: todos cabem na régua, então o
- * modelo vê a regra cumprida em vez de só lida.
+ * Não vai a lista inteira: duzentos exemplos afogam o prompt e o modelo para
+ * de lê-los. Sorteando, cada provedor e cada leva veem cantos diferentes do
+ * repertório — que é de onde sai a variedade de ângulo.
  */
-const EXEMPLOS_CAIXINHA: [string, string][] = [
-  [
-    "Você prefere homem tenso ou tranquilo?",
-    "Atendo os dois, amor. Os tensos dão trabalho, mas quando relaxam na minha mão até esquecem por que vieram 💋",
-  ],
-  [
-    "Sua massagem é forte ou bem devagarinha?",
-    "Começo devagar pro corpo confiar. Depois aperto no ponto certo… sou delicada, mas sei usar pressão 🍑",
-  ],
-  [
-    "Ruiva é mais brava mesmo ou isso é lenda?",
-    "Sou calma até mexerem comigo. Depois o cabelo vermelho vira aviso: chega com carinho ou aguenta o calor 😌",
-  ],
-  [
-    "Qual o perigo de se apaixonar por uma ruiva?",
-    "É achar que vai ser só curiosidade. Quando percebe, já viciou no cabelo vermelho e no meu calor 😏",
-  ],
-];
+function exemplos(quantos: number): ExemploCaixinha[] {
+  const baralho = [...CAIXINHAS_VALIDADAS];
+  for (let k = baralho.length - 1; k > 0; k--) {
+    const m = Math.floor(Math.random() * (k + 1));
+    [baralho[k], baralho[m]] = [baralho[m], baralho[k]];
+  }
+  return baralho.slice(0, quantos);
+}
 
-/** A régua de tamanho do par pergunta+resposta, como no roteiro da operação. */
-export const TAMANHO_MIN = 140;
-export const TAMANHO_MAX = 160;
+/**
+ * Teto do par pergunta + resposta.
+ *
+ * Não há PISO. As caixinhas validadas vão de "Você tá usando fio dental? Tô"
+ * a respostas de três linhas, e as curtas estão entre as que mais funcionam —
+ * exigir um mínimo só produziria enrolação para preencher cota. O teto
+ * continua porque resposta que não cabe na tela do story não é lida.
+ */
+export const TAMANHO_MAX = 200;
 
 /**
  * O que a IA recebe.
@@ -293,36 +286,52 @@ function prompt(p: Profile, kind: QuestionBoxKind, tema: string, evitar: string[
     `de conteúdo e usa o Instagram como vitrine.\n\n` +
     `SOBRE ELA (cadastro da modelo — é ESTA a personagem, não invente outra):\n` +
     `${personaDaModelo(p)}\n${extra}\n` +
-    `TOM: provocante, divertida e INGÊNUA POR FORA — a malícia mora no duplo sentido, nunca na ` +
-    `palavra. Ela responde com humor, leveza e um toque de mistério, como quem finge não entender ` +
-    `a segunda intenção.\n\n` +
-    `REGRAS DO INSTAGRAM (valem para tudo):\n` +
-    `- É a VITRINE, não o produto: provoca, não entrega. Nada de nudez nem de palavra explícita ` +
-    `(sexo, buceta, pau, gozar, foder, transar). Story derrubado não converte.\n` +
-    `- Português do Brasil falado, de quem manda áudio no zap: "tá", "pra", "cê", "né". Nada de ` +
-    `tom formal nem de português de Portugal.\n` +
-    `- Curto. Ninguém lê story comprido.\n` +
+    `TOM: safada, engraçada e sem cerimônia. Ela não se faz de tímida — responde na lata, devolve ` +
+    `a provocação e ri junto. O humor é o que segura: uma resposta que só é sensual soa ` +
+    `propaganda; uma que faz rir e ainda provoca é a que roda.\n\n` +
+    `COMO ESCREVER O EXPLÍCITO — a regra mais importante:\n` +
+    `O conteúdo é adulto e direto, MAS a palavra nunca vai inteira e limpa, senão o Instagram ` +
+    `derruba o story. Sempre uma destas três saídas:\n` +
+    `  1. MASCARE a palavra trocando letras: c*zinho, p4u, b*ceta, g0zar, f0der, leit3, m4mar, ` +
+    `jat*d4, g3mendo.\n` +
+    `  2. USE O EMOJI no lugar dela: 👌🏼 🍑 🆒 🍩 (atrás) · 🌸 🐸 (na frente) · 💦 🍼 (leite) · ` +
+    `💍 (anel).\n` +
+    `  3. USE O APELIDO: portinha dos fundos, porta da frente, apertadinho, malaquias, boneco, ` +
+    `brinquedo, caneco, garagem, melzinho, bonequinha.\n` +
+    `Escrever a palavra inteira e limpa é o único erro que não tem conserto.\n\n` +
+    `REGRAS DE ESCRITA:\n` +
+    `- Português do Brasil FALADO, de quem manda áudio no zap: "tá", "pra", "cê", "né", "amor". ` +
+    `Nada de tom formal, de vírgula caprichada nem de português de Portugal.\n` +
+    `- CURTO. Muitas das melhores têm uma frase só. Nada de introdução, de explicar a piada nem ` +
+    `de enrolar para chegar no ponto.\n` +
     `- VARIE: cada ideia com uma abertura e um assunto diferentes das outras. Não repita bordão.`;
 
   const especifico =
     kind === "caixinha"
       ? `\n\nTAREFA: escreva ${POR_PROVEDOR} pares PERGUNTA + RESPOSTA para a caixinha de perguntas ` +
         `do story.\n` +
-        `- "pergunta": escrita como um SEGUIDOR HOMEM mandaria — curioso, direto, do jeito dele, sem ` +
-        `formalidade e sem capricho de pontuação. É ele quem escreve, não ela.\n` +
-        `- "resposta": ela respondendo. Divertida, picante, com DUPLO SENTIDO construído sobre as ` +
-        `metáforas do personagem. DIRETA: a graça já na primeira frase, sem introdução, sem ` +
-        `explicar a piada e sem enrolar para chegar no ponto. No máximo duas frases curtas. ` +
-        `Termine com UM emoji leve: 💋 😏 🔥 💦 🍑 😌\n` +
+        `- "pergunta": escrita como um SEGUIDOR HOMEM mandou de verdade — atrevido, direto, sem ` +
+        `formalidade, sem acento e sem capricho de pontuação, às vezes com um erro de digitação. ` +
+        `É ELE quem escreve, não ela. Muitas vêm com gracinha, cantada ou vantagem ("tenho 18cm", ` +
+        `"minha mulher acha pequeno") — é justamente isso que dá o gancho da resposta.\n` +
+        `- "resposta": ela respondendo. Escolha para cada par UM dos quatro jeitos que funcionam, ` +
+        `e não repita o mesmo jeito duas vezes seguidas:\n` +
+        `    • DEVOLVE — o seguidor veio com gracinha e ela rebate mais forte, virando a piada ` +
+        `contra ele;\n` +
+        `    • FINGE QUE NÃO ENTENDE — a ingenuidade fingida é a piada;\n` +
+        `    • RESPONDE SECO — uma ou duas palavras, e o choque está na naturalidade;\n` +
+        `    • TOPA E AUMENTA — aceita a proposta e sobe a aposta, com uma condição divertida.\n` +
+        `  O emoji no fim é opcional: use quando cair bem, não como carimbo.\n` +
         `- "segundos": quantos segundos o vídeo dessa resposta dura, gravado em ritmo de conversa ` +
         `(ela lendo a pergunta na tela, reagindo e respondendo). Só o número.\n` +
-        `- TAMANHO: pergunta + resposta somadas entre ${TAMANHO_MIN} e ${TAMANHO_MAX} caracteres. ` +
-        `NUNCA passe de ${TAMANHO_MAX} — é a régua da caixinha, e resposta que não cabe na tela não ` +
-        `é lida.\n\n` +
-        `REFERÊNCIA DE ESTILO (é o TOM que se copia, nunca o assunto — estes são de outras personas):\n` +
-        EXEMPLOS_CAIXINHA.map(
-          ([q, a]) => `P: ${q}\nR: ${a}\nsegundos: ${segundosDoTexto(q, a)}`,
-        ).join("\n\n")
+        `- TAMANHO: pergunta + resposta somadas, no MÁXIMO ${TAMANHO_MAX} caracteres. Não há ` +
+        `mínimo — as curtas estão entre as que mais funcionam.\n\n` +
+        `CAIXINHAS QUE JÁ RODARAM NESTE PERFIL. É esta a voz: o vocabulário, a grafia mascarada, ` +
+        `o tamanho e o tipo de piada. NÃO copie nenhuma delas nem uma versão trocando duas ` +
+        `palavras — escreva novas com este mesmo sangue:\n` +
+        exemplos(14)
+          .map(([q, a]) => `P: ${q}\nR: ${a}`)
+          .join("\n\n")
       : `\n\nTAREFA: escreva ${POR_PROVEDOR} FRASES DE DUPLO SENTIDO para vídeo curto.\n` +
         `A frase tem que ter DUAS leituras honestas: uma inocente, que é a que a legenda entrega, e ` +
         `outra safada, que aparece sozinha na cabeça de quem assiste. A graça é o público sacar; ` +
@@ -334,7 +343,12 @@ function prompt(p: Profile, kind: QuestionBoxKind, tema: string, evitar: string[
         `- "segundos": quantos segundos o vídeo dura, do começo da frase até a virada. Só o número.\n` +
         `Boas fontes de duplo sentido: comida, esporte/academia, trabalho doméstico, dirigir, ` +
         `tecnologia, animal de estimação — e o universo do personagem desta leva. Fuja do trocadilho ` +
-        `batido de banana e pepino.`;
+        `batido de banana e pepino.\n\n` +
+        `A VOZ DELA é a mesma das caixinhas que já rodaram aqui. Repare no vocabulário, na grafia ` +
+        `mascarada e no tipo de piada — não copie o assunto, copie o sangue:\n` +
+        exemplos(8)
+          .map(([q, a]) => `P: ${q}\nR: ${a}`)
+          .join("\n\n");
 
   // O FORMATO fica por último, depois da lista do "não repita". Modelo obedece
   // melhor a última instrução que leu, e formato errado perde a leva inteira —

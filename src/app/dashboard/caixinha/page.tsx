@@ -53,7 +53,7 @@ const TIPOS: {
   {
     key: "caixinha",
     label: "Caixinha de perguntas",
-    hint: "Pergunta de seguidor + a resposta dela, em 140–160 caracteres.",
+    hint: "Pergunta de seguidor + a resposta dela, curta e sem rodeio.",
     campo1: "Pergunta",
     campo2: "Resposta",
   },
@@ -66,9 +66,8 @@ const TIPOS: {
   },
 ];
 
-/** A régua do par pergunta+resposta (lib/questionBox.ts). */
-const TAMANHO_MIN = 140;
-const TAMANHO_MAX = 160;
+/** Teto do par pergunta+resposta — sem piso (lib/questionBox.ts). */
+const TAMANHO_MAX = 200;
 
 /** Como cada provedor aparece na etiqueta da ideia e no botão. */
 const PROVEDOR: Record<string, string> = {
@@ -433,8 +432,7 @@ export default function CaixinhaPage() {
                     : "text-zinc-600"
                 }`}
               >
-                {manualText.length + manualIdea.length} caracteres · a régua é {TAMANHO_MIN}–
-                {TAMANHO_MAX}
+                {manualText.length + manualIdea.length} caracteres · o teto é {TAMANHO_MAX}
               </p>
             )}
             <button onClick={adicionar} disabled={!manualText.trim()} className="btn-primary mt-2">

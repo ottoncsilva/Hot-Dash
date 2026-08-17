@@ -89,8 +89,23 @@ type WelcomeStep = {
   mediaMode?: "album" | "separate";
   /** Etiquetas — legado. Saiu da tela, o envio ainda lê (lib/telegramSend.ts). */
   mediaTags?: string;
-  buttons?: "none" | "plans";
+  /** none = sem botão · plans = lista de planos · custom = os daqui de baixo. */
+  buttons?: "none" | "plans" | "custom";
+  customButtons?: { text: string; url: string }[];
 };
+
+/**
+ * Botão padrão de quem acabou de entrar nas Prévias.
+ *
+ * O destino é o PRÓPRIO BOT com deep-link de /start: a mensagem no grupo de
+ * prévias não vende, ela puxa a pessoa para a conversa onde a oferta acontece.
+ * A URL é montada com o @ da modelo, então cada bot aponta para si mesmo.
+ */
+const BOTAO_APROVACAO_PADRAO = "😈 VER MEUS CONTEÚDOS";
+function linkDoBot(botUsername?: string): string {
+  const u = (botUsername || "").replace(/^@/, "").trim();
+  return u ? `https://t.me/${u}?start=start` : "";
+}
 type SeenChat = { chatId: string; title?: string; type?: string };
 type ApprovalMode = "subscribers" | "all" | "manual";
 type PixDefaults = {
@@ -129,8 +144,6 @@ type Bump = {
   deliverableButtons?: { text: string; url: string }[];
 };
 const BUMP_VAZIO: Bump = { enabled: false, name: "", priceCents: 0, text: "" };
-type PeriodStats = { paidCents: number; paidCount: number; pendingCents: number; pendingCount: number; avgTicketCents: number };
-type Metrics = { today: PeriodStats; month: PeriodStats; total: PeriodStats };
 type CustomButton = { id: string; text: string; url: string; sortOrder: number };
 type Sub = {
   id: string;
@@ -165,7 +178,6 @@ export default function BotVendasPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [buttons, setButtons] = useState<CustomButton[]>([]);
   const [subs, setSubs] = useState<Sub[]>([]);
-  const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [pixDefaults, setPixDefaults] = useState<PixDefaults | null>(null);
   const [tab, setTab] = useState<TabKey>("config");
 
@@ -191,7 +203,6 @@ export default function BotVendasPage() {
         plans: Plan[];
         customButtons: CustomButton[];
         subscriptions: Sub[];
-        metrics: Metrics;
         pixDefaults: PixDefaults;
         buttonRoles: ButtonRoleInfo[];
       }>(`/api/telegram?profileId=${profileId}`);
@@ -199,7 +210,6 @@ export default function BotVendasPage() {
       setPlans(d.plans || []);
       setButtons(d.customButtons || []);
       setSubs(d.subscriptions || []);
-      setMetrics(d.metrics || null);
       setPixDefaults(d.pixDefaults || null);
       setWelcome(d.bot?.welcomeMessage || "");
       setWelcomeIds(d.bot?.welcomeMediaIds || []);
@@ -258,7 +268,6 @@ export default function BotVendasPage() {
             <IconTelegram size={22} /> Bot de vendas
           </span>
         }
-        description="Ofertas, funis, mensagens e assinantes do bot — o mesmo bot da automação de postagens."
       />
       <div className="mb-5" />
 
@@ -278,8 +287,6 @@ export default function BotVendasPage() {
 
       {!loading && bot && (
         <div className="space-y-5">
-          <MetricsCard metrics={metrics} activeSubs={subs.filter((s) => s.status === "active" && s.expiresAt > 0).length} pendingSubs={subs.filter((s) => s.status === "pending").length} />
-
           {/* Abas em vez de uma rolagem com tudo aberto: cada assunto do bot
               ocupa a tela sozinho, e o preview do /start acompanha à direita. */}
           <div className="flex flex-wrap gap-1.5">
@@ -374,34 +381,6 @@ type TabKey = (typeof TABS)[number]["key"];
 // ---------------------------------------------------------------------------
 const money = (cents: number) =>
   (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-
-function MetricsCard({
-  metrics,
-  activeSubs,
-  pendingSubs,
-}: {
-  metrics: Metrics | null;
-  activeSubs: number;
-  pendingSubs: number;
-}) {
-  const cards = [
-    { label: "Vendas hoje", value: metrics ? money(metrics.today.paidCents) : "—", sub: metrics ? `${metrics.today.paidCount} venda(s)` : "" },
-    { label: "Vendas no mês", value: metrics ? money(metrics.month.paidCents) : "—", sub: metrics ? `${metrics.month.paidCount} venda(s)` : "" },
-    { label: "Ticket médio", value: metrics ? money(metrics.month.avgTicketCents) : "—", sub: "no mês" },
-    { label: "Assinantes VIP", value: String(activeSubs), sub: `${pendingSubs} PIX pendente(s)` },
-  ];
-  return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      {cards.map((c) => (
-        <div key={c.label} className="card p-4">
-          <p className="eyebrow">{c.label}</p>
-          <p className="mt-1 font-display text-2xl font-semibold text-white">{c.value}</p>
-          {c.sub && <p className="mt-0.5 text-[11px] text-zinc-500">{c.sub}</p>}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Conexão + Webhook
@@ -2262,6 +2241,7 @@ function ApprovalCard({
         boasVindasMedia={bot.welcomeMediaIds || []}
         boasVindasModo={bot.welcomeMediaMode}
         planos={planos}
+        botUsername={bot.botUsername}
       />
       <WelcomeSequence
         profileId={profileId}
@@ -2274,6 +2254,7 @@ function ApprovalCard({
         boasVindasMedia={bot.welcomeMediaIds || []}
         boasVindasModo={bot.welcomeMediaMode}
         planos={planos}
+        botUsername={bot.botUsername}
       />
 
       <p className="mt-4 rounded-lg border border-white/10 bg-ink-850 p-3 text-xs text-zinc-400">
@@ -2366,6 +2347,7 @@ function WelcomeSequence({
   boasVindasMedia,
   boasVindasModo,
   planos,
+  botUsername,
 }: {
   profileId: string;
   titulo: string;
@@ -2378,6 +2360,8 @@ function WelcomeSequence({
   boasVindasMedia: string[];
   boasVindasModo: "album" | "separate";
   planos: Btn[];
+  /** @ do bot desta modelo — monta o link padrão do botão próprio. */
+  botUsername?: string;
 }) {
   function update(i: number, patch: Partial<WelcomeStep>) {
     setSteps(steps.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
@@ -2453,6 +2437,7 @@ function WelcomeSequence({
               >
                 <option value="none">Sem botões</option>
                 <option value="plans">Com os planos</option>
+                <option value="custom">Botões próprios desta mensagem</option>
               </select>
               <button
                 onClick={() => setSteps([...steps.slice(0, i + 1), { ...s }, ...steps.slice(i + 1)])}
@@ -2483,6 +2468,14 @@ function WelcomeSequence({
                 minHeight={80}
               />
             </div>
+
+            {s.buttons === "custom" && (
+              <BotoesDoPasso
+                botoes={s.customButtons || []}
+                setBotoes={(v) => update(i, { customButtons: v })}
+                botUsername={botUsername}
+              />
+            )}
           </div>
         ))}
       </div>
@@ -2493,6 +2486,80 @@ function WelcomeSequence({
       >
         <IconPlus size={13} /> Mensagem
       </button>
+    </div>
+  );
+}
+
+/**
+ * Botões próprios de UM passo da sequência de aprovação.
+ *
+ * O caso comum tem um botão só e sempre o mesmo: levar quem entrou no grupo
+ * de prévias para a conversa do bot, onde a oferta acontece. Por isso o "+"
+ * já nasce preenchido com esse botão — o operador não precisa lembrar do
+ * formato do deep-link, e o link aponta para o bot DESTA modelo.
+ */
+function BotoesDoPasso({
+  botoes,
+  setBotoes,
+  botUsername,
+}: {
+  botoes: { text: string; url: string }[];
+  setBotoes: (v: { text: string; url: string }[]) => void;
+  botUsername?: string;
+}) {
+  const padrao = linkDoBot(botUsername);
+
+  return (
+    <div className="mt-3 rounded-xl border border-white/10 bg-ink-850 p-3">
+      <p className="eyebrow">Botões desta mensagem</p>
+      <div className="mt-2 space-y-2">
+        {botoes.map((b, i) => (
+          <div key={i} className="flex flex-wrap items-center gap-2">
+            <input
+              className="input min-w-[140px] flex-1"
+              placeholder="Texto do botão"
+              value={b.text}
+              onChange={(e) =>
+                setBotoes(botoes.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))
+              }
+            />
+            <input
+              className="input min-w-[180px] flex-[2] font-mono text-xs"
+              placeholder="https://t.me/..."
+              value={b.url}
+              onChange={(e) =>
+                setBotoes(botoes.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))
+              }
+            />
+            <button
+              onClick={() => setBotoes(botoes.filter((_, j) => j !== i))}
+              className="grid h-8 w-8 shrink-0 place-items-center rounded text-zinc-500 hover:bg-white/10 hover:text-red-400"
+              aria-label="Remover botão"
+            >
+              <IconClose size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <button
+        onClick={() => setBotoes([...botoes, { text: BOTAO_APROVACAO_PADRAO, url: padrao }])}
+        className="btn-ghost mt-2 px-2.5 py-1 text-xs"
+      >
+        <IconPlus size={13} /> Botão
+      </button>
+
+      {botoes.length === 0 && (
+        <p className="mt-1.5 text-[11px] text-amber-400">
+          Sem botão, esta mensagem sai só com o texto.
+        </p>
+      )}
+      {!padrao && (
+        <p className="mt-1.5 text-[11px] text-amber-400">
+          O @ do bot ainda não foi lido — salve as credenciais em Modelos para o link do botão vir
+          preenchido sozinho.
+        </p>
+      )}
     </div>
   );
 }

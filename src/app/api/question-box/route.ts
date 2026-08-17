@@ -43,7 +43,10 @@ export async function POST(req: NextRequest) {
     if (action === "generate") {
       const profile = await getProfile(String(body.profileId || ""));
       if (!profile) throw new ApiError(404, "Modelo não encontrada.");
-      const r = await gerarIdeias(profile, tipo(body.kind));
+      const escolhidos = Array.isArray(body.providers)
+        ? body.providers.filter((x: unknown): x is string => typeof x === "string")
+        : undefined;
+      const r = await gerarIdeias(profile, tipo(body.kind), String(body.theme || ""), escolhidos);
       return NextResponse.json(r);
     }
 
@@ -58,7 +61,13 @@ export async function POST(req: NextRequest) {
       const text = String(body.text || "").trim();
       if (!profileId) throw new ApiError(400, "Informe a modelo.");
       if (!text) throw new ApiError(400, "Escreva a pergunta ou a frase.");
-      const item = addQuestionBoxItem(profileId, tipo(body.kind), text, String(body.idea || ""));
+      const item = addQuestionBoxItem(
+        profileId,
+        tipo(body.kind),
+        text,
+        String(body.idea || ""),
+        String(body.theme || ""),
+      );
       return NextResponse.json({ item }, { status: 201 });
     }
 

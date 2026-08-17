@@ -34,32 +34,52 @@ type Item = {
   kind: Kind;
   text: string;
   idea?: string;
+  theme?: string;
+  seconds?: number;
   provider?: string;
   used: boolean;
   usedAt?: number;
   createdAt: number;
 };
 
-const TIPOS: { key: Kind; label: string; hint: string }[] = [
+const TIPOS: {
+  key: Kind;
+  label: string;
+  hint: string;
+  /** Como os dois campos se chamam neste tipo — a lista e o formulário seguem. */
+  campo1: string;
+  campo2: string;
+}[] = [
   {
     key: "caixinha",
     label: "Caixinha de perguntas",
-    hint: "A pergunta do sticker + como gravar a resposta em vídeo.",
+    hint: "Pergunta de seguidor + a resposta dela, em 140–160 caracteres.",
+    campo1: "Pergunta",
+    campo2: "Resposta",
   },
   {
     key: "duplo_sentido",
     label: "Frases de duplo sentido",
-    hint: "A frase que se lê de dois jeitos + a virada que entrega o segundo.",
+    hint: "A frase do vídeo + a virada que entrega o segundo sentido.",
+    campo1: "Frase",
+    campo2: "Virada",
   },
 ];
 
-/** Como cada provedor aparece na etiqueta da ideia. */
+/** A régua do par pergunta+resposta (lib/questionBox.ts). */
+const TAMANHO_MIN = 140;
+const TAMANHO_MAX = 160;
+
+/** Como cada provedor aparece na etiqueta da ideia e no botão. */
 const PROVEDOR: Record<string, string> = {
   grok: "Grok",
   gemini: "Gemini",
   openai: "GPT",
   manual: "sua",
 };
+
+/** Os três, na ordem em que a tela os mostra (espelha lib/questionBox.ts). */
+const PROVEDORES = ["grok", "gemini", "openai"];
 
 export default function CaixinhaPage() {
   const { profileId } = useProfile();
@@ -69,6 +89,22 @@ export default function CaixinhaPage() {
   const [loading, setLoading] = useState(false);
   const [gerando, setGerando] = useState(false);
   const [kind, setKind] = useState<Kind>("caixinha");
+  /**
+   * O personagem desta leva ("massagista morena de 20 anos"). É o campo que
+   * mais muda o resultado: é dele que saem as metáforas, e metáfora de
+   * profissão é o que faz o duplo sentido funcionar sem palavra proibida.
+   * Fica preenchido entre as levas — gerar três vezes o mesmo personagem é o
+   * uso normal, não a exceção.
+   */
+  const [tema, setTema] = useState("");
+  /**
+   * Quais IAs escrevem esta leva. Botões que acendem, não lista suspensa: são
+   * três opções e a escolha muda a cada leva — quem quer só o Grok hoje clica
+   * uma vez, em vez de abrir um menu para ver o que já sabe que tem lá.
+   */
+  const [ias, setIas] = useState<string[]>([...PROVEDORES]);
+  /** Quem está de fato conectado — provedor sem chave nasce apagado. */
+  const [conectados, setConectados] = useState<string[]>([...PROVEDORES]);
   const [filtro, setFiltro] = useState<"todas" | "novas" | "usadas">("todas");
   const [manualOpen, setManualOpen] = useState(false);
   const [manualText, setManualText] = useState("");
@@ -91,6 +127,26 @@ export default function CaixinhaPage() {
     load();
   }, [load]);
 
+  // Provedor sem chave não deve nascer aceso: o botão prometeria uma leva que
+  // nunca vem. A tela pergunta uma vez quem está conectado e desliga o resto.
+  useEffect(() => {
+    (async () => {
+      try {
+        const d = await apiGet<{ settings: Record<string, { enabled?: boolean; hasKey?: boolean }> }>(
+          "/api/settings/ai",
+        );
+        const ok = PROVEDORES.filter((p) => d.settings?.[p]?.enabled && d.settings?.[p]?.hasKey);
+        setConectados(ok);
+        setIas((antes) => {
+          const cruzado = antes.filter((p) => ok.includes(p));
+          return cruzado.length > 0 ? cruzado : ok;
+        });
+      } catch {
+        // Sem a lista, deixa os três acesos: o erro real aparece ao gerar.
+      }
+    })();
+  }, []);
+
   async function gerar() {
     if (!profileId) return;
     setGerando(true);
@@ -98,7 +154,7 @@ export default function CaixinhaPage() {
       const r = await apiSend<{ items: Item[]; provedores: string[]; erros: string[] }>(
         "/api/question-box",
         "POST",
-        { action: "generate", profileId, kind },
+        { action: "generate", profileId, kind, theme: tema, providers: ias },
       );
       // A lista vem inteira do servidor para não divergir da ordem dele.
       await load();
@@ -150,6 +206,7 @@ export default function CaixinhaPage() {
         kind,
         text: manualText,
         idea: manualIdea,
+        theme: tema,
       });
       setItems((prev) => [item, ...prev]);
       setManualText("");
@@ -161,13 +218,16 @@ export default function CaixinhaPage() {
     }
   }
 
-  const doTipo = useMemo(() => items.filter((i) => i.kind === kind), [items, kind]);
+  const rotulos = TIPOS.find((x) => x.key === kind) || TIPOS[0];
+  // UMA lista só. O tipo é uma etiqueta na linha, não uma gaveta: quem abre a
+  // tela quer ver o que tem para postar hoje, e caixinha e frase de duplo
+  // sentido concorrem pelo mesmo story — separá-las obrigava a conferir as
+  // duas para saber o que sobrou.
   const visiveis = useMemo(
-    () =>
-      doTipo.filter((i) => (filtro === "novas" ? !i.used : filtro === "usadas" ? i.used : true)),
-    [doTipo, filtro],
+    () => items.filter((i) => (filtro === "novas" ? !i.used : filtro === "usadas" ? i.used : true)),
+    [items, filtro],
   );
-  const novas = doTipo.filter((i) => !i.used).length;
+  const novas = items.filter((i) => !i.used).length;
 
   if (!profileId) {
     return (
@@ -215,17 +275,72 @@ export default function CaixinhaPage() {
           ))}
         </div>
 
+        {/* PERSONAGEM DA LEVA. Fica em cima do botão porque é a decisão que vem
+            antes de gerar — e é ela que mais muda o que volta. */}
+        <div className="mt-3">
+          <label className="eyebrow">Personagem desta leva</label>
+          <input
+            className="input mt-1"
+            placeholder="ex.: massagista morena de 20 anos · professora · ruiva bem vermelhinha, pele branquinha"
+            value={tema}
+            onChange={(e) => setTema(e.target.value)}
+          />
+          <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+            É daqui que saem as metáforas — o universo da profissão é o que faz o duplo sentido
+            funcionar sem palavra proibida. Deixe vazio para usar só a bio da modelo.
+          </p>
+        </div>
+
+        <div className="mt-3">
+          <label className="eyebrow">Quais IAs escrevem</label>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {PROVEDORES.map((p) => {
+              const ligado = ias.includes(p);
+              const disponivel = conectados.includes(p);
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  disabled={!disponivel}
+                  onClick={() =>
+                    setIas((antes) =>
+                      antes.includes(p) ? antes.filter((x) => x !== p) : [...antes, p],
+                    )
+                  }
+                  className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                    !disponivel
+                      ? "cursor-not-allowed border-white/5 text-zinc-700"
+                      : ligado
+                        ? "border-emerald-500/40 bg-emerald-500/[0.12] font-semibold text-emerald-300"
+                        : "border-white/10 text-zinc-400 hover:border-white/25 hover:text-zinc-200"
+                  }`}
+                  title={disponivel ? undefined : "Não conectado em Configurações → Conexão com IA"}
+                >
+                  {PROVEDOR[p]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button onClick={gerar} disabled={gerando} className="btn-primary">
+          <button onClick={gerar} disabled={gerando || ias.length === 0} className="btn-primary">
             <IconSparkle size={16} /> {gerando ? "Gerando..." : "Gerar ideias"}
           </button>
           <button onClick={() => setManualOpen((v) => !v)} className="btn-ghost">
             <IconPlus size={14} /> Escrever uma
           </button>
-          <p className="text-[11px] leading-relaxed text-zinc-500">
-            Escreve com a personalidade da modelo, usando <b>Grok, Gemini e GPT ao mesmo tempo</b> —
-            cada um tem um jeito de escrever, e misturar é o que evita a lista inteira sair com a
-            mesma cara. O que já está aqui não se repete.
+          <p className="flex-1 text-[11px] leading-relaxed text-zinc-500">
+            Cada clique pede <b>3 para cada IA acesa</b>, ao mesmo tempo —{" "}
+            {ias.length > 0 ? (
+              <>
+                agora são <b>{ias.length * 3}</b> ({ias.map((p) => PROVEDOR[p]).join(" + ")}).
+              </>
+            ) : (
+              <b className="text-amber-400">acenda pelo menos uma IA.</b>
+            )}{" "}
+            Poucos de cada um rende mais ângulo do que muitos de um só — e o que já está aqui não
+            se repete.
           </p>
         </div>
 
@@ -233,18 +348,28 @@ export default function CaixinhaPage() {
           <div className="mt-3 rounded-xl border border-white/10 bg-ink-850 p-3">
             <input
               className="input"
-              placeholder={
-                kind === "caixinha" ? "A pergunta do sticker" : "A frase do vídeo"
-              }
+              placeholder={rotulos.campo1}
               value={manualText}
               onChange={(e) => setManualText(e.target.value)}
             />
             <input
               className="input mt-2"
-              placeholder={kind === "caixinha" ? "Como gravar a resposta" : "A virada do vídeo"}
+              placeholder={rotulos.campo2}
               value={manualIdea}
               onChange={(e) => setManualIdea(e.target.value)}
             />
+            {kind === "caixinha" && (
+              <p
+                className={`mt-1 font-mono text-[11px] ${
+                  manualText.length + manualIdea.length > TAMANHO_MAX
+                    ? "text-amber-400"
+                    : "text-zinc-600"
+                }`}
+              >
+                {manualText.length + manualIdea.length} caracteres · a régua é {TAMANHO_MIN}–
+                {TAMANHO_MAX}
+              </p>
+            )}
             <button onClick={adicionar} disabled={!manualText.trim()} className="btn-primary mt-2">
               Adicionar à lista
             </button>
@@ -257,9 +382,9 @@ export default function CaixinhaPage() {
         <div className="flex gap-1.5">
           {(
             [
-              ["todas", `Todas (${doTipo.length})`],
+              ["todas", `Todas (${items.length})`],
               ["novas", `Não usadas (${novas})`],
-              ["usadas", `Usadas (${doTipo.length - novas})`],
+              ["usadas", `Usadas (${items.length - novas})`],
             ] as const
           ).map(([k, label]) => (
             <button
@@ -285,7 +410,7 @@ export default function CaixinhaPage() {
 
       {!loading && visiveis.length === 0 && (
         <div className="card mt-3 p-8 text-center text-sm text-zinc-400">
-          {doTipo.length === 0
+          {items.length === 0
             ? "Nenhuma ideia ainda. Clique em Gerar ideias aí em cima."
             : "Nada neste filtro."}
         </div>
@@ -321,9 +446,19 @@ function IdeiaLinha({
   onMarcar: (v: boolean) => void;
   onExcluir: () => void;
 }) {
+  // Os rótulos saem do tipo DA IDEIA, não do que está escolhido no gerador —
+  // a lista mistura os dois, e uma frase de duplo sentido rotulada "Pergunta"
+  // seria pior que rótulo nenhum.
+  const rotulos = TIPOS.find((x) => x.key === item.kind) || TIPOS[0];
+  // Copia o PAR inteiro, que é o que vai para o story — copiar só a pergunta
+  // obrigaria a voltar aqui para pegar a resposta.
+  const parInteiro = item.idea ? `${item.text}\n${item.idea}` : item.text;
+  const tamanho = item.text.length + (item.idea?.length || 0);
+  const estourou = item.kind === "caixinha" && tamanho > TAMANHO_MAX;
+
   async function copiar() {
     try {
-      await navigator.clipboard.writeText(item.text);
+      await navigator.clipboard.writeText(parInteiro);
       showToast("Copiado.", "success");
     } catch {
       showToast("Não consegui copiar.", "error");
@@ -355,18 +490,46 @@ function IdeiaLinha({
             item.used ? "line-through decoration-white/30" : ""
           }`}
         >
+          <span className="mr-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+            {rotulos.campo1}
+          </span>
           {item.text}
         </p>
         {item.idea && (
-          <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
-            <span className="text-zinc-600">vídeo:</span> {item.idea}
+          <p className="mt-1 text-[13px] leading-relaxed text-zinc-300">
+            <span className="mr-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+              {rotulos.campo2}
+            </span>
+            {item.idea}
           </p>
         )}
-        <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-          {PROVEDOR[item.provider || ""] || item.provider || "ia"}
-          {item.used && item.usedAt
-            ? ` · usada em ${new Date(item.usedAt).toLocaleDateString("pt-BR")}`
-            : ""}
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-2 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+          {/* O TIPO abre a linha porque a lista mistura os dois: é ele que
+              diz se aquilo é um story de caixinha ou um vídeo de frase. */}
+          <span
+            className={`rounded px-1.5 py-0.5 ${
+              item.kind === "caixinha"
+                ? "bg-sky-500/15 text-sky-300"
+                : "bg-fuchsia-500/15 text-fuchsia-300"
+            }`}
+          >
+            {item.kind === "caixinha" ? "caixinha" : "duplo sentido"}
+          </span>
+          {/* A duração vem em seguida: é o que decide se a ideia cabe na
+              sequência de stories do dia, e é lida antes de gravar. */}
+          {item.seconds ? (
+            <span className="rounded bg-white/10 px-1.5 py-0.5 text-zinc-300">
+              {item.seconds}s
+            </span>
+          ) : null}
+          <span>{PROVEDOR[item.provider || ""] || item.provider || "ia"}</span>
+          {item.theme && <span className="normal-case text-zinc-500">· {item.theme}</span>}
+          {/* O tamanho só aparece quando passa da régua: número certo em toda
+              linha vira ruído, número errado é o que precisa saltar. */}
+          {estourou && <span className="text-amber-500">· {tamanho} caracteres</span>}
+          {item.used && item.usedAt && (
+            <span>· usada em {new Date(item.usedAt).toLocaleDateString("pt-BR")}</span>
+          )}
         </p>
       </div>
 

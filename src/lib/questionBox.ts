@@ -10,26 +10,30 @@ import type { Profile } from "./types";
  *
  * São dois tipos, e eles não são a mesma coisa com outro nome:
  *
- *   • CAIXINHA — a pergunta que vai no sticker do story. O vídeo é a RESPOSTA,
- *     e é aí que a conversão acontece: a pergunta existe para dar a deixa de
- *     mostrar algo que sozinho pareceria propaganda.
- *   • DUPLO SENTIDO — a frase que se lê inteira de dois jeitos. Quem só ouve
- *     entende o inocente; quem olha entende o outro. É o formato que passa
- *     pela moderação do Instagram, que é o motivo de ele existir.
+ *   • CAIXINHA — um par PERGUNTA + RESPOSTA. A pergunta vem escrita como um
+ *     seguidor mandaria; a resposta é dela, com o duplo sentido em cima das
+ *     metáforas do personagem. Os dois juntos cabem em 140–160 caracteres, que
+ *     é a régua da caixinha: resposta que não cabe na tela não é lida.
+ *   • DUPLO SENTIDO — a frase de vídeo que se lê inteira de dois jeitos, mais a
+ *     virada: o que aparece na tela que faz a segunda leitura acontecer.
  *
  * A geração usa os TRÊS provedores conectados de uma vez, em paralelo, e junta
  * o resultado. Não é redundância: cada modelo tem um vício de escrita, e uma
- * lista inteira saída do mesmo modelo sai com a mesma cara. Se um falhar, os
- * outros dois ainda entregam a leva.
+ * lista inteira saída do mesmo modelo sai com a mesma cara. Por isso são poucos
+ * pares por provedor em vez de muitos de um só. Se um falhar, os outros dois
+ * ainda entregam a leva.
  */
 
 export type QuestionBoxKind = "caixinha" | "duplo_sentido";
+
+/** Os provedores que escrevem a caixinha, na ordem em que a tela os mostra. */
+export const PROVEDORES: AiProvider[] = ["grok", "gemini", "openai"];
 
 export const QUESTION_BOX_KINDS: { key: QuestionBoxKind; label: string; hint: string }[] = [
   {
     key: "caixinha",
     label: "Caixinha de perguntas",
-    hint: "A pergunta do sticker + como gravar a resposta em vídeo.",
+    hint: "Pergunta de seguidor + a resposta dela, em 140–160 caracteres.",
   },
   {
     key: "duplo_sentido",
@@ -44,6 +48,10 @@ export type QuestionBoxItem = {
   kind: QuestionBoxKind;
   text: string;
   idea?: string;
+  /** Personagem daquela leva ("massagista morena de 20 anos"). */
+  theme?: string;
+  /** Duração estimada do vídeo, em segundos. */
+  seconds?: number;
   provider?: string;
   used: boolean;
   usedAt?: number;
@@ -56,6 +64,8 @@ type Row = {
   kind: string;
   text: string;
   idea: string | null;
+  theme: string | null;
+  seconds: number | null;
   provider: string | null;
   used: number;
   used_at: number | null;
@@ -69,6 +79,8 @@ function toClient(r: Row): QuestionBoxItem {
     kind: (r.kind === "duplo_sentido" ? "duplo_sentido" : "caixinha") as QuestionBoxKind,
     text: r.text,
     idea: r.idea || undefined,
+    theme: r.theme || undefined,
+    seconds: r.seconds || undefined,
     provider: r.provider || undefined,
     used: r.used === 1,
     usedAt: r.used_at || undefined,
@@ -107,6 +119,7 @@ export function addQuestionBoxItem(
   kind: QuestionBoxKind,
   text: string,
   idea?: string,
+  tema?: string,
 ): QuestionBoxItem {
   const item: Row = {
     id: randomUUID(),
@@ -114,6 +127,8 @@ export function addQuestionBoxItem(
     kind,
     text: text.trim(),
     idea: (idea || "").trim() || null,
+    theme: (tema || "").trim() || null,
+    seconds: segundosDoTexto(text, idea),
     provider: "manual",
     used: 0,
     used_at: null,
@@ -121,12 +136,12 @@ export function addQuestionBoxItem(
   };
   getDb()
     .prepare(
-      `INSERT INTO question_box_items (id, profile_id, kind, text, idea, provider, used, used_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO question_box_items (id, profile_id, kind, text, idea, theme, seconds, provider, used, used_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
-      item.id, item.profile_id, item.kind, item.text, item.idea,
-      item.provider, item.used, item.used_at, item.created_at,
+      item.id, item.profile_id, item.kind, item.text, item.idea, item.theme,
+      item.seconds, item.provider, item.used, item.used_at, item.created_at,
     );
   return toClient(item);
 }
@@ -135,8 +150,15 @@ export function addQuestionBoxItem(
 // Geração
 // ---------------------------------------------------------------------------
 
-/** Quantas ideias cada provedor escreve por rodada. */
-const POR_PROVEDOR = 8;
+/**
+ * Quantos pares cada provedor escreve por clique.
+ *
+ * TRÊS, e a conta é essa mesmo: com os três provedores conectados são 9 por
+ * rodada. Poucos e de fontes diferentes rende mais ângulo do que muitos do
+ * mesmo modelo — depois do quinto item de uma mesma resposta, o modelo já está
+ * variando a mesma ideia.
+ */
+const POR_PROVEDOR = 3;
 /** Teto por rodada, para uma leva não encher a lista de uma vez. */
 const MAX_POR_RODADA = 40;
 
@@ -161,6 +183,23 @@ function chave(texto: string): string {
     .trim();
 }
 
+/**
+ * Duração estimada do vídeo a partir do TEXTO — a reserva de quando a IA não
+ * manda o número, ou manda um absurdo.
+ *
+ * A conta é a velocidade de fala: ~2,5 palavras por segundo em conversa
+ * brasileira normal, mais 3 segundos fixos para o começo (ela lendo a pergunta
+ * na tela, a reação) e o fim (a pausa antes de cortar). O piso de 6s existe
+ * porque story mais curto que isso ninguém termina de ler.
+ *
+ * Ficar sem número não é opção: quem monta a sequência do dia precisa saber se
+ * a ideia é de 8s ou de 40s ANTES de gravar.
+ */
+function segundosDoTexto(pergunta: string, resposta?: string): number {
+  const palavras = `${pergunta} ${resposta || ""}`.trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(6, Math.min(90, Math.round(palavras / 2.5) + 3));
+}
+
 /** Personagem, no mesmo detalhamento que o Método MK usa. */
 function persona(p: Profile): string {
   const partes = [p.notes || ""];
@@ -179,27 +218,74 @@ function persona(p: Profile): string {
 }
 
 /**
+ * REFERÊNCIA DE ESTILO — pares que já rodaram bem no perfil.
+ *
+ * Few-shot: descrever o tom em adjetivos ("provocante, ingênua") produz texto
+ * genérico; mostrar quatro exemplos produz o tom. São de personas diferentes de
+ * propósito (massagista, ruiva), para o modelo copiar o JEITO e não o assunto —
+ * com uma persona só ele devolve variações do exemplo.
+ *
+ * O limite de caracteres também é ensinado aqui: todos cabem na régua, então o
+ * modelo vê a regra cumprida em vez de só lida.
+ */
+const EXEMPLOS_CAIXINHA: [string, string][] = [
+  [
+    "Você prefere homem tenso ou tranquilo?",
+    "Atendo os dois, amor. Os tensos dão trabalho, mas quando relaxam na minha mão até esquecem por que vieram 💋",
+  ],
+  [
+    "Sua massagem é forte ou bem devagarinha?",
+    "Começo devagar pro corpo confiar. Depois aperto no ponto certo… sou delicada, mas sei usar pressão 🍑",
+  ],
+  [
+    "Ruiva é mais brava mesmo ou isso é lenda?",
+    "Sou calma até mexerem comigo. Depois o cabelo vermelho vira aviso: chega com carinho ou aguenta o calor 😌",
+  ],
+  [
+    "Qual o perigo de se apaixonar por uma ruiva?",
+    "É achar que vai ser só curiosidade. Quando percebe, já viciou no cabelo vermelho e no meu calor 😏",
+  ],
+];
+
+/** A régua de tamanho do par pergunta+resposta, como no roteiro da operação. */
+export const TAMANHO_MIN = 140;
+export const TAMANHO_MAX = 160;
+
+/**
  * O que a IA recebe.
  *
  * O pedido é de INSTAGRAM, não do Telegram, e a diferença manda no prompt
  * inteiro: lá o conteúdo é o produto e pode ser explícito; aqui é a vitrine, e
- * um story que a moderação derruba não converte nada. Por isso a regra do
- * duplo sentido é explícita — sem palavra proibida, com a malícia na cabeça de
- * quem assiste, não na legenda.
+ * um story que a moderação derruba não converte nada. Por isso a regra é
+ * explícita — sem palavra proibida, com a malícia na cabeça de quem assiste,
+ * não escrita na tela.
+ *
+ * `tema` é o que o operador digita antes de gerar ("massagista morena de 20
+ * anos", "professora", "ruiva bem vermelhinha"). É o campo que mais muda o
+ * resultado: é dele que saem as metáforas, e metáfora de profissão é o que faz
+ * o duplo sentido funcionar sem palavra proibida.
  */
-function prompt(p: Profile, kind: QuestionBoxKind, evitar: string[]): string {
+function prompt(p: Profile, kind: QuestionBoxKind, tema: string, evitar: string[]): string {
   const naoRepetir =
     evitar.length > 0
       ? `\n\nJÁ EXISTEM na lista dela as ideias abaixo. NÃO repita nenhuma, nem uma versão trocando ` +
         `duas palavras — traga ângulos diferentes destes:\n${evitar.map((t) => `- ${t}`).join("\n")}`
       : "";
 
+  const quem = tema.trim()
+    ? `PERSONAGEM DESTA LEVA: ${tema.trim()}\n(É daqui que saem as metáforas: use o universo desse ` +
+      `personagem — as ferramentas, a rotina, os jargões — para dizer o que não pode ser dito.)\n\n`
+    : "";
+
   const base =
     `Você é o roteirista da influenciadora adulta brasileira "${p.name}", que vende assinatura ` +
-    `de conteúdo e usa o Instagram como vitrine.\n\nSOBRE ELA:\n${persona(p) || "(sem descrição)"}\n\n` +
+    `de conteúdo e usa o Instagram como vitrine.\n\n${quem}SOBRE ELA:\n${persona(p) || "(sem descrição)"}\n\n` +
+    `TOM: provocante, divertida e INGÊNUA POR FORA — a malícia mora no duplo sentido, nunca na ` +
+    `palavra. Ela responde com humor, leveza e um toque de mistério, como quem finge não entender ` +
+    `a segunda intenção.\n\n` +
     `REGRAS DO INSTAGRAM (valem para tudo):\n` +
     `- É a VITRINE, não o produto: provoca, não entrega. Nada de nudez nem de palavra explícita ` +
-    `(sexo, buceta, pau, gozar, foder). Story derrubado não converte.\n` +
+    `(sexo, buceta, pau, gozar, foder, transar). Story derrubado não converte.\n` +
     `- Português do Brasil falado, de quem manda áudio no zap: "tá", "pra", "cê", "né". Nada de ` +
     `tom formal nem de português de Portugal.\n` +
     `- Curto. Ninguém lê story comprido.\n` +
@@ -207,38 +293,73 @@ function prompt(p: Profile, kind: QuestionBoxKind, evitar: string[]): string {
 
   const especifico =
     kind === "caixinha"
-      ? `\n\nTAREFA: escreva ${POR_PROVEDOR} ideias de CAIXINHA DE PERGUNTAS (o sticker de perguntas do story).\n` +
-        `Para cada uma:\n` +
-        `- "text": a pergunta EXATA que vai no sticker, escrita como ela escreveria. É a pergunta que ` +
-        `ela faz PARA os seguidores, ou o convite para eles perguntarem. Tem que dar vontade de responder ` +
-        `sem pensar — curiosa, atrevida, pessoal.\n` +
-        `- "idea": como gravar o vídeo da RESPOSTA, em uma ou duas frases. É aqui que está a conversão: ` +
-        `diga o enquadramento, o que ela faz enquanto responde e qual é a deixa para puxar o assinante. ` +
-        `Formato que funciona: ela lendo a pergunta na tela, reagindo com a cara, e respondendo se ` +
-        `arrumando/na cama/saindo do banho — a resposta mostra algo que sozinho pareceria propaganda.`
+      ? `\n\nTAREFA: escreva ${POR_PROVEDOR} pares PERGUNTA + RESPOSTA para a caixinha de perguntas ` +
+        `do story.\n` +
+        `- "pergunta": escrita como um SEGUIDOR HOMEM mandaria — curioso, direto, do jeito dele, sem ` +
+        `formalidade e sem capricho de pontuação. É ele quem escreve, não ela.\n` +
+        `- "resposta": ela respondendo. Divertida, picante, com DUPLO SENTIDO construído sobre as ` +
+        `metáforas do personagem. DIRETA: a graça já na primeira frase, sem introdução, sem ` +
+        `explicar a piada e sem enrolar para chegar no ponto. No máximo duas frases curtas. ` +
+        `Termine com UM emoji leve: 💋 😏 🔥 💦 🍑 😌\n` +
+        `- "segundos": quantos segundos o vídeo dessa resposta dura, gravado em ritmo de conversa ` +
+        `(ela lendo a pergunta na tela, reagindo e respondendo). Só o número.\n` +
+        `- TAMANHO: pergunta + resposta somadas entre ${TAMANHO_MIN} e ${TAMANHO_MAX} caracteres. ` +
+        `NUNCA passe de ${TAMANHO_MAX} — é a régua da caixinha, e resposta que não cabe na tela não ` +
+        `é lida.\n\n` +
+        `REFERÊNCIA DE ESTILO (é o TOM que se copia, nunca o assunto — estes são de outras personas):\n` +
+        EXEMPLOS_CAIXINHA.map(
+          ([q, a]) => `P: ${q}\nR: ${a}\nsegundos: ${segundosDoTexto(q, a)}`,
+        ).join("\n\n")
       : `\n\nTAREFA: escreva ${POR_PROVEDOR} FRASES DE DUPLO SENTIDO para vídeo curto.\n` +
         `A frase tem que ter DUAS leituras honestas: uma inocente, que é a que a legenda entrega, e ` +
         `outra safada, que aparece sozinha na cabeça de quem assiste. A graça é o público sacar; ` +
         `explicar mata.\n` +
-        `Para cada uma:\n` +
-        `- "text": a frase, do jeito que ela fala no vídeo.\n` +
-        `- "idea": a VIRADA — o que aparece na tela que faz a segunda leitura acontecer (o objeto na ` +
-        `mão, o corte, a roupa, a pausa, a reação). Uma ou duas frases.\n` +
+        `- "frase": o que ela fala no vídeo, do jeito que ela fala. Pode terminar com um emoji leve ` +
+        `(😏 🔥 💋 💦 🍑).\n` +
+        `- "virada": o que aparece na TELA que faz a segunda leitura acontecer (o objeto na mão, o ` +
+        `corte, a roupa, a pausa, a reação). Uma ou duas frases.\n` +
+        `- "segundos": quantos segundos o vídeo dura, do começo da frase até a virada. Só o número.\n` +
         `Boas fontes de duplo sentido: comida, esporte/academia, trabalho doméstico, dirigir, ` +
-        `tecnologia, animal de estimação. Fuja do trocadilho batido de banana e pepino.`;
+        `tecnologia, animal de estimação — e o universo do personagem desta leva. Fuja do trocadilho ` +
+        `batido de banana e pepino.`;
+
+  // O FORMATO fica por último, depois da lista do "não repita". Modelo obedece
+  // melhor a última instrução que leu, e formato errado perde a leva inteira —
+  // enquanto uma repetição a mais o filtro da volta ainda segura.
+  const formato =
+    kind === "caixinha"
+      ? `{"items":[{"pergunta":"...","resposta":"...","segundos":12}]}`
+      : `{"items":[{"frase":"...","virada":"...","segundos":10}]}`;
 
   return (
     base +
     especifico +
     naoRepetir +
-    `\n\nResponda SÓ um JSON, sem texto antes nem depois, no formato:\n` +
-    `{"items":[{"text":"...","idea":"..."}]}`
+    `\n\nResponda SÓ um JSON, sem texto antes nem depois:\n${formato}`
   );
 }
 
-type Bruto = { text?: unknown; idea?: unknown };
+/**
+ * Lê a resposta do modelo.
+ *
+ * As chaves são pedidas em PORTUGUÊS e por tipo ("pergunta"/"resposta",
+ * "frase"/"virada") porque nomear o campo com o que ele é melhora o que vem
+ * dentro dele — "text" aceita qualquer coisa, "pergunta" cobra uma pergunta.
+ * Mas os três provedores erram a chave de vez em quando, então todas as
+ * variações são aceitas na volta: perder uma leva inteira por causa do nome de
+ * um campo seria o pior tipo de falha.
+ */
+function texto(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
 
-function parseItens(raw: string): { text: string; idea: string }[] {
+/** Segundos, com sanidade: fora de 3–120 é chute do modelo, não estimativa. */
+function segundos(v: unknown): number {
+  const n = typeof v === "number" ? v : parseInt(String(v ?? ""), 10);
+  return Number.isFinite(n) && n >= 3 && n <= 120 ? Math.round(n) : 0;
+}
+
+function parseItens(raw: string): { text: string; idea: string; segundos: number }[] {
   let dados: unknown;
   try {
     dados = JSON.parse(raw);
@@ -255,12 +376,17 @@ function parseItens(raw: string): { text: string; idea: string }[] {
   const lista = (dados as { items?: unknown })?.items;
   if (!Array.isArray(lista)) return [];
   return lista
-    .map((x: Bruto) => ({
-      text: typeof x?.text === "string" ? x.text.trim() : "",
-      idea: typeof x?.idea === "string" ? x.idea.trim() : "",
+    .map((x: Record<string, unknown>) => ({
+      text: texto(x?.pergunta) || texto(x?.frase) || texto(x?.text),
+      idea: texto(x?.resposta) || texto(x?.virada) || texto(x?.idea),
+      segundos: segundos(x?.segundos ?? x?.seconds ?? x?.duracao),
     }))
     .filter((x) => x.text.length > 0)
-    .map((x) => ({ text: x.text.slice(0, 400), idea: x.idea.slice(0, 600) }));
+    .map((x) => ({
+      text: x.text.slice(0, 400),
+      idea: x.idea.slice(0, 600),
+      segundos: x.segundos,
+    }));
 }
 
 export type GeracaoResultado = {
@@ -280,13 +406,19 @@ export type GeracaoResultado = {
 export async function gerarIdeias(
   profile: Profile,
   kind: QuestionBoxKind,
+  tema = "",
+  escolhidos?: string[],
 ): Promise<GeracaoResultado> {
-  const provedores: AiProvider[] = (["grok", "gemini", "openai"] as AiProvider[]).filter(
-    (p) => getAiCredentials(p, "caixinha") !== null,
+  // Quem a tela pediu, cruzado com quem está de fato conectado — pedir a um
+  // provedor sem chave só produziria um erro por leva. Sem escolha, valem os
+  // três.
+  const pedidos = escolhidos?.length ? escolhidos : PROVEDORES;
+  const provedores: AiProvider[] = PROVEDORES.filter(
+    (p) => pedidos.includes(p) && getAiCredentials(p, "caixinha") !== null,
   );
   if (provedores.length === 0) {
     throw new Error(
-      "Nenhum provedor de IA conectado. Ative um em Configurações → Conexão com IA.",
+      "Nenhum provedor de IA conectado entre os escolhidos. Ative um em Configurações → Conexão com IA.",
     );
   }
 
@@ -297,7 +429,7 @@ export async function gerarIdeias(
   // Só as 40 mais recentes vão no prompt: a lista inteira estouraria o pedido
   // e, passando de algumas dezenas, o modelo para de prestar atenção nelas.
   const evitar = existentes.slice(0, 40).map((i) => i.text);
-  const pedido = prompt(profile, kind, evitar);
+  const pedido = prompt(profile, kind, tema, evitar);
 
   const respostas = await Promise.all(
     provedores.map(async (p) => {
@@ -320,8 +452,8 @@ export async function gerarIdeias(
 
   const db = getDb();
   const insert = db.prepare(
-    `INSERT INTO question_box_items (id, profile_id, kind, text, idea, provider, used, used_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?)`,
+    `INSERT INTO question_box_items (id, profile_id, kind, text, idea, theme, seconds, provider, used, used_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?)`,
   );
 
   const novos: QuestionBoxItem[] = [];
@@ -340,13 +472,19 @@ export async function gerarIdeias(
       if (!k || vistos.has(k)) continue;
       vistos.add(k);
       const id = randomUUID();
-      insert.run(id, profile.id, kind, item.text, item.idea || null, r.provider, agora);
+      const segundos = item.segundos || segundosDoTexto(item.text, item.idea);
+      insert.run(
+        id, profile.id, kind, item.text, item.idea || null,
+        tema.trim() || null, segundos, r.provider, agora,
+      );
       novos.push({
         id,
         profileId: profile.id,
         kind,
         text: item.text,
         idea: item.idea || undefined,
+        theme: tema.trim() || undefined,
+        seconds: segundos,
         provider: r.provider,
         used: false,
         createdAt: agora,

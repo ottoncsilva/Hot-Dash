@@ -200,21 +200,30 @@ function segundosDoTexto(pergunta: string, resposta?: string): number {
   return Math.max(6, Math.min(90, Math.round(palavras / 2.5) + 3));
 }
 
-/** Personagem, no mesmo detalhamento que o Método MK usa. */
-function persona(p: Profile): string {
-  const partes = [p.notes || ""];
+/**
+ * A PERSONA vem do cadastro da modelo — Modelos → editar → Perfil da modelo.
+ *
+ * É o mesmo cadastro que alimenta o Método MK, e os rótulos aqui são os mesmos
+ * da tela de lá de propósito: quem escreve "Coroa 40 anos, divorciada" no campo
+ * "Mecanismo único / fetiche" precisa reconhecer aquele texto no que a IA
+ * recebe. Rótulo diferente entre a tela e o prompt é o tipo de divergência que
+ * faz o operador achar que o campo não está sendo usado.
+ */
+export function personaDaModelo(p: Profile): string {
+  const partes: string[] = [`Nome: ${p.name}`];
   if (p.bioPhysical) partes.push(`Características físicas: ${p.bioPhysical}`);
-  if (p.bioUnique) partes.push(`Diferencial/fetiche: ${p.bioUnique}`);
+  if (p.bioUnique) partes.push(`Mecanismo único / fetiche (o diferencial): ${p.bioUnique}`);
   if (p.bioPersonality) {
     const tipo =
       p.bioPersonality === "santinha"
-        ? "Santinha (inocente por fora, safada por dentro)"
+        ? "Santinha (inocente por fora)"
         : p.bioPersonality === "explicita"
-          ? "Explícita (sem papas na língua, ousada e direta)"
+          ? "Explícita (sem papas na língua)"
           : "Safadinha (safada na medida)";
-    partes.push(`Personalidade/estilo: ${tipo}`);
+    partes.push(`Como ela é: ${tipo}`);
   }
-  return partes.filter(Boolean).join("\n");
+  if (p.notes?.trim()) partes.push(`Anotações: ${p.notes.trim()}`);
+  return partes.join("\n");
 }
 
 /**
@@ -272,14 +281,18 @@ function prompt(p: Profile, kind: QuestionBoxKind, tema: string, evitar: string[
         `duas palavras — traga ângulos diferentes destes:\n${evitar.map((t) => `- ${t}`).join("\n")}`
       : "";
 
-  const quem = tema.trim()
-    ? `PERSONAGEM DESTA LEVA: ${tema.trim()}\n(É daqui que saem as metáforas: use o universo desse ` +
-      `personagem — as ferramentas, a rotina, os jargões — para dizer o que não pode ser dito.)\n\n`
+  // A observação extra vem DEPOIS da persona e antes das regras: é um recorte
+  // de assunto ("hoje ela é professora", "fala do calor"), não uma troca de
+  // personagem — quem é a modelo já veio do cadastro dela.
+  const extra = tema.trim()
+    ? `\nOBSERVAÇÃO PARA ESTA LEVA (o assunto de hoje): ${tema.trim()}\n`
     : "";
 
   const base =
     `Você é o roteirista da influenciadora adulta brasileira "${p.name}", que vende assinatura ` +
-    `de conteúdo e usa o Instagram como vitrine.\n\n${quem}SOBRE ELA:\n${persona(p) || "(sem descrição)"}\n\n` +
+    `de conteúdo e usa o Instagram como vitrine.\n\n` +
+    `SOBRE ELA (cadastro da modelo — é ESTA a personagem, não invente outra):\n` +
+    `${personaDaModelo(p)}\n${extra}\n` +
     `TOM: provocante, divertida e INGÊNUA POR FORA — a malícia mora no duplo sentido, nunca na ` +
     `palavra. Ela responde com humor, leveza e um toque de mistério, como quem finge não entender ` +
     `a segunda intenção.\n\n` +

@@ -6,7 +6,7 @@ import { showToast } from "@/lib/toast";
 import { useProfile } from "@/context/ProfileContext";
 import { PrecisaDeModelo } from "@/components/ProfilePicker";
 import PageHeader from "@/components/PageHeader";
-import { useConfirm } from "@/hooks/useConfirm";
+import Link from "next/link";
 import {
   IconQuestion,
   IconSparkle,
@@ -81,20 +81,25 @@ const PROVEDOR: Record<string, string> = {
 /** Os três, na ordem em que a tela os mostra (espelha lib/questionBox.ts). */
 const PROVEDORES = ["grok", "gemini", "openai"];
 
+/** Os mesmos rótulos do cadastro da modelo (Modelos → Perfil da modelo). */
+const COMO_ELA_E: Record<string, string> = {
+  santinha: "Santinha — inocente por fora",
+  safadinha: "Safadinha — safada na medida",
+  explicita: "Explícita — sem papas na língua",
+};
+
 export default function CaixinhaPage() {
-  const { profileId } = useProfile();
-  const { confirm, ConfirmDialog } = useConfirm();
+  const { profileId, profile } = useProfile();
 
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
   const [gerando, setGerando] = useState(false);
   const [kind, setKind] = useState<Kind>("caixinha");
   /**
-   * O personagem desta leva ("massagista morena de 20 anos"). É o campo que
-   * mais muda o resultado: é dele que saem as metáforas, e metáfora de
-   * profissão é o que faz o duplo sentido funcionar sem palavra proibida.
-   * Fica preenchido entre as levas — gerar três vezes o mesmo personagem é o
-   * uso normal, não a exceção.
+   * Observação extra desta leva ("hoje ela é professora", "tema praia"). É um
+   * RECORTE DE ASSUNTO em cima da persona do cadastro, não uma troca de
+   * personagem — quem é a modelo já vem de Modelos. Fica preenchido entre as
+   * levas: repetir o assunto é o uso normal, não a exceção.
    */
   const [tema, setTema] = useState("");
   /**
@@ -187,12 +192,17 @@ export default function CaixinhaPage() {
     }
   }
 
+  // SEM confirmação: a lista é um rascunho de ideias, e no meio de uma leva de
+  // nove a maioria vai fora. Um diálogo por descarte transformaria a triagem
+  // numa sequência de cliques em "Sim".
   async function excluir(item: Item) {
-    if (!(await confirm("Excluir esta ideia da lista?"))) return;
+    const antes = items;
+    setItems((prev) => prev.filter((x) => x.id !== item.id));
     try {
       await apiSend("/api/question-box", "POST", { action: "delete", id: item.id });
-      setItems((prev) => prev.filter((x) => x.id !== item.id));
     } catch (e) {
+      // Falhou no servidor: a linha volta, senão a tela mentiria.
+      setItems(antes);
       showToast(e instanceof Error ? e.message : "Falha ao excluir.", "error");
     }
   }
@@ -219,6 +229,9 @@ export default function CaixinhaPage() {
   }
 
   const rotulos = TIPOS.find((x) => x.key === kind) || TIPOS[0];
+  const temPersona = Boolean(
+    profile?.bioPhysical || profile?.bioUnique || profile?.bioPersonality,
+  );
   // UMA lista só. O tipo é uma etiqueta na linha, não uma gaveta: quem abre a
   // tela quer ver o que tem para postar hoje, e caixinha e frase de duplo
   // sentido concorrem pelo mesmo story — separá-las obrigava a conferir as
@@ -240,7 +253,6 @@ export default function CaixinhaPage() {
 
   return (
     <div className="page">
-      {ConfirmDialog}
       <PageHeader
         title={
           <span className="flex items-center gap-2">
@@ -275,19 +287,59 @@ export default function CaixinhaPage() {
           ))}
         </div>
 
-        {/* PERSONAGEM DA LEVA. Fica em cima do botão porque é a decisão que vem
-            antes de gerar — e é ela que mais muda o que volta. */}
+        {/* A PERSONA vem do cadastro da modelo escolhida no menu. Mostrada aqui
+            porque, invisível, parecia não estar sendo usada — e o operador ia
+            digitá-la de novo à mão. */}
+        <div className="mt-3 rounded-xl border border-white/10 bg-ink-850 p-3">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="eyebrow">Persona · do cadastro de {profile?.name || "a modelo"}</p>
+            <Link
+              href="/dashboard/profiles"
+              className="text-[11px] text-zinc-400 underline-offset-2 hover:text-white hover:underline"
+            >
+              editar em Modelos
+            </Link>
+          </div>
+          {temPersona ? (
+            <div className="mt-1.5 space-y-0.5 text-[12px] leading-relaxed text-zinc-300">
+              {profile?.bioPhysical && (
+                <p>
+                  <span className="text-zinc-600">Características físicas:</span>{" "}
+                  {profile.bioPhysical}
+                </p>
+              )}
+              {profile?.bioUnique && (
+                <p>
+                  <span className="text-zinc-600">Mecanismo único / fetiche:</span>{" "}
+                  {profile.bioUnique}
+                </p>
+              )}
+              {profile?.bioPersonality && (
+                <p>
+                  <span className="text-zinc-600">Como ela é:</span>{" "}
+                  {COMO_ELA_E[profile.bioPersonality]}
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="mt-1.5 text-[12px] leading-relaxed text-amber-400">
+              Esta modelo não tem características cadastradas. As ideias vão sair genéricas —
+              preencha o Perfil da modelo em Modelos.
+            </p>
+          )}
+        </div>
+
         <div className="mt-3">
-          <label className="eyebrow">Personagem desta leva</label>
+          <label className="eyebrow">Observação extra (opcional)</label>
           <input
             className="input mt-1"
-            placeholder="ex.: massagista morena de 20 anos · professora · ruiva bem vermelhinha, pele branquinha"
+            placeholder="ex.: hoje ela é professora · fala da academia · tema praia"
             value={tema}
             onChange={(e) => setTema(e.target.value)}
           />
           <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-            É daqui que saem as metáforas — o universo da profissão é o que faz o duplo sentido
-            funcionar sem palavra proibida. Deixe vazio para usar só a bio da modelo.
+            Entra no prompt junto com a persona acima, como o assunto desta leva. Deixe vazio para
+            a IA escolher sozinha.
           </p>
         </div>
 

@@ -616,7 +616,7 @@ export default function AiSettingsPage() {
 // ---------------------------------------------------------------------------
 // Modelo por atividade
 // ---------------------------------------------------------------------------
-type ActivityKey = "mk" | "schedule" | "caption" | "whatsapp";
+type ActivityKey = "mk" | "schedule" | "caption" | "whatsapp" | "caixinha";
 type ActivityModels = Partial<Record<ActivityKey, Partial<Record<string, string>>>>;
 
 /**
@@ -644,6 +644,11 @@ const ATIVIDADES: { key: ActivityKey; label: string; hint: string }[] = [
     key: "whatsapp",
     label: "Agente de vendas (WhatsApp)",
     hint: "Conversa com o cliente. É onde raciocínio tem mais chance de se pagar.",
+  },
+  {
+    key: "caixinha",
+    label: "Caixinha de perguntas (Instagram)",
+    hint: "Poucos pares por vez, nos provedores escolhidos na tela. Precisa de um modelo solto com conteúdo adulto leve.",
   },
 ];
 

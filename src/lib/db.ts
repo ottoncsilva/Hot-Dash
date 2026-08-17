@@ -799,6 +799,16 @@ function migrate(d: Database.Database) {
   // já foi enviada — sem isso o cliente teria de pedir um PIX novo só para ver
   // o QR, gerando cobrança duplicada.
   ensureColumn(d, "telegram_subscriptions", "pix_code", "TEXT");
+  // REMOÇÃO DO VIP PENDENTE. Quando o bot não consegue tirar do grupo alguém
+  // cujo prazo venceu (o caso real é ele não ser mais admin), a saída fica
+  // marcada aqui e o sistema RETENTA sozinho — tirar do VIP é trabalho dele,
+  // não do operador. `attempts` cresce a espera entre as tentativas, para não
+  // martelar a API a cada minuto; `notified` garante um aviso só, e não um por
+  // tentativa.
+  ensureColumn(d, "telegram_subscriptions", "removal_pending", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(d, "telegram_subscriptions", "removal_attempts", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(d, "telegram_subscriptions", "last_removal_at", "INTEGER");
+  ensureColumn(d, "telegram_subscriptions", "removal_notified", "INTEGER NOT NULL DEFAULT 0");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);

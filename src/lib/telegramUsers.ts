@@ -54,6 +54,10 @@ export type TelegramUserWithStatus = TelegramUser & {
   expiresAt?: number;
   /** Nome do plano comprado, quando dá para descobrir pela transação. */
   planName?: string;
+  /** O prazo venceu e o bot ainda NÃO conseguiu tirar a pessoa do VIP. Ele
+   *  continua tentando sozinho; a marca existe para isso não ficar só num
+   *  push que pode passar despercebido. */
+  removalPending?: boolean;
 };
 
 function toUser(r: any): TelegramUser {
@@ -457,6 +461,7 @@ export function listTelegramUsers(opts: {
               ${HAS_PENDING} AS is_pending,
               s.id         AS sub_id,
               s.expires_at AS sub_expires_at,
+              s.removal_pending AS sub_removal_pending,
               p.name       AS plan_name,
               t.description AS tx_description
          FROM telegram_users u
@@ -495,6 +500,7 @@ export function listTelegramUsers(opts: {
       subscriptionId: r.sub_id || undefined,
       expiresAt: r.sub_id ? Number(r.sub_expires_at || 0) : undefined,
       planName: plano || undefined,
+      removalPending: Boolean(r.sub_removal_pending),
     };
   });
 

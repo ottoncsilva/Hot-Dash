@@ -37,6 +37,8 @@ type TelegramUser = {
   /** 0 = vitalício. Ausente = nunca assinou. */
   expiresAt?: number;
   planName?: string;
+  /** Venceu e o bot ainda não conseguiu tirar do VIP (ele segue tentando). */
+  removalPending?: boolean;
 };
 
 type Stats = { total: number; vips: number; expirados: number; leads: number; bloqueados: number };
@@ -436,9 +438,16 @@ function UserRow({
             justamente onde o painel é usado — e sem ela a lista não respondia
             à única pergunta que importa: essa pessoa paga ou não? */}
         <span
-          className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] ${STATUS_CLASS[u.status]}`}
+          className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] ${
+            u.removalPending ? "border-red-500/40 bg-red-500/10 text-red-300" : STATUS_CLASS[u.status]
+          }`}
+          title={
+            u.removalPending
+              ? "O prazo venceu e o bot ainda não conseguiu tirar do grupo VIP. Ele continua tentando — confira se ele é admin com permissão de banir."
+              : undefined
+          }
         >
-          {STATUS_LABEL[u.status]}
+          {u.removalPending ? "ainda no VIP" : STATUS_LABEL[u.status]}
         </span>
         <button
           onClick={onDm}

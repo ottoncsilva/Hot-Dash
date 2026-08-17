@@ -573,6 +573,32 @@ function migrate(d: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_previas_jobs_status
       ON previas_generation_jobs(status, created_at);
+
+    -- CAIXINHA DE PERGUNTAS: banco de ideias de conteúdo do Instagram, por
+    -- modelo. Cada linha é UMA ideia pronta para virar vídeo — a pergunta da
+    -- caixinha (ou a frase de duplo sentido) e a sacada de como gravar.
+    --
+    -- O campo que faz o módulo valer é o "used": o problema de quem posta todo
+    -- dia não é ter ideia, é lembrar qual já foi ao ar. Sem essa marca a lista
+    -- vira um monte de texto que ninguém confia.
+    CREATE TABLE IF NOT EXISTS question_box_items (
+      id          TEXT PRIMARY KEY,
+      profile_id  TEXT NOT NULL,
+      kind        TEXT NOT NULL,   -- 'caixinha' | 'duplo_sentido'
+      text        TEXT NOT NULL,   -- a pergunta da caixinha ou a frase
+      idea        TEXT,            -- como gravar / a virada do vídeo
+      -- Quem escreveu: 'grok' | 'gemini' | 'openai' | 'manual'. Guardado porque
+      -- a geração usa os TRÊS de uma vez, e depois de um tempo dá para ver qual
+      -- deles rende as ideias que a operação de fato usa.
+      provider    TEXT,
+      used        INTEGER NOT NULL DEFAULT 0,
+      used_at     INTEGER,
+      created_at  INTEGER NOT NULL,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_question_box_profile
+      ON question_box_items(profile_id, kind, used, created_at DESC);
   `);
 
   // Migrações incrementais (adiciona colunas que ainda não existem em bancos já criados).

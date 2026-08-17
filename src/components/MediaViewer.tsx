@@ -88,7 +88,18 @@ export default function MediaViewer({
       onClick={onClose}
     >
       <div
-        className={`card flex w-full max-w-2xl flex-col overflow-hidden bg-ink-850 ${editing ? 'h-[88dvh]' : 'max-h-[88dvh]'}`}
+        /*
+         * EDITANDO, a janela cresce no desktop. Ela nasceu com a largura de
+         * leitura (max-w-2xl), que é a certa para VER uma foto no meio da tela
+         * — mas editar é outro trabalho: com os controles na coluna da
+         * esquerda, tudo o que sobra de largura vira tamanho de imagem. Sem
+         * isto, a reorganização em duas colunas deixaria a foto MENOR.
+         */
+        className={`card flex w-full flex-col overflow-hidden bg-ink-850 ${
+          editing
+            ? "h-[88dvh] max-w-2xl lg:max-w-[1600px]"
+            : "max-w-2xl max-h-[88dvh]"
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {editing && profileId && onEdited && item.kind === "image" ? (

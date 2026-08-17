@@ -591,21 +591,33 @@ export default function PhotoEditor({
   if (!mounted) return null;
 
   return (
+    /*
+     * No CELULAR é uma coluna: topo, ferramentas, foto, painel, rodapé.
+     * No DESKTOP vira uma GRADE de duas colunas — todos os controles à
+     * esquerda, a foto sozinha à direita ocupando a altura inteira. É grade e
+     * não flex justamente para isso: a ordem do HTML continua sendo a do
+     * celular (a foto no meio), e o `lg:col-start` põe cada peça no lugar sem
+     * duplicar marcação nem quebrar o celular.
+     */
     <div
-      className="flex h-full w-full flex-col bg-ink-950 relative"
+      className="relative flex h-full w-full flex-col bg-ink-950 lg:grid lg:grid-cols-[minmax(300px,340px)_1fr] lg:grid-rows-[auto_auto_auto_1fr]"
       onClick={(e) => e.stopPropagation()}
     >
       {/* Topo */}
-      <div className="flex items-center justify-between px-4 py-3 safe-top">
-        <button
-          onClick={onClose}
-          className="grid h-9 w-9 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white"
-          aria-label="Fechar"
-        >
-          <IconClose size={20} />
-        </button>
-        <span className="eyebrow hidden sm:block">editor de foto</span>
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 safe-top lg:col-start-1 lg:row-start-1 lg:flex-col lg:items-stretch">
+        <div className="flex items-center gap-2 lg:justify-between">
+          <button
+            onClick={onClose}
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white"
+            aria-label="Fechar"
+          >
+            <IconClose size={20} />
+          </button>
+          <span className="eyebrow hidden sm:block">editor de foto</span>
+        </div>
+        {/* Larguras iguais no desktop: "Salvar nova versão" não cabe ao lado
+            de "Salvar" numa coluna de 340px, e quebrava no meio da palavra. */}
+        <div className="flex items-center gap-2 lg:w-full [&>button]:lg:flex-1">
           <button
             onClick={handleOverwrite}
             disabled={saving !== null || !loaded}
@@ -625,14 +637,15 @@ export default function PhotoEditor({
         </div>
       </div>
 
-      {error && (
-        <p className="mx-4 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-center text-sm text-red-300">
-          {error}
-        </p>
-      )}
+      <div className="lg:col-start-1 lg:row-start-2">
+        {error && (
+          <p className="mx-4 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-center text-sm text-red-300">
+            {error}
+          </p>
+        )}
 
-      {/* Toolbar */}
-      <div className="flex items-center justify-center gap-2 px-4 py-2">
+        {/* Ferramentas. Quebram em duas linhas quando a coluna é estreita. */}
+        <div className="flex flex-wrap items-center justify-center gap-2 px-4 py-2">
         <ToolButton icon={<IconType size={18} />} label="Texto" onClick={addText} />
         <ToolButton
           icon={<IconEmoji size={18} />}
@@ -656,16 +669,23 @@ export default function PhotoEditor({
           disabled={censoring}
         />
         <ToolButton icon={<IconQuestion size={18} />} label="Pergunta" onClick={addQuestionBox} />
-        <ToolButton
-          icon={<IconUndo size={18} />}
-          label="Desfazer"
-          onClick={undo}
-          disabled={objects.length === 0}
-        />
+          <ToolButton
+            icon={<IconUndo size={18} />}
+            label="Desfazer"
+            onClick={undo}
+            disabled={objects.length === 0}
+          />
+        </div>
       </div>
 
-      {/* Canvas */}
-      <div className="flex flex-1 items-center justify-center overflow-hidden px-3">
+      {/*
+       * A FOTO. `min-h-0` é o conserto do corte: um item de flex não encolhe
+       * abaixo do próprio conteúdo sem isso, então o canvas passava da área
+       * disponível e o `overflow-hidden` cortava a imagem. E o teto passa a ser
+       * 100% da área que existe, não uma fração da JANELA (60vh) — a janela não
+       * sabe quanto o topo, as ferramentas e o painel já consumiram.
+       */}
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 pb-2 lg:col-start-2 lg:row-start-1 lg:row-end-5 lg:h-full lg:p-4">
         {!loaded && !error && (
           <div className="h-8 w-8 animate-spin rounded-full border border-white/15 border-t-white" />
         )}
@@ -678,7 +698,7 @@ export default function PhotoEditor({
           className={`rounded-lg ${loaded ? "" : "hidden"}`}
           style={{
             maxWidth: "100%",
-            maxHeight: "60vh",
+            maxHeight: "100%",
             width: "auto",
             height: "auto",
             touchAction: "none",
@@ -692,7 +712,7 @@ export default function PhotoEditor({
           quando um objeto é selecionado/deselecionado (isso deslocava o
           mapeamento de toque→coordenada do canvas, parecendo que "a foto
           se reposicionava"). */}
-      <div className="flex h-[124px] flex-col justify-center gap-2.5 border-t border-white/10 bg-ink-850/80 px-4 py-3 safe-bottom">
+      <div className="flex h-[124px] flex-col justify-center gap-2.5 border-t border-white/10 bg-ink-850/80 px-4 py-3 safe-bottom lg:col-start-1 lg:row-start-3 lg:h-auto lg:min-h-[110px]">
         {/* Sem nada selecionado, a ferramenta de borrão ainda tem o que
             configurar: a força do próximo traço. Deixar isso só no objeto já
             desenhado obrigaria a desenhar errado primeiro para depois corrigir. */}
@@ -812,7 +832,7 @@ export default function PhotoEditor({
         )}
       </div>
 
-      <p className="pb-3 text-center font-mono text-[10px] uppercase tracking-wider text-zinc-600 safe-bottom">
+      <p className="pb-3 text-center font-mono text-[10px] uppercase tracking-wider text-zinc-600 safe-bottom lg:col-start-1 lg:row-start-4 lg:self-end lg:px-4">
         salvar = substitui a atual · salvar nova versão = mantém a original
       </p>
 

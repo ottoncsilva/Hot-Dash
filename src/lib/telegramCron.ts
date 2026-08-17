@@ -45,6 +45,7 @@ import {
   type Mailing,
 } from "@/lib/telegramMailing";
 import { updatePost } from "@/lib/posts";
+import { stripCaptionLabels } from "@/lib/captionLabels";
 import { linkDoVip } from "@/lib/vipLink";
 import { enviarMensagemDoBot } from "@/lib/telegramSend";
 import { aplicarVariaveis } from "@/lib/telegramVars";
@@ -242,7 +243,13 @@ export async function runTelegramAutopost(): Promise<number> {
       const wantsWaCta = post.post_type === "VIP" && post.cta === 1 && Boolean(waLink);
 
       let replyMarkup: { inline_keyboard: { text: string; url: string }[][] } | undefined;
-      let finalCaption = escapeHtmlAllowingLinks(post.caption || "");
+      // ÚLTIMA barreira contra o rótulo da IA ("Legenda final:", "Legenda para
+      // Telegram (VIP):"). A limpeza acontece na geração (ai.cleanCaption), mas
+      // o dia inteiro já está agendado no banco: sem limpar aqui, tudo o que foi
+      // gerado antes desta correção continuaria indo ao ar com o título — e o
+      // operador só descobre depois de publicado, no grupo.
+      const legenda = stripCaptionLabels(post.caption || "");
+      let finalCaption = escapeHtmlAllowingLinks(legenda);
 
       if (wantsVipCta && vipLink) {
         // Os dois ao mesmo tempo: o BOTÃO inline (uma frase) e as 3 linhas de
@@ -255,9 +262,9 @@ export async function runTelegramAutopost(): Promise<number> {
         // você poder revisá-las no calendário. Aqui só completa quem ainda não
         // tem — post manual, ou agendado antes dessa mudança —, senão o convite
         // sairia duplicado.
-        if (!captionHasLink(post.caption || "", vipLink)) {
+        if (!captionHasLink(legenda, vipLink)) {
           finalCaption = buildWarmupCaption(
-            post.caption || "",
+            legenda,
             vipLink,
             pickCtaLinkTexts(ctaList, 3),
           );
@@ -277,9 +284,9 @@ export async function runTelegramAutopost(): Promise<number> {
           contato === "telegram" ? profile.bioTelegramButton : profile.bioWhatsappButton;
         const waText = (botaoCadastro || padraoBotao).slice(0, CTA_BUTTON_MAX) || padraoBotao;
         replyMarkup = { inline_keyboard: [[{ text: waText, url: waLink }]] };
-        if (!captionHasLink(post.caption || "", waLink)) {
+        if (!captionHasLink(legenda, waLink)) {
           finalCaption = appendCtaLines(
-            escapeHtmlAllowingLinks(post.caption || ""),
+            escapeHtmlAllowingLinks(legenda),
             waLink,
             pickCtaLinkTexts(
               contato === "telegram" ? DEFAULT_TELEGRAM_CTA_BUTTONS : vipCtaList,

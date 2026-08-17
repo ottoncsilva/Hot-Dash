@@ -1,3 +1,5 @@
+import { MAX_UPLOAD_MB } from "./uploadLimit";
+
 /**
  * Cliente de API do frontend. A autenticação é por cookie de sessão
  * (HttpOnly), enviado automaticamente pelo navegador nas chamadas ao backend.
@@ -68,9 +70,10 @@ export async function apiUpload<T>(
       } else {
         try {
           const data = JSON.parse(xhr.responseText);
-          reject(new Error(data.error || `Erro ${xhr.status}`));
+          reject(new Error(data.error || erroPadrao(xhr.status)));
         } catch {
-          reject(new Error(`Erro ${xhr.status}`));
+          // Resposta que não é JSON: página de erro do proxy, tipicamente.
+          reject(new Error(erroPadrao(xhr.status)));
         }
       }
     };
@@ -82,8 +85,29 @@ export async function apiUpload<T>(
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Erro ${res.status}`);
+    throw new Error(data.error || erroPadrao(res.status));
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+/**
+ * Mensagem para o erro que chegou SEM corpo nosso.
+ *
+ * O caso que importa é o 413: as nossas rotas sempre respondem 413 com um JSON
+ * dizendo o limite, então um 413 mudo não veio do app — veio do proxy na frente
+ * dele (Nginx/Traefik do EasyPanel, Cloudflare), que tem um limite próprio e
+ * corta a requisição antes de ela chegar aqui. Sem isto a tela dizia "Erro 413"
+ * e o operador ia procurar o problema no lugar errado — mexendo num limite do
+ * app que já estava alto o bastante.
+ */
+export function erroPadrao(status: number): string {
+  if (status === 413) {
+    return (
+      `Arquivo recusado pelo servidor da frente (proxy), não pelo painel. ` +
+      `Aumente o limite de tamanho de requisição do Nginx/Traefik no EasyPanel ` +
+      `(client_max_body_size) — o limite do painel é ${MAX_UPLOAD_MB} MB.`
+    );
+  }
+  return `Erro ${status}`;
 }

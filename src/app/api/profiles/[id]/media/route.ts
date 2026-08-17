@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extname } from "node:path";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/uploadLimit";
 import { getProfile } from "@/lib/profiles";
 import { cleanMetadata, mediaKind } from "@/lib/metadata";
 import {
@@ -20,11 +21,6 @@ import { addTagsByNameToMedia, copyMediaTags, getTagsForMedia } from "@/lib/tags
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
-
-function maxUploadBytes(): number {
-  const mb = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? "200");
-  return (Number.isFinite(mb) && mb > 0 ? mb : 200) * 1024 * 1024;
-}
 
 export async function GET(
   req: NextRequest,
@@ -75,9 +71,9 @@ export async function POST(
     if (!(file instanceof File) || file.size === 0) {
       return NextResponse.json({ error: "Arquivo inválido." }, { status: 400 });
     }
-    if (file.size > maxUploadBytes()) {
+    if (file.size > MAX_UPLOAD_BYTES) {
       return NextResponse.json(
-        { error: `Arquivo excede o limite de ${maxUploadBytes() / 1024 / 1024} MB.` },
+        { error: `Arquivo excede o limite de ${MAX_UPLOAD_MB} MB.` },
         { status: 413 },
       );
     }

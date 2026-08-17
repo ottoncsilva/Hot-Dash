@@ -18,8 +18,8 @@ import {
   IconCheck,
 } from "@/components/icons";
 import PageHeader from "@/components/PageHeader";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/uploadLimit";
 
-const MAX_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? "200");
 const MAX_DIM = 2000;
 const IMG_EXTS = [".jpg", ".jpeg", ".png", ".webp", ".bmp"];
 const VIDEO_EXTS = [".mp4", ".mov", ".webm", ".m4v"];
@@ -107,12 +107,21 @@ export default function CensuraPage() {
 
   const addFiles = useCallback((files: FileList | null) => {
     if (!files) return;
-    const maxBytes = MAX_MB * 1024 * 1024;
-    const next: Job[] = [];
+        const next: Job[] = [];
     for (const file of Array.from(files)) {
       const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
       const ehVideo = VIDEO_EXTS.includes(ext);
-      if ((!IMG_EXTS.includes(ext) && !ehVideo) || file.size > maxBytes) continue;
+      // Arquivo recusado SAI COM AVISO. Antes ele era descartado em silêncio:
+      // o operador arrastava cinco arquivos, três apareciam na fila, e não
+      // havia nada na tela dizendo por que os outros dois sumiram.
+      if (!IMG_EXTS.includes(ext) && !ehVideo) {
+        showToast(`"${file.name}": formato não suportado.`, "error");
+        continue;
+      }
+      if (file.size > MAX_UPLOAD_BYTES) {
+        showToast(`"${file.name}" passa de ${MAX_UPLOAD_MB} MB.`, "error");
+        continue;
+      }
       const url = URL.createObjectURL(file);
       const job: Job = {
         id: crypto.randomUUID(),

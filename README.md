@@ -89,8 +89,19 @@ MEDIA_STORAGE_DIR=./data          # em produção: /app/data
    a mídia ficam aí — sem o volume, os dados somem a cada deploy).
 7. Deploy. A cada `push` no GitHub, o EasyPanel rebuilda automaticamente.
 
-> **Uploads grandes:** para vídeos grandes, aumente o limite de body do proxy
-> (Nginx/Traefik) no EasyPanel e a variável `NEXT_PUBLIC_MAX_UPLOAD_MB`.
+> **Uploads grandes — são DOIS limites, e vale o menor deles:**
+>
+> 1. **O do painel:** `NEXT_PUBLIC_MAX_UPLOAD_MB`, padrão **200**. Como toda
+>    variável `NEXT_PUBLIC_*`, ela é embutida no **build** — mudá-la no
+>    Environment do EasyPanel só vale depois de um **novo deploy**.
+> 2. **O do proxy na frente** (Nginx/Traefik do EasyPanel, e a Cloudflare se
+>    o domínio passar por ela). Este corta a requisição **antes** de ela chegar
+>    ao app, então nenhuma configuração daqui o afeta. No Nginx é o
+>    `client_max_body_size` (ex.: `client_max_body_size 200m;`).
+>
+> Como saber qual dos dois recusou: se a mensagem diz *"excede o limite de N
+> MB"*, é o do painel (item 1). Se ela fala em **proxy**, é o item 2 — o painel
+> nem chegou a ver o arquivo.
 
 > **Bot de vendas — `WEBHOOK_APP_URL`:** defina com o domínio público do painel
 > (ex.: `https://painel.seudominio.com`). É a base das URLs de webhook do

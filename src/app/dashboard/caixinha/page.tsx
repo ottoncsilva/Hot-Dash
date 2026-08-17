@@ -81,6 +81,21 @@ const PROVEDOR: Record<string, string> = {
 /** Os três, na ordem em que a tela os mostra (espelha lib/questionBox.ts). */
 const PROVEDORES = ["grok", "gemini", "openai"];
 
+/**
+ * O texto como o GERADOR DE VÍDEO espera receber, linha a linha.
+ *
+ * Caixinha vai com os dois rótulos porque o vídeo tem as duas falas — a
+ * pergunta lida na tela e a resposta dita. Frase de duplo sentido vai SÓ com a
+ * frase: a virada é direção de cena, e colada na transcrição viraria texto
+ * falado em voz alta.
+ */
+function textoDoGerador(item: Item): string[] {
+  if (item.kind === "caixinha") {
+    return [`Pergunta: ${item.text}`, ...(item.idea ? [`Resposta: ${item.idea}`] : [])];
+  }
+  return [item.text];
+}
+
 /** Os mesmos rótulos do cadastro da modelo (Modelos → Perfil da modelo). */
 const COMO_ELA_E: Record<string, string> = {
   santinha: "Santinha — inocente por fora",
@@ -502,16 +517,14 @@ function IdeiaLinha({
   // a lista mistura os dois, e uma frase de duplo sentido rotulada "Pergunta"
   // seria pior que rótulo nenhum.
   const rotulos = TIPOS.find((x) => x.key === item.kind) || TIPOS[0];
-  // Copia o PAR inteiro, que é o que vai para o story — copiar só a pergunta
-  // obrigaria a voltar aqui para pegar a resposta.
-  const parInteiro = item.idea ? `${item.text}\n${item.idea}` : item.text;
+  const linhas = textoDoGerador(item);
   const tamanho = item.text.length + (item.idea?.length || 0);
   const estourou = item.kind === "caixinha" && tamanho > TAMANHO_MAX;
 
   async function copiar() {
     try {
-      await navigator.clipboard.writeText(parInteiro);
-      showToast("Copiado.", "success");
+      await navigator.clipboard.writeText(linhas.join("\n"));
+      showToast("Copiado no formato do gerador de vídeo.", "success");
     } catch {
       showToast("Não consegui copiar.", "error");
     }
@@ -537,22 +550,27 @@ function IdeiaLinha({
       </button>
 
       <div className="min-w-0 flex-1">
-        <p
-          className={`text-sm leading-relaxed text-zinc-100 ${
+        {/* O QUE SE VÊ É O QUE SE COPIA. Estas linhas são exatamente o texto
+            que vai para a transcrição do gerador de vídeo — mesmo rótulo,
+            mesma ordem, mesma quebra. Mostrar um formato e copiar outro
+            obrigaria a conferir a colagem toda vez. */}
+        <div
+          className={`rounded-lg bg-black/25 px-2.5 py-2 text-sm leading-relaxed text-zinc-100 ${
             item.used ? "line-through decoration-white/30" : ""
           }`}
         >
-          <span className="mr-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-            {rotulos.campo1}
-          </span>
-          {item.text}
-        </p>
-        {item.idea && (
-          <p className="mt-1 text-[13px] leading-relaxed text-zinc-300">
-            <span className="mr-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-              {rotulos.campo2}
-            </span>
-            {item.idea}
+          {linhas.map((linha, i) => (
+            <p key={i} className={i > 0 ? "mt-1" : ""}>
+              {linha}
+            </p>
+          ))}
+        </div>
+        {/* A direção de cena fica FORA do bloco copiável: ela é instrução para
+            quem grava, não fala do vídeo — colada na transcrição, viraria
+            texto dito em voz alta. */}
+        {item.kind === "duplo_sentido" && item.idea && (
+          <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
+            <span className="text-zinc-600">{rotulos.campo2}:</span> {item.idea}
           </p>
         )}
         <p className="mt-1.5 flex flex-wrap items-center gap-x-2 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
@@ -585,13 +603,15 @@ function IdeiaLinha({
         </p>
       </div>
 
-      <div className="flex shrink-0 gap-1">
+      <div className="flex shrink-0 items-start gap-1">
+        {/* COPIAR é a ação principal do cartão — é para isso que a ideia
+            existe. Por isso leva rótulo, e não só um ícone entre outros. */}
         <button
           onClick={copiar}
-          className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 hover:bg-white/10 hover:text-white"
-          aria-label="Copiar texto"
+          className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 px-2.5 text-[12px] text-zinc-300 hover:border-white/25 hover:bg-white/10 hover:text-white"
+          title="Copia no formato da transcrição do gerador de vídeo"
         >
-          <IconCopy size={15} />
+          <IconCopy size={14} /> Copiar
         </button>
         <button
           onClick={onExcluir}

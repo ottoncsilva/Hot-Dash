@@ -294,42 +294,105 @@ export async function callAiRaw(
     { text: prompt },
     ...images.map((img) => ({ inlineData: { mimeType: img.mime, data: img.base64 } })),
   ];
+  /**
+   * PENSAMENTO DESLIGADO nos modelos 2.5.
+   *
+   * O Gemini 2.5 (o padrão do painel é o `gemini-2.5-flash`) gasta tokens de
+   * SAÍDA pensando antes de escrever, e o pensamento conta no
+   * `maxOutputTokens`. Com um teto apertado ele consome a cota inteira
+   * raciocinando e devolve `finishReason: MAX_TOKENS` com ZERO parte de texto —
+   * o que aqui virava "Gemini não retornou texto", sem dizer por quê. Era a
+   * cara de "o Gemini não funciona": a chave está certa, o modelo responde 200,
+   * e não vem nada.
+   *
+   * `thinkingBudget: 0` desliga isso. Modelos antigos não conhecem o campo e
+   * respondem 400 — daí o retry sem ele logo abaixo, o mesmo tratamento que a
+   * OpenAI já recebe para `max_tokens`.
+   */
+  function corpoGemini(comPensamento: boolean) {
+    return {
+      contents: [{ parts }],
+      generationConfig: {
+        temperature: 0.9,
+        // Teto folgado: com o pensamento desligado sobra tudo para o texto, e
+        // uma leva de caixinha em JSON não cabe em pouco.
+        maxOutputTokens: Math.max(maxTokens, 1024),
+        ...(opts?.json ? { responseMimeType: "application/json" } : {}),
+        ...(comPensamento ? {} : { thinkingConfig: { thinkingBudget: 0 } }),
+      },
+      safetySettings: [
+        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+      ],
+    };
+  }
+
   // O Gemini é o que mais precisa do backoff: os limites gratuitos dele são
   // muito menores que os da xAI, e ele é o primeiro fallback dos geradores.
-  const { res, data } = await withRateLimitRetry(async () => {
-    const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-        creds.model,
-      )}:generateContent?key=${encodeURIComponent(creds.apiKey)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts }],
-          generationConfig: {
-            temperature: 0.9,
-            maxOutputTokens: maxTokens,
-            ...(opts?.json ? { responseMimeType: "application/json" } : {}),
-          },
-          safetySettings: [
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
-          ]
-        }),
-      },
-    );
-    return { res: r, data: (await r.json().catch(() => ({}))) as Record<string, unknown> };
-  });
+  // O endereço é configurável como o dos outros provedores (o campo já existia
+  // nas Configurações, mas era ignorado aqui) — serve para proxy e para teste.
+  const baseGemini =
+    (creds.baseUrl || "").trim().replace(/\/+$/, "").replace(/\/v1beta$/, "") ||
+    "https://generativelanguage.googleapis.com";
+
+  async function chamarGemini(corpo: unknown) {
+    return withRateLimitRetry(async () => {
+      const r = await fetch(
+        `${baseGemini}/v1beta/models/${encodeURIComponent(
+          creds!.model,
+        )}:generateContent?key=${encodeURIComponent(creds!.apiKey)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(corpo),
+        },
+      );
+      return { res: r, data: (await r.json().catch(() => ({}))) as Record<string, unknown> };
+    });
+  }
+
+  let { res, data } = await chamarGemini(corpoGemini(false));
+  if (!res.ok) {
+    const msg = ((data.error as Record<string, unknown>)?.message as string) || "";
+    // Modelo que não conhece o campo de pensamento: tenta de novo sem ele.
+    if (res.status === 400 && /thinking/i.test(msg)) {
+      ({ res, data } = await chamarGemini(corpoGemini(true)));
+    }
+  }
   if (!res.ok) {
     const msg = ((data.error as Record<string, unknown>)?.message as string) || "";
     throw new Error(`Gemini (${res.status}): ${msg || "falha ao gerar conteúdo"}`);
   }
-  const text = (
-    data.candidates as { content?: { parts?: { text?: string }[] } }[]
-  )?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini não retornou texto.");
+
+  const candidato = (
+    data.candidates as
+      | { content?: { parts?: { text?: string }[] }; finishReason?: string }[]
+      | undefined
+  )?.[0];
+  // TODAS as partes, não só a primeira: a resposta pode vir picotada, e ficar
+  // com o primeiro pedaço truncaria o JSON e perderia a leva inteira.
+  const text = (candidato?.content?.parts || [])
+    .map((p) => p?.text || "")
+    .join("")
+    .trim();
+
+  if (!text) {
+    // Sem texto, o MOTIVO é a única coisa que interessa — e ele vem no corpo:
+    // `blockReason` quando o pedido foi barrado antes de gerar, `finishReason`
+    // quando a geração parou no meio (SAFETY, MAX_TOKENS, RECITATION).
+    const bloqueio = (data.promptFeedback as { blockReason?: string } | undefined)?.blockReason;
+    const parou = candidato?.finishReason;
+    const motivo = bloqueio
+      ? `pedido barrado (${bloqueio})`
+      : parou === "MAX_TOKENS"
+        ? "estourou o limite de tokens antes de escrever — aumente o limite ou troque o modelo"
+        : parou
+          ? `parou por ${parou}`
+          : "resposta vazia";
+    throw new Error(`Gemini não retornou texto: ${motivo}.`);
+  }
   return text;
 }
 

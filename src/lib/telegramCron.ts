@@ -796,22 +796,91 @@ export async function runTelegramMailings(): Promise<{ sent: number; failed: num
 }
 
 // ---------------------------------------------------------------------------
-// 4) EXPIRAÇÃO — remove do VIP quem venceu e reconduz ao grupo de prévias
+// 4) EXPIRAÇÃO
 // ---------------------------------------------------------------------------
 
+/**
+ * Espera antes de CADA nova tentativa de remoção, em minutos, pela contagem de
+ * tentativas já feitas.
+ *
+ * Cresce e para de crescer em 1 hora. As duas pontas importam: sem espera, uma
+ * assinatura travada faria uma chamada por minuto para sempre; com espera
+ * grande demais, alguém que já pagou continuaria dentro do VIP horas depois de
+ * o operador ter arrumado a permissão do bot. Uma hora é o pior atraso possível
+ * depois do conserto.
+ */
+const ESPERA_REMOCAO_MIN = [1, 5, 15, 60];
+
+function esperaDaTentativa(tentativas: number): number {
+  return ESPERA_REMOCAO_MIN[Math.min(tentativas, ESPERA_REMOCAO_MIN.length - 1)] * 60_000;
+}
+
+/**
+ * Tira alguém do grupo VIP. Devolve `null` quando deu certo, ou o motivo.
+ *
+ * Bane e desbane em seguida: o desban limpa a restrição, senão a pessoa não
+ * conseguiria voltar ao comprar de novo.
+ */
+async function tirarDoVip(
+  bot: { id: string; botToken: string; idVip: string },
+  telegramUserId: number,
+): Promise<string | null> {
+  try {
+    await banTelegramMember(bot.botToken, bot.idVip, telegramUserId);
+    await unbanTelegramMember(bot.botToken, bot.idVip, telegramUserId);
+    // A lista de Usuários é atualizada na hora. O evento `chat_member` diria o
+    // mesmo, mas pode não chegar (webhook fora do ar, update perdido) — e aí a
+    // tela mostraria "no VIP" para quem já saiu.
+    setTelegramUserGroup(bot.id, telegramUserId, "vip", false);
+    return null;
+  } catch (e) {
+    return e instanceof Error ? e.message : "falha ao remover do VIP";
+  }
+}
+
+/** Anota o resultado da tentativa na própria inscrição. */
+function registrarTentativa(db: any, id: string, erro: string | null, tentativas: number): void {
+  if (erro) {
+    db.prepare(
+      `UPDATE telegram_subscriptions
+          SET removal_pending = 1, removal_attempts = ?, last_removal_at = ?
+        WHERE id = ?`,
+    ).run(tentativas + 1, Date.now(), id);
+  } else {
+    db.prepare(
+      `UPDATE telegram_subscriptions
+          SET removal_pending = 0, removal_attempts = 0, last_removal_at = ?
+        WHERE id = ?`,
+    ).run(Date.now(), id);
+  }
+}
+
+/**
+ * EXPIRAÇÃO — tira do VIP quem venceu e reconduz ao grupo de prévias.
+ *
+ * Quem tira é o SISTEMA, pelo bot, e ele insiste até conseguir. Antes, uma
+ * falha na remoção (o caso real é o bot ter deixado de ser admin do grupo)
+ * caía num catch que só escrevia no console E pulava a marcação de expirado:
+ * a inscrição ficava 'active' para sempre, o painel mostrava a pessoa como VIP
+ * em dia, e a rotina repetia a mesma chamada a cada minuto, em silêncio.
+ *
+ * Agora são duas coisas separadas, porque são fatos de naturezas diferentes:
+ *   • a inscrição vence — isso é calendário, e é registrado sempre;
+ *   • a saída do grupo depende do Telegram, e por isso fica PENDENTE e é
+ *     retentada com espera crescente até dar certo.
+ */
 export async function runTelegramEviction(): Promise<number> {
   const now = Date.now();
   const db = getDb();
+  let removidos = 0;
 
-  // Busca inscrições VIP ativas que já expiraram. expires_at > 0 exclui as
-  // compras de PACOTE (compra única, sem VIP), que ficam com expires_at = 0.
-  const expiredRows = db
+  // ---- 1) Assinaturas que acabaram de vencer -------------------------------
+  const vencidas = db
+    // expires_at > 0 exclui as compras de PACOTE (compra única, sem VIP).
     .prepare("SELECT * FROM telegram_subscriptions WHERE status = 'active' AND expires_at > 0 AND expires_at < ?")
     .all(now) as any[];
 
-  let evictedCount = 0;
-
-  for (const row of expiredRows) {
+  for (const row of vencidas) {
     const bot = getBotConfig(row.bot_id);
     if (!bot) continue;
     // Operação DESLIGADA = outro sistema está no comando do bot. Expulsar
@@ -819,37 +888,11 @@ export async function runTelegramEviction(): Promise<number> {
     // não pode fazê-la enquanto não é o dono da operação.
     if (!bot.operationActive) continue;
 
-    // 1. Tira do grupo VIP: banir e desbanir em seguida (o desban limpa a
-    //    restrição, senão a pessoa não conseguiria voltar ao comprar de novo).
-    //
-    //    O ban pode falhar — o caso real é o bot não ser mais administrador do
-    //    grupo. Antes, essa falha caía num catch que só escrevia no console E
-    //    pulava a marcação de "expirado" logo abaixo: a inscrição ficava
-    //    'active' para sempre, o painel mostrava a pessoa como VIP em dia, e a
-    //    rotina tentava de novo a cada minuto, em silêncio, sem nunca avisar
-    //    ninguém.
-    let erroRemocao: string | null = null;
-    try {
-      await banTelegramMember(bot.botToken, bot.idVip, row.telegram_user_id);
-      await unbanTelegramMember(bot.botToken, bot.idVip, row.telegram_user_id);
-      // A lista de Usuários é atualizada na hora. O evento `chat_member` do
-      // Telegram diria o mesmo, mas ele pode não chegar (webhook fora do ar,
-      // update perdido) — e aí a tela mostraria "no VIP" para quem já saiu.
-      setTelegramUserGroup(bot.id, row.telegram_user_id, "vip", false);
-    } catch (e) {
-      erroRemocao = e instanceof Error ? e.message : "falha ao remover do VIP";
-      console.error(
-        `[hotdash] Expiração: não consegui remover ${row.telegram_user_id} do VIP ` +
-          `(bot ${bot.id}, grupo ${bot.idVip}). O bot precisa ser ADMIN com permissão ` +
-          `de banir. Erro:`,
-        erroRemocao,
-      );
-    }
+    const erro = await tirarDoVip(bot, row.telegram_user_id);
 
-    // 2. A inscrição é marcada como expirada DÊ NO QUE DER. O prazo acabou —
-    //    isso é um fato do calendário, não do Telegram. Deixá-la 'active'
-    //    porque o ban falhou faria o painel mentir sobre quem está pagando e
-    //    prenderia a rotina num laço infinito.
+    // A inscrição é marcada como expirada DÊ NO QUE DER: o prazo acabou, e
+    // isso é fato do calendário, não do Telegram. Deixá-la 'active' porque a
+    // remoção falhou faria o painel mentir sobre quem está pagando.
     saveSubscription({
       id: row.id,
       botId: row.bot_id,
@@ -865,46 +908,80 @@ export async function runTelegramEviction(): Promise<number> {
       upsellStepIndex: row.upsell_step_index || 0,
       createdAt: row.created_at,
     });
+    registrarTentativa(db, row.id, erro, 0);
 
-    // 3. Falhou a remoção ⇒ o operador PRECISA saber: tem gente vencida dentro
-    //    do VIP, e daqui em diante ninguém mais vai tentar tirá-la. O botão
-    //    "Expulsar" da lista de Usuários resolve depois de acertar o admin.
-    if (erroRemocao) {
+    if (erro) {
+      console.error(
+        `[hotdash] Expiração: não consegui remover ${row.telegram_user_id} do VIP ` +
+          `(bot ${bot.id}, grupo ${bot.idVip}). Vou continuar tentando. ` +
+          `O bot precisa ser ADMIN com permissão de banir. Erro:`,
+        erro,
+      );
+      // Um aviso só, na primeira falha — não um por tentativa.
+      db.prepare("UPDATE telegram_subscriptions SET removal_notified = 1 WHERE id = ?").run(row.id);
       try {
         const { sendPushEvent } = await import("@/lib/push");
         await sendPushEvent(
           "sale",
-          "⚠️ Assinatura vencida NÃO saiu do VIP",
-          `${row.telegram_username ? "@" + row.telegram_username : row.telegram_user_id} continua no grupo. ` +
-            "Confira se o bot é admin com permissão de banir.",
+          "⚠️ Vencido ainda no VIP",
+          `${row.telegram_username ? "@" + row.telegram_username : row.telegram_user_id} não saiu do grupo. ` +
+            "O bot vai continuar tentando — confira se ele é admin com permissão de banir.",
           "/dashboard/telegram/usuarios",
         );
       } catch {
         /* push é aviso, não pode derrubar a expiração */
       }
+    } else {
+      removidos++;
     }
 
-    // 4. Convite para o grupo de prévias, para a pessoa não sumir do funil.
-    const warmupInvite = await createTelegramInviteLink(
+    // Convite para as prévias e aviso de vencimento: uma vez só, aqui. Nas
+    // retentativas a pessoa não pode receber a mesma mensagem de novo.
+    const convite = await createTelegramInviteLink(
       bot.botToken,
       bot.idAquecimento,
       `Warmup_${row.telegram_user_id}`,
     ).catch(() => null);
+    const linkPrevias = convite?.invite_link || `https://t.me/${bot.botUsername || ""}`;
 
-    const warmupLink = warmupInvite?.invite_link || `https://t.me/${bot.botUsername || ""}`;
-
-    // 5. Avisa a pessoa e convida para o aquecimento.
-    const expiredMsg =
+    await sendTelegramMessage(
+      bot.botToken,
+      String(row.telegram_user_id),
       `⚠️ <b>Sua assinatura VIP expirou!</b>\n\n` +
-      `Para continuar recebendo o conteúdo completo e exclusivo, renove seu plano no chat do bot.\n\n` +
-      `Enquanto isso, você foi redirecionado para o nosso grupo de prévias gratuitas:\n` +
-      `👉 <a href="${warmupLink}">Entrar no Grupo de Prévias</a>`;
-
-    await sendTelegramMessage(bot.botToken, String(row.telegram_user_id), expiredMsg).catch(() => {});
-    if (!erroRemocao) evictedCount++;
+        `Para continuar recebendo o conteúdo completo e exclusivo, renove seu plano no chat do bot.\n\n` +
+        `Enquanto isso, você foi redirecionado para o nosso grupo de prévias gratuitas:\n` +
+        `👉 <a href="${linkPrevias}">Entrar no Grupo de Prévias</a>`,
+    ).catch(() => {});
   }
 
-  return evictedCount;
+  // ---- 2) Remoções que ficaram pendentes -----------------------------------
+  // É aqui que o sistema cumpre o combinado sozinho: assim que a permissão do
+  // bot é arrumada, a próxima tentativa tira a pessoa do VIP sem ninguém
+  // precisar clicar em nada.
+  const pendentes = db
+    .prepare("SELECT * FROM telegram_subscriptions WHERE removal_pending = 1")
+    .all() as any[];
+
+  for (const row of pendentes) {
+    const bot = getBotConfig(row.bot_id);
+    if (!bot || !bot.operationActive) continue;
+
+    const tentativas = Number(row.removal_attempts) || 0;
+    const desde = Number(row.last_removal_at) || 0;
+    if (now - desde < esperaDaTentativa(tentativas)) continue;
+
+    const erro = await tirarDoVip(bot, row.telegram_user_id);
+    registrarTentativa(db, row.id, erro, tentativas);
+    if (!erro) {
+      removidos++;
+      console.log(
+        `[hotdash] Expiração: ${row.telegram_user_id} finalmente saiu do VIP ` +
+          `na tentativa ${tentativas + 1}.`,
+      );
+    }
+  }
+
+  return removidos;
 }
 
 

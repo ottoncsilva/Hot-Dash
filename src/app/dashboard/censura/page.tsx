@@ -373,6 +373,10 @@ export default function CensuraPage() {
   }
 
   const temVideo = jobs.some((j) => j.kind === "video");
+  // Imagem precisa estar carregada no canvas; vídeo não usa canvas nenhum e
+  // está pronto assim que entra na fila. Testar `img` para os dois desligava o
+  // botão numa leva só de vídeos.
+  const temAlgoParaProcessar = jobs.some((j) => (j.kind === "video" ? true : Boolean(j.img)));
 
   const stats = {
     carregadas: jobs.length,
@@ -432,9 +436,14 @@ export default function CensuraPage() {
             }`}
           >
             <IconUpload size={22} />
-            <span className="text-sm font-medium text-zinc-200">Clique ou arraste as fotos</span>
+            <span className="text-sm font-medium text-zinc-200">
+              Clique ou arraste fotos e vídeos
+            </span>
             <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-              JPG · PNG · WEBP
+              JPG · PNG · WEBP · MP4 · MOV
+            </span>
+            <span className="text-[11px] text-zinc-500">
+              Pode misturar os dois na mesma leva · vídeo até {VIDEO_SEG_MAX}s
             </span>
             <input
               ref={inputRef}
@@ -559,10 +568,15 @@ export default function CensuraPage() {
 
           <button
             onClick={detectAll}
-            disabled={busy || jobs.every((j) => !j.img)}
+            disabled={busy || !temAlgoParaProcessar}
             className="btn-primary mt-4 w-full"
           >
-            <IconSparkle size={16} /> {busy ? "Analisando..." : "Detectar e editar"}
+            <IconSparkle size={16} />{" "}
+            {busy
+              ? "Analisando..."
+              : temVideo && !jobs.some((j) => j.kind === "image")
+                ? "Censurar vídeos"
+                : "Detectar e editar"}
           </button>
           <button onClick={clearAll} disabled={jobs.length === 0} className="btn-ghost mt-2 w-full">
             Limpar tudo
@@ -572,17 +586,17 @@ export default function CensuraPage() {
             <div className="mt-4 border-t border-white/10 pt-3">
               <p className="eyebrow">Galeria da modelo</p>
               {/* A modelo vem do seletor do menu. Aqui só se confirma PARA ONDE
-                  as fotos vão — errar o destino espalha material na galeria
+                  os arquivos vão — errar o destino espalha material na galeria
                   errada. Sem modelo escolhida o envio fica desabilitado, mas o
                   resto da tela (censurar e baixar) continua funcionando. */}
               {saveProfileId ? (
                 <p className="mt-1 text-xs text-zinc-500">
-                  Ao concluir, as fotos censuradas vão para a galeria de{" "}
+                  Ao concluir, os arquivos censurados vão para a galeria de{" "}
                   <b className="text-zinc-300">{profile?.name}</b>.
                 </p>
               ) : (
                 <p className="mt-1 text-xs text-amber-400/90">
-                  Escolha uma modelo no seletor do menu para poder enviar as fotos para a
+                  Escolha uma modelo no seletor do menu para poder enviar os arquivos para a
                   galeria dela. Baixar funciona sem escolher.
                 </p>
               )}

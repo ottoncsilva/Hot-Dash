@@ -665,7 +665,13 @@ export async function POST(
               /* JSON quebrado = sem sequência */
             }
 
-            if (temSequencia) {
+            // "Usar a mensagem de boas-vindas" também precisa da fila: ela
+            // é entregue como passo zero pelo tick. Sem esta condição, ligar a
+            // chave e não escrever nenhum passo próprio resultava em NADA
+            // enviado — o lead era aprovado e recebia silêncio.
+            const usaBoasVindas = isVip ? bot.vipUseWelcome : bot.previasUseWelcome;
+
+            if (temSequencia || usaBoasVindas) {
               enqueueApproval({
                 botId: bot.id,
                 telegramUserId: from.id,

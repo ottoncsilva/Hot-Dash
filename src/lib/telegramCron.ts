@@ -28,6 +28,7 @@ import {
   listAudienceRecipients,
   getTelegramUsersByIds,
   getTelegramUser,
+  setTelegramUserGroup,
   setTelegramUserBlocked,
 } from "@/lib/telegramUsers";
 import {
@@ -813,52 +814,94 @@ export async function runTelegramEviction(): Promise<number> {
   for (const row of expiredRows) {
     const bot = getBotConfig(row.bot_id);
     if (!bot) continue;
+    // Operação DESLIGADA = outro sistema está no comando do bot. Expulsar
+    // alguém de um grupo é a ação mais destrutiva que este painel faz, e ele
+    // não pode fazê-la enquanto não é o dono da operação.
+    if (!bot.operationActive) continue;
 
+    // 1. Tira do grupo VIP: banir e desbanir em seguida (o desban limpa a
+    //    restrição, senão a pessoa não conseguiria voltar ao comprar de novo).
+    //
+    //    O ban pode falhar — o caso real é o bot não ser mais administrador do
+    //    grupo. Antes, essa falha caía num catch que só escrevia no console E
+    //    pulava a marcação de "expirado" logo abaixo: a inscrição ficava
+    //    'active' para sempre, o painel mostrava a pessoa como VIP em dia, e a
+    //    rotina tentava de novo a cada minuto, em silêncio, sem nunca avisar
+    //    ninguém.
+    let erroRemocao: string | null = null;
     try {
-      // 1. Expulsa do grupo VIP (baniu)
       await banTelegramMember(bot.botToken, bot.idVip, row.telegram_user_id);
-
-      // 2. Limpa o ban (para permitir que compre e entre de novo no futuro)
       await unbanTelegramMember(bot.botToken, bot.idVip, row.telegram_user_id);
-
-      // 3. Atualiza status no banco
-      saveSubscription({
-        id: row.id,
-        botId: row.bot_id,
-        transactionId: row.transaction_id || undefined,
-        planId: row.plan_id || undefined,
-        offerId: row.offer_id || undefined,
-        telegramUserId: row.telegram_user_id,
-        telegramUsername: row.telegram_username || undefined,
-        inviteLink: row.invite_link || undefined,
-        status: "expired",
-        expiresAt: row.expires_at,
-        lastUpsellAt: row.last_upsell_at || undefined,
-        upsellStepIndex: row.upsell_step_index || 0,
-        createdAt: row.created_at,
-      });
-
-      // 4. Cria link de convite para o grupo de aquecimento gratuito
-      const warmupInvite = await createTelegramInviteLink(
-        bot.botToken,
-        bot.idAquecimento,
-        `Warmup_${row.telegram_user_id}`,
-      ).catch(() => null);
-
-      const warmupLink = warmupInvite?.invite_link || `https://t.me/${bot.botUsername || ""}`;
-
-      // 5. Envia mensagem informando a expiração e convidando para o aquecimento
-      const expiredMsg =
-        `⚠️ <b>Sua assinatura VIP expirou!</b>\n\n` +
-        `Para continuar recebendo o conteúdo completo e exclusivo, renove seu plano no chat do bot.\n\n` +
-        `Enquanto isso, você foi redirecionado para o nosso grupo de prévias gratuitas:\n` +
-        `👉 <a href="${warmupLink}">Entrar no Grupo de Prévias</a>`;
-
-      await sendTelegramMessage(bot.botToken, String(row.telegram_user_id), expiredMsg).catch(() => {});
-      evictedCount++;
-    } catch (err) {
-      console.error(`Erro ao processar expiração do usuário ${row.telegram_user_id}:`, err);
+      // A lista de Usuários é atualizada na hora. O evento `chat_member` do
+      // Telegram diria o mesmo, mas ele pode não chegar (webhook fora do ar,
+      // update perdido) — e aí a tela mostraria "no VIP" para quem já saiu.
+      setTelegramUserGroup(bot.id, row.telegram_user_id, "vip", false);
+    } catch (e) {
+      erroRemocao = e instanceof Error ? e.message : "falha ao remover do VIP";
+      console.error(
+        `[hotdash] Expiração: não consegui remover ${row.telegram_user_id} do VIP ` +
+          `(bot ${bot.id}, grupo ${bot.idVip}). O bot precisa ser ADMIN com permissão ` +
+          `de banir. Erro:`,
+        erroRemocao,
+      );
     }
+
+    // 2. A inscrição é marcada como expirada DÊ NO QUE DER. O prazo acabou —
+    //    isso é um fato do calendário, não do Telegram. Deixá-la 'active'
+    //    porque o ban falhou faria o painel mentir sobre quem está pagando e
+    //    prenderia a rotina num laço infinito.
+    saveSubscription({
+      id: row.id,
+      botId: row.bot_id,
+      transactionId: row.transaction_id || undefined,
+      planId: row.plan_id || undefined,
+      offerId: row.offer_id || undefined,
+      telegramUserId: row.telegram_user_id,
+      telegramUsername: row.telegram_username || undefined,
+      inviteLink: row.invite_link || undefined,
+      status: "expired",
+      expiresAt: row.expires_at,
+      lastUpsellAt: row.last_upsell_at || undefined,
+      upsellStepIndex: row.upsell_step_index || 0,
+      createdAt: row.created_at,
+    });
+
+    // 3. Falhou a remoção ⇒ o operador PRECISA saber: tem gente vencida dentro
+    //    do VIP, e daqui em diante ninguém mais vai tentar tirá-la. O botão
+    //    "Expulsar" da lista de Usuários resolve depois de acertar o admin.
+    if (erroRemocao) {
+      try {
+        const { sendPushEvent } = await import("@/lib/push");
+        await sendPushEvent(
+          "sale",
+          "⚠️ Assinatura vencida NÃO saiu do VIP",
+          `${row.telegram_username ? "@" + row.telegram_username : row.telegram_user_id} continua no grupo. ` +
+            "Confira se o bot é admin com permissão de banir.",
+          "/dashboard/telegram/usuarios",
+        );
+      } catch {
+        /* push é aviso, não pode derrubar a expiração */
+      }
+    }
+
+    // 4. Convite para o grupo de prévias, para a pessoa não sumir do funil.
+    const warmupInvite = await createTelegramInviteLink(
+      bot.botToken,
+      bot.idAquecimento,
+      `Warmup_${row.telegram_user_id}`,
+    ).catch(() => null);
+
+    const warmupLink = warmupInvite?.invite_link || `https://t.me/${bot.botUsername || ""}`;
+
+    // 5. Avisa a pessoa e convida para o aquecimento.
+    const expiredMsg =
+      `⚠️ <b>Sua assinatura VIP expirou!</b>\n\n` +
+      `Para continuar recebendo o conteúdo completo e exclusivo, renove seu plano no chat do bot.\n\n` +
+      `Enquanto isso, você foi redirecionado para o nosso grupo de prévias gratuitas:\n` +
+      `👉 <a href="${warmupLink}">Entrar no Grupo de Prévias</a>`;
+
+    await sendTelegramMessage(bot.botToken, String(row.telegram_user_id), expiredMsg).catch(() => {});
+    if (!erroRemocao) evictedCount++;
   }
 
   return evictedCount;

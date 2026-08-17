@@ -157,6 +157,10 @@ type FunnelStep = {
   delayMinutes: number;
   text: string;
   discountPercent?: number;
+  /** Quais planos entram no teclado. */
+  planMode?: "all" | "subs" | "packages" | "none";
+  /** Para quem, dentro do público do funil. */
+  audience?: "leads" | "expirados" | "todos";
   /** Mídias escolhidas a dedo, na ordem de envio. */
   mediaIds?: string[];
   mediaMode?: "album" | "separate";
@@ -1098,7 +1102,7 @@ function ExtrasRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; o
         onChange={(e) => setPreviews(e.target.value)}
       />
       <VarChips
-        vars={[["{nome}", "primeiro nome do lead"]]}
+        vars={VARS_PADRAO}
         targetRef={areaRef}
         onChange={setPreviews}
       />
@@ -1662,19 +1666,176 @@ function FunnelCard({
  *  soltos convidava a "1440" quando a intenção era "1 dia". */
 const TEMPOS = [
   { min: 5, label: "5 min" },
+  { min: 10, label: "10 min" },
   { min: 15, label: "15 min" },
+  { min: 20, label: "20 min" },
+  { min: 25, label: "25 min" },
   { min: 30, label: "30 min" },
+  { min: 45, label: "45 min" },
   { min: 60, label: "1 hora" },
+  { min: 120, label: "2 horas" },
   { min: 180, label: "3 horas" },
   { min: 360, label: "6 horas" },
   { min: 720, label: "12 horas" },
   { min: 1440, label: "1 dia" },
   { min: 2880, label: "2 dias" },
   { min: 4320, label: "3 dias" },
-  { min: 10080, label: "7 dias" },
 ];
 
 const DESCONTOS = [0, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70];
+
+/** Quais planos vão no teclado da mensagem. */
+const MODOS_BOTAO: { key: NonNullable<FunnelStep["planMode"]>; label: string }[] = [
+  { key: "all", label: "Todos os planos" },
+  { key: "subs", label: "Só assinaturas" },
+  { key: "packages", label: "Só pacotes" },
+  { key: "none", label: "Sem botões" },
+];
+
+/** Para quem esta mensagem vale, dentro do público do funil. */
+const PUBLICOS: { key: NonNullable<FunnelStep["audience"]>; label: string; hint: string }[] = [
+  { key: "leads", label: "Só leads (não compraram)", hint: "Nunca comprou nada." },
+  { key: "expirados", label: "Expirados", hint: "Já comprou e o acesso venceu." },
+  { key: "todos", label: "Todos", hint: "Leads e expirados." },
+];
+
+/** Minutos → a maior unidade inteira, para o campo personalizado abrir certo. */
+function decompoeMinutos(min: number): { valor: number; unidade: "min" | "h" | "d" } {
+  if (min > 0 && min % 1440 === 0) return { valor: min / 1440, unidade: "d" };
+  if (min > 0 && min % 60 === 0) return { valor: min / 60, unidade: "h" };
+  return { valor: min, unidade: "min" };
+}
+
+function paraMinutos(valor: number, unidade: "min" | "h" | "d"): number {
+  const v = Math.max(1, Math.floor(valor) || 1);
+  return unidade === "d" ? v * 1440 : unidade === "h" ? v * 60 : v;
+}
+
+function rotuloDoTempo(min: number): string {
+  const achado = TEMPOS.find((t) => t.min === min);
+  if (achado) return achado.label;
+  const { valor, unidade } = decompoeMinutos(min);
+  return `${valor} ${unidade === "d" ? "dia(s)" : unidade === "h" ? "hora(s)" : "min"}`;
+}
+
+/**
+ * Campo de TEMPO com lista fechada mais "Personalizado".
+ *
+ * A lista cobre o que se usa no dia a dia; o personalizado existe porque
+ * fechar a lista de vez obrigaria a escolher o valor errado quando o certo não
+ * está nela. E ele pede a UNIDADE, em vez de minutos: "3 dias" digitado como
+ * 4320 é onde se erra uma casa e a mensagem sai um mês depois.
+ */
+function TempoDoPasso({ minutos, onChange }: { minutos: number; onChange: (v: number) => void }) {
+  const naLista = TEMPOS.some((t) => t.min === minutos);
+  const [personalizado, setPersonalizado] = useState(!naLista);
+  const inicial = decompoeMinutos(minutos);
+  const [valor, setValor] = useState(inicial.valor);
+  const [unidade, setUnidade] = useState<"min" | "h" | "d">(inicial.unidade);
+
+  return (
+    <div>
+      <label className="eyebrow block">Tempo de espera</label>
+      <select
+        className="input mt-1 h-9 py-0 text-xs"
+        value={personalizado ? "custom" : String(minutos)}
+        onChange={(e) => {
+          if (e.target.value === "custom") {
+            setPersonalizado(true);
+            const d = decompoeMinutos(minutos);
+            setValor(d.valor);
+            setUnidade(d.unidade);
+          } else {
+            setPersonalizado(false);
+            onChange(Number(e.target.value));
+          }
+        }}
+      >
+        {TEMPOS.map((t) => (
+          <option key={t.min} value={t.min}>
+            {t.label}
+          </option>
+        ))}
+        <option value="custom">Personalizado…</option>
+      </select>
+
+      {personalizado && (
+        <div className="mt-1.5 flex gap-1.5">
+          <input
+            type="number"
+            min={1}
+            className="input h-9 w-20 py-0 text-xs"
+            value={valor}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setValor(v);
+              onChange(paraMinutos(v, unidade));
+            }}
+          />
+          <select
+            className="input h-9 flex-1 py-0 text-xs"
+            value={unidade}
+            onChange={(e) => {
+              const u = e.target.value as "min" | "h" | "d";
+              setUnidade(u);
+              onChange(paraMinutos(valor, u));
+            }}
+          >
+            <option value="min">minutos</option>
+            <option value="h">horas</option>
+            <option value="d">dias</option>
+          </select>
+        </div>
+      )}
+      <p className="mt-1 text-[11px] text-zinc-500">Envia {rotuloDoTempo(minutos)} depois da anterior.</p>
+    </div>
+  );
+}
+
+/** Desconto com lista fechada mais "Personalizado". */
+function DescontoDoPasso({ valor, onChange }: { valor: number; onChange: (v: number) => void }) {
+  const [personalizado, setPersonalizado] = useState(!DESCONTOS.includes(valor));
+
+  return (
+    <div>
+      <label className="eyebrow block">Desconto</label>
+      <select
+        className="input mt-1 h-9 py-0 text-xs"
+        value={personalizado ? "custom" : String(valor)}
+        onChange={(e) => {
+          if (e.target.value === "custom") setPersonalizado(true);
+          else {
+            setPersonalizado(false);
+            onChange(Number(e.target.value));
+          }
+        }}
+      >
+        {DESCONTOS.map((d) => (
+          <option key={d} value={d}>
+            {d === 0 ? "Sem desconto" : `${d}%`}
+          </option>
+        ))}
+        <option value="custom">Personalizado…</option>
+      </select>
+
+      {personalizado && (
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <input
+            type="number"
+            min={0}
+            max={100}
+            className="input h-9 w-20 py-0 text-xs"
+            value={valor}
+            // Acima de 100% o preço viraria negativo e o gateway recusaria a
+            // cobrança — o limite é do mundo real, não da tela.
+            onChange={(e) => onChange(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
+          />
+          <span className="text-xs text-zinc-500">%</span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Um passo da RECUPERAÇÃO.
@@ -1702,7 +1863,7 @@ function FunnelEditor({
     setSteps(steps.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
   }
 
-  const ativos = planos.filter((p) => p.active !== false);
+  const todosAtivos = planos.filter((p) => p.active !== false);
 
   return (
     <div className="mt-4 border-t border-white/10 pt-3">
@@ -1710,6 +1871,13 @@ function FunnelEditor({
       <div className="mt-2 space-y-3">
         {steps.map((s, i) => {
           const desconto = s.discountPercent ?? 0;
+          // O "Planos enviados" mostra EXATAMENTE o que vai no teclado — se
+          // ignorasse o modo de botões, o operador conferiria uma lista que
+          // não é a que o lead recebe.
+          const modo = s.planMode || "all";
+          const ativos = todosAtivos.filter((p) =>
+            modo === "subs" ? p.kind !== "package" : modo === "packages" ? p.kind === "package" : true,
+          );
           return (
             <div key={i} className="panel p-3">
               <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -1754,46 +1922,52 @@ function FunnelEditor({
               />
 
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <TempoDoPasso
+                  minutos={s.delayMinutes ?? 60}
+                  onChange={(v) => update(i, { delayMinutes: v })}
+                />
+                <DescontoDoPasso
+                  valor={desconto}
+                  onChange={(v) => update(i, { discountPercent: v })}
+                />
                 <div>
-                  <label className="eyebrow block">Tempo de espera</label>
+                  <label className="eyebrow block">Modo dos botões</label>
                   <select
                     className="input mt-1 h-9 py-0 text-xs"
-                    value={String(s.delayMinutes ?? 60)}
-                    onChange={(e) => update(i, { delayMinutes: Number(e.target.value) })}
+                    value={s.planMode || "all"}
+                    onChange={(e) =>
+                      update(i, { planMode: e.target.value as FunnelStep["planMode"] })
+                    }
                   >
-                    {/* Um valor salvo fora da lista (vindo de antes destes
-                        selects) continua aparecendo, em vez de ser trocado
-                        em silêncio pelo primeiro da lista. */}
-                    {!TEMPOS.some((t) => t.min === (s.delayMinutes ?? 60)) && (
-                      <option value={String(s.delayMinutes ?? 60)}>{s.delayMinutes} min</option>
-                    )}
-                    {TEMPOS.map((t) => (
-                      <option key={t.min} value={t.min}>
-                        {t.label}
+                    {MODOS_BOTAO.map((m) => (
+                      <option key={m.key} value={m.key}>
+                        {m.label}
                       </option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="eyebrow block">Desconto</label>
+                  <label className="eyebrow block">Destinatários</label>
                   <select
                     className="input mt-1 h-9 py-0 text-xs"
-                    value={String(desconto)}
-                    onChange={(e) => update(i, { discountPercent: Number(e.target.value) })}
+                    value={s.audience || "leads"}
+                    onChange={(e) =>
+                      update(i, { audience: e.target.value as FunnelStep["audience"] })
+                    }
                   >
-                    {!DESCONTOS.includes(desconto) && (
-                      <option value={String(desconto)}>{desconto}%</option>
-                    )}
-                    {DESCONTOS.map((d) => (
-                      <option key={d} value={d}>
-                        {d === 0 ? "Sem desconto" : `${d}%`}
+                    {PUBLICOS.map((pb) => (
+                      <option key={pb.key} value={pb.key}>
+                        {pb.label}
                       </option>
                     ))}
                   </select>
+                  <p className="mt-1 text-[11px] text-zinc-500">
+                    {PUBLICOS.find((pb) => pb.key === (s.audience || "leads"))?.hint}
+                  </p>
                 </div>
               </div>
 
-              {ativos.length > 0 && (
+              {ativos.length > 0 && s.planMode !== "none" && (
                 <div className="mt-3 rounded-xl border border-dashed border-white/10 p-2.5">
                   <p className="eyebrow mb-1.5">Planos enviados</p>
                   <div className="space-y-1">
@@ -1837,7 +2011,7 @@ function FunnelEditor({
       >
         <IconPlus size={13} /> Adicionar mensagem
       </button>
-      {ativos.length === 0 && (
+      {todosAtivos.length === 0 && (
         <p className="mt-2 text-[11px] text-amber-400">
           Nenhum plano ativo: estas mensagens sairiam sem botão de compra.
         </p>

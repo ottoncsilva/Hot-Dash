@@ -115,5 +115,23 @@ export default function MessageEditor({
   );
 }
 
-/** As variáveis que valem em qualquer mensagem do bot. */
-export const VARS_PADRAO: [string, string][] = [["{nome}", "primeiro nome do lead no Telegram"]];
+/**
+ * As variáveis que valem em qualquer mensagem do bot.
+ *
+ * A lista é curta de propósito: só entra o que o painel consegue PREENCHER de
+ * verdade. Variável que sempre sai vazia é pior que variável que não existe —
+ * quem escreve a copy conta com ela e o lead recebe um buraco na frase. Por
+ * isso não há {email}, {telefone}, {cidade}, {estado} nem {uf}: o Telegram não
+ * entrega nada disso para um bot.
+ *
+ * Espelha TELEGRAM_VARS (lib/telegramVars.ts), que é quem faz a troca no
+ * envio. Se as duas divergirem, a tela promete o que o bot não cumpre.
+ */
+export const VARS_PADRAO: [string, string][] = [
+  ["{nome}", "primeiro nome do lead no Telegram"],
+  ["{nome_completo}", "nome e sobrenome, quando o Telegram informa"],
+  ["{usuario}", "@username do lead (vazio para quem não tem)"],
+  ["{saudacao}", "Bom dia / Boa tarde / Boa noite, pelo fuso da operação"],
+  ["{modelo}", "nome da modelo"],
+  ["{bot}", "@ do bot"],
+];

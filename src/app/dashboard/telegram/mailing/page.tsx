@@ -9,6 +9,7 @@ import { useConfirm } from "@/hooks/useConfirm";
 import type { Profile } from "@/lib/types";
 import { IconSend, IconClose, IconPlus, IconTrash } from "@/components/icons";
 import PageHeader from "@/components/PageHeader";
+import MediaPicker from "@/components/telegram/bot/MediaPicker";
 
 // ---- Tipos (espelham telegramMailing.ts / telegramUsers.ts) ----
 type Audience =
@@ -18,6 +19,9 @@ type Audience =
   | "expirados"
   | "pendentes"
   | "compradores"
+  | "recorrentes"
+  | "pacotes"
+  | "order_bump"
   | "previas"
   | "grupo_vip";
 
@@ -28,8 +32,26 @@ const AUDIENCE_LABELS: Record<Audience, string> = {
   expirados: "Expirados",
   pendentes: "Pendentes",
   compradores: "Compradores",
+  recorrentes: "Recorrentes",
+  pacotes: "Pacotes",
+  order_bump: "Order Bump",
   previas: "Prévias",
   grupo_vip: "Grupo VIP",
+};
+
+/** A explicação de cada público, no `title` do cartão. */
+const AUDIENCE_HINTS: Record<Audience, string> = {
+  todos: "Todo mundo que já falou com o bot.",
+  vips: "Assinatura VIP em dia.",
+  novos: "Deu /start e nunca gerou cobrança.",
+  expirados: "Assinatura VIP vencida.",
+  pendentes: "Gerou PIX e não pagou.",
+  compradores: "Já pagou pelo menos uma vez.",
+  recorrentes: "Comprou mais de uma vez.",
+  pacotes: "Comprou um pacote (compra única).",
+  order_bump: "Aceitou uma oferta adicional na hora de pagar.",
+  previas: "Está no grupo de prévias.",
+  grupo_vip: "Está dentro do grupo VIP.",
 };
 
 const AUDIENCE_ORDER: Audience[] = [
@@ -39,6 +61,9 @@ const AUDIENCE_ORDER: Audience[] = [
   "expirados",
   "pendentes",
   "compradores",
+  "recorrentes",
+  "pacotes",
+  "order_bump",
   "previas",
   "grupo_vip",
 ];
@@ -69,7 +94,10 @@ type Mailing = {
   name: string;
   message: string;
   audiences: Audience[];
+  mediaIds?: string[];
+  mediaMode?: "album" | "separate";
   mediaTags?: string;
+  audioUrl?: string;
   buttons: { text: string; url: string }[];
   scheduleType: ScheduleType;
   scheduleTimes?: string;
@@ -86,7 +114,6 @@ type Mailing = {
   offers: (Offer & { id: string })[];
 };
 
-type Tag = { id: string; name: string; color: string };
 
 const MESSAGE_MAX = 4096;
 
@@ -103,7 +130,6 @@ export default function MailingPage() {
   const [mailings, setMailings] = useState<Mailing[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
-  const [tags, setTags] = useState<Tag[]>([]);
   const [editing, setEditing] = useState<Mailing | null>(null);
 
   useEffect(() => {
@@ -118,13 +144,11 @@ export default function MailingPage() {
         mailings: Mailing[];
         plans: Plan[];
         audiences: Record<string, number>;
-        availableTags: Tag[];
       }>(`/api/telegram/mailings?profileId=${profileId}`);
       setBot(d.bot);
       setMailings(d.mailings || []);
       setPlans(d.plans || []);
       setCounts(d.audiences || {});
-      setTags(d.availableTags || []);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha ao carregar.", "error");
     } finally {
@@ -197,7 +221,6 @@ export default function MailingPage() {
             botUsername={bot.botUsername}
             plans={plans}
             counts={counts}
-            tags={tags}
             mailing={editing}
             onCancelEdit={() => setEditing(null)}
             onSaved={() => {
@@ -248,7 +271,6 @@ function MailingForm({
   botUsername,
   plans,
   counts,
-  tags,
   mailing,
   onCancelEdit,
   onSaved,
@@ -257,7 +279,6 @@ function MailingForm({
   botUsername?: string;
   plans: Plan[];
   counts: Record<string, number>;
-  tags: Tag[];
   mailing: Mailing | null;
   onCancelEdit: () => void;
   onSaved: () => void;
@@ -267,7 +288,9 @@ function MailingForm({
   const [audiences, setAudiences] = useState<Audience[]>(mailing?.audiences || ["todos"]);
   const [offers, setOffers] = useState<Offer[]>(mailing?.offers || []);
   const [buttons, setButtons] = useState(mailing?.buttons || []);
-  const [mediaTags, setMediaTags] = useState(mailing?.mediaTags || "");
+  const [mediaIds, setMediaIds] = useState<string[]>(mailing?.mediaIds || []);
+  const [mediaMode, setMediaMode] = useState<"album" | "separate">(mailing?.mediaMode || "album");
+  const [audioUrl, setAudioUrl] = useState(mailing?.audioUrl || "");
   const [scheduleType, setScheduleType] = useState<ScheduleType>(mailing?.scheduleType || "once");
   const [times, setTimes] = useState<string[]>(
     (mailing?.scheduleTimes || "").split(",").filter(Boolean),
@@ -355,7 +378,9 @@ function MailingForm({
       name,
       message,
       audiences,
-      mediaTags,
+      mediaIds,
+      mediaMode,
+      audioUrl,
       buttons,
       offers,
       scheduleType,
@@ -466,6 +491,7 @@ function MailingForm({
               <button
                 key={a}
                 type="button"
+                title={AUDIENCE_HINTS[a]}
                 onClick={() => toggleAudience(a)}
                 className={`rounded-xl border p-3 text-center transition-colors ${
                   on
@@ -621,24 +647,54 @@ function MailingForm({
         </button>
       </div>
 
-      {/* Mídia */}
+      {/* Mídia e áudio */}
       <div className="mt-5">
-        <p className="text-sm font-semibold text-white">Mídia</p>
+        <p className="text-sm font-semibold text-white">Mídia e áudio</p>
         <p className="mt-1 text-xs text-zinc-500">
-          Opcional. Informe etiquetas e o disparo sai com uma mídia sorteada da galeria entre as que
-          têm essas etiquetas.
+          Opcional. As mídias são escolhidas a dedo e vão nesta ordem — sortear por etiqueta saiu
+          de todo o bot: numa mensagem que vai para milhares de pessoas, não saber o que elas vão
+          ver é o oposto do que se quer.
         </p>
-        <input
-          className="input mt-2"
-          placeholder="ex.: previa, quente"
-          value={mediaTags}
-          onChange={(e) => setMediaTags(e.target.value)}
-        />
-        {tags.length > 0 && (
-          <p className="mt-1 text-[11px] text-zinc-500">
-            Disponíveis: {tags.map((t) => t.name).join(", ")}
-          </p>
+        <div className="mt-2">
+          <MediaPicker profileId={profileId} selected={mediaIds} onChange={setMediaIds} />
+        </div>
+        {mediaIds.length > 1 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-zinc-500">Enviar as {mediaIds.length}:</span>
+            {(
+              [
+                ["album", "em álbum"],
+                ["separate", "uma por mensagem"],
+              ] as const
+            ).map(([k, rotulo]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setMediaMode(k)}
+                className={`rounded-lg border px-2 py-1 text-[11px] transition-colors ${
+                  mediaMode === k
+                    ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
+                    : "border-white/10 bg-ink-850 text-zinc-400 hover:border-white/20"
+                }`}
+              >
+                {rotulo}
+              </button>
+            ))}
+          </div>
         )}
+
+        <label className="eyebrow mt-4 block">Áudio (URL pública .ogg)</label>
+        <input
+          className="input mt-1.5 font-mono text-xs"
+          placeholder="https://... .ogg"
+          value={audioUrl}
+          onChange={(e) => setAudioUrl(e.target.value)}
+        />
+        <p className="mt-1 text-[11px] text-zinc-500">
+          Enviado como mensagem de voz <b>depois</b> do texto — o que o lead veio ler não pode
+          ficar atrás de um áudio. O Telegram baixa o arquivo sozinho, então a URL precisa ser
+          alcançável da internet.
+        </p>
       </div>
 
       {/* Frequência */}

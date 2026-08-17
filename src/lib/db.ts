@@ -809,6 +809,12 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "telegram_subscriptions", "removal_attempts", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(d, "telegram_subscriptions", "last_removal_at", "INTEGER");
   ensureColumn(d, "telegram_subscriptions", "removal_notified", "INTEGER NOT NULL DEFAULT 0");
+  // MAILING: mídia ESCOLHIDA a dedo (JSON de ids da Galeria, em ordem) e áudio,
+  // como no resto do bot. As etiquetas continuam na coluna antiga, lidas só
+  // como legado — ver lib/telegramSend.ts.
+  ensureColumn(d, "telegram_mailings", "media_ids", "TEXT");
+  ensureColumn(d, "telegram_mailings", "media_mode", "TEXT NOT NULL DEFAULT 'album'");
+  ensureColumn(d, "telegram_mailings", "audio_url", "TEXT");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);

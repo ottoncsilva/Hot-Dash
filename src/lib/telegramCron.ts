@@ -23,7 +23,8 @@ import {
   banTelegramMember,
   unbanTelegramMember,
   createTelegramInviteLink,
-} from "@/lib/telegramApi";
+
+  sendTelegramVoiceUrl,} from "@/lib/telegramApi";
 import {
   listAudienceRecipients,
   getTelegramUsersByIds,
@@ -687,7 +688,6 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
 const MAILING_BATCH = 300;
 const MAILING_DELAY_MS = 50;
 /** Limite de legenda de mídia do Telegram (a mensagem de texto vai a 4096). */
-const CAPTION_MAX = 1024;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -726,22 +726,6 @@ function buildMailingMarkup(mailing: Mailing) {
   return rows.length > 0 ? { inline_keyboard: rows } : undefined;
 }
 
-/** Uma mídia aleatória entre as que têm as etiquetas escolhidas (se houver). */
-function pickMailingMedia(profileId: string, mediaTags?: string): string | null {
-  const tags = (mediaTags || "")
-    .split(",")
-    .map((t) => t.trim().toLowerCase())
-    .filter(Boolean);
-  if (tags.length === 0) return null;
-  const candidates = listMedia(profileId).filter((m) =>
-    m.tags.some((t) => tags.includes(t.name.toLowerCase())),
-  );
-  if (candidates.length === 0) return null;
-  const chosen = candidates[Math.floor(Math.random() * candidates.length)];
-  const row = getMediaRow(chosen.id);
-  return row ? row.path : null;
-}
-
 export async function runTelegramMailings(): Promise<{ sent: number; failed: number }> {
   const due = listDueMailings();
   let sent = 0;
@@ -772,7 +756,6 @@ export async function runTelegramMailings(): Promise<{ sent: number; failed: num
         batch.map((b) => b.telegramUserId),
       );
       const replyMarkup = buildMailingMarkup(mailing);
-      const mediaPath = pickMailingMedia(mailing.profileId, mailing.mediaTags);
 
       for (const item of batch) {
         const user = users.get(item.telegramUserId);
@@ -788,22 +771,26 @@ export async function runTelegramMailings(): Promise<{ sent: number; failed: num
         );
 
         try {
-          if (mediaPath && text.length > CAPTION_MAX) {
-            // Legenda de mídia no Telegram vai até 1024 caracteres (a mensagem
-            // de texto vai a 4096). Texto longo com mídia sai em duas partes,
-            // com os botões na segunda — senão o envio inteiro seria recusado.
-            await sendTelegramMedia(bot.botToken, item.chatId, mediaPath, undefined);
-            await sendTelegramMessage(bot.botToken, item.chatId, text, {
-              reply_markup: replyMarkup,
-            });
-          } else if (mediaPath) {
-            await sendTelegramMedia(bot.botToken, item.chatId, mediaPath, text, {
-              reply_markup: replyMarkup,
-            });
-          } else {
-            await sendTelegramMessage(bot.botToken, item.chatId, text, {
-              reply_markup: replyMarkup,
-            });
+          // Mesmo caminho de envio do /start e da Recuperação: mídias
+          // escolhidas a dedo, em álbum ou uma por mensagem, com o sorteio por
+          // etiqueta ainda aceito como legado.
+          await enviarMensagemDoBot({
+            botToken: bot.botToken,
+            chatId: item.chatId,
+            profileId: mailing.profileId,
+            text,
+            mediaIds: mailing.mediaIds,
+            mode: mailing.mediaMode,
+            mediaTags: mailing.mediaTags,
+            replyMarkup,
+          });
+          // Áudio DEPOIS do texto, como no PIX: o que o lead veio ler não pode
+          // ficar atrás de uma mensagem de voz. Best-effort — uma URL fora do
+          // ar não pode derrubar o disparo inteiro.
+          if (mailing.audioUrl?.trim()) {
+            await sendTelegramVoiceUrl(bot.botToken, item.chatId, mailing.audioUrl.trim()).catch(
+              () => {},
+            );
           }
           markQueueItem(item.id, mailing.id, "sent");
           sent++;

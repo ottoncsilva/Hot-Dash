@@ -11,7 +11,8 @@ import type { Profile } from "@/lib/types";
 import { IconProfiles, IconSend, IconClose, IconSearch } from "@/components/icons";
 import PageHeader from "@/components/PageHeader";
 
-type UserStatus = "bloqueado" | "vip" | "expirado" | "pendente" | "lead";
+/** Quem gerou PIX e não pagou é LEAD — a distinção vive no detalhe da linha. */
+type UserStatus = "bloqueado" | "vip" | "expirado" | "lead";
 
 /**
  * UMA lista só. Assinante não é uma lista à parte: é o mesmo usuário com a
@@ -37,6 +38,8 @@ type TelegramUser = {
   /** 0 = vitalício. Ausente = nunca assinou. */
   expiresAt?: number;
   planName?: string;
+  /** Gerou PIX e não pagou. É lead, mas vale aparecer no detalhe. */
+  pixPendente?: boolean;
   /** Venceu e o bot ainda não conseguiu tirar do VIP (ele segue tentando). */
   removalPending?: boolean;
 };
@@ -55,7 +58,6 @@ const FILTERS: { value: Filter; label: string }[] = [
 const STATUS_LABEL: Record<UserStatus, string> = {
   vip: "VIP",
   expirado: "Expirado",
-  pendente: "Pendente",
   lead: "Lead",
   bloqueado: "Bloqueado",
 };
@@ -63,8 +65,7 @@ const STATUS_LABEL: Record<UserStatus, string> = {
 const STATUS_CLASS: Record<UserStatus, string> = {
   vip: "border-emerald-500/30 text-emerald-400",
   expirado: "border-amber-500/30 text-amber-400",
-  pendente: "border-sky-500/30 text-sky-400",
-  lead: "border-white/10 text-zinc-400",
+  lead: "border-sky-500/30 text-sky-400",
   bloqueado: "border-red-500/30 text-red-400",
 };
 
@@ -420,6 +421,7 @@ function UserRow({
   } else {
     detalhe.push(`Entrou ${new Date(u.createdAt).toLocaleDateString("pt-BR")}`);
   }
+  if (u.pixPendente) detalhe.push("PIX gerado");
   if (u.username) detalhe.push(`@${u.username}`);
   if (u.inPrevias) detalhe.push("prévias");
   if (!u.canDm) detalhe.push("sem conversa no privado");

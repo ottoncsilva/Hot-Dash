@@ -11,6 +11,13 @@ import { sendTelegramMessage, sendTelegramMedia, sendTelegramMediaGroup } from "
  * só, sorteada por etiqueta. Resultado: a mesma configuração na tela produzia
  * envios diferentes dependendo de onde a mensagem estava.
  *
+ * O LIMITE DE LEGENDA também mora aqui: uma mensagem de texto vai a 4096
+ * caracteres, mas a legenda de uma mídia para em 1024. Passando disso, o
+ * Telegram recusa o envio inteiro — a mídia não vai, o texto não vai, e o
+ * lead não recebe nada. Então texto longo com mídia sai em DUAS partes, com
+ * os botões na segunda. Isto existia só no Mailing; o /start, a Recuperação e
+ * as sequências de aprovação estouravam calados.
+ *
  * As duas formas de mandar mais de uma mídia não são preferência de estilo:
  *   • ÁLBUM  — uma mensagem só, e o Telegram NÃO aceita botão em álbum, então
  *     texto e botões vão numa mensagem logo abaixo;
@@ -34,8 +41,16 @@ export type EnvioMensagem = {
   extra?: Record<string, unknown>;
 };
 
+/** Legenda de mídia no Telegram. A mensagem de texto vai a 4096. */
+const LIMITE_LEGENDA = 1024;
+
 export async function enviarMensagemDoBot(m: EnvioMensagem): Promise<void> {
   const opcoesTexto = { ...(m.replyMarkup ? { reply_markup: m.replyMarkup } : {}), ...(m.extra || {}) };
+  const texto = m.text || "";
+  // Texto que não cabe na legenda vira uma segunda mensagem. Os botões vão
+  // com ELA, não com a mídia: o teclado tem que ficar colado no texto que
+  // pede a ação.
+  const textoSeparado = texto.length > LIMITE_LEGENDA;
 
   const caminhos = (m.mediaIds || [])
     .map((id) => getMediaRow(id))
@@ -45,20 +60,24 @@ export async function enviarMensagemDoBot(m: EnvioMensagem): Promise<void> {
   if (caminhos.length > 0) {
     if (m.mode === "separate" || caminhos.length === 1) {
       for (let i = 0; i < caminhos.length; i++) {
-        const ultima = i === caminhos.length - 1;
+        const ultima = i === caminhos.length - 1 && !textoSeparado;
         await sendTelegramMedia(
           m.botToken,
           m.chatId,
           caminhos[i],
-          ultima ? m.text || undefined : undefined,
+          ultima ? texto || undefined : undefined,
           ultima ? opcoesTexto : {},
         );
       }
     } else {
       await sendTelegramMediaGroup(m.botToken, m.chatId, caminhos);
-      if (m.text?.trim() || m.replyMarkup) {
-        await sendTelegramMessage(m.botToken, m.chatId, m.text, opcoesTexto);
-      }
+    }
+    // Álbum nunca leva legenda (o Telegram não aceita botão em álbum), e o
+    // texto longo também não coube — nos dois casos ele vem aqui.
+    const precisaDeMensagem =
+      textoSeparado || (m.mode !== "separate" && caminhos.length > 1);
+    if (precisaDeMensagem && (texto.trim() || m.replyMarkup)) {
+      await sendTelegramMessage(m.botToken, m.chatId, texto, opcoesTexto);
     }
     return;
   }
@@ -77,11 +96,16 @@ export async function enviarMensagemDoBot(m: EnvioMensagem): Promise<void> {
       const escolhida = candidatas[Math.floor(Math.random() * candidatas.length)];
       const row = getMediaRow(escolhida.id);
       if (row) {
-        await sendTelegramMedia(m.botToken, m.chatId, row.path, m.text || undefined, opcoesTexto);
+        if (textoSeparado) {
+          await sendTelegramMedia(m.botToken, m.chatId, row.path, undefined);
+          await sendTelegramMessage(m.botToken, m.chatId, texto, opcoesTexto);
+        } else {
+          await sendTelegramMedia(m.botToken, m.chatId, row.path, texto || undefined, opcoesTexto);
+        }
         return;
       }
     }
   }
 
-  await sendTelegramMessage(m.botToken, m.chatId, m.text, opcoesTexto);
+  await sendTelegramMessage(m.botToken, m.chatId, texto, opcoesTexto);
 }

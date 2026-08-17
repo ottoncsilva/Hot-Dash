@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { aplicarVariaveis } from "./telegramVars";
 import { randomUUID } from "node:crypto";
 import { getAppTimeZone } from "./settings";
 import { partsInTimeZone, zonedWallTimeToUtcMs } from "./timezone";
@@ -38,7 +39,13 @@ export type Mailing = {
   name: string;
   message: string;
   audiences: Audience[];
+  /** Mídias escolhidas a dedo, na ordem de envio. */
+  mediaIds?: string[];
+  mediaMode?: "album" | "separate";
+  /** Etiquetas — legado. Saiu da tela; o envio ainda lê quando não há mediaIds. */
   mediaTags?: string;
+  /** URL pública de um OGG/OPUS enviado como mensagem de voz junto do disparo. */
+  audioUrl?: string;
   buttons: MailingButton[];
   scheduleType: MailingScheduleType;
   scheduleTimes?: string;
@@ -81,7 +88,10 @@ function toMailing(r: any, offers: MailingOffer[]): Mailing {
       .split(",")
       .map((a) => a.trim())
       .filter(Boolean) as Audience[],
+    mediaIds: parseIdList(r.media_ids),
+    mediaMode: r.media_mode === "separate" ? "separate" : "album",
     mediaTags: r.media_tags || undefined,
+    audioUrl: r.audio_url || undefined,
     buttons: parseButtons(r.buttons),
     scheduleType: (r.schedule_type || "once") as MailingScheduleType,
     scheduleTimes: r.schedule_times || undefined,
@@ -145,7 +155,10 @@ export type SaveMailingInput = {
   name: string;
   message: string;
   audiences: Audience[];
+  mediaIds?: string[];
+  mediaMode?: "album" | "separate";
   mediaTags?: string;
+  audioUrl?: string;
   buttons: MailingButton[];
   scheduleType: MailingScheduleType;
   scheduleTimes?: string;
@@ -164,13 +177,16 @@ export function saveMailing(input: SaveMailingInput): Mailing {
 
   db.prepare(
     `INSERT INTO telegram_mailings
-       (id, bot_id, profile_id, name, message, audiences, media_tags, buttons, schedule_type,
+       (id, bot_id, profile_id, name, message, audiences, media_ids, media_mode, audio_url, media_tags, buttons, schedule_type,
         schedule_times, schedule_weekdays, interval_hours, scheduled_at, status, next_run_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        name              = excluded.name,
        message           = excluded.message,
        audiences         = excluded.audiences,
+       media_ids         = excluded.media_ids,
+       media_mode        = excluded.media_mode,
+       audio_url         = excluded.audio_url,
        media_tags        = excluded.media_tags,
        buttons           = excluded.buttons,
        schedule_type     = excluded.schedule_type,
@@ -187,6 +203,9 @@ export function saveMailing(input: SaveMailingInput): Mailing {
     input.name,
     input.message,
     input.audiences.join(","),
+    input.mediaIds?.length ? JSON.stringify(input.mediaIds.slice(0, 10)) : null,
+    input.mediaMode === "separate" ? "separate" : "album",
+    input.audioUrl?.trim() || null,
     input.mediaTags || null,
     JSON.stringify(input.buttons || []),
     input.scheduleType,
@@ -404,17 +423,7 @@ export function computeNextRunAt(m: {
 // Variáveis do texto
 // ---------------------------------------------------------------------------
 
-/** Escapa o que vem do CADASTRO (nome do lead) antes de entrar no HTML enviado. */
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
 
-export function greetingForNow(): string {
-  const p = partsInTimeZone(Date.now(), getAppTimeZone());
-  if (p.hour < 12) return "bom dia";
-  if (p.hour < 18) return "boa tarde";
-  return "boa noite";
-}
 
 /** Variáveis oferecidas na tela (só as que o Telegram realmente nos dá). */
 export const MAILING_VARIABLES = [
@@ -432,24 +441,32 @@ export const MAILING_VARIABLES = [
  * escrito com as tags de formatação do Telegram (<b>, <i>, <tg-spoiler>…), por
  * isso ele NÃO é escapado — mas tudo que vem de dados é.
  */
+/** JSON de ids da Galeria → lista. Conteúdo corrompido vira lista vazia. */
+function parseIdList(raw: unknown): string[] | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string" && x) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function renderMailingText(
   template: string,
   user: { firstName?: string; lastName?: string; username?: string; telegramUserId: number },
   ctx: { profileName?: string; botUsername?: string },
 ): string {
-  const map: Record<string, string> = {
-    nome: user.firstName || "linda(o)",
-    sobrenome: user.lastName || "",
-    usuario: user.username ? `@${user.username}` : user.firstName || "",
-    saudacao: greetingForNow(),
-    modelo: ctx.profileName || "",
-    bot: ctx.botUsername ? `@${ctx.botUsername}` : "",
-    id: String(user.telegramUserId),
-  };
-  return template.replace(/\{([a-zA-Zç.]+)\}/g, (full, key: string) => {
-    // "{bot.nome}" é aceito como apelido de "{bot}" (nome usado na referência).
-    const k = key.toLowerCase().replace("bot.nome", "bot").replace("nome.bot", "bot");
-    const v = map[k];
-    return v === undefined ? full : escapeHtml(v);
+  // Delega para lib/telegramVars: o disparo tinha o próprio conjunto de
+  // variáveis, diferente do resto do bot. Duas listas para a mesma coisa
+  // significavam que uma copy escrita na Recuperação não funcionava no
+  // Mailing, sem nada na tela dizendo por quê.
+  return aplicarVariaveis(template, {
+    firstName: user.firstName,
+    lastName: user.lastName,
+    username: user.username,
+    telegramUserId: user.telegramUserId,
+    profileName: ctx.profileName,
+    botUsername: ctx.botUsername,
   });
 }

@@ -8,6 +8,7 @@ import {
   IconSparkle,
 } from "@/components/icons";
 import PageHeader from "@/components/PageHeader";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/uploadLimit";
 
 type Status = "pendente" | "processando" | "pronto" | "erro";
 
@@ -20,7 +21,6 @@ type Item = {
   resultName?: string;
 };
 
-const MAX_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? "200");
 
 export default function MetadataPage() {
   const [items, setItems] = useState<Item[]>([]);
@@ -30,20 +30,19 @@ export default function MetadataPage() {
 
   const addFiles = useCallback((files: FileList | null) => {
     if (!files) return;
-    const maxBytes = MAX_MB * 1024 * 1024;
-    const next: Item[] = [];
+        const next: Item[] = [];
 
     for (const file of Array.from(files)) {
       const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
       const isImg = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".tiff", ".tif", ".gif"].includes(ext);
       const isVid = [".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".mpg", ".mpeg"].includes(ext);
 
-      if (file.size > maxBytes) {
+      if (file.size > MAX_UPLOAD_BYTES) {
         next.push({
           id: `${file.name}-${file.size}-${crypto.randomUUID()}`,
           file,
           status: "erro",
-          error: `Excede o limite de ${MAX_MB} MB.`,
+          error: `Excede o limite de ${MAX_UPLOAD_MB} MB.`,
         });
       } else if (!isImg && !isVid) {
         next.push({
@@ -176,7 +175,7 @@ export default function MetadataPage() {
           </p>
           <p className="mt-1 text-xs text-zinc-500">
             Fotos (JPG, PNG, WEBP, HEIC…) e vídeos (MP4, MOV, MKV…) · até{" "}
-            {MAX_MB} MB
+            {MAX_UPLOAD_MB} MB
           </p>
         </div>
         <input

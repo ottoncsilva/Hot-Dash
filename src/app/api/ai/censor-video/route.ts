@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extname } from "node:path";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/uploadLimit";
 import { borrarVideoInteiro, censurarVideoComEmoji, INTENSIDADE_PADRAO } from "@/lib/videoCensor";
 import { BODY_PARTS, type BodyPart } from "@/lib/bodyParts";
 
@@ -16,7 +17,6 @@ export const maxDuration = 300;
 
 /** 30 segundos, como combinado — vídeo de prévia é curto por definição. */
 const DURACAO_MAX = 30;
-const TAMANHO_MAX = 100 * 1024 * 1024;
 
 /**
  * Censura de VÍDEO. Dois modos, e eles resolvem problemas diferentes:
@@ -39,10 +39,13 @@ export async function POST(req: NextRequest) {
     if (!(file instanceof File) || file.size === 0) {
       return NextResponse.json({ error: "Envie um arquivo de vídeo." }, { status: 400 });
     }
-    if (file.size > TAMANHO_MAX) {
+    // O MESMO limite do resto do app. Tinha um teto próprio, menor: a tela de
+    // censura aceitava o vídeo, subia os 100% e só então ouvia "não" — com um
+    // número que ela nunca mostrou.
+    if (file.size > MAX_UPLOAD_BYTES) {
       return NextResponse.json(
-        { error: `Vídeo acima de ${TAMANHO_MAX / 1024 / 1024} MB.` },
-        { status: 400 },
+        { error: `Vídeo acima de ${MAX_UPLOAD_MB} MB.` },
+        { status: 413 },
       );
     }
 

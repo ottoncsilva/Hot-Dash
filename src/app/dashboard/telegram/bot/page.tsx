@@ -309,7 +309,10 @@ export default function BotVendasPage() {
             ))}
           </div>
 
-          <div className={mostraPreview ? "grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]" : ""}>
+          {/* 414px = os 390pt da tela do iPhone mais a moldura. Abaixo disso o
+              preview encolheria por falta de espaço, e o ponto dele é ser do
+              tamanho do aparelho. */}
+          <div className={mostraPreview ? "grid gap-5 lg:grid-cols-[minmax(0,1fr)_414px]" : ""}>
             <div className="min-w-0 space-y-3">
               {tab === "config" && (
                 <>

@@ -1,7 +1,8 @@
 # =========================================================================
 # Hot Dash - Dockerfile (otimizado para EasyPanel / Hostinger)
 # Build multi-stage: instala deps -> builda -> imagem final enxuta.
-# A imagem final inclui exiftool + ffmpeg para o Módulo de Limpeza de Metadados.
+# A imagem final inclui exiftool + ffmpeg: limpeza de metadados, editor de
+# vídeo e censura de vídeo (borrão e emoji) dependem dos dois.
 # =========================================================================
 
 # ---- Stage 1: dependências ----

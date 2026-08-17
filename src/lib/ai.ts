@@ -1,6 +1,9 @@
 import "server-only";
 import { getAiCredentials, type AiProvider, type AiActivity } from "./settings";
+import { stripCaptionLabels } from "./captionLabels";
 import { NETWORK_LABELS, type SocialNetwork } from "./types";
+
+export { stripCaptionLabels };
 
 /**
  * Gerador de legendas por IA, sem SDKs (REST puro via fetch), no mesmo
@@ -56,7 +59,16 @@ function buildPrompt(req: CaptionRequest): string {
     "- Use emojis com moderação.",
     "- Em redes de feed (Instagram/TikTok) pode incluir 3 a 6 hashtags relevantes no final; em Telegram e mensagens diretas NÃO use hashtags.",
     "- Se for Stories ou mensagem, seja curta e direta; se for Feed/Reels, pode desenvolver um pouco mais.",
+    // O rótulo ("Legenda para Telegram (VIP):", "Legenda final:") já foi ao ar
+    // dentro dos posts do canal. O modelo o inventa copiando a própria
+    // instrução acima, então não basta pedir "só a legenda": é preciso dizer,
+    // literalmente, que a primeira palavra da RESPOSTA é a primeira palavra da
+    // LEGENDA. A limpeza em captionLabels.ts continua valendo como rede — mas a
+    // rede é a segunda linha de defesa, não a primeira.
     "- Responda SOMENTE com o texto da legenda, sem aspas nem explicações.",
+    "- NÃO escreva título, rótulo, cabeçalho nem introdução antes da legenda. Nada de 'Legenda:', 'Legenda final:', 'Legenda para Telegram', 'Caption:', 'Aqui está a legenda:', 'Opção 1'. A PRIMEIRA PALAVRA da sua resposta tem que ser a primeira palavra da legenda que a modelo vai postar.",
+    "- Não repita o nome da rede nem o tipo do post na resposta — isso é contexto pra você, não faz parte da legenda.",
+    "- Uma legenda só, sem alternativas e sem comentário depois.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -113,26 +125,22 @@ export function completionsUrl(baseUrl: string | undefined, fallback: string): s
 }
 
 /**
- * Limpa o que o modelo devolve antes de virar post.
+ * Limpa o que o modelo devolve antes de virar post: tira o RÓTULO de abertura
+ * ("Legenda final:", "Legenda para Telegram (VIP):" — ver captionLabels.ts) e o
+ * markdown.
  *
- * O prompt pede "responda SOMENTE com o texto da legenda", e mesmo assim os
- * modelos abrem com rótulo (`**Legenda:**`, `Caption:`) e usam markdown de
- * negrito. As mensagens saem em `parse_mode: HTML` (`telegramApi.ts`), então o
- * markdown não é interpretado: os asteriscos chegam literais no grupo, e foi
- * isso que apareceu nas Prévias.
- *
- * Vale para qualquer provedor — o rótulo é vício de instrução, não de um
- * modelo específico.
+ * As mensagens saem em `parse_mode: HTML` (`telegramApi.ts`), então o markdown
+ * não é interpretado: os asteriscos chegam literais no grupo.
  */
 export function cleanCaption(raw: string): string {
-  let t = (raw || "").trim();
-  // Rótulo de abertura, com ou sem markdown em volta ("**Legenda:**", "Texto:").
-  t = t.replace(/^[*_`#>\s]*(legenda|caption|texto do post|texto|post)\s*[:：]\s*[*_`]*\s*/i, "");
+  let t = stripCaptionLabels((raw || "").trim());
   // Negrito/itálico de markdown: viraria asterisco visível no Telegram.
   t = t.replace(/\*\*([\s\S]+?)\*\*/g, "$1").replace(/__([\s\S]+?)__/g, "$1");
   // Aspas envolvendo a legenda inteira.
   t = t.replace(/^["'“«]\s*/, "").replace(/\s*["'”»]$/, "");
-  return t.trim();
+  // De novo: tirar as aspas/o negrito pode ter descoberto o rótulo que estava
+  // embrulhado neles ("**Legenda final:** …" vira "Legenda final: …").
+  return stripCaptionLabels(t).trim();
 }
 
 export async function generateCaption(req: CaptionRequest): Promise<string> {

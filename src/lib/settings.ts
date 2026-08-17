@@ -300,7 +300,7 @@ export type AiProvider = "openai" | "gemini" | "grok" | "magnific" | "kling" | "
  * medição real, 423,6K tokens de raciocínio produziram 13,1K de texto e
  * responderam por 76% da fatura.
  */
-export type AiActivity = "mk" | "schedule" | "caption" | "whatsapp";
+export type AiActivity = "mk" | "schedule" | "caption" | "whatsapp" | "caixinha";
 
 export const AI_ACTIVITIES: { key: AiActivity; label: string; hint: string }[] = [
   {
@@ -322,6 +322,11 @@ export const AI_ACTIVITIES: { key: AiActivity; label: string; hint: string }[] =
     key: "whatsapp",
     label: "Agente de vendas (WhatsApp)",
     hint: "Conversa com o cliente. É onde raciocínio tem mais chance de se pagar.",
+  },
+  {
+    key: "caixinha",
+    label: "Caixinha de perguntas (Instagram)",
+    hint: "Uma leva por vez, nos três provedores ao mesmo tempo — a variedade vem de misturar os modelos.",
   },
 ];
 

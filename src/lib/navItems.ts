@@ -11,6 +11,7 @@ export type NavKey =
   | "media"
   | "censura"
   | "firstframe"
+  | "caixinha"
   | "payments"
   | "funil"
   | "telegram"
@@ -24,6 +25,7 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   media: { key: "media", label: "Galeria", href: "/dashboard/media" },
   censura: { key: "censura", label: "Censura com IA", href: "/dashboard/censura" },
   firstframe: { key: "firstframe", label: "First Frame", href: "/dashboard/first-frame" },
+  caixinha: { key: "caixinha", label: "Caixinha de perguntas", href: "/dashboard/caixinha" },
   payments: { key: "payments", label: "Financeiro", href: "/dashboard/payments" },
   funil: { key: "funil", label: "Funil de Vendas", href: "/dashboard/funil" },
   telegram: { key: "telegram", label: "Telegram", href: "/dashboard/telegram" },
@@ -42,6 +44,7 @@ export const DEFAULT_MENU_ORDER: NavKey[] = [
   "media",
   "censura",
   "firstframe",
+  "caixinha",
   "schedule",
   "payments",
   "funil",

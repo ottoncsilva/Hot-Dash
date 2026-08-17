@@ -39,7 +39,30 @@ export type BlurObject = {
   h: number;
   /** Estilo de ocultação: desfoque (padrão) ou mosaico/pixelizado. */
   style?: BlurStyle;
+  /**
+   * Força do borrão, 0,2 a 1. Ausente = {@link BLUR_INTENSITY_DEFAULT}.
+   *
+   * O quanto esconder depende da foto, não do app: numa cena com pouco
+   * contraste um desfoque leve já apaga a informação, e numa foto nítida o
+   * mesmo desfoque deixa reconhecer tudo. Sem este controle, a única saída
+   * era aumentar a ÁREA borrada — tapando muito mais do que precisava.
+   */
+  intensity?: number;
 };
+
+/** Ponto de partida do controle — o mesmo da Censura com IA em vídeo
+ *  (`lib/videoCensor.INTENSIDADE_PADRAO`), para os dois controles quererem
+ *  dizer a mesma coisa. Nesta intensidade o borrão sai como sempre saiu. */
+export const BLUR_INTENSITY_DEFAULT = 0.65;
+export const BLUR_INTENSITY_MIN = 0.2;
+export const BLUR_INTENSITY_MAX = 1;
+
+function blurIntensity(o: BlurObject): number {
+  const i = o.intensity;
+  return typeof i === "number" && Number.isFinite(i)
+    ? Math.min(BLUR_INTENSITY_MAX, Math.max(BLUR_INTENSITY_MIN, i))
+    : BLUR_INTENSITY_DEFAULT;
+}
 /** Caixinha de pergunta estilo sticker do Instagram — a altura sempre segue
  * do texto (quebrado dentro de `w`), só a largura é redimensionável. */
 export type QuestionObject = {
@@ -545,9 +568,14 @@ export function drawBlurObjects(
     const w = Math.max(1, Math.round(o.w));
     const h = Math.max(1, Math.round(o.h));
 
+    const i = blurIntensity(o);
+    const temIntensidade = typeof o.intensity === "number" && Number.isFinite(o.intensity);
+
     if (o.style === "pixelate") {
-      // Mosaico: reduz a região a poucos blocos e reamplia sem suavizar.
-      const blocks = Math.max(6, Math.round(Math.min(w, h) / 22));
+      // Mosaico: reduz a região a poucos blocos e reamplia sem suavizar. A
+      // intensidade manda no TAMANHO do bloco — menos blocos, cada um maior,
+      // esconde mais. Em 0,65 o divisor dá 22, que é o mosaico de sempre.
+      const blocks = Math.max(3, Math.round(Math.min(w, h) / (8 + i * 21.5)));
       const bw = Math.max(1, Math.round((blocks * w) / Math.max(w, h)));
       const bh = Math.max(1, Math.round((blocks * h) / Math.max(w, h)));
       const off = document.createElement("canvas");
@@ -563,14 +591,32 @@ export function drawBlurObjects(
         ctx.imageSmoothingEnabled = prev;
       }
     } else {
-      // Desfoque forte e proporcional ao tamanho da área.
-      const radius = Math.min(60, Math.max(10, Math.min(w, h) * 0.2));
+      // Desfoque proporcional ao tamanho da área E à intensidade escolhida.
+      // As três contas são calibradas para que 0,65 — o padrão — devolva
+      // exatamente o borrão de antes: proporção 0,20 · teto 60 · piso 10.
+      const radius = Math.min(
+        24 + i * 55,
+        Math.max(4 + i * 9, Math.min(w, h) * (0.06 + i * 0.215)),
+      );
+      // Dessaturar e escurecer junto, como a censura de VÍDEO por IA já fazia
+      // (videoCensor.filtroBorrao) — e pela mesma razão: o desfoque sozinho
+      // preserva as cores da cena, e cor de pele entrega o que está
+      // acontecendo mesmo sem contorno nenhum. É de propósito mais suave que o
+      // desfoque: área preta não esconde, apaga.
+      //
+      // Só vale para quem ESCOLHEU uma intensidade. O editor de vídeo desenha
+      // as mesmas caixas neste canvas, mas quem renderiza o vídeo salvo é o
+      // ffmpeg (lib/videoEdit.ts), que aplica só o boxblur: dessaturar aqui
+      // faria o preview mostrar uma coisa e o arquivo sair outra.
+      const filtro = temIntensidade
+        ? `blur(${radius}px) saturate(${(1 - i * 0.7).toFixed(2)}) brightness(${(1 - i * 0.12).toFixed(2)})`
+        : `blur(${radius}px)`;
       const off = document.createElement("canvas");
       off.width = w;
       off.height = h;
       const octx = off.getContext("2d");
       if (octx) {
-        octx.filter = `blur(${radius}px)`;
+        octx.filter = filtro;
         const pad = Math.ceil(radius);
         octx.drawImage(
           canvas,

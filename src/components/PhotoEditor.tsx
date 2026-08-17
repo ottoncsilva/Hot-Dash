@@ -31,6 +31,9 @@ import {
   type QuestionObject,
   type EditorObject,
   TEXT_COLORS,
+  BLUR_INTENSITY_DEFAULT,
+  BLUR_INTENSITY_MAX,
+  BLUR_INTENSITY_MIN,
   drawBlurObjects,
   drawOverlayObjects,
   hitTestObjects,
@@ -65,6 +68,13 @@ export default function PhotoEditor({
   const [objects, setObjects] = useState<EditorObject[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mode, setMode] = useState<"select" | "blur">("select");
+  /**
+   * Força do borrão. É LEMBRADA entre as áreas: quem achou o ponto certo para
+   * esta foto não quer reencontrá-lo a cada retângulo novo. Vale para o
+   * próximo traço e para o que a censura por IA criar; a área já desenhada
+   * carrega a sua própria (BlurObject.intensity) e pode ser ajustada sozinha.
+   */
+  const [intensidadeBorrao, setIntensidadeBorrao] = useState(BLUR_INTENSITY_DEFAULT);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState<"new" | "overwrite" | null>(null);
@@ -175,7 +185,7 @@ export default function PhotoEditor({
 
     if (mode === "blur") {
       const id = crypto.randomUUID();
-      const obj: BlurObject = { id, type: "blur", x, y, w: 1, h: 1 };
+      const obj: BlurObject = { id, type: "blur", x, y, w: 1, h: 1, intensity: intensidadeBorrao };
       setObjects((prev) => [...prev, obj]);
       setSelectedId(id);
       drawingBlurId.current = id;
@@ -374,6 +384,14 @@ export default function PhotoEditor({
     );
   }
 
+  /** Muda a área borrada selecionada. `updateSelected` só serve para texto. */
+  function updateBorrao(patch: Partial<BlurObject>) {
+    if (!selected || selected.type !== "blur") return;
+    setObjects((prev) =>
+      prev.map((o) => (o.id === selected.id && o.type === "blur" ? { ...o, ...patch } : o)),
+    );
+  }
+
   function updateQuestion(patch: Partial<QuestionObject>) {
     if (!selected || selected.type !== "question") return;
     setObjects((prev) =>
@@ -514,6 +532,7 @@ export default function PhotoEditor({
             id: crypto.randomUUID(),
             type: "blur",
             style: "pixelate",
+            intensity: intensidadeBorrao,
             x: r.x * w - (finalW - r.w * w) / 2,
             y: r.y * h - (finalH - r.h * h) / 2,
             w: finalW,
@@ -674,7 +693,17 @@ export default function PhotoEditor({
           mapeamento de toque→coordenada do canvas, parecendo que "a foto
           se reposicionava"). */}
       <div className="flex h-[124px] flex-col justify-center gap-2.5 border-t border-white/10 bg-ink-850/80 px-4 py-3 safe-bottom">
-        {!selected && (
+        {/* Sem nada selecionado, a ferramenta de borrão ainda tem o que
+            configurar: a força do próximo traço. Deixar isso só no objeto já
+            desenhado obrigaria a desenhar errado primeiro para depois corrigir. */}
+        {!selected && mode === "blur" && (
+          <IntensidadeBorrao
+            valor={intensidadeBorrao}
+            onChange={setIntensidadeBorrao}
+            rodape="Vale para a próxima área que você desenhar."
+          />
+        )}
+        {!selected && mode !== "blur" && (
           <p className="text-center font-mono text-[11px] uppercase tracking-wider text-zinc-600">
             Toque num elemento para editar
           </p>
@@ -723,12 +752,10 @@ export default function PhotoEditor({
               </div>
             </>
           )}
-          {(selected.type === "emoji" || selected.type === "blur") && (
+          {selected.type === "emoji" && (
             <div className="flex items-center justify-between">
               <p className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
-                {selected.type === "emoji"
-                  ? "emoji · alça 🟠 p/ arrastar, canto 🟢 p/ redimensionar, alça de cima 🔵 p/ girar"
-                  : "área borrada · arraste o canto para redimensionar"}
+                emoji · alça 🟠 p/ arrastar, canto 🟢 p/ redimensionar, alça de cima 🔵 p/ girar
               </p>
               <button
                 onClick={removeSelected}
@@ -738,6 +765,31 @@ export default function PhotoEditor({
                 <IconTrash size={16} />
               </button>
             </div>
+          )}
+          {selected.type === "blur" && (
+            <>
+              <div className="flex items-center justify-between">
+                <p className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
+                  área borrada · arraste o canto para redimensionar
+                </p>
+                <button
+                  onClick={removeSelected}
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-red-400"
+                  aria-label="Excluir"
+                >
+                  <IconTrash size={16} />
+                </button>
+              </div>
+              {/* Mexer aqui muda ESTA área e também vira o padrão das
+                  próximas: numa mesma foto o ajuste costuma valer para todas. */}
+              <IntensidadeBorrao
+                valor={selected.intensity ?? BLUR_INTENSITY_DEFAULT}
+                onChange={(v) => {
+                  setIntensidadeBorrao(v);
+                  updateBorrao({ intensity: v });
+                }}
+              />
+            </>
           )}
           {selected.type === "question" && (
             <div className="flex items-center gap-2">
@@ -850,6 +902,48 @@ export default function PhotoEditor({
           </div>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/**
+ * Controle de FORÇA do borrão — o mesmo da Censura com IA em vídeo, com os
+ * mesmos limites e o mesmo padrão, para os dois quererem dizer a mesma coisa.
+ *
+ * O número aparece em porcentagem porque é assim que ele aparece lá; e o aviso
+ * do topo da faixa é o mesmo aprendizado do vídeo: passando de uns 80% o que
+ * cresce é o escurecimento, não o esconderijo — quem esconde é o desfoque.
+ */
+function IntensidadeBorrao({
+  valor,
+  onChange,
+  rodape,
+}: {
+  valor: number;
+  onChange: (v: number) => void;
+  rodape?: string;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-400">
+          Intensidade do borrão
+        </span>
+        <span className="font-mono text-[11px] text-zinc-400">{Math.round(valor * 100)}%</span>
+      </div>
+      <input
+        type="range"
+        min={BLUR_INTENSITY_MIN}
+        max={BLUR_INTENSITY_MAX}
+        step={0.05}
+        value={valor}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="mt-1 w-full accent-white"
+        aria-label="Intensidade do borrão"
+      />
+      <p className="mt-0.5 text-[11px] leading-tight text-zinc-500">
+        {rodape || "Acima de uns 80% a área só escurece, não esconde mais."}
+      </p>
     </div>
   );
 }

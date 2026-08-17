@@ -78,6 +78,16 @@ export default function BotPreview({
   const ids = welcomeMediaIds || [];
   const conversaRef = useRef<HTMLDivElement>(null);
   const [passaDaTela, setPassaDaTela] = useState(false);
+  // Quais rótulos o Telegram vai cortar. Guardado por texto, não por índice:
+  // reordenar os planos não pode fazer o aviso apontar para o botão errado.
+  const [cortados, setCortados] = useState<string[]>([]);
+  const marcarCorte = useCallback((texto: string, cortado: boolean) => {
+    setCortados((antes) => {
+      const tem = antes.includes(texto);
+      if (cortado === tem) return antes;
+      return cortado ? [...antes, texto] : antes.filter((t) => t !== texto);
+    });
+  }, []);
 
   // Passou da primeira tela? É a pergunta que o preview existe para responder,
   // e ela só pode ser medida DEPOIS de o conteúdo renderizar.
@@ -101,6 +111,13 @@ export default function BotPreview({
           : "Tudo cabe na primeira tela."
       }
       rodapeAlerta={passaDaTela}
+      aviso={
+        cortados.length > 0
+          ? `O Telegram corta rótulo de botão em UMA linha, com reticências — não quebra em duas. ` +
+            `Vai sair cortado: ${cortados.map((t) => `"${t}"`).join(", ")}. ` +
+            `Encurte para o preço não sumir.`
+          : undefined
+      }
     >
       <div ref={conversaRef} className="h-full overflow-y-auto px-3 py-3" onLoad={medir}>
         <p className="mx-auto mb-2 w-fit rounded-full bg-white/10 px-2 py-0.5 text-[12px] text-zinc-300">
@@ -115,6 +132,7 @@ export default function BotPreview({
           effect={effect}
           vazio="(mensagem de boas-vindas vazia)"
           onMedia={medir}
+          onCortado={marcarCorte}
         />
 
         {buttons.length === 0 && (
@@ -124,6 +142,55 @@ export default function BotPreview({
         )}
       </div>
     </Aparelho>
+  );
+}
+
+/**
+ * UM botão do teclado inline.
+ *
+ * O Telegram NÃO quebra o rótulo em duas linhas: ele corta e põe reticências.
+ * Quem escreve "VIP Semestral + WHATSAPP 🔞 - R$ 69,90" num painel largo não
+ * vê problema; no celular do lead o texto vira "VIP Semestral + WHATSAPP…" e
+ * o PREÇO some — que é a informação pela qual o botão existe.
+ *
+ * Por isso o corte é reproduzido aqui (uma linha, com ellipsis) e, quando
+ * acontece, o botão fica marcado: a tela precisa mostrar o estrago, não
+ * escondê-lo com uma segunda linha que o app não tem.
+ */
+function BotaoDoTeclado({
+  botao,
+  onCortado,
+}: {
+  botao: Btn;
+  onCortado?: (texto: string, cortado: boolean) => void;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [cortado, setCortado] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // 1px de folga: arredondamento de subpixel marcaria falso positivo.
+    const passou = el.scrollWidth > el.clientWidth + 1;
+    setCortado(passou);
+    onCortado?.(botao.text, passou);
+  }, [botao.text, onCortado]);
+
+  return (
+    <div
+      className={`relative rounded-lg border px-3 py-2 ${CORES[botao.style || ""] || CORES[""]} ${
+        cortado ? "ring-1 ring-amber-400/60" : ""
+      }`}
+      title={cortado ? `Cortado no Telegram: "${botao.text}"` : undefined}
+    >
+      <span
+        ref={ref}
+        className="block overflow-hidden text-ellipsis whitespace-nowrap text-center"
+        style={{ fontSize: 15 }}
+      >
+        {botao.text}
+      </span>
+    </div>
   );
 }
 
@@ -140,12 +207,15 @@ function Aparelho({
   inicial,
   rodape,
   rodapeAlerta,
+  aviso,
   children,
 }: {
   titulo: string;
   inicial: string;
   rodape: string;
   rodapeAlerta: boolean;
+  /** Problema concreto encontrado no que está desenhado. */
+  aviso?: string;
   children: React.ReactNode;
 }) {
   const caixaRef = useRef<HTMLDivElement>(null);
@@ -253,6 +323,12 @@ function Aparelho({
         <p className="mt-0.5 font-mono text-[10px] text-zinc-600">
           iPhone 12/13/14 · 390×844 pt{escala < 1 && ` · exibido a ${Math.round(escala * 100)}%`}
         </p>
+
+        {aviso && (
+          <p className="mt-2 max-w-[380px] rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-2.5 text-[11px] leading-relaxed text-amber-300">
+            {aviso}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -276,6 +352,7 @@ export function PreviewBalao({
   effect,
   vazio = "(mensagem vazia)",
   onMedia,
+  onCortado,
 }: {
   mediaIds: string[];
   mode?: "album" | "separate";
@@ -285,6 +362,8 @@ export function PreviewBalao({
   vazio?: string;
   /** Avisa quem mede a altura de que uma miniatura acabou de carregar. */
   onMedia?: () => void;
+  /** Avisa que um botão não coube numa linha e vai sair cortado. */
+  onCortado?: (texto: string, cortado: boolean) => void;
 }) {
   // Separadas = o texto e os botões vão na ÚLTIMA mídia; em álbum eles vêm
   // numa mensagem própria logo abaixo. É diferença que o lead enxerga, não só
@@ -342,13 +421,7 @@ export function PreviewBalao({
       {buttons.length > 0 && (
         <div className="space-y-0.5" style={{ maxWidth: "85%" }}>
           {buttons.map((b, i) => (
-            <div
-              key={`${b.kind}-${i}`}
-              className={`rounded-lg border px-3 py-2 text-center ${CORES[b.style || ""] || CORES[""]}`}
-              style={{ fontSize: 15 }}
-            >
-              {b.text}
-            </div>
+            <BotaoDoTeclado key={`${b.kind}-${i}`} botao={b} onCortado={onCortado} />
           ))}
         </div>
       )}

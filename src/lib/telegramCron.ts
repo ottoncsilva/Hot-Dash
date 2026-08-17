@@ -1,7 +1,7 @@
 import "server-only";
 import { getDb } from "@/lib/db";
 import { listProfiles } from "@/lib/profiles";
-import { planButtonStyleProps, type ButtonStyles } from "@/lib/settings";
+import { buttonStyleProps, planButtonStyleProps, type ButtonStyles } from "@/lib/settings";
 import {
   getBotConfigByProfile,
   getBotConfig,
@@ -391,8 +391,18 @@ type FunnelStep = {
   /** Etiquetas — legado. Saiu da tela; ver lib/telegramSend.ts. */
   mediaTags?: string;
   isLoop?: boolean; // Se for true na última etapa, repete pra sempre.
-  /** Só na sequência de aprovação: "plans" põe os botões de compra no passo. */
-  buttons?: "none" | "plans";
+  /**
+   * Só na sequência de aprovação, e é o que decide o teclado do passo:
+   *   none   → sem botão;
+   *   plans  → a lista de planos (os mesmos do /start);
+   *   custom → os botões escritos no próprio passo (`customButtons`).
+   *
+   * O modo "custom" existe porque a mensagem de quem acabou de entrar nas
+   * prévias normalmente não vende: ela chama a pessoa PARA O BOT, e é um botão
+   * de link, não de compra.
+   */
+  buttons?: "none" | "plans" | "custom";
+  customButtons?: { text: string; url: string }[];
 };
 
 function buildReplyMarkup(bot: { id: string; buttonStyles?: ButtonStyles }, discountPercent = 0) {
@@ -1050,7 +1060,24 @@ export async function runTelegramApprovalSequences(): Promise<number> {
     if (item.approvedAt + atrasoAcumulado * 60_000 > agora) continue;
 
     const passo = passos[item.stepIndex];
-    const markup = passo.buttons === "plans" ? buildReplyMarkup(bot) : undefined;
+    let markup: unknown;
+    if (passo.buttons === "plans") {
+      markup = buildReplyMarkup(bot);
+    } else if (passo.buttons === "custom") {
+      // Botão sem texto ou sem URL é descartado aqui: o Telegram recusaria a
+      // mensagem INTEIRA por causa de um teclado malformado, e a pessoa que
+      // acabou de entrar no grupo não receberia nada.
+      const botoes = (passo.customButtons || []).filter(
+        (b) => b?.text?.trim() && b?.url?.trim(),
+      );
+      if (botoes.length > 0) {
+        markup = {
+          inline_keyboard: botoes.map((b) => [
+            { text: b.text.trim(), url: b.url.trim(), ...buttonStyleProps(bot, "redirect") },
+          ]),
+        };
+      }
+    }
     try {
       await sendFunnelStep(bot.botToken, bot.id, item.chatId, bot.profileId, passo, markup);
       enviados++;

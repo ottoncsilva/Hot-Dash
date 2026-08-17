@@ -13,10 +13,20 @@ import { ensureSyncpayWebhookShortToken, applyDynamicPrice, buttonStyleProps, pl
 import { publicOrigin } from "@/lib/publicOrigin";
 import { botaoCopiar, efeitoProps } from "@/lib/telegramEffects";
 import { enviarMensagemDoBot } from "@/lib/telegramSend";
+import { aplicarVariaveis } from "@/lib/telegramVars";
+import { getDb } from "@/lib/db";
 import { randomUUID } from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** Nome da modelo, para a variável {modelo}. */
+function nomeDaModelo(profileId: string): string {
+  const row = getDb().prepare("SELECT name FROM profiles WHERE id = ?").get(profileId) as
+    | { name: string }
+    | undefined;
+  return row?.name || "";
+}
 
 /**
  * Contabiliza a entrada/saída de um grupo para o gráfico de crescimento.
@@ -211,7 +221,15 @@ export async function POST(
         const replyMarkup = inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : undefined;
 
         // Personaliza a mensagem substituindo o placeholder do nome
-        const welcomeText = bot.welcomeMessage.replace(/{nome}/gi, from.first_name || "linda(o)");
+        // Todas as variáveis, não só {nome} — a tela oferece as seis e o /start
+        // é a mensagem onde elas mais aparecem.
+        const welcomeText = aplicarVariaveis(bot.welcomeMessage, {
+          firstName: from.first_name,
+          lastName: from.last_name,
+          username: from.username,
+          profileName: nomeDaModelo(bot.profileId),
+          botUsername: bot.botUsername,
+        });
 
         // A abertura sai pelo MESMO caminho de envio que a Recuperação e as
         // sequências de aprovação (lib/telegramSend.ts): mídias escolhidas a
@@ -682,7 +700,13 @@ export async function POST(
                 approvedAt: Date.now(),
               });
             } else if (isPrevias && bot.previewsWelcomeMessage?.trim()) {
-              const msg = bot.previewsWelcomeMessage.replace(/{nome}/gi, from.first_name || "linda(o)");
+              const msg = aplicarVariaveis(bot.previewsWelcomeMessage, {
+                firstName: from.first_name,
+                lastName: from.last_name,
+                username: from.username,
+                profileName: nomeDaModelo(bot.profileId),
+                botUsername: bot.botUsername,
+              });
               await sendTelegramMessage(bot.botToken, String(from.id), msg).catch(() => {});
             }
           }

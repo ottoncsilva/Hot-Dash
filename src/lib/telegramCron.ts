@@ -46,6 +46,7 @@ import {
 import { updatePost } from "@/lib/posts";
 import { linkDoVip } from "@/lib/vipLink";
 import { enviarMensagemDoBot } from "@/lib/telegramSend";
+import { aplicarVariaveis } from "@/lib/telegramVars";
 import { listMedia, getMediaRow } from "@/lib/media";
 import { audienceFromPostType, logMediaPosted, pickReplacementMedia } from "@/lib/mediaUsage";
 import { getProfile } from "@/lib/profiles";
@@ -403,11 +404,35 @@ type FunnelStep = {
    */
   buttons?: "none" | "plans" | "custom";
   customButtons?: { text: string; url: string }[];
+  /**
+   * MODO DE BOTÕES da Recuperação: quais planos entram no teclado.
+   *   all      → assinaturas e pacotes (padrão, e o comportamento de sempre);
+   *   subs     → só assinaturas;
+   *   packages → só pacotes;
+   *   none     → sem botão.
+   */
+  planMode?: "all" | "subs" | "packages" | "none";
+  /**
+   * DESTINATÁRIOS do passo, DENTRO do público do funil. O Downsell geral já
+   * fala com quem não tem assinatura ativa; isto refina:
+   *   leads     → nunca comprou (padrão);
+   *   expirados → já comprou e venceu;
+   *   todos     → os dois.
+   * Quem não se encaixa PULA o passo (e avança), em vez de travar nele.
+   */
+  audience?: "leads" | "expirados" | "todos";
 };
 
-function buildReplyMarkup(bot: { id: string; buttonStyles?: ButtonStyles }, discountPercent = 0) {
+function buildReplyMarkup(
+  bot: { id: string; buttonStyles?: ButtonStyles },
+  discountPercent = 0,
+  planMode: FunnelStep["planMode"] = "all",
+) {
+  if (planMode === "none") return undefined;
   // Só os ATIVOS: um plano desligado some do /start, e some dos funis também.
-  const plans = listActivePlans(bot.id);
+  const plans = listActivePlans(bot.id).filter((p) =>
+    planMode === "subs" ? p.kind !== "package" : planMode === "packages" ? p.kind === "package" : true,
+  );
   const inlineKeyboard: any[] = [];
   if (plans.length > 0) {
     plans.forEach((plan) => {
@@ -438,12 +463,19 @@ async function sendFunnelStep(
   profileId: string,
   step: FunnelStep,
   replyMarkup: any,
+  botUsername?: string,
 ) {
-  // {nome} era oferecido na tela e NÃO era trocado no envio: o lead recebia a
-  // mensagem com a chave literal no meio do texto. No privado o chat_id é o
-  // próprio id do usuário, então o nome sai da lista de usuários.
+  // As VARIÁVEIS eram oferecidas na tela e NÃO eram trocadas no envio: o lead
+  // recebia a chave literal no meio do texto. No privado o chat_id é o próprio
+  // id do usuário, então os dados saem da lista de usuários.
   const pessoa = getTelegramUser(`${botId}_${chatId}`);
-  const texto = (step.text || "").replace(/{nome}/gi, pessoa?.firstName || "linda(o)");
+  const texto = aplicarVariaveis(step.text || "", {
+    firstName: pessoa?.firstName,
+    lastName: pessoa?.lastName,
+    username: pessoa?.username,
+    profileName: getProfileName(profileId),
+    botUsername,
+  });
 
   // Mesmo caminho de envio do /start: mídias escolhidas, em álbum ou uma por
   // mensagem. Antes daqui só saía UMA mídia, sorteada por etiqueta.
@@ -503,11 +535,28 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
         }
 
         const step = downsellFunnel[stepIndex];
+
+        // DESTINATÁRIOS do passo. Quem não se encaixa PULA a mensagem e avança
+        // — travar a pessoa num passo que nunca vai ser dela pararia a
+        // sequência inteira para ela, em silêncio. Um passo em loop não é
+        // pulado eternamente: quem não se encaixa nele simplesmente sai da
+        // sequência.
+        if (!encaixaNoPublico(bot.id, Number(lead.chatId), step.audience)) {
+          if (stepIndex === lead.downsellStepIndex && !step.isLoop) {
+            lead.downsellStepIndex += 1;
+            upsertTelegramLead(lead);
+          } else if (step.isLoop) {
+            lead.downsellStepIndex = downsellFunnel.length;
+            upsertTelegramLead(lead);
+          }
+          continue;
+        }
+
         const elapsedMinutes = (now - lead.lastInteractionAt) / (60 * 1000);
 
         if (elapsedMinutes >= step.delayMinutes) {
-          const replyMarkup = buildReplyMarkup(bot, step.discountPercent);
-          await sendFunnelStep(bot.botToken, bot.id, lead.chatId, p.id, step, replyMarkup);
+          const replyMarkup = buildReplyMarkup(bot, step.discountPercent, step.planMode);
+          await sendFunnelStep(bot.botToken, bot.id, lead.chatId, p.id, step, replyMarkup, bot.botUsername);
 
           lead.lastInteractionAt = now;
           if (stepIndex === lead.downsellStepIndex && !step.isLoop) {
@@ -554,8 +603,8 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
         const desde = row.last_pix_step_at || row.created_at;
         if ((now - desde) / 60000 < step.delayMinutes) continue;
 
-        const markup = buildReplyMarkup(bot, step.discountPercent);
-        await sendFunnelStep(bot.botToken, bot.id, String(row.telegram_user_id), p.id, step, markup);
+        const markup = buildReplyMarkup(bot, step.discountPercent, step.planMode);
+        await sendFunnelStep(bot.botToken, bot.id, String(row.telegram_user_id), p.id, step, markup, bot.botUsername);
 
         db.prepare(
           "UPDATE telegram_subscriptions SET pix_step_index = ?, last_pix_step_at = ? WHERE id = ?",
@@ -606,8 +655,8 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
         const elapsedMinutes = (now - lastActionAt) / (60 * 1000);
 
         if (elapsedMinutes >= step.delayMinutes) {
-          const replyMarkup = buildReplyMarkup(bot, step.discountPercent);
-          await sendFunnelStep(bot.botToken, bot.id, String(sub.telegramUserId), p.id, step, replyMarkup);
+          const replyMarkup = buildReplyMarkup(bot, step.discountPercent, step.planMode);
+          await sendFunnelStep(bot.botToken, bot.id, String(sub.telegramUserId), p.id, step, replyMarkup, bot.botUsername);
 
           sub.lastUpsellAt = now;
           if (stepIndex === sub.upsellStepIndex && !step.isLoop) {
@@ -808,6 +857,38 @@ export async function runTelegramMailings(): Promise<{ sent: number; failed: num
 // ---------------------------------------------------------------------------
 // 4) EXPIRAÇÃO
 // ---------------------------------------------------------------------------
+
+/**
+ * A pessoa se encaixa no público escolhido para o passo?
+ *
+ * O Downsell geral já roda só para quem NÃO tem assinatura ativa. Isto separa,
+ * dentro desse grupo, quem nunca comprou de quem comprou e venceu — porque a
+ * conversa com os dois é diferente: um precisa ser convencido, o outro precisa
+ * ser lembrado.
+ */
+function encaixaNoPublico(
+  botId: string,
+  telegramUserId: number,
+  audience: FunnelStep["audience"],
+): boolean {
+  if (!audience || audience === "todos") return true;
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) c FROM telegram_subscriptions
+        WHERE bot_id = ? AND telegram_user_id = ? AND status IN ('active','expired')`,
+    )
+    .get(botId, telegramUserId) as { c: number };
+  const jaComprou = row.c > 0;
+  return audience === "expirados" ? jaComprou : !jaComprou;
+}
+
+/** Nome da modelo, para a variável {modelo}. Consulta direta e barata. */
+function getProfileName(profileId: string): string {
+  const row = getDb().prepare("SELECT name FROM profiles WHERE id = ?").get(profileId) as
+    | { name: string }
+    | undefined;
+  return row?.name || "";
+}
 
 /**
  * Espera antes de CADA nova tentativa de remoção, em minutos, pela contagem de
@@ -1079,7 +1160,7 @@ export async function runTelegramApprovalSequences(): Promise<number> {
       }
     }
     try {
-      await sendFunnelStep(bot.botToken, bot.id, item.chatId, bot.profileId, passo, markup);
+      await sendFunnelStep(bot.botToken, bot.id, item.chatId, bot.profileId, passo, markup, bot.botUsername);
       enviados++;
     } catch (e) {
       console.error("[hotdash] Falha na sequência de aprovação:", e);

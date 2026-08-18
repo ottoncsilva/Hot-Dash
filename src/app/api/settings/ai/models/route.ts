@@ -10,14 +10,8 @@ export async function POST(req: NextRequest) {
   try {
     await requireUser(req);
     const body = await req.json().catch(() => ({}));
-    const provider =
-      body.provider === "gemini"
-        ? "gemini"
-        : body.provider === "openai"
-          ? "openai"
-          : body.provider === "grok"
-            ? "grok"
-            : null;
+    const CONHECIDOS = ["gemini", "openai", "grok", "openrouter"] as const;
+    const provider = CONHECIDOS.find((x) => x === body.provider) || null;
     if (!provider) throw new ApiError(400, "Provedor inválido.");
 
     const apiKey = typeof body.apiKey === "string" && body.apiKey ? body.apiKey : getAiKeyForTest(provider);

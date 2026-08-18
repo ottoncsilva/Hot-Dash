@@ -288,7 +288,14 @@ export function updateFinanceSettings(
 // gerador de cronograma. Cada provedor é independente (ativado + chave +
 // modelo próprios); qual usar é escolhido na hora de cada atividade, não
 // há mais um "provedor ativo" fixo aqui. ----
-export type AiProvider = "openai" | "gemini" | "grok" | "magnific" | "kling" | "nudenet";
+export type AiProvider =
+  | "openai"
+  | "gemini"
+  | "grok"
+  | "openrouter"
+  | "magnific"
+  | "kling"
+  | "nudenet";
 
 /**
  * As ATIVIDADES que chamam a IA. Existem porque o modelo certo depende do
@@ -349,6 +356,7 @@ export type AiSettingsPublic = {
   openai: AiProviderPublic;
   gemini: AiProviderPublic;
   grok: AiProviderPublic;
+  openrouter: AiProviderPublic;
   magnific: AiProviderPublic;
   kling: AiProviderPublic;
   nudenet: AiProviderPublic;
@@ -360,6 +368,7 @@ type AiSettingsStored = {
   openai?: AiProviderStored;
   gemini?: AiProviderStored;
   grok?: AiProviderStored;
+  openrouter?: AiProviderStored;
   magnific?: AiProviderStored;
   kling?: AiProviderStored;
   nudenet?: AiProviderStored;
@@ -373,6 +382,10 @@ export const DEFAULT_AI_MODELS: Record<AiProvider, string> = {
   // carrega os modelos ao vivo da chave). Precisa ser um modelo que exista e
   // aceite imagem, senão a primeira legenda volta 404 de modelo.
   grok: "grok-4",
+  // OpenRouter é uma PONTE: a mesma chave alcança modelos de várias casas, e o
+  // nome sempre vem com o dono na frente ("openai/gpt-4o", "anthropic/...").
+  // O padrão é só o ponto de partida — a tela carrega a lista ao vivo.
+  openrouter: "openai/gpt-4o",
   magnific: "seedream-v5-pro-edit",
   kling: "kling-v2-6-pro-motion-control",
   nudenet: "nudenet-detector"
@@ -394,6 +407,7 @@ export function getAiSettingsPublic(): AiSettingsPublic {
     openai: build("openai"),
     gemini: build("gemini"),
     grok: build("grok"),
+    openrouter: build("openrouter"),
     magnific: build("magnific"),
     kling: build("kling"),
     nudenet: build("nudenet"),
@@ -483,6 +497,7 @@ export function updateAiSettings(patch: {
   openai?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   gemini?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   grok?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
+  openrouter?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   magnific?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   kling?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   nudenet?: { enabled?: boolean; apiKey?: string; baseUrl?: string; model?: string };
@@ -490,7 +505,15 @@ export function updateAiSettings(patch: {
   activityModels?: AiActivityModels;
 }): AiSettingsPublic {
   const s = rawAi();
-  for (const provider of ["openai", "gemini", "grok", "magnific", "kling", "nudenet"] as const) {
+  for (const provider of [
+    "openai",
+    "gemini",
+    "grok",
+    "openrouter",
+    "magnific",
+    "kling",
+    "nudenet",
+  ] as const) {
     const p = patch[provider];
     if (!p) continue;
     const cur: AiProviderStored = s[provider] || { enabled: false };

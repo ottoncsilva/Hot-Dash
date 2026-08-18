@@ -104,6 +104,27 @@ export function isSystemicAiError(msg: string): boolean {
 }
 
 /**
+ * Cabeçalhos que só o OpenRouter usa.
+ *
+ * `HTTP-Referer` e `X-Title` são como ele identifica de onde veio a chamada —
+ * aparecem no painel de uso e nos rankings públicos. Não são obrigatórios,
+ * mas sem eles o consumo do painel some no meio de "unknown", que é
+ * justamente o que se quer olhar quando a conta chega.
+ *
+ * O endereço sai do mesmo lugar que o resto do app usa para se anunciar
+ * (WEBHOOK_APP_URL); sem ele, um valor honesto de reserva em vez de um
+ * domínio inventado.
+ */
+function cabecalhosOpenRouter(provider: AiProvider): Record<string, string> {
+  if (provider !== "openrouter") return {};
+  const site = (process.env.WEBHOOK_APP_URL || "").trim().replace(/\/+$/, "");
+  return {
+    "HTTP-Referer": site || "https://hot-dash.local",
+    "X-Title": "Hot Dash",
+  };
+}
+
+/**
  * Monta o endereço de chat/completions a partir do que está salvo na tela.
  * O campo é livre e as três formas aparecem na documentação dos provedores
  * (`https://api.x.ai`, `.../v1` e `.../v1/chat/completions`) — todas passam a
@@ -210,9 +231,10 @@ export async function callAiRaw(
   const maxTokens = opts?.maxTokens ?? 500;
   const images = opts?.images || [];
 
-  // OpenAI e Grok (x.ai) compartilham o mesmo formato de API (chat/completions),
-  // mudando apenas a URL base — por isso são tratados no mesmo ramo.
-  if (provider === "openai" || provider === "grok") {
+  // OpenAI, Grok (x.ai) e OpenRouter falam o mesmo dialeto (chat/completions),
+  // mudando só a URL base e, no caso do OpenRouter, dois cabeçalhos de
+  // identificação — por isso são tratados no mesmo ramo.
+  if (provider === "openai" || provider === "grok" || provider === "openrouter") {
     const content =
       images.length > 0
         ? [
@@ -246,7 +268,9 @@ export async function callAiRaw(
       const defaultUrl =
         provider === "grok"
           ? "https://api.x.ai/v1/chat/completions"
-          : "https://api.openai.com/v1/chat/completions";
+          : provider === "openrouter"
+            ? "https://openrouter.ai/api/v1/chat/completions"
+            : "https://api.openai.com/v1/chat/completions";
       const url = completionsUrl(creds!.baseUrl, defaultUrl);
       return withRateLimitRetry(async () => {
         const res = await fetch(url, {
@@ -254,6 +278,7 @@ export async function callAiRaw(
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${creds!.apiKey}`,
+            ...cabecalhosOpenRouter(provider),
           },
           body: JSON.stringify(body),
         });
@@ -277,7 +302,8 @@ export async function callAiRaw(
         ));
       }
     }
-    const providerLabel = provider === "grok" ? "Grok" : "OpenAI";
+    const providerLabel =
+      provider === "grok" ? "Grok" : provider === "openrouter" ? "OpenRouter" : "OpenAI";
     if (!res.ok) {
       const errObj = data.error;
       const msg = (typeof errObj === 'string' ? errObj : (errObj as Record<string, unknown>)?.message as string) || "";
@@ -406,10 +432,18 @@ export async function testAiProviderKey(
   opts?: { baseUrl?: string }
 ): Promise<{ ok: boolean; message?: string }> {
   try {
-    if (provider === "openai" || provider === "grok") {
-      const url = opts?.baseUrl ? opts.baseUrl.replace(/\/chat\/completions$/, "") + "/models" : provider === "grok" ? "https://api.x.ai/v1/models" : "https://api.openai.com/v1/models";
+    if (provider === "openai" || provider === "grok" || provider === "openrouter") {
+      const padrao =
+        provider === "grok"
+          ? "https://api.x.ai/v1/models"
+          : provider === "openrouter"
+            ? "https://openrouter.ai/api/v1/models"
+            : "https://api.openai.com/v1/models";
+      const url = opts?.baseUrl
+        ? opts.baseUrl.replace(/\/chat\/completions$/, "") + "/models"
+        : padrao;
       const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${apiKey}` },
+        headers: { Authorization: `Bearer ${apiKey}`, ...cabecalhosOpenRouter(provider) },
       });
       if (res.ok) return { ok: true };
       const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -510,17 +544,18 @@ export async function listAiModels(
     // Grok (xAI) e OpenRouter falam o mesmo dialeto da OpenAI: GET {base}/models
     // com Bearer. A baseUrl guardada aponta para .../chat/completions — tiramos
     // esse sufixo para chegar no endpoint de modelos.
-    if (provider === "grok") {
-      const base = (opts?.baseUrl || "https://api.x.ai/v1")
+    if (provider === "grok" || provider === "openrouter") {
+      const base = (opts?.baseUrl || (provider === "openrouter" ? "https://openrouter.ai/api/v1" : "https://api.x.ai/v1"))
         .replace(/\/chat\/completions\/?$/, "")
         .replace(/\/$/, "");
       const url = `${base}/models`;
       // Uma retentativa em caso de rate-limit (429): a tela dispara o teste de
       // conexão e a lista quase juntos, e o /models da xAI limita fácil.
-      let res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+      const cab = { Authorization: `Bearer ${apiKey}`, ...cabecalhosOpenRouter(provider) };
+      let res = await fetch(url, { headers: cab });
       if (res.status === 429) {
         await new Promise((r) => setTimeout(r, 1200));
-        res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+        res = await fetch(url, { headers: cab });
       }
       const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
       if (!res.ok) {

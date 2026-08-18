@@ -26,10 +26,25 @@ const FALLBACK_GROK_MODELS = [
   "grok-beta",
 ];
 
+/** Endereço oficial do OpenRouter — o mesmo do exemplo da documentação. */
+const OPENROUTER_URL_PADRAO = "https://openrouter.ai/api/v1/chat/completions";
+
+/** Reserva do OpenRouter — o nome sempre traz a casa na frente. */
+const FALLBACK_OPENROUTER_MODELS = [
+  "openai/gpt-4o",
+  "openai/gpt-4o-mini",
+  "anthropic/claude-sonnet-4.5",
+  "google/gemini-2.5-flash",
+  "x-ai/grok-4",
+  "meta-llama/llama-3.3-70b-instruct",
+  "deepseek/deepseek-chat",
+  "qwen/qwen-2.5-72b-instruct",
+];
+
 /** Busca a lista de modelos ao vivo na API do provedor (nunca lança).
  *  Grok (xAI/OpenRouter) precisa da baseUrl para achar o endpoint certo. */
 async function fetchAiModels(
-  provider: "openai" | "gemini" | "grok",
+  provider: "openai" | "gemini" | "grok" | "openrouter",
   apiKey: string,
   setModels: (m: string[] | null) => void,
   setLoading: (b: boolean) => void,
@@ -85,6 +100,18 @@ export default function AiSettingsPage() {
   const [grokModelsLoading, setGrokModelsLoading] = useState(false);
   const [grokModelsError, setGrokModelsError] = useState<string | null>(null);
 
+  // OPENROUTER — uma chave só que alcança modelos de várias casas. Segue o
+  // mesmo dialeto da OpenAI, então usa a mesma máquina de lista e de teste.
+  const [orEnabled, setOrEnabled] = useState(false);
+  const [orKey, setOrKey] = useState("");
+  const [orModel, setOrModel] = useState("openai/gpt-4o");
+  const [orBaseUrl, setOrBaseUrl] = useState(OPENROUTER_URL_PADRAO);
+  const [orModels, setOrModels] = useState<string[] | null>(null);
+  const [orModelsLoading, setOrModelsLoading] = useState(false);
+  const [orModelsError, setOrModelsError] = useState<string | null>(null);
+  const orDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const orReadyRef = useRef(false);
+
   const [magnificEnabled, setMagnificEnabled] = useState(false);
   const [magnificKey, setMagnificKey] = useState("");
 
@@ -113,6 +140,9 @@ export default function AiSettingsPage() {
         setGrokEnabled(d.settings.grok.enabled);
         setGrokModel(d.settings.grok.model);
         setGrokBaseUrl(d.settings.grok.baseUrl || "https://api.x.ai/v1/chat/completions");
+        setOrEnabled(d.settings.openrouter?.enabled || false);
+        setOrModel(d.settings.openrouter?.model || "openai/gpt-4o");
+        setOrBaseUrl(d.settings.openrouter?.baseUrl || OPENROUTER_URL_PADRAO);
         setMagnificEnabled(d.settings.magnific?.enabled || false);
         setNudenetEnabled(d.settings.nudenet?.enabled || false);
         setNudenetUrl(d.settings.nudenet?.baseUrl || "");
@@ -131,6 +161,16 @@ export default function AiSettingsPage() {
             setGrokModelsLoading,
             setGrokModelsError,
             d.settings.grok.baseUrl || "https://api.x.ai/v1/chat/completions",
+          );
+        }
+        if (d.settings.openrouter?.hasKey) {
+          fetchAiModels(
+            "openrouter",
+            "",
+            setOrModels,
+            setOrModelsLoading,
+            setOrModelsError,
+            d.settings.openrouter.baseUrl || OPENROUTER_URL_PADRAO,
           );
         }
       })
@@ -177,12 +217,31 @@ export default function AiSettingsPage() {
     };
   }, [grokKey, grokBaseUrl, grokEnabled]);
 
+  useEffect(() => {
+    if (!orEnabled) return;
+    if (!orReadyRef.current) {
+      orReadyRef.current = true;
+      return;
+    }
+    if (orDebounceRef.current) clearTimeout(orDebounceRef.current);
+    orDebounceRef.current = setTimeout(() => {
+      fetchAiModels("openrouter", orKey, setOrModels, setOrModelsLoading, setOrModelsError, orBaseUrl);
+    }, 700);
+    return () => {
+      if (orDebounceRef.current) clearTimeout(orDebounceRef.current);
+    };
+  }, [orKey, orBaseUrl, orEnabled]);
+
   const openaiList = openaiModels && openaiModels.length > 0 ? openaiModels : FALLBACK_OPENAI_MODELS;
   const openaiOptions = openaiModel && !openaiList.includes(openaiModel) ? [openaiModel, ...openaiList] : openaiList;
   const geminiList = geminiModels && geminiModels.length > 0 ? geminiModels : FALLBACK_GEMINI_MODELS;
   const geminiOptions = geminiModel && !geminiList.includes(geminiModel) ? [geminiModel, ...geminiList] : geminiList;
   const grokList = grokModels && grokModels.length > 0 ? grokModels : FALLBACK_GROK_MODELS;
   const grokOptions = grokModel && !grokList.includes(grokModel) ? [grokModel, ...grokList] : grokList;
+  // Reserva do OpenRouter: os modelos que a operação mais usa, para a lista não
+  // vir vazia antes de a chave ser colada. A lista real tem centenas.
+  const orList = orModels && orModels.length > 0 ? orModels : FALLBACK_OPENROUTER_MODELS;
+  const orOptions = orModel && !orList.includes(orModel) ? [orModel, ...orList] : orList;
 
   async function save() {
     setSaving(true);
@@ -195,6 +254,7 @@ export default function AiSettingsPage() {
           openai: { enabled: openaiEnabled, model: openaiModel, baseUrl: openaiBaseUrl, ...(openaiKey ? { apiKey: openaiKey } : {}) },
           gemini: { enabled: geminiEnabled, model: geminiModel, ...(geminiKey ? { apiKey: geminiKey } : {}) },
           grok: { enabled: grokEnabled, model: grokModel, baseUrl: grokBaseUrl, ...(grokKey ? { apiKey: grokKey } : {}) },
+          openrouter: { enabled: orEnabled, model: orModel, baseUrl: orBaseUrl, ...(orKey ? { apiKey: orKey } : {}) },
           magnific: { enabled: magnificEnabled, ...(magnificKey ? { apiKey: magnificKey } : {}) },
           nudenet: { enabled: nudenetEnabled, baseUrl: nudenetUrl, ...(nudenetToken ? { apiKey: nudenetToken } : {}) },
           activityModels,
@@ -488,6 +548,107 @@ export default function AiSettingsPage() {
           )}
         </div>
 
+        {/* OpenRouter */}
+        <div className="card p-4">
+          <label className="flex items-center justify-between">
+            <span className="font-medium text-white">OpenRouter</span>
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-white"
+              checked={orEnabled}
+              onChange={(e) => {
+                setOrEnabled(e.target.checked);
+                if (e.target.checked && orModels === null && !orModelsLoading) {
+                  fetchAiModels("openrouter", orKey, setOrModels, setOrModelsLoading, setOrModelsError, orBaseUrl);
+                }
+              }}
+            />
+          </label>
+          <p className="mt-2 text-xs text-zinc-500">
+            Uma chave só que alcança modelos de várias casas (OpenAI, Anthropic, Google, Meta,
+            DeepSeek…). O nome do modelo sempre vem com o dono na frente —{" "}
+            <code className="font-mono">openai/gpt-4o</code>. Depois de ativar, escolha onde usar em{" "}
+            <b>Modelo por atividade</b>, aqui embaixo.
+          </p>
+          {orEnabled && (
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="eyebrow mb-1.5 flex items-center justify-between">
+                  <span>Nome do Modelo</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      fetchAiModels("openrouter", orKey, setOrModels, setOrModelsLoading, setOrModelsError, orBaseUrl)
+                    }
+                    disabled={orModelsLoading}
+                    className="normal-case text-zinc-500 hover:text-white disabled:opacity-40"
+                    title="Atualizar lista de modelos"
+                  >
+                    <IconRefresh size={13} />
+                  </button>
+                </label>
+                {orModelsLoading ? (
+                  <select className="input font-mono" disabled>
+                    <option>Carregando modelos…</option>
+                  </select>
+                ) : (
+                  <select
+                    className="input font-mono"
+                    value={orModel}
+                    onChange={(e) => setOrModel(e.target.value)}
+                  >
+                    {orOptions.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {orModelsError && (
+                  <p className="mt-1 text-[11px] text-amber-500">
+                    Lista ao vivo indisponível ({orModelsError}) — mostrando os mais usados.
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="eyebrow mb-1.5 block">API Key</label>
+                <input
+                  className="input font-mono"
+                  type="password"
+                  placeholder={cfg?.openrouter?.hasKey ? "•••••••• (em branco = manter)" : "sk-or-v1-..."}
+                  value={orKey}
+                  onChange={(e) => setOrKey(e.target.value)}
+                />
+                <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                  openrouter.ai → keys
+                </p>
+              </div>
+              <div className="md:col-span-2">
+                <label className="eyebrow mb-1.5 block">Base URL</label>
+                <input
+                  className="input font-mono"
+                  type="text"
+                  placeholder={OPENROUTER_URL_PADRAO}
+                  value={orBaseUrl}
+                  onChange={(e) => setOrBaseUrl(e.target.value)}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <ConnectionBadge
+                  testUrl="/api/settings/ai/test"
+                  buildBody={() => ({
+                    provider: "openrouter",
+                    apiKey: orKey || undefined,
+                    baseUrl: orBaseUrl || undefined,
+                  })}
+                  autoTest={true}
+                  enabled={orEnabled}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Magnific AI (SeeDream & Kling) */}
         <div className="card p-4">
           <label className="flex items-center justify-between">
@@ -596,6 +757,7 @@ export default function AiSettingsPage() {
           { key: "grok", label: "Grok (x.ai)", enabled: grokEnabled, padrao: grokModel, models: grokModels },
           { key: "openai", label: "OpenAI", enabled: openaiEnabled, padrao: openaiModel, models: openaiModels },
           { key: "gemini", label: "Gemini", enabled: geminiEnabled, padrao: geminiModel, models: geminiModels },
+          { key: "openrouter", label: "OpenRouter", enabled: orEnabled, padrao: orModel, models: orModels },
         ]}
       />
 

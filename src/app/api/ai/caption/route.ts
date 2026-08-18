@@ -48,7 +48,12 @@ export async function POST(req: NextRequest) {
       throw new ApiError(400, "Selecione ao menos uma mídia ou descreva o tema do post para gerar a legenda.");
     }
 
-    const provider = body.provider === "gemini" ? "gemini" : body.provider === "openai" ? "openai" : null;
+    // Os provedores que a legenda manual aceita. O OpenRouter entra aqui
+    // porque é uma escolha EXPLÍCITA de quem chama — diferente das cadeias
+    // automáticas (Método MK, Caixinha), que continuam com os três de sempre
+    // para que ativar o OpenRouter não mude sozinho o que já roda.
+    const PROVEDORES = ["gemini", "openai", "openrouter"] as const;
+    const provider = PROVEDORES.find((x) => x === body.provider) || null;
     if (!provider) throw new ApiError(400, "Selecione o provedor de IA.");
 
     const networks = (Array.isArray(body.networks) ? body.networks : [])

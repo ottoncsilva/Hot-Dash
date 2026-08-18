@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     await requireUser(req);
     const body = await req.json().catch(() => ({}));
     const provider = body.provider;
-    if (!["openai", "gemini", "grok", "magnific", "kling", "nudenet"].includes(provider)) throw new ApiError(400, "Provedor inválido.");
+    if (!["openai", "gemini", "grok", "openrouter", "magnific", "kling", "nudenet"].includes(provider)) throw new ApiError(400, "Provedor inválido.");
 
     // NudeNet é um serviço próprio (URL + token opcional), não uma chave de API.
     if (provider === "nudenet") {

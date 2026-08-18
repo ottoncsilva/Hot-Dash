@@ -33,6 +33,7 @@ export async function PATCH(req: NextRequest) {
       openai: parseProviderPatch(body.openai),
       gemini: parseProviderPatch(body.gemini),
       grok: parseProviderPatch(body.grok),
+      openrouter: parseProviderPatch(body.openrouter),
       magnific: parseProviderPatch(body.magnific),
       kling: parseProviderPatch(body.kling),
       nudenet: parseProviderPatch(body.nudenet),

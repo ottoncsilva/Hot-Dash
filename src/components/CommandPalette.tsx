@@ -11,7 +11,7 @@ import type { Profile } from "@/lib/types";
 type Item = { id: string; label: string; group: string; hint?: string; run: () => void };
 
 const NAV_ORDER: NavKey[] = [
-  "dashboard", "profiles", "media", "censura", "firstframe", "caixinha", "schedule", "payments", "telegram", "whatsapp", "settings",
+  "dashboard", "profiles", "media", "censura", "firstframe", "caixinha", "imagegen", "schedule", "payments", "telegram", "whatsapp", "settings",
 ];
 
 /**

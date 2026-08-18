@@ -115,7 +115,7 @@ export function isSystemicAiError(msg: string): boolean {
  * (WEBHOOK_APP_URL); sem ele, um valor honesto de reserva em vez de um
  * domínio inventado.
  */
-function cabecalhosOpenRouter(provider: AiProvider): Record<string, string> {
+export function cabecalhosOpenRouter(provider: AiProvider): Record<string, string> {
   if (provider !== "openrouter") return {};
   const site = (process.env.WEBHOOK_APP_URL || "").trim().replace(/\/+$/, "");
   return {

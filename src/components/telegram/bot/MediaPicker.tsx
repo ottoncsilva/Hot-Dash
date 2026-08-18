@@ -21,13 +21,19 @@ export default function MediaPicker({
   selected,
   onChange,
   max = 10,
+  apenasImagens = false,
 }: {
   profileId: string;
   selected: string[];
   onChange: (ids: string[]) => void;
   max?: number;
+  /** Esconde vídeo da grade de escolha — usado onde só faz sentido imagem
+   *  (ex.: referência para o gerador de imagem). Não filtra as JÁ escolhidas,
+   *  para nunca sumir uma seleção antiga por baixo dos panos. */
+  apenasImagens?: boolean;
 }) {
-  const [all, setAll] = useState<Item[]>([]);
+  const [allRaw, setAll] = useState<Item[]>([]);
+  const all = apenasImagens ? allRaw.filter((m) => m.kind === "image") : allRaw;
   const [abrindo, setAbrindo] = useState(false);
   const [carregando, setCarregando] = useState(false);
 

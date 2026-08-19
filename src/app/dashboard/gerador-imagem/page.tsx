@@ -16,15 +16,14 @@ import {
   custoImagem,
   formatarUsd,
   formatarBrl,
-  acharMencoes,
   aplicarMencoes,
   resolverFotos,
-  ID_COPIA,
-  type PapelMencao,
+  citacoesInvalidas,
+  migrarFotosAntigas,
 } from "@/lib/aiMediaOptions";
 import { promptImagemPadrao } from "@/lib/aiMediaPrompts";
 import ResultadosGerados from "@/components/ResultadosGerados";
-import PromptComFotos, { type FotoCitavel } from "@/components/PromptComFotos";
+import PromptComFotos, { montarCitaveis } from "@/components/PromptComFotos";
 import { salvarResultado } from "@/lib/resultadosDb";
 import type { Cotacao } from "@/lib/cotacao";
 
@@ -103,7 +102,6 @@ export default function GeradorImagemPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [recarregar, setRecarregar] = useState(0);
   const [cotacao, setCotacao] = useState<Cotacao | null>(null);
-  const [papeisMencoes, setPapeisMencoes] = useState<Record<string, PapelMencao>>({});
   const dropRef = useRef<HTMLDivElement>(null);
 
   // A tela precisa saber se o OpenRouter está pronto ANTES de tentar gerar —
@@ -122,8 +120,10 @@ export default function GeradorImagemPage() {
     setPromptBase("");
     apiGet<{ profile: Profile }>(`/api/profiles/${profileId}`)
       .then((d) => {
-        setReferenciasModelo(d.profile?.imagegenReferenceIds || []);
-        setPromptBase(d.profile?.imagegenPromptBase || "");
+        const refs = d.profile?.imagegenReferenceIds || [];
+        setReferenciasModelo(refs);
+        // Prompt salvo com o marcador antigo (`@[foto:id]`) vira o legível.
+        setPromptBase(migrarFotosAntigas(d.profile?.imagegenPromptBase || "", refs));
       })
       .catch(() => {});
   }, [profileId]);
@@ -220,9 +220,11 @@ export default function GeradorImagemPage() {
         "/api/ai/image-gen",
         "POST",
         {
+          // aplicarMencoes cuida dos marcadores trazidos de outra ferramenta
+          // (`@[id:rótulo:tipo]`); resolverFotos, dos nossos.
           prompt: resolverFotos(
-            aplicarMencoes(promptEfetivo, papeisMencoes),
-            referenciasModelo,
+            aplicarMencoes(promptEfetivo, {}),
+            referenciasModelo.length,
             Boolean(copiaBase64),
           ),
           resolution,
@@ -265,20 +267,20 @@ export default function GeradorImagemPage() {
     );
   }
 
-  // O que dá para citar com @: as referências escolhidas, na ordem em que
-  // são enviadas, mais a imagem a copiar (que vai por último).
-  const fotosCitaveis: FotoCitavel[] = [
-    ...referenciasModelo.map((id, i) => ({
-      id,
-      rotulo: `${i + 1}ª referência da modelo`,
-      thumbUrl: `/api/media/${id}/thumbnail`,
-    })),
-    ...(copiaBase64
-      ? [{ id: ID_COPIA, rotulo: "imagem a copiar (última)", thumbUrl: copiaPreview || undefined }]
-      : []),
-  ];
-
-  const mencoes = acharMencoes(promptEfetivo);
+  // O que dá para citar com @: as referências escolhidas, na ordem em que são
+  // enviadas, mais a imagem a copiar (que vai por último).
+  const fotosCitaveis = montarCitaveis(
+    referenciasModelo,
+    (id) => `/api/media/${id}/thumbnail`,
+    copiaPreview,
+  );
+  // Citação a uma posição que não existe: avisa em vez de mandar calado a
+  // foto errada — é o preço de o marcador ser legível (e posicional).
+  const citacoesRuins = citacoesInvalidas(
+    promptEfetivo,
+    referenciasModelo.length,
+    Boolean(copiaBase64),
+  );
   const totalReferencias = referenciasModelo.length + (copiaBase64 ? 1 : 0);
   const custoEstimado = custoImagem(resolution, totalReferencias);
 
@@ -431,46 +433,12 @@ export default function GeradorImagemPage() {
           />
         </div>
 
-        {mencoes.length > 0 && (
-          <div className="mt-4 rounded-xl border border-sky-500/25 bg-sky-500/[0.06] p-3">
-            <p className="text-[11px] font-semibold text-sky-300">
-              {mencoes.length} referência(s) marcadas com @ no prompt
-            </p>
-            <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-400">
-              O Seedream não entende esses códigos — ele recebe as imagens numa lista, sem rótulo.
-              Cada marca vira uma frase dizendo QUAL imagem é, conforme a posição real no envio.
-              Confira se acertamos:
-            </p>
-            <div className="mt-2 flex flex-col gap-1.5">
-              {mencoes.map((m) => {
-                const papel = papeisMencoes[m.id] || m.papel;
-                return (
-                  <div key={m.id} className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-[11px] text-zinc-400">
-                      {m.label || m.id.slice(0, 8)}
-                      {m.ocorrencias > 1 && ` ×${m.ocorrencias}`}
-                    </span>
-                    <div className="flex gap-1">
-                      {(["copia", "modelo"] as const).map((op) => (
-                        <button
-                          key={op}
-                          type="button"
-                          onClick={() => setPapeisMencoes((a) => ({ ...a, [m.id]: op }))}
-                          className={`rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
-                            papel === op
-                              ? "border-emerald-500/40 bg-emerald-500/[0.12] font-semibold text-emerald-300"
-                              : "border-white/10 text-zinc-500 hover:border-white/25 hover:text-zinc-300"
-                          }`}
-                        >
-                          {op === "copia" ? "imagem a copiar" : "referência da modelo"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+        {citacoesRuins.length > 0 && (
+          <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-[11px] leading-relaxed text-amber-300">
+            O prompt cita {citacoesRuins.join(", ")}, que não existe(m) na seleção atual. Essas
+            citações vão virar “uma das imagens de referência” — ajuste o texto ou escolha as
+            imagens que faltam.
+          </p>
         )}
 
         {/* RESOLUÇÃO */}

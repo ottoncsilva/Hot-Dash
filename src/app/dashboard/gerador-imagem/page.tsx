@@ -16,7 +16,9 @@ import {
   IconCheck,
   IconTrash,
 } from "@/components/icons";
-import type { MediaItem } from "@/lib/types";
+import type { MediaItem, Profile } from "@/lib/types";
+import { FORMATOS, IMAGE_RESOLUCOES, custoImagem, formatarUsd } from "@/lib/aiMediaOptions";
+import { promptImagemPadrao } from "@/lib/aiMediaPrompts";
 
 /**
  * GERADOR DE IMAGEM — bytedance-seed/seedream-5-0-pro, via OpenRouter.
@@ -34,64 +36,10 @@ import type { MediaItem } from "@/lib/types";
  * essa ordem que o prompt padrão desta tela pressupõe.
  */
 
-type AspectRatio =
-  | "auto" | "1:1" | "4:5" | "3:4" | "9:16" | "16:9" | "3:2" | "2:3" | "4:3" | "5:4"
-  | "1:2" | "2:1" | "9:19.5" | "19.5:9" | "9:20" | "20:9" | "9:21" | "21:9";
-
-const FORMATOS: { value: AspectRatio; label: string }[] = [
-  { value: "auto", label: "Auto" },
-  { value: "1:1", label: "1:1" },
-  { value: "4:5", label: "4:5" },
-  { value: "3:4", label: "3:4" },
-  { value: "9:16", label: "9:16" },
-  { value: "16:9", label: "16:9" },
-  { value: "3:2", label: "3:2" },
-  { value: "2:3", label: "2:3" },
-  { value: "4:3", label: "4:3" },
-  { value: "5:4", label: "5:4" },
-  { value: "1:2", label: "1:2" },
-  { value: "2:1", label: "2:1" },
-  { value: "9:19.5", label: "9:19.5" },
-  { value: "19.5:9", label: "19.5:9" },
-  { value: "9:20", label: "9:20" },
-  { value: "20:9", label: "20:9" },
-  { value: "9:21", label: "9:21" },
-  { value: "21:9", label: "21:9" },
-];
+const OPCOES_FORMATO = ["auto", ...FORMATOS] as const;
+type AspectRatio = (typeof OPCOES_FORMATO)[number];
 
 const MAX_REFERENCIAS_GALERIA = 13; // + 1 imagem a copiar = 14, o teto do modelo
-
-/** O que vai no campo de prompt quando o operador clica em "usar padrão" —
- *  muda conforme o que já foi escolhido, porque a instrução certa depende de
- *  ter ou não uma composição para reproduzir. */
-function promptPadrao(temCopia: boolean, temReferencias: boolean): string {
-  if (temCopia && temReferencias) {
-    return (
-      "Reproduza fielmente a composição, a pose, o enquadramento, a iluminação e o cenário da " +
-      "primeira imagem de referência — mas troque a pessoa pela mostrada nas imagens de " +
-      "referência seguintes, mantendo o rosto, o corpo e as características dela com fidelidade. " +
-      "Resultado fotorrealista, sem marca d'água, sem texto na imagem."
-    );
-  }
-  if (temCopia) {
-    return (
-      "Reproduza fielmente a composição, a pose, o enquadramento, a iluminação e o cenário da " +
-      "imagem de referência. Resultado fotorrealista, sem marca d'água, sem texto na imagem."
-    );
-  }
-  if (temReferencias) {
-    return (
-      "Uma foto fotorrealista da pessoa mostrada nas imagens de referência, mantendo fielmente o " +
-      "rosto e o corpo dela. Cenário: [descreva o local, a roupa, a pose, a luz e o clima da cena]. " +
-      "Sem marca d'água, sem texto na imagem."
-    );
-  }
-  return (
-    "Foto fotorrealista, still de câmera profissional, luz natural suave, still shot editorial. " +
-    "[descreva a cena, o local, a pose, o estilo de roupa e a expressão]. Sem marca d'água, sem " +
-    "texto na imagem."
-  );
-}
 
 type Resultado = {
   id: string;
@@ -143,7 +91,11 @@ export default function GeradorImagemPage() {
   const [copiaFile, setCopiaFile] = useState<File | null>(null);
   const [copiaPreview, setCopiaPreview] = useState<string | null>(null);
   const [copiaBase64, setCopiaBase64] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState("");
+  const [extra, setExtra] = useState("");
+  const [promptBase, setPromptBase] = useState("");
+  const [editandoPrompt, setEditandoPrompt] = useState(false);
+  const [rascunhoPrompt, setRascunhoPrompt] = useState("");
+  const [salvandoPrompt, setSalvandoPrompt] = useState(false);
   const [resolution, setResolution] = useState<"1K" | "2K">("2K");
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("auto");
   const [seed, setSeed] = useState("");
@@ -160,6 +112,20 @@ export default function GeradorImagemPage() {
       .then((d) => setConectado(Boolean(d.settings?.openrouter?.enabled && d.settings?.openrouter?.hasKey)))
       .catch(() => setConectado(null));
   }, []);
+
+  // As referências e o prompt vivem no PERFIL, não na tela: são da modelo e
+  // valem para toda geração seguinte. Trocar de modelo recarrega os dela.
+  useEffect(() => {
+    if (!profileId) return;
+    setReferenciasModelo([]);
+    setPromptBase("");
+    apiGet<{ profile: Profile }>(`/api/profiles/${profileId}`)
+      .then((d) => {
+        setReferenciasModelo(d.profile?.imagegenReferenceIds || []);
+        setPromptBase(d.profile?.imagegenPromptBase || "");
+      })
+      .catch(() => {});
+  }, [profileId]);
 
   useEffect(() => {
     return () => {
@@ -196,13 +162,47 @@ export default function GeradorImagemPage() {
     }
   }
 
-  function usarPromptPadrao() {
-    setPrompt(promptPadrao(Boolean(copiaBase64), referenciasModelo.length > 0));
+  /** Guarda a escolha de referências no perfil da modelo, não só na tela. */
+  function trocarReferencias(ids: string[]) {
+    setReferenciasModelo(ids);
+    if (!profileId) return;
+    apiSend(`/api/profiles/${profileId}`, "PATCH", { imagegenReferenceIds: ids }).catch(() =>
+      showToast("Não deu para memorizar as referências.", "error"),
+    );
+  }
+
+  /** O texto que realmente vai ao modelo: o prompt da modelo mais o que o
+   *  operador acrescentou nesta geração. */
+  const promptEfetivo = (
+    (promptBase.trim() || promptImagemPadrao(Boolean(copiaBase64), referenciasModelo.length > 0)) +
+    (extra.trim() ? `\n\n${extra.trim()}` : "")
+  ).trim();
+
+  function abrirEditorPrompt() {
+    setRascunhoPrompt(
+      promptBase.trim() || promptImagemPadrao(Boolean(copiaBase64), referenciasModelo.length > 0),
+    );
+    setEditandoPrompt(true);
+  }
+
+  async function salvarPromptBase() {
+    if (!profileId) return;
+    setSalvandoPrompt(true);
+    try {
+      await apiSend(`/api/profiles/${profileId}`, "PATCH", { imagegenPromptBase: rascunhoPrompt });
+      setPromptBase(rascunhoPrompt.trim());
+      setEditandoPrompt(false);
+      showToast("Prompt padrão salvo.", "success");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha ao salvar.", "error");
+    } finally {
+      setSalvandoPrompt(false);
+    }
   }
 
   async function gerar() {
     if (!profileId) return;
-    if (!prompt.trim()) {
+    if (!promptEfetivo) {
       showToast("Escreva o prompt da imagem.", "error");
       return;
     }
@@ -214,7 +214,7 @@ export default function GeradorImagemPage() {
         "/api/ai/image-gen",
         "POST",
         {
-          prompt: prompt.trim(),
+          prompt: promptEfetivo,
           resolution,
           aspectRatio,
           seed: seedNum,
@@ -283,6 +283,7 @@ export default function GeradorImagemPage() {
   }
 
   const totalReferencias = referenciasModelo.length + (copiaBase64 ? 1 : 0);
+  const custoEstimado = custoImagem(resolution, totalReferencias);
 
   return (
     <div className="page">
@@ -310,13 +311,13 @@ export default function GeradorImagemPage() {
           <label className="eyebrow">Referências da modelo (rosto e corpo)</label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
             Escolhidas da Galeria de {profile?.name || "a modelo"}. É daqui que sai a identidade da
-            imagem gerada.
+            imagem gerada — ficam memorizadas no cadastro dela e valem para as próximas gerações.
           </p>
           <div className="mt-2">
             <MediaPicker
               profileId={profileId}
               selected={referenciasModelo}
-              onChange={setReferenciasModelo}
+              onChange={trocarReferencias}
               max={MAX_REFERENCIAS_GALERIA}
               apenasImagens
             />
@@ -371,19 +372,60 @@ export default function GeradorImagemPage() {
           </div>
         </div>
 
-        {/* PROMPT */}
+        {/* PROMPT PADRÃO (da modelo) + ACRÉSCIMO (desta geração) */}
         <div className="mt-5">
           <div className="flex items-center justify-between">
-            <label className="eyebrow">Prompt</label>
-            <button type="button" onClick={usarPromptPadrao} className="btn-ghost px-2 py-1 text-[11px]">
-              Usar prompt padrão
-            </button>
+            <label className="eyebrow">Prompt padrão de {profile?.name || "a modelo"}</label>
+            {!editandoPrompt && (
+              <button type="button" onClick={abrirEditorPrompt} className="btn-ghost px-2 py-1 text-[11px]">
+                Editar prompt padrão
+              </button>
+            )}
           </div>
+
+          {editandoPrompt ? (
+            <div className="mt-1">
+              <textarea
+                className="input min-h-[160px] resize-y font-mono text-[12px]"
+                value={rascunhoPrompt}
+                onChange={(e) => setRascunhoPrompt(e.target.value)}
+              />
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button onClick={salvarPromptBase} disabled={salvandoPrompt} className="btn-primary px-3 py-1.5 text-xs">
+                  {salvandoPrompt ? "Salvando..." : "Salvar prompt padrão"}
+                </button>
+                <button onClick={() => setEditandoPrompt(false)} className="btn-ghost px-3 py-1.5 text-xs">
+                  Cancelar
+                </button>
+                <button
+                  onClick={() =>
+                    setRascunhoPrompt(
+                      promptImagemPadrao(Boolean(copiaBase64), referenciasModelo.length > 0),
+                    )
+                  }
+                  className="btn-ghost px-3 py-1.5 text-xs"
+                >
+                  Restaurar texto de fábrica
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-1 whitespace-pre-wrap rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-[12px] leading-relaxed text-zinc-400">
+              {promptBase.trim() || promptImagemPadrao(Boolean(copiaBase64), referenciasModelo.length > 0)}
+            </p>
+          )}
+        </div>
+
+        <div className="mt-4">
+          <label className="eyebrow">Acrescentar nesta geração (opcional)</label>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+            Entra no fim do prompt padrão — o que muda só nesta imagem: roupa, cenário, pose, clima.
+          </p>
           <textarea
-            className="input mt-1 min-h-[110px] resize-y"
-            placeholder="Descreva a imagem — ou clique em “Usar prompt padrão” para começar de um modelo pronto."
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
+            className="input mt-1 min-h-[70px] resize-y"
+            placeholder="ex.: de biquíni vermelho, na varanda, no fim da tarde"
+            value={extra}
+            onChange={(e) => setExtra(e.target.value)}
           />
         </div>
 
@@ -391,7 +433,7 @@ export default function GeradorImagemPage() {
         <div className="mt-5">
           <label className="eyebrow">Resolução</label>
           <div className="mt-1.5 flex gap-2">
-            {(["1K", "2K"] as const).map((r) => (
+            {IMAGE_RESOLUCOES.map((r) => (
               <button
                 key={r}
                 type="button"
@@ -412,18 +454,18 @@ export default function GeradorImagemPage() {
         <div className="mt-5">
           <label className="eyebrow">Formato</label>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {FORMATOS.map((f) => (
+            {OPCOES_FORMATO.map((f) => (
               <button
-                key={f.value}
+                key={f}
                 type="button"
-                onClick={() => setAspectRatio(f.value)}
+                onClick={() => setAspectRatio(f)}
                 className={`rounded-lg border px-2.5 py-1 font-mono text-[12px] transition-colors ${
-                  aspectRatio === f.value
+                  aspectRatio === f
                     ? "border-emerald-500/40 bg-emerald-500/[0.12] font-semibold text-emerald-300"
                     : "border-white/10 text-zinc-400 hover:border-white/25 hover:text-zinc-200"
                 }`}
               >
-                {f.label}
+                {f === "auto" ? "Auto" : f}
               </button>
             ))}
           </div>
@@ -466,9 +508,15 @@ export default function GeradorImagemPage() {
           <button onClick={gerar} disabled={gerando || conectado === false} className="btn-primary">
             <IconSparkle size={16} /> {gerando ? "Gerando..." : "Gerar imagem"}
           </button>
+          <span
+            className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1 font-mono text-[12px] text-zinc-300"
+            title="Preço de tabela do Seedream: a imagem em 1K ou 2K, mais US$ 0,003 por referência enviada. O valor real da geração aparece embaixo de cada resultado."
+          >
+            ~{formatarUsd(custoEstimado)}
+          </span>
           <p className="text-[11px] text-zinc-500">
             {totalReferencias}/14 referências enviadas
-            {custoTotal > 0 && ` · gasto nesta sessão: $${custoTotal.toFixed(3)}`}
+            {custoTotal > 0 && ` · gasto nesta sessão: ${formatarUsd(custoTotal)}`}
           </p>
         </div>
       </div>
@@ -484,7 +532,7 @@ export default function GeradorImagemPage() {
                 <div className="p-3">
                   <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                     {item.resolution} · {item.aspectRatio}
-                    {typeof item.costUsd === "number" && ` · $${item.costUsd.toFixed(3)}`}
+                    {typeof item.costUsd === "number" && ` · ${formatarUsd(item.costUsd)}`}
                   </p>
                   <div className="mt-2 flex gap-1.5">
                     <button

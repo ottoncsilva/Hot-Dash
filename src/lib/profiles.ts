@@ -35,9 +35,24 @@ type ProfileRow = {
   bio_whatsapp_button: string | null;
   bio_telegram_link: string | null;
   bio_telegram_button: string | null;
+  imagegen_reference_ids: string | null;
+  imagegen_prompt_base: string | null;
+  videogen_prompt_base: string | null;
+  videogen_prompt_controle: string | null;
   created_at: number;
   updated_at: number;
 };
+
+/** Lista de ids guardada como JSON — o `filter` protege de linha corrompida. */
+function parseIds(raw: unknown): string[] | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string" && x) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function accountToClient(a: AccountRow): SocialAccount {
   return {
@@ -78,6 +93,10 @@ function profileToClient(p: ProfileRow): Profile {
     bioWhatsappButton: p.bio_whatsapp_button || undefined,
     bioTelegramLink: p.bio_telegram_link || undefined,
     bioTelegramButton: p.bio_telegram_button || undefined,
+    imagegenReferenceIds: parseIds(p.imagegen_reference_ids),
+    imagegenPromptBase: p.imagegen_prompt_base || undefined,
+    videogenPromptBase: p.videogen_prompt_base || undefined,
+    videogenPromptControle: p.videogen_prompt_controle || undefined,
     createdAt: p.created_at,
     updatedAt: p.updated_at,
   };
@@ -142,6 +161,10 @@ export async function updateProfile(
     bioWhatsappButton?: string;
     bioTelegramLink?: string;
     bioTelegramButton?: string;
+    imagegenReferenceIds?: string[];
+    imagegenPromptBase?: string;
+    videogenPromptBase?: string;
+    videogenPromptControle?: string;
   },
 ): Promise<Profile | null> {
   const existing = getDb()
@@ -198,6 +221,24 @@ export async function updateProfile(
   if (patch.bioTelegramButton !== undefined) {
     sets.push("bio_telegram_button = ?");
     vals.push(patch.bioTelegramButton.trim());
+  }
+  if (patch.imagegenReferenceIds !== undefined) {
+    sets.push("imagegen_reference_ids = ?");
+    vals.push(patch.imagegenReferenceIds.length ? JSON.stringify(patch.imagegenReferenceIds) : null);
+  }
+  // Prompt em branco volta a valer o padrão do código — por isso vira NULL em
+  // vez de string vazia: é o "não configurado" que o gerador já sabe ler.
+  if (patch.imagegenPromptBase !== undefined) {
+    sets.push("imagegen_prompt_base = ?");
+    vals.push(patch.imagegenPromptBase.trim() || null);
+  }
+  if (patch.videogenPromptBase !== undefined) {
+    sets.push("videogen_prompt_base = ?");
+    vals.push(patch.videogenPromptBase.trim() || null);
+  }
+  if (patch.videogenPromptControle !== undefined) {
+    sets.push("videogen_prompt_controle = ?");
+    vals.push(patch.videogenPromptControle.trim() || null);
   }
   sets.push("updated_at = ?");
   vals.push(Date.now());

@@ -60,6 +60,14 @@ export type Profile = {
   bioTelegramLink?: string;
   /** Texto do botão do Telegram nos posts VIP (padrão "meu telegram particular"). */
   bioTelegramButton?: string;
+  /** Mídias da Galeria usadas como referência fixa no Gerador de Imagem. */
+  imagegenReferenceIds?: string[];
+  /** Prompt padrão do Gerador de Imagem. Vazio = usa o texto padrão do código. */
+  imagegenPromptBase?: string;
+  /** Roteiro base do Gerador de Vídeo. Vazio = usa o texto padrão do código. */
+  videogenPromptBase?: string;
+  /** Prompt que funde a caixinha de perguntas com o roteiro base acima. */
+  videogenPromptControle?: string;
   /** Quantidade de posts (agendados + postados) do perfil. */
   postCount?: number;
   /** Soma das transações pagas vinculadas a este perfil. */

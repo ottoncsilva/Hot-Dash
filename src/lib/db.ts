@@ -643,6 +643,20 @@ function migrate(d: Database.Database) {
   // Cada geração escolhe UM destino — WhatsApp ou Telegram, nunca os dois.
   ensureColumn(d, "profiles", "bio_telegram_link", "TEXT");
   ensureColumn(d, "profiles", "bio_telegram_button", "TEXT");
+  // GERADORES DE IMAGEM E VÍDEO: o que é da MODELO fica no perfil dela, não na
+  // tela. As referências (rosto/corpo) são escolhidas uma vez e valem para toda
+  // geração seguinte — reescolher a mesma coisa a cada imagem era o trabalho
+  // repetido que essas colunas eliminam. Os prompts começam vazios e caem no
+  // texto padrão do código; preenchidos, valem no lugar dele, porque cada
+  // modelo tem o seu jeito (aparência fixa, cenário, voz) que não cabe num
+  // texto único para todas.
+  ensureColumn(d, "profiles", "imagegen_reference_ids", "TEXT");
+  ensureColumn(d, "profiles", "imagegen_prompt_base", "TEXT");
+  ensureColumn(d, "profiles", "videogen_prompt_base", "TEXT");
+  // Prompt que instrui a IA de TEXTO a fundir a caixinha de perguntas com o
+  // roteiro base acima e devolver o prompt final do vídeo — é um prompt sobre
+  // outro prompt, por isso vive separado do roteiro.
+  ensureColumn(d, "profiles", "videogen_prompt_controle", "TEXT");
   // A fila de geração nasceu só das Prévias. `audience` diz de qual grupo é o
   // job ('previas' | 'vip') e `params` guarda o que o VIP precisa lembrar entre
   // um lote e outro (destino do convite e o link já resolvido). Jobs antigos

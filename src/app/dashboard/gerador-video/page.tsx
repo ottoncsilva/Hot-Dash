@@ -8,8 +8,24 @@ import { PrecisaDeModelo } from "@/components/ProfilePicker";
 import PageHeader from "@/components/PageHeader";
 import Link from "next/link";
 import MediaPicker from "@/components/telegram/bot/MediaPicker";
-import { IconFilm, IconUpload, IconDownload, IconClose, IconCheck, IconTrash } from "@/components/icons";
-import type { MediaItem } from "@/lib/types";
+import {
+  IconFilm,
+  IconUpload,
+  IconDownload,
+  IconClose,
+  IconCheck,
+  IconTrash,
+  IconSparkle,
+} from "@/components/icons";
+import type { MediaItem, Profile } from "@/lib/types";
+import {
+  FORMATOS,
+  VIDEO_DURACOES,
+  VIDEO_RESOLUCOES,
+  custoVideo,
+  formatarUsd,
+} from "@/lib/aiMediaOptions";
+import { PROMPT_VIDEO_BASE_PADRAO, PROMPT_VIDEO_CONTROLE_PADRAO } from "@/lib/aiMediaPrompts";
 
 /**
  * GERADOR DE VÍDEO — bytedance/seedance-2.0, via OpenRouter.
@@ -25,15 +41,15 @@ import type { MediaItem } from "@/lib/types";
  * baixa os bytes por /api/ai/video-gen/[jobId]/content.
  */
 
-const DURACOES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
-const RESOLUCOES = ["480p", "720p", "1080p", "4K"] as const;
-const FORMATOS_VIDEO = ["1:1", "3:4", "9:16", "4:3", "16:9", "21:9", "9:21"] as const;
+type Resolucao = (typeof VIDEO_RESOLUCOES)[number];
+type Formato = (typeof FORMATOS)[number];
+type Duracao = (typeof VIDEO_DURACOES)[number];
 
-type Resolucao = (typeof RESOLUCOES)[number];
-type Formato = (typeof FORMATOS_VIDEO)[number];
-type Duracao = (typeof DURACOES)[number];
+/** Os dois jeitos de chegar num vídeo. Mudam só COMO o prompt nasce — dali
+ *  para a frente (frame, duração, formato, geração) o caminho é o mesmo. */
+type Modo = "livre" | "caixinha";
 
-function promptPadrao(temFrame: boolean): string {
+function promptLivrePadrao(temFrame: boolean): string {
   if (temFrame) {
     return (
       "Anime esta imagem como uma cena de vídeo curta — [descreva o movimento de câmera, a ação e a " +
@@ -105,7 +121,17 @@ export default function GeradorVideoPage() {
   const [frameFile, setFrameFile] = useState<File | null>(null);
   const [framePreview, setFramePreview] = useState<string | null>(null);
   const [frameBase64, setFrameBase64] = useState<string | null>(null);
+  const [modo, setModo] = useState<Modo>("livre");
   const [prompt, setPrompt] = useState("");
+  const [caixinha, setCaixinha] = useState("");
+  const [promptFinal, setPromptFinal] = useState("");
+  const [montando, setMontando] = useState(false);
+  const [promptBase, setPromptBase] = useState("");
+  const [promptControle, setPromptControle] = useState("");
+  /** Qual dos dois prompts da modelo está aberto no editor, se algum. */
+  const [editor, setEditor] = useState<null | "base" | "controle">(null);
+  const [rascunho, setRascunho] = useState("");
+  const [salvandoPrompt, setSalvandoPrompt] = useState(false);
   const [duration, setDuration] = useState<Duracao>(5);
   const [resolution, setResolution] = useState<Resolucao>("720p");
   const [aspectRatio, setAspectRatio] = useState<Formato>("9:16");
@@ -130,8 +156,81 @@ export default function GeradorVideoPage() {
     };
   }, [framePreview]);
 
+  // Os prompts são da MODELO, não da tela — trocar de modelo troca os dois.
+  useEffect(() => {
+    if (!profileId) return;
+    setPromptBase("");
+    setPromptControle("");
+    apiGet<{ profile: Profile }>(`/api/profiles/${profileId}`)
+      .then((d) => {
+        setPromptBase(d.profile?.videogenPromptBase || "");
+        setPromptControle(d.profile?.videogenPromptControle || "");
+      })
+      .catch(() => {});
+  }, [profileId]);
+
   const custoTotal = resultados.reduce((s, r) => s + (r.costUsd || 0), 0);
+  const custoEstimado = custoVideo(resolution, aspectRatio, duration);
   const temFrame = frameGaleria.length > 0 || Boolean(frameBase64);
+  /** O texto que vai ao Seedance: no modo livre é o prompt escrito à mão, no
+   *  modo caixinha é o roteiro que a IA montou (e que dá para editar). */
+  const promptEfetivo = (modo === "caixinha" ? promptFinal : prompt).trim();
+
+  const textoBase = promptBase.trim() || PROMPT_VIDEO_BASE_PADRAO;
+  const textoControle = promptControle.trim() || PROMPT_VIDEO_CONTROLE_PADRAO;
+
+  function abrirEditor(qual: "base" | "controle") {
+    setRascunho(qual === "base" ? textoBase : textoControle);
+    setEditor(qual);
+  }
+
+  async function salvarPrompt() {
+    if (!profileId || !editor) return;
+    setSalvandoPrompt(true);
+    const campo = editor === "base" ? "videogenPromptBase" : "videogenPromptControle";
+    try {
+      await apiSend(`/api/profiles/${profileId}`, "PATCH", { [campo]: rascunho });
+      if (editor === "base") setPromptBase(rascunho.trim());
+      else setPromptControle(rascunho.trim());
+      setEditor(null);
+      showToast("Prompt salvo.", "success");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha ao salvar.", "error");
+    } finally {
+      setSalvandoPrompt(false);
+    }
+  }
+
+  /** Roda a IA de texto que funde a caixinha com o roteiro base, lendo também
+   *  a foto do primeiro frame. Só ESCREVE o prompt — não gera vídeo: o
+   *  operador confere e edita antes de gastar com a geração. */
+  async function montarPromptFinal() {
+    if (!profileId) return;
+    if (!caixinha.trim()) {
+      showToast("Cole a pergunta e a resposta da caixinha.", "error");
+      return;
+    }
+    setMontando(true);
+    setErro(null);
+    try {
+      const r = await apiSend<{ prompt: string }>("/api/ai/video-prompt", "POST", {
+        profileId,
+        caixinha: caixinha.trim(),
+        promptBase: textoBase,
+        promptControle: textoControle,
+        firstFrameBase64: frameBase64 || undefined,
+        firstFrameMediaId: frameGaleria[0],
+      });
+      setPromptFinal(r.prompt);
+      showToast("Prompt final montado — confira antes de gerar.", "success");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Falha ao montar o prompt.";
+      setErro(msg);
+      showToast(msg, "error");
+    } finally {
+      setMontando(false);
+    }
+  }
 
   async function escolherFrameArquivo(file: File | null) {
     if (!file) {
@@ -167,7 +266,7 @@ export default function GeradorVideoPage() {
   }
 
   function usarPromptPadrao() {
-    setPrompt(promptPadrao(temFrame));
+    setPrompt(promptLivrePadrao(temFrame));
   }
 
   const consultarJob = useCallback(async (id: string, jobId: string) => {
@@ -244,8 +343,13 @@ export default function GeradorVideoPage() {
 
   async function gerar() {
     if (!profileId) return;
-    if (!prompt.trim()) {
-      showToast("Escreva o prompt do vídeo.", "error");
+    if (!promptEfetivo) {
+      showToast(
+        modo === "caixinha"
+          ? "Monte o prompt final antes de gerar."
+          : "Escreva o prompt do vídeo.",
+        "error",
+      );
       return;
     }
     setEnviando(true);
@@ -253,7 +357,7 @@ export default function GeradorVideoPage() {
     try {
       const seedNum = seed.trim() ? Number(seed.trim()) : undefined;
       const r = await apiSend<{ jobId: string; status: string }>("/api/ai/video-gen", "POST", {
-        prompt: prompt.trim(),
+        prompt: promptEfetivo,
         duration,
         resolution,
         aspectRatio,
@@ -346,9 +450,42 @@ export default function GeradorVideoPage() {
       )}
 
       <div className="card mt-4 p-4">
+        {/* MODO */}
+        <div className="mb-5">
+          <label className="eyebrow">Como montar o vídeo</label>
+          <div className="mt-1.5 flex flex-wrap gap-2">
+            {(
+              [
+                { v: "livre" as const, label: "Prompt livre", hint: "Você escreve o roteiro." },
+                {
+                  v: "caixinha" as const,
+                  label: "Caixinha de perguntas",
+                  hint: "Cole a caixinha e a IA escreve o roteiro.",
+                },
+              ]
+            ).map((m) => (
+              <button
+                key={m.v}
+                type="button"
+                onClick={() => setModo(m.v)}
+                title={m.hint}
+                className={`rounded-lg border px-3.5 py-2 text-sm transition-colors ${
+                  modo === m.v
+                    ? "border-emerald-500/40 bg-emerald-500/[0.12] font-semibold text-emerald-300"
+                    : "border-white/10 text-zinc-400 hover:border-white/25 hover:text-zinc-200"
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* PRIMEIRO FRAME */}
         <div>
-          <label className="eyebrow">Primeiro frame (opcional)</label>
+          <label className="eyebrow">
+            Primeiro frame {modo === "caixinha" ? "(a foto que a IA vai analisar)" : "(opcional)"}
+          </label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
             A imagem de onde o vídeo começa a se mover. Escolha uma foto da Galeria de{" "}
             {profile?.name || "a modelo"} ou envie uma direto — as duas são a mesma coisa, escolher uma
@@ -405,27 +542,118 @@ export default function GeradorVideoPage() {
           </div>
         </div>
 
-        {/* PROMPT */}
-        <div className="mt-5">
-          <div className="flex items-center justify-between">
-            <label className="eyebrow">Prompt</label>
-            <button type="button" onClick={usarPromptPadrao} className="btn-ghost px-2 py-1 text-[11px]">
-              Usar prompt padrão
-            </button>
+        {modo === "livre" ? (
+          /* PROMPT LIVRE */
+          <div className="mt-5">
+            <div className="flex items-center justify-between">
+              <label className="eyebrow">Prompt</label>
+              <button type="button" onClick={usarPromptPadrao} className="btn-ghost px-2 py-1 text-[11px]">
+                Usar prompt padrão
+              </button>
+            </div>
+            <textarea
+              className="input mt-1 min-h-[110px] resize-y"
+              placeholder="Descreva o vídeo — ou clique em “Usar prompt padrão” para começar de um modelo pronto."
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+            />
           </div>
-          <textarea
-            className="input mt-1 min-h-[110px] resize-y"
-            placeholder="Descreva o vídeo — ou clique em “Usar prompt padrão” para começar de um modelo pronto."
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-          />
-        </div>
+        ) : (
+          /* MODO CAIXINHA: cola a caixinha → IA monta o roteiro → confere → gera */
+          <div className="mt-5">
+            <div className="flex items-center justify-between gap-2">
+              <label className="eyebrow">Pergunta e resposta da caixinha</label>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => abrirEditor("base")}
+                  className="btn-ghost px-2 py-1 text-[11px]"
+                >
+                  Editar roteiro base
+                </button>
+                <button
+                  type="button"
+                  onClick={() => abrirEditor("controle")}
+                  className="btn-ghost px-2 py-1 text-[11px]"
+                >
+                  Editar prompt de controle
+                </button>
+              </div>
+            </div>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+              Cole o texto como veio do Instagram. A IA lê a foto do primeiro frame, junta com o
+              roteiro base de {profile?.name || "a modelo"} e escreve o prompt final.
+            </p>
+            <textarea
+              className="input mt-1 min-h-[90px] resize-y"
+              placeholder={"Pergunta: ...\nResposta: ..."}
+              value={caixinha}
+              onChange={(e) => setCaixinha(e.target.value)}
+            />
+
+            {editor && (
+              <div className="mt-3 rounded-xl border border-white/10 bg-ink-850 p-3">
+                <label className="eyebrow">
+                  {editor === "base" ? "Roteiro base da modelo" : "Prompt de controle"}
+                </label>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+                  {editor === "base"
+                    ? "Quem ela é, como a câmera olha para ela e o que nunca muda entre um vídeo e outro. Os campos entre colchetes são preenchidos pela IA a cada geração."
+                    : "As instruções que a IA segue para fundir a caixinha com o roteiro base. Use {{ROTEIRO_BASE}} e {{CAIXINHA}} para marcar onde cada peça entra."}
+                </p>
+                <textarea
+                  className="input mt-1.5 min-h-[220px] resize-y font-mono text-[12px]"
+                  value={rascunho}
+                  onChange={(e) => setRascunho(e.target.value)}
+                />
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button onClick={salvarPrompt} disabled={salvandoPrompt} className="btn-primary px-3 py-1.5 text-xs">
+                    {salvandoPrompt ? "Salvando..." : "Salvar"}
+                  </button>
+                  <button onClick={() => setEditor(null)} className="btn-ghost px-3 py-1.5 text-xs">
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={() =>
+                      setRascunho(
+                        editor === "base" ? PROMPT_VIDEO_BASE_PADRAO : PROMPT_VIDEO_CONTROLE_PADRAO,
+                      )
+                    }
+                    className="btn-ghost px-3 py-1.5 text-xs"
+                  >
+                    Restaurar texto de fábrica
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-3">
+              <button
+                onClick={montarPromptFinal}
+                disabled={montando || !caixinha.trim()}
+                className="btn-ghost px-3 py-1.5 text-xs"
+              >
+                <IconSparkle size={14} /> {montando ? "Montando..." : "Montar prompt final com IA"}
+              </button>
+            </div>
+
+            <div className="mt-4">
+              <label className="eyebrow">Prompt final (confira antes de gerar)</label>
+              <textarea
+                className="input mt-1 min-h-[150px] resize-y font-mono text-[12px]"
+                placeholder="Clique em “Montar prompt final com IA” — o roteiro aparece aqui e pode ser ajustado à mão."
+                value={promptFinal}
+                onChange={(e) => setPromptFinal(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
 
         {/* DURAÇÃO */}
         <div className="mt-5">
           <label className="eyebrow">Duração</label>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {DURACOES.map((d) => (
+            {VIDEO_DURACOES.map((d) => (
               <button
                 key={d}
                 type="button"
@@ -446,7 +674,7 @@ export default function GeradorVideoPage() {
         <div className="mt-5">
           <label className="eyebrow">Resolução</label>
           <div className="mt-1.5 flex gap-2">
-            {RESOLUCOES.map((r) => (
+            {VIDEO_RESOLUCOES.map((r) => (
               <button
                 key={r}
                 type="button"
@@ -467,7 +695,7 @@ export default function GeradorVideoPage() {
         <div className="mt-5">
           <label className="eyebrow">Formato</label>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {FORMATOS_VIDEO.map((f) => (
+            {FORMATOS.map((f) => (
               <button
                 key={f}
                 type="button"
@@ -531,9 +759,15 @@ export default function GeradorVideoPage() {
           <button onClick={gerar} disabled={enviando || conectado === false} className="btn-primary">
             <IconFilm size={16} /> {enviando ? "Enviando..." : "Gerar vídeo"}
           </button>
+          <span
+            className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1 font-mono text-[12px] text-zinc-300"
+            title="Preço de tabela do Seedance, calculado pela fórmula dele: largura × altura × duração × 24 ÷ 1024 tokens, à taxa da resolução escolhida. O valor real da geração aparece embaixo de cada resultado."
+          >
+            ~{formatarUsd(custoEstimado)}
+          </span>
           <p className="text-[11px] text-zinc-500">
             {temFrame ? "com primeiro frame" : "sem primeiro frame (texto para vídeo)"}
-            {custoTotal > 0 && ` · gasto nesta sessão: $${custoTotal.toFixed(3)}`}
+            {custoTotal > 0 && ` · gasto nesta sessão: ${formatarUsd(custoTotal)}`}
           </p>
         </div>
       </div>
@@ -565,7 +799,7 @@ export default function GeradorVideoPage() {
                 <div className="p-3">
                   <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                     {item.duration}s · {item.resolution} · {item.aspectRatio}
-                    {typeof item.costUsd === "number" && ` · $${item.costUsd.toFixed(3)}`}
+                    {typeof item.costUsd === "number" && ` · ${formatarUsd(item.costUsd)}`}
                   </p>
                   {item.status === "completed" && item.videoUrl && (
                     <div className="mt-2 flex gap-1.5">

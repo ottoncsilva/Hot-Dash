@@ -48,6 +48,12 @@ export async function PATCH(
       bioWhatsappButton: body.bioWhatsappButton,
       bioTelegramLink: body.bioTelegramLink,
       bioTelegramButton: body.bioTelegramButton,
+      imagegenReferenceIds: Array.isArray(body.imagegenReferenceIds)
+        ? body.imagegenReferenceIds.filter((x: unknown): x is string => typeof x === "string")
+        : undefined,
+      imagegenPromptBase: body.imagegenPromptBase,
+      videogenPromptBase: body.videogenPromptBase,
+      videogenPromptControle: body.videogenPromptControle,
     });
     if (!profile) {
       return NextResponse.json(

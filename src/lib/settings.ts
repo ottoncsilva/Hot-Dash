@@ -739,3 +739,11 @@ export function planButtonStyleProps(
   return doPlano ? { style: doPlano } : buttonStyleProps(bot, "plans");
 }
 
+
+/**
+ * Acesso genérico à tabela `settings`, para módulos vizinhos que guardam um
+ * valorzinho próprio e não merecem tabela nem coluna (ex.: o cache da cotação
+ * do dólar). Exposto como objeto para os nomes curtos `ler`/`gravar` não
+ * virarem exports genéricos soltos no módulo.
+ */
+export const configJson = { ler: getJson, gravar: setJson };

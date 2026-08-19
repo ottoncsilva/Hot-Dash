@@ -113,3 +113,93 @@ export function custoVideo(
 export function formatarUsd(valor: number): string {
   return `$${valor < 0.1 ? valor.toFixed(3) : valor.toFixed(2)}`;
 }
+
+/** R$ a partir do valor em dólar e da cotação do dia. */
+export function formatarBrl(valorUsd: number, brlPorUsd: number): string {
+  return `R$ ${(valorUsd * brlPorUsd).toFixed(2).replace(".", ",")}`;
+}
+
+/**
+ * MENÇÕES A IMAGENS DENTRO DO PROMPT (`@[id:rótulo:tipo]`).
+ *
+ * Prompts trazidos de outras ferramentas vêm cheios desses marcadores, que lá
+ * apontam para arquivos daquele sistema. Aqui eles não significam nada: o
+ * Seedream recebe uma LISTA ORDENADA de imagens, sem rótulo nenhum — quem diz
+ * o que é cada uma é o texto do prompt.
+ *
+ * Então, em vez de mandar o marcador cru (que o modelo lê como lixo), a gente
+ * traduz cada um para a posição real que aquela imagem ocupa no nosso envio:
+ * a imagem a copiar vai sempre primeiro, as da modelo vêm depois.
+ */
+export type PapelMencao = "copia" | "modelo";
+
+export type MencaoPrompt = {
+  id: string;
+  label: string;
+  tipo: string;
+  /** Palpite inicial, que o operador pode corrigir na tela. */
+  papel: PapelMencao;
+  ocorrencias: number;
+};
+
+const RE_MENCAO = /@\[([^\]]+)\]/g;
+
+const TEXTO_PAPEL: Record<PapelMencao, string> = {
+  copia: "a primeira imagem de referência (a imagem a copiar)",
+  modelo: "as imagens de referência da modelo",
+};
+
+function partesDaMencao(bruto: string): { id: string; label: string; tipo: string } {
+  const partes = bruto.split(":");
+  return {
+    id: partes[0] || bruto,
+    tipo: partes.length > 1 ? partes[partes.length - 1] : "",
+    label: partes.length > 2 ? partes.slice(1, -1).join(":") : "",
+  };
+}
+
+/**
+ * Palpite do papel. O discriminador bom é o TIPO: a ferramenta de origem marca
+ * a imagem de cenário/composição como `output-images` e as fotos da modelo
+ * como `output`. O rótulo entra como reforço quando o tipo não decide.
+ */
+function palpitarPapel(label: string, tipo: string): PapelMencao {
+  if (/output-images/i.test(tipo)) return "copia";
+  if (/\bref\b|refer|cen[áa]rio|lista|copiar/i.test(label)) return "copia";
+  return "modelo";
+}
+
+/** As menções distintas encontradas, na ordem em que aparecem. */
+export function acharMencoes(prompt: string): MencaoPrompt[] {
+  const porId = new Map<string, MencaoPrompt>();
+  for (const m of prompt.matchAll(RE_MENCAO)) {
+    const { id, label, tipo } = partesDaMencao(m[1]);
+    const existente = porId.get(id);
+    if (existente) {
+      existente.ocorrencias += 1;
+      continue;
+    }
+    porId.set(id, { id, label, tipo, papel: palpitarPapel(label, tipo), ocorrencias: 1 });
+  }
+  return [...porId.values()];
+}
+
+/**
+ * Troca cada menção pela descrição da posição correspondente e junta as
+ * repetições coladas: seis fotos da modelo enfileiradas viram UMA frase, não
+ * a mesma frase seis vezes.
+ */
+export function aplicarMencoes(prompt: string, papeis: Record<string, PapelMencao>): string {
+  const trocado = prompt.replace(RE_MENCAO, (inteiro, bruto: string) => {
+    const { id, label, tipo } = partesDaMencao(bruto);
+    const papel = papeis[id] || palpitarPapel(label, tipo);
+    return TEXTO_PAPEL[papel];
+  });
+
+  let saida = trocado;
+  for (const frase of Object.values(TEXTO_PAPEL)) {
+    const escapada = frase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    saida = saida.replace(new RegExp(`${escapada}(\\s*${escapada})+`, "g"), frase);
+  }
+  return saida;
+}

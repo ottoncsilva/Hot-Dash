@@ -34,7 +34,10 @@ export async function POST(req: NextRequest) {
       : "9:16";
     const seed =
       typeof body.seed === "number" && Number.isFinite(body.seed) ? body.seed : undefined;
-    const generateAudio = Boolean(body.generateAudio);
+    // Áudio LIGADO por padrão: só desliga quem pedir explicitamente. Um
+    // cliente antigo que não mande o campo continua recebendo vídeo com voz,
+    // que é o que a tela oferece hoje.
+    const generateAudio = body.generateAudio !== false;
 
     // O first frame chega OU já em base64 (upload direto do operador,
     // redimensionado no navegador) OU como o id de uma mídia da Galeria —

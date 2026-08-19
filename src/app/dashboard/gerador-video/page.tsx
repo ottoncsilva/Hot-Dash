@@ -1,30 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiGet, apiSend, apiUpload } from "@/lib/api";
+import { apiGet, apiSend } from "@/lib/api";
 import { showToast } from "@/lib/toast";
 import { useProfile } from "@/context/ProfileContext";
 import { PrecisaDeModelo } from "@/components/ProfilePicker";
 import PageHeader from "@/components/PageHeader";
 import Link from "next/link";
 import MediaPicker from "@/components/telegram/bot/MediaPicker";
-import {
-  IconFilm,
-  IconUpload,
-  IconDownload,
-  IconClose,
-  IconCheck,
-  IconTrash,
-  IconSparkle,
-} from "@/components/icons";
-import type { MediaItem, Profile } from "@/lib/types";
+import { IconFilm, IconUpload, IconClose, IconSparkle } from "@/components/icons";
+import type { Profile } from "@/lib/types";
 import {
   FORMATOS,
   VIDEO_DURACOES,
   VIDEO_RESOLUCOES,
   custoVideo,
   formatarUsd,
+  formatarBrl,
 } from "@/lib/aiMediaOptions";
+import ResultadosGerados from "@/components/ResultadosGerados";
+import { salvarResultado } from "@/lib/resultadosDb";
+import type { Cotacao } from "@/lib/cotacao";
 import { PROMPT_VIDEO_BASE_PADRAO, PROMPT_VIDEO_CONTROLE_PADRAO } from "@/lib/aiMediaPrompts";
 
 /**
@@ -63,18 +59,20 @@ function promptLivrePadrao(temFrame: boolean): string {
   );
 }
 
+/**
+ * Job de vídeo AINDA NÃO PRONTO. O vídeo que termina sai desta lista e vai
+ * para a faixa de resultados (que persiste em banco local) — aqui ficam só os
+ * que estão na fila, gerando, ou que falharam.
+ */
 type Resultado = {
   id: string;
   jobId: string;
-  status: "pending" | "in_progress" | "completed" | "failed" | "cancelled" | "expired";
-  videoUrl?: string;
-  costUsd?: number;
+  status: "pending" | "in_progress" | "failed" | "cancelled" | "expired";
   erro?: string;
   duration: Duracao;
   resolution: Resolucao;
   aspectRatio: Formato;
   createdAt: number;
-  salvando: "idle" | "salvando" | "salvo";
 };
 
 /** Mesmo redimensionamento usado na Imagem a copiar do Gerador de Imagem —
@@ -135,14 +133,20 @@ export default function GeradorVideoPage() {
   const [duration, setDuration] = useState<Duracao>(5);
   const [resolution, setResolution] = useState<Resolucao>("720p");
   const [aspectRatio, setAspectRatio] = useState<Formato>("9:16");
-  const [generateAudio, setGenerateAudio] = useState(false);
+  // Áudio ligado por padrão: vídeo de caixinha sem voz não serve para nada.
+  const [generateAudio, setGenerateAudio] = useState(true);
   const [seed, setSeed] = useState("");
   const [avancadoAberto, setAvancadoAberto] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [resultados, setResultados] = useState<Resultado[]>([]);
+  const [recarregar, setRecarregar] = useState(0);
+  const [cotacao, setCotacao] = useState<Cotacao | null>(null);
   const dropRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef<Set<string>>(new Set());
+  /** Parâmetros de cada pedido, para etiquetar o vídeo quando ele ficar pronto
+   *  (a essa altura o item já saiu da lista de andamento). */
+  const pedidoRef = useRef<Record<string, { duration: Duracao; resolution: Resolucao; aspectRatio: Formato }>>({});
 
   useEffect(() => {
     apiGet<{ settings: { openrouter?: { enabled?: boolean; hasKey?: boolean } } }>("/api/settings/ai")
@@ -169,7 +173,6 @@ export default function GeradorVideoPage() {
       .catch(() => {});
   }, [profileId]);
 
-  const custoTotal = resultados.reduce((s, r) => s + (r.costUsd || 0), 0);
   const custoEstimado = custoVideo(resolution, aspectRatio, duration);
   const temFrame = frameGaleria.length > 0 || Boolean(frameBase64);
   /** O texto que vai ao Seedance: no modo livre é o prompt escrito à mão, no
@@ -316,12 +319,21 @@ export default function GeradorVideoPage() {
             throw new Error(data.error || "Falha ao baixar o vídeo pronto.");
           }
           const blob = await res.blob();
-          const videoUrl = URL.createObjectURL(blob);
-          setResultados((prev) =>
-            prev.map((it) =>
-              it.id === id ? { ...it, status: "completed", videoUrl, costUsd: r.costUsd } : it,
-            ),
-          );
+          const feito = pedidoRef.current[id];
+          await salvarResultado({
+            id,
+            tipo: "video",
+            blob,
+            mediaType: blob.type || "video/mp4",
+            costUsd: r.costUsd,
+            legenda: feito
+              ? `${feito.duration}s · ${feito.resolution} · ${feito.aspectRatio}`
+              : "vídeo",
+            createdAt: Date.now(),
+          });
+          delete pedidoRef.current[id];
+          setResultados((prev) => prev.filter((it) => it.id !== id));
+          setRecarregar((n) => n + 1);
         } else {
           setResultados((prev) =>
             prev.map((it) =>
@@ -339,6 +351,12 @@ export default function GeradorVideoPage() {
     } finally {
       pollingRef.current.delete(jobId);
     }
+  }, []);
+
+  useEffect(() => {
+    apiGet<{ cotacao: Cotacao | null }>("/api/cotacao")
+      .then((d) => setCotacao(d.cotacao))
+      .catch(() => setCotacao(null));
   }, []);
 
   async function gerar() {
@@ -367,6 +385,7 @@ export default function GeradorVideoPage() {
         firstFrameMediaId: frameGaleria[0],
       });
       const id = crypto.randomUUID();
+      pedidoRef.current[id] = { duration, resolution, aspectRatio };
       setResultados((prev) => [
         {
           id,
@@ -376,7 +395,6 @@ export default function GeradorVideoPage() {
           resolution,
           aspectRatio,
           createdAt: Date.now(),
-          salvando: "idle",
         },
         ...prev,
       ]);
@@ -390,33 +408,8 @@ export default function GeradorVideoPage() {
     }
   }
 
-  async function salvarNaGaleria(item: Resultado) {
-    if (!profileId || !item.videoUrl) return;
-    setResultados((prev) => prev.map((r) => (r.id === item.id ? { ...r, salvando: "salvando" } : r)));
-    try {
-      const res = await fetch(item.videoUrl);
-      const blob = await res.blob();
-      const form = new FormData();
-      form.append("file", new File([blob], `seedance-${item.id.slice(0, 8)}.mp4`, { type: "video/mp4" }));
-      await apiUpload<{ media: MediaItem }>(`/api/profiles/${profileId}/media`, form);
-      setResultados((prev) => prev.map((r) => (r.id === item.id ? { ...r, salvando: "salvo" } : r)));
-      showToast("Salvo na Galeria.", "success");
-    } catch (e) {
-      setResultados((prev) => prev.map((r) => (r.id === item.id ? { ...r, salvando: "idle" } : r)));
-      showToast(e instanceof Error ? e.message : "Falha ao salvar.", "error");
-    }
-  }
-
-  function baixar(item: Resultado) {
-    if (!item.videoUrl) return;
-    const a = document.createElement("a");
-    a.href = item.videoUrl;
-    a.download = `seedance-${item.id.slice(0, 8)}.mp4`;
-    a.click();
-  }
-
   function descartar(item: Resultado) {
-    if (item.videoUrl) URL.revokeObjectURL(item.videoUrl);
+    delete pedidoRef.current[item.id];
     setResultados((prev) => prev.filter((r) => r.id !== item.id));
   }
 
@@ -552,7 +545,7 @@ export default function GeradorVideoPage() {
               </button>
             </div>
             <textarea
-              className="input mt-1 min-h-[110px] resize-y"
+              className="input mt-1 max-h-[260px] min-h-[110px] resize-y overflow-y-auto"
               placeholder="Descreva o vídeo — ou clique em “Usar prompt padrão” para começar de um modelo pronto."
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -585,7 +578,7 @@ export default function GeradorVideoPage() {
               roteiro base de {profile?.name || "a modelo"} e escreve o prompt final.
             </p>
             <textarea
-              className="input mt-1 min-h-[90px] resize-y"
+              className="input mt-1 max-h-[220px] min-h-[90px] resize-y overflow-y-auto"
               placeholder={"Pergunta: ...\nResposta: ..."}
               value={caixinha}
               onChange={(e) => setCaixinha(e.target.value)}
@@ -602,7 +595,7 @@ export default function GeradorVideoPage() {
                     : "As instruções que a IA segue para fundir a caixinha com o roteiro base. Use {{ROTEIRO_BASE}} e {{CAIXINHA}} para marcar onde cada peça entra."}
                 </p>
                 <textarea
-                  className="input mt-1.5 min-h-[220px] resize-y font-mono text-[12px]"
+                  className="input mt-1.5 max-h-[420px] min-h-[220px] resize-y overflow-y-auto font-mono text-[12px]"
                   value={rascunho}
                   onChange={(e) => setRascunho(e.target.value)}
                 />
@@ -640,7 +633,7 @@ export default function GeradorVideoPage() {
             <div className="mt-4">
               <label className="eyebrow">Prompt final (confira antes de gerar)</label>
               <textarea
-                className="input mt-1 min-h-[150px] resize-y font-mono text-[12px]"
+                className="input mt-1 max-h-[420px] min-h-[150px] resize-y overflow-y-auto font-mono text-[12px]"
                 placeholder="Clique em “Montar prompt final com IA” — o roteiro aparece aqui e pode ser ajustado à mão."
                 value={promptFinal}
                 onChange={(e) => setPromptFinal(e.target.value)}
@@ -764,92 +757,60 @@ export default function GeradorVideoPage() {
             title="Preço de tabela do Seedance, calculado pela fórmula dele: largura × altura × duração × 24 ÷ 1024 tokens, à taxa da resolução escolhida. O valor real da geração aparece embaixo de cada resultado."
           >
             ~{formatarUsd(custoEstimado)}
+            {cotacao && ` · ~${formatarBrl(custoEstimado, cotacao.brlPorUsd)}`}
           </span>
           <p className="text-[11px] text-zinc-500">
             {temFrame ? "com primeiro frame" : "sem primeiro frame (texto para vídeo)"}
-            {custoTotal > 0 && ` · gasto nesta sessão: ${formatarUsd(custoTotal)}`}
+            {cotacao && ` · dólar a R$ ${cotacao.brlPorUsd.toFixed(2).replace(".", ",")} (${cotacao.fonte})`}
           </p>
         </div>
       </div>
 
-      {/* RESULTADOS */}
+      {/* JOBS EM ANDAMENTO — o vídeo pronto sai daqui e vai para a faixa abaixo. */}
       {resultados.length > 0 && (
         <div className="mt-5">
-          <p className="eyebrow mb-2">Resultados desta sessão</p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {resultados.map((item) => (
-              <div key={item.id} className="card overflow-hidden p-0">
-                {item.status === "completed" && item.videoUrl ? (
-                  <video src={item.videoUrl} controls className="w-full bg-black/30" />
-                ) : (
-                  <div className="grid h-40 w-full place-items-center bg-black/20 text-center text-xs text-zinc-500">
-                    {item.status === "failed" || item.status === "cancelled" || item.status === "expired" ? (
-                      <span className="px-3 text-red-300">
-                        {STATUS_LABEL[item.status]}
-                        {item.erro ? ` — ${item.erro}` : ""}
-                      </span>
-                    ) : (
-                      <span className="flex flex-col items-center gap-2">
-                        <span className="h-5 w-5 animate-spin rounded-full border border-white/15 border-t-white" />
-                        {STATUS_LABEL[item.status] || item.status}
-                      </span>
+          <p className="eyebrow mb-2">Em andamento</p>
+          <div className="flex flex-col gap-2">
+            {resultados.map((item) => {
+              const falhou =
+                item.status === "failed" || item.status === "cancelled" || item.status === "expired";
+              return (
+                <div
+                  key={item.id}
+                  className="card flex flex-wrap items-center justify-between gap-3 p-3"
+                >
+                  <div className="flex items-center gap-2.5">
+                    {!falhou && (
+                      <span className="h-4 w-4 animate-spin rounded-full border border-white/15 border-t-white" />
                     )}
+                    <div>
+                      <p className={`text-xs ${falhou ? "text-red-300" : "text-zinc-300"}`}>
+                        {STATUS_LABEL[item.status] || item.status}
+                        {item.erro ? ` — ${item.erro}` : ""}
+                      </p>
+                      <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                        {item.duration}s · {item.resolution} · {item.aspectRatio}
+                      </p>
+                    </div>
                   </div>
-                )}
-                <div className="p-3">
-                  <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                    {item.duration}s · {item.resolution} · {item.aspectRatio}
-                    {typeof item.costUsd === "number" && ` · ${formatarUsd(item.costUsd)}`}
-                  </p>
-                  {item.status === "completed" && item.videoUrl && (
-                    <div className="mt-2 flex gap-1.5">
-                      <button
-                        onClick={() => salvarNaGaleria(item)}
-                        disabled={item.salvando !== "idle"}
-                        className="btn-ghost flex-1 px-2 py-1.5 text-xs"
-                      >
-                        {item.salvando === "salvando" ? (
-                          "Salvando..."
-                        ) : item.salvando === "salvo" ? (
-                          <>
-                            <IconCheck size={13} /> Salvo
-                          </>
-                        ) : (
-                          "Salvar na Galeria"
-                        )}
-                      </button>
-                      <button
-                        onClick={() => baixar(item)}
-                        className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-zinc-500 hover:bg-white/10 hover:text-white"
-                        aria-label="Baixar"
-                      >
-                        <IconDownload size={15} />
-                      </button>
-                      <button
-                        onClick={() => descartar(item)}
-                        className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-zinc-500 hover:bg-white/10 hover:text-red-400"
-                        aria-label="Descartar"
-                      >
-                        <IconTrash size={15} />
-                      </button>
-                    </div>
-                  )}
-                  {(item.status === "failed" || item.status === "cancelled" || item.status === "expired") && (
-                    <div className="mt-2">
-                      <button
-                        onClick={() => descartar(item)}
-                        className="btn-ghost w-full px-2 py-1.5 text-xs"
-                      >
-                        Descartar
-                      </button>
-                    </div>
+                  {falhou && (
+                    <button onClick={() => descartar(item)} className="btn-ghost px-2 py-1 text-xs">
+                      Descartar
+                    </button>
                   )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
+
+      <ResultadosGerados
+        tipo="video"
+        profileId={profileId}
+        recarregar={recarregar}
+        brlPorUsd={cotacao?.brlPorUsd}
+      />
     </div>
   );
 }

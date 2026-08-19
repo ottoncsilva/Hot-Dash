@@ -1,24 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiGet, apiSend, apiUpload } from "@/lib/api";
+import { apiGet, apiSend } from "@/lib/api";
 import { showToast } from "@/lib/toast";
 import { useProfile } from "@/context/ProfileContext";
 import { PrecisaDeModelo } from "@/components/ProfilePicker";
 import PageHeader from "@/components/PageHeader";
 import Link from "next/link";
 import MediaPicker from "@/components/telegram/bot/MediaPicker";
+import { IconSparkle, IconUpload, IconClose } from "@/components/icons";
+import type { Profile } from "@/lib/types";
 import {
-  IconSparkle,
-  IconUpload,
-  IconDownload,
-  IconClose,
-  IconCheck,
-  IconTrash,
-} from "@/components/icons";
-import type { MediaItem, Profile } from "@/lib/types";
-import { FORMATOS, IMAGE_RESOLUCOES, custoImagem, formatarUsd } from "@/lib/aiMediaOptions";
+  FORMATOS,
+  IMAGE_RESOLUCOES,
+  custoImagem,
+  formatarUsd,
+  formatarBrl,
+  acharMencoes,
+  aplicarMencoes,
+  type PapelMencao,
+} from "@/lib/aiMediaOptions";
 import { promptImagemPadrao } from "@/lib/aiMediaPrompts";
+import ResultadosGerados from "@/components/ResultadosGerados";
+import { salvarResultado } from "@/lib/resultadosDb";
+import type { Cotacao } from "@/lib/cotacao";
 
 /**
  * GERADOR DE IMAGEM — bytedance-seed/seedream-5-0-pro, via OpenRouter.
@@ -40,17 +45,6 @@ const OPCOES_FORMATO = ["auto", ...FORMATOS] as const;
 type AspectRatio = (typeof OPCOES_FORMATO)[number];
 
 const MAX_REFERENCIAS_GALERIA = 13; // + 1 imagem a copiar = 14, o teto do modelo
-
-type Resultado = {
-  id: string;
-  dataUrl: string;
-  mediaType: string;
-  costUsd?: number;
-  resolution: string;
-  aspectRatio: string;
-  createdAt: number;
-  salvando: "idle" | "salvando" | "salvo";
-};
 
 /**
  * Lê um arquivo de imagem e devolve um data: URL JÁ REDIMENSIONADO (maior
@@ -102,7 +96,9 @@ export default function GeradorImagemPage() {
   const [avancadoAberto, setAvancadoAberto] = useState(false);
   const [gerando, setGerando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const [resultados, setResultados] = useState<Resultado[]>([]);
+  const [recarregar, setRecarregar] = useState(0);
+  const [cotacao, setCotacao] = useState<Cotacao | null>(null);
+  const [papeisMencoes, setPapeisMencoes] = useState<Record<string, PapelMencao>>({});
   const dropRef = useRef<HTMLDivElement>(null);
 
   // A tela precisa saber se o OpenRouter está pronto ANTES de tentar gerar —
@@ -133,7 +129,12 @@ export default function GeradorImagemPage() {
     };
   }, [copiaPreview]);
 
-  const custoTotal = resultados.reduce((s, r) => s + (r.costUsd || 0), 0);
+  // Cotação do dia, para o custo aparecer também em real.
+  useEffect(() => {
+    apiGet<{ cotacao: Cotacao | null }>("/api/cotacao")
+      .then((d) => setCotacao(d.cotacao))
+      .catch(() => setCotacao(null));
+  }, []);
 
   async function escolherCopia(file: File | null) {
     if (!file) {
@@ -214,7 +215,7 @@ export default function GeradorImagemPage() {
         "/api/ai/image-gen",
         "POST",
         {
-          prompt: promptEfetivo,
+          prompt: aplicarMencoes(promptEfetivo, papeisMencoes),
           resolution,
           aspectRatio,
           seed: seedNum,
@@ -222,19 +223,21 @@ export default function GeradorImagemPage() {
           referenceMediaIds: referenciasModelo,
         },
       );
-      setResultados((prev) => [
-        {
-          id: crypto.randomUUID(),
-          dataUrl: `data:${r.mediaType};base64,${r.base64}`,
-          mediaType: r.mediaType,
-          costUsd: r.costUsd,
-          resolution,
-          aspectRatio,
-          createdAt: Date.now(),
-          salvando: "idle",
-        },
-        ...prev,
-      ]);
+      // base64 -> Blob: o resultado é guardado como arquivo no banco local,
+      // não como data: URL (que ocuparia ~33% a mais e é texto).
+      const bin = atob(r.base64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      await salvarResultado({
+        id: crypto.randomUUID(),
+        tipo: "imagem",
+        blob: new Blob([bytes], { type: r.mediaType }),
+        mediaType: r.mediaType,
+        costUsd: r.costUsd,
+        legenda: `${resolution} · ${aspectRatio}`,
+        createdAt: Date.now(),
+      });
+      setRecarregar((n) => n + 1);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Falha ao gerar a imagem.";
       setErro(msg);
@@ -242,35 +245,6 @@ export default function GeradorImagemPage() {
     } finally {
       setGerando(false);
     }
-  }
-
-  async function salvarNaGaleria(item: Resultado) {
-    if (!profileId) return;
-    setResultados((prev) => prev.map((r) => (r.id === item.id ? { ...r, salvando: "salvando" } : r)));
-    try {
-      const res = await fetch(item.dataUrl);
-      const blob = await res.blob();
-      const ext = item.mediaType.includes("png") ? "png" : item.mediaType.includes("webp") ? "webp" : "jpg";
-      const form = new FormData();
-      form.append("file", new File([blob], `seedream-${item.id.slice(0, 8)}.${ext}`, { type: item.mediaType }));
-      await apiUpload<{ media: MediaItem }>(`/api/profiles/${profileId}/media`, form);
-      setResultados((prev) => prev.map((r) => (r.id === item.id ? { ...r, salvando: "salvo" } : r)));
-      showToast("Salvo na Galeria.", "success");
-    } catch (e) {
-      setResultados((prev) => prev.map((r) => (r.id === item.id ? { ...r, salvando: "idle" } : r)));
-      showToast(e instanceof Error ? e.message : "Falha ao salvar.", "error");
-    }
-  }
-
-  function baixar(item: Resultado) {
-    const a = document.createElement("a");
-    a.href = item.dataUrl;
-    a.download = `seedream-${item.id.slice(0, 8)}.${item.mediaType.includes("png") ? "png" : "jpg"}`;
-    a.click();
-  }
-
-  function descartar(id: string) {
-    setResultados((prev) => prev.filter((r) => r.id !== id));
   }
 
   if (!profileId) {
@@ -282,6 +256,7 @@ export default function GeradorImagemPage() {
     );
   }
 
+  const mencoes = acharMencoes(promptEfetivo);
   const totalReferencias = referenciasModelo.length + (copiaBase64 ? 1 : 0);
   const custoEstimado = custoImagem(resolution, totalReferencias);
 
@@ -386,7 +361,7 @@ export default function GeradorImagemPage() {
           {editandoPrompt ? (
             <div className="mt-1">
               <textarea
-                className="input min-h-[160px] resize-y font-mono text-[12px]"
+                className="input max-h-[420px] min-h-[160px] resize-y overflow-y-auto font-mono text-[12px]"
                 value={rascunhoPrompt}
                 onChange={(e) => setRascunhoPrompt(e.target.value)}
               />
@@ -410,7 +385,7 @@ export default function GeradorImagemPage() {
               </div>
             </div>
           ) : (
-            <p className="mt-1 whitespace-pre-wrap rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-[12px] leading-relaxed text-zinc-400">
+            <p className="mt-1 max-h-[220px] overflow-y-auto whitespace-pre-wrap rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-[12px] leading-relaxed text-zinc-400">
               {promptBase.trim() || promptImagemPadrao(Boolean(copiaBase64), referenciasModelo.length > 0)}
             </p>
           )}
@@ -422,12 +397,54 @@ export default function GeradorImagemPage() {
             Entra no fim do prompt padrão — o que muda só nesta imagem: roupa, cenário, pose, clima.
           </p>
           <textarea
-            className="input mt-1 min-h-[70px] resize-y"
+            className="input mt-1 max-h-[220px] min-h-[70px] resize-y overflow-y-auto"
             placeholder="ex.: de biquíni vermelho, na varanda, no fim da tarde"
             value={extra}
             onChange={(e) => setExtra(e.target.value)}
           />
         </div>
+
+        {mencoes.length > 0 && (
+          <div className="mt-4 rounded-xl border border-sky-500/25 bg-sky-500/[0.06] p-3">
+            <p className="text-[11px] font-semibold text-sky-300">
+              {mencoes.length} referência(s) marcadas com @ no prompt
+            </p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-400">
+              O Seedream não entende esses códigos — ele recebe as imagens numa lista, sem rótulo.
+              Cada marca vira uma frase dizendo QUAL imagem é, conforme a posição real no envio.
+              Confira se acertamos:
+            </p>
+            <div className="mt-2 flex flex-col gap-1.5">
+              {mencoes.map((m) => {
+                const papel = papeisMencoes[m.id] || m.papel;
+                return (
+                  <div key={m.id} className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-[11px] text-zinc-400">
+                      {m.label || m.id.slice(0, 8)}
+                      {m.ocorrencias > 1 && ` ×${m.ocorrencias}`}
+                    </span>
+                    <div className="flex gap-1">
+                      {(["copia", "modelo"] as const).map((op) => (
+                        <button
+                          key={op}
+                          type="button"
+                          onClick={() => setPapeisMencoes((a) => ({ ...a, [m.id]: op }))}
+                          className={`rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
+                            papel === op
+                              ? "border-emerald-500/40 bg-emerald-500/[0.12] font-semibold text-emerald-300"
+                              : "border-white/10 text-zinc-500 hover:border-white/25 hover:text-zinc-300"
+                          }`}
+                        >
+                          {op === "copia" ? "imagem a copiar" : "referência da modelo"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* RESOLUÇÃO */}
         <div className="mt-5">
@@ -513,64 +530,21 @@ export default function GeradorImagemPage() {
             title="Preço de tabela do Seedream: a imagem em 1K ou 2K, mais US$ 0,003 por referência enviada. O valor real da geração aparece embaixo de cada resultado."
           >
             ~{formatarUsd(custoEstimado)}
+            {cotacao && ` · ~${formatarBrl(custoEstimado, cotacao.brlPorUsd)}`}
           </span>
           <p className="text-[11px] text-zinc-500">
             {totalReferencias}/14 referências enviadas
-            {custoTotal > 0 && ` · gasto nesta sessão: ${formatarUsd(custoTotal)}`}
+            {cotacao && ` · dólar a R$ ${cotacao.brlPorUsd.toFixed(2).replace(".", ",")} (${cotacao.fonte})`}
           </p>
         </div>
       </div>
 
-      {/* RESULTADOS */}
-      {resultados.length > 0 && (
-        <div className="mt-5">
-          <p className="eyebrow mb-2">Resultados desta sessão</p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {resultados.map((item) => (
-              <div key={item.id} className="card overflow-hidden p-0">
-                <img src={item.dataUrl} alt="" className="w-full bg-black/30 object-contain" />
-                <div className="p-3">
-                  <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                    {item.resolution} · {item.aspectRatio}
-                    {typeof item.costUsd === "number" && ` · ${formatarUsd(item.costUsd)}`}
-                  </p>
-                  <div className="mt-2 flex gap-1.5">
-                    <button
-                      onClick={() => salvarNaGaleria(item)}
-                      disabled={item.salvando !== "idle"}
-                      className="btn-ghost flex-1 px-2 py-1.5 text-xs"
-                    >
-                      {item.salvando === "salvando" ? (
-                        "Salvando..."
-                      ) : item.salvando === "salvo" ? (
-                        <>
-                          <IconCheck size={13} /> Salvo
-                        </>
-                      ) : (
-                        "Salvar na Galeria"
-                      )}
-                    </button>
-                    <button
-                      onClick={() => baixar(item)}
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-zinc-500 hover:bg-white/10 hover:text-white"
-                      aria-label="Baixar"
-                    >
-                      <IconDownload size={15} />
-                    </button>
-                    <button
-                      onClick={() => descartar(item.id)}
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-zinc-500 hover:bg-white/10 hover:text-red-400"
-                      aria-label="Descartar"
-                    >
-                      <IconTrash size={15} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <ResultadosGerados
+        tipo="imagem"
+        profileId={profileId}
+        recarregar={recarregar}
+        brlPorUsd={cotacao?.brlPorUsd}
+      />
     </div>
   );
 }

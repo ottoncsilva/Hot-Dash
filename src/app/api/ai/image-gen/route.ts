@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
 import { getMediaRow, renderVisionImageBase64 } from "@/lib/media";
+import { gerarImagemSeedream, ASPECT_RATIOS, MAX_REFERENCIAS, type AspectRatio } from "@/lib/imageGen";
 import {
-  gerarImagemSeedream,
-  ASPECT_RATIOS,
-  MAX_REFERENCIAS,
-  type AspectRatio,
-  type ImageResolution,
-} from "@/lib/imageGen";
+  modeloImagem,
+  resolucaoImagemValida,
+  quantidadeValida,
+  type ImagemGeradaSaida,
+} from "@/lib/aiMediaOptions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,7 +23,11 @@ export async function POST(req: NextRequest) {
     const prompt = String(body.prompt || "").trim();
     if (!prompt) throw new ApiError(400, "Escreva o prompt da imagem.");
 
-    const resolution: ImageResolution = body.resolution === "1K" ? "1K" : "2K";
+    // Modelo e resolução andam juntos: a resolução válida depende de qual
+    // modelo foi escolhido (Pro faz 1K/2K, Lite faz 2K/4K).
+    const modelo = modeloImagem(body.modelo);
+    const resolution = resolucaoImagemValida(modelo.id, body.resolution);
+    const quantidade = quantidadeValida(body.quantidade);
     const aspectRatio: AspectRatio = ASPECT_RATIOS.includes(body.aspectRatio) ? body.aspectRatio : "auto";
     const seed =
       typeof body.seed === "number" && Number.isFinite(body.seed) ? body.seed : undefined;
@@ -62,8 +66,42 @@ export async function POST(req: NextRequest) {
     }
     if (copyImage) referencias.push(copyImage);
 
-    const resultado = await gerarImagemSeedream({ prompt, referencias, resolution, aspectRatio, seed });
-    return NextResponse.json(resultado);
+    // Quando o modelo não faz várias imagens numa chamada (o Pro trava em
+    // n:1), a quantidade vira chamadas repetidas. Uma que falhe no meio não
+    // descarta as que já vieram — elas já foram cobradas.
+    const imagens: { base64: string; mediaType: string }[] = [];
+    let custoTotal = 0;
+    let erroParcial = "";
+    const chamadas = Math.ceil(quantidade / modelo.maxN);
+    for (let i = 0; i < chamadas; i++) {
+      const faltam = quantidade - imagens.length;
+      if (faltam <= 0) break;
+      try {
+        const r = await gerarImagemSeedream({
+          prompt,
+          referencias,
+          resolution,
+          aspectRatio,
+          seed,
+          modelo: modelo.id,
+          quantidade: faltam,
+        });
+        imagens.push(...r.imagens);
+        if (typeof r.costUsd === "number") custoTotal += r.costUsd;
+      } catch (e) {
+        erroParcial = e instanceof Error ? e.message : "falha";
+        break;
+      }
+    }
+    // Nenhuma imagem veio: o erro é o resultado.
+    if (imagens.length === 0) throw new ApiError(502, erroParcial || "O provedor não devolveu imagem nenhuma.");
+
+    const saida: ImagemGeradaSaida = {
+      imagens: imagens.slice(0, quantidade),
+      costUsd: custoTotal > 0 ? custoTotal : undefined,
+      aviso: erroParcial || undefined,
+    };
+    return NextResponse.json(saida);
   } catch (err) {
     return errorResponse(err);
   }

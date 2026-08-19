@@ -1,21 +1,27 @@
 import "server-only";
 import { getAiCredentials } from "./settings";
 import { cabecalhosOpenRouter } from "./ai";
-import { FORMATOS, VIDEO_DURACOES, VIDEO_RESOLUCOES } from "./aiMediaOptions";
+import {
+  FORMATOS,
+  VIDEO_DURACOES,
+  VIDEO_RESOLUCOES,
+  modeloVideo,
+  resolucaoVideoValida,
+  type ModeloVideoId,
+} from "./aiMediaOptions";
 import { mensagemDeModeracao } from "./aiMediaErros";
 
 /**
- * GERADOR DE VÍDEO — bytedance/seedance-2.0, via OpenRouter.
+ * GERADOR DE VÍDEO — família Seedance 2.0, via OpenRouter.
  *
  * Mesma família da Images API (módulo próprio, chave e cabeçalhos
- * reaproveitados de ai.ts, modelo fixo) — mas a Video API é ASSÍNCRONA: o
+ * reaproveitados de ai.ts) — mas a Video API é ASSÍNCRONA: o
  * pedido devolve um job (202), que precisa ser consultado até terminar, e só
  * então o vídeo é baixado — não vem embutido na resposta como a imagem.
  * Por isso este módulo expõe três passos, não um só: submeterVideoSeedance,
  * consultarStatusVideo e baixarConteudoVideo.
  */
 
-const MODELO = "bytedance/seedance-2.0";
 const ENDPOINT = "https://openrouter.ai/api/v1/videos";
 
 export const DURACOES = VIDEO_DURACOES;
@@ -29,6 +35,8 @@ export type VideoAspectRatio = (typeof FORMATOS_VIDEO)[number];
 
 export type PedidoVideo = {
   prompt: string;
+  /** Qual modelo do catálogo. O slug da API sai daqui, nunca do cliente. */
+  modelo?: ModeloVideoId;
   /** URL da imagem inicial (https ou `data:` base64) — vira o `first_frame`. Opcional. */
   firstFrame?: string;
   duration?: VideoDuration;
@@ -65,7 +73,7 @@ function mensagemDoErro(status: number, apiMsg: string): string {
     case 403:
       return `Bloqueado pelo OpenRouter — limite de gasto atingido, chave desativada, ou o modelo não está liberado para esta conta${base}.`;
     case 404:
-      return "Nenhum provedor conseguiu atender o Seedance agora, ou o vídeo já expirou. Tente de novo.";
+      return "Nenhum provedor conseguiu atender esse modelo agora, ou o vídeo já expirou. Tente de novo.";
     case 429:
       return "Muitos pedidos em sequência — aguarde um instante e tente de novo.";
     case 500:
@@ -90,11 +98,14 @@ function credenciaisOuFalha() {
 export async function submeterVideoSeedance(pedido: PedidoVideo): Promise<JobVideo> {
   const creds = credenciaisOuFalha();
 
+  const modelo = modeloVideo(pedido.modelo);
   const body: Record<string, unknown> = {
-    model: MODELO,
+    model: modelo.slug,
     prompt: pedido.prompt,
     duration: pedido.duration || 5,
-    resolution: pedido.resolution || "720p",
+    // Guarda contra par (modelo, resolução) incoerente: o 2.0 vai até 4K, o
+    // Mini e o Fast param no 720p, e a resolução sobrevive à troca de modelo.
+    resolution: resolucaoVideoValida(modelo.id, pedido.resolution || "720p"),
     aspect_ratio: pedido.aspectRatio || "9:16",
   };
   if (pedido.firstFrame) {

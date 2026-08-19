@@ -20,7 +20,12 @@
 export const FORMATOS = ["3:4", "9:16", "1:1", "4:3", "16:9"] as const;
 export type Formato = (typeof FORMATOS)[number];
 
-export const IMAGE_RESOLUCOES = ["1K", "2K"] as const;
+/**
+ * Resoluções que EXISTEM na família. Qual delas cada modelo aceita está no
+ * catálogo abaixo — não são as mesmas: o Seedream Pro faz 1K/2K e o Lite faz
+ * 2K/4K, o Seedance 2.0 vai até 4K e o Mini/Fast param no 720p.
+ */
+export const IMAGE_RESOLUCOES = ["1K", "2K", "4K"] as const;
 export type ImageResolucao = (typeof IMAGE_RESOLUCOES)[number];
 
 export const VIDEO_RESOLUCOES = ["480p", "720p", "1080p", "4K"] as const;
@@ -29,52 +34,188 @@ export type VideoResolucao = (typeof VIDEO_RESOLUCOES)[number];
 export const VIDEO_DURACOES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 export type VideoDuracao = (typeof VIDEO_DURACOES)[number];
 
-/**
- * PREÇO DA IMAGEM (bytedance-seed/seedream-5-0-pro).
- *
- * Vem da tabela de preços do provedor em
- * /api/v1/images/models/bytedance-seed/seedream-5-0-pro/endpoints:
- *   output_image ........................ US$ 0,045 por imagem
- *   output_image (high_resolution) ...... US$ 0,090 por imagem
- *   input_image ......................... US$ 0,003 por imagem de referência
- *
- * "high_resolution" é o 2K. As referências são cobradas UMA A UMA, por isso
- * a conta soma a imagem a copiar junto com as da modelo.
- */
-const IMAGEM_SAIDA_1K = 0.045;
-const IMAGEM_SAIDA_2K = 0.09;
-const IMAGEM_REFERENCIA = 0.003;
+/** Teto de gerações por clique — um clique errado não pode virar oito vídeos. */
+export const MAX_QUANTIDADE = 4;
 
-export function custoImagem(resolucao: ImageResolucao, referencias: number): number {
-  const saida = resolucao === "2K" ? IMAGEM_SAIDA_2K : IMAGEM_SAIDA_1K;
-  return saida + Math.max(0, referencias) * IMAGEM_REFERENCIA;
+export function quantidadeValida(n: unknown): number {
+  const v = typeof n === "number" && Number.isFinite(n) ? Math.round(n) : 1;
+  return Math.min(MAX_QUANTIDADE, Math.max(1, v));
+}
+
+/* ------------------------------------------------------------------ *
+ * CATÁLOGO DE MODELOS
+ *
+ * Preços e limites conferidos AO VIVO na OpenRouter (não deduzidos):
+ * imagem em /api/v1/images/models/<slug>/endpoints, vídeo na ficha de
+ * /api/v1/videos/models. O que muda de um modelo para outro não é só o
+ * preço — é a lista de resoluções e o `n` — e é por isso que isto é uma
+ * tabela por modelo em vez de constantes soltas.
+ * ------------------------------------------------------------------ */
+
+export type ModeloImagemId = "pro" | "lite";
+
+export type ModeloImagem = {
+  id: ModeloImagemId;
+  /** O que vai no campo `model` da API. Nunca vem cru do cliente. */
+  slug: string;
+  nome: string;
+  resolucoes: readonly ImageResolucao[];
+  /** Imagens por chamada que o modelo aceita. O Pro trava em 1. */
+  maxN: number;
+  /** US$ por imagem gerada, por resolução. */
+  precoSaida: Partial<Record<ImageResolucao, number>>;
+  /** US$ por imagem de referência enviada. O Lite não cobra. */
+  precoReferencia: number;
+};
+
+export const MODELOS_IMAGEM: readonly ModeloImagem[] = [
+  {
+    id: "pro",
+    slug: "bytedance-seed/seedream-5-0-pro",
+    nome: "Seedream 5.0 Pro",
+    resolucoes: ["1K", "2K"],
+    maxN: 1,
+    // output_image US$ 0,045 · variante high_resolution (2K) US$ 0,090
+    precoSaida: { "1K": 0.045, "2K": 0.09 },
+    precoReferencia: 0.003,
+  },
+  {
+    id: "lite",
+    slug: "bytedance-seed/seedream-5-0-lite",
+    nome: "Seedream 5.0 Lite",
+    resolucoes: ["2K", "4K"],
+    maxN: 4,
+    // Preço único de US$ 0,035, sem variante de alta resolução e sem linha
+    // de input_image — o provedor não cobra as referências à parte aqui.
+    precoSaida: { "2K": 0.035, "4K": 0.035 },
+    precoReferencia: 0,
+  },
+];
+
+export type ModeloVideoId = "seedance" | "mini" | "fast";
+
+export type ModeloVideo = {
+  id: ModeloVideoId;
+  slug: string;
+  nome: string;
+  resolucoes: readonly VideoResolucao[];
+  /** US$ por "video token", por faixa de resolução. */
+  precoPorToken: Partial<Record<VideoResolucao, number>>;
+};
+
+export const MODELOS_VIDEO: readonly ModeloVideo[] = [
+  {
+    id: "seedance",
+    slug: "bytedance/seedance-2.0",
+    nome: "Seedance 2.0",
+    resolucoes: ["480p", "720p", "1080p", "4K"],
+    precoPorToken: { "480p": 0.000007, "720p": 0.000007, "1080p": 0.0000077, "4K": 0.000004 },
+  },
+  {
+    id: "mini",
+    slug: "bytedance/seedance-2.0-mini",
+    nome: "Seedance 2.0 Mini",
+    resolucoes: ["480p", "720p"],
+    precoPorToken: { "480p": 0.0000035, "720p": 0.0000035 },
+  },
+  {
+    id: "fast",
+    slug: "bytedance/seedance-2.0-fast",
+    nome: "Seedance 2.0 Fast",
+    resolucoes: ["480p", "720p"],
+    precoPorToken: { "480p": 0.0000042, "720p": 0.0000042 },
+  },
+];
+
+export function modeloImagem(id: unknown): ModeloImagem {
+  return MODELOS_IMAGEM.find((m) => m.id === id) || MODELOS_IMAGEM[0];
+}
+
+export function modeloVideo(id: unknown): ModeloVideo {
+  return MODELOS_VIDEO.find((m) => m.id === id) || MODELOS_VIDEO[0];
 }
 
 /**
- * PREÇO DO VÍDEO (bytedance/seedance-2.0).
+ * A resolução, se o modelo aceita; senão a MAIS PRÓXIMA que ele faz.
+ *
+ * Existe porque a resolução escolhida sobrevive à troca de modelo: sair do
+ * Pro em "1K" para o Lite (que só faz 2K/4K) deixaria um valor que a API
+ * recusa. A tela usa isto ao trocar de modelo, e a rota usa como guarda —
+ * ela não pode confiar que o cliente mandou um par coerente.
+ *
+ * "Mais próxima", e não "a primeira": cair de 4K para 480p só porque o
+ * modelo novo não faz 4K é uma queda de dezesseis vezes, capaz de estragar
+ * a geração que se acabou de pagar. Quem estava em 4K vai para o teto do
+ * modelo novo; quem estava no mínimo continua no mínimo.
+ */
+function maisProxima<T extends string>(
+  ordem: readonly T[],
+  aceitas: readonly T[],
+  desejada: unknown,
+): T {
+  const alvo = ordem.indexOf(desejada as T);
+  if (alvo < 0) return aceitas[0];
+  let escolha = aceitas[0];
+  let melhor = Infinity;
+  for (const r of aceitas) {
+    const d = Math.abs(ordem.indexOf(r) - alvo);
+    if (d < melhor) {
+      melhor = d;
+      escolha = r;
+    }
+  }
+  return escolha;
+}
+
+export function resolucaoImagemValida(
+  modeloId: unknown,
+  resolucao: unknown,
+): ImageResolucao {
+  const m = modeloImagem(modeloId);
+  return maisProxima(IMAGE_RESOLUCOES, m.resolucoes, resolucao);
+}
+
+export function resolucaoVideoValida(
+  modeloId: unknown,
+  resolucao: unknown,
+): VideoResolucao {
+  const m = modeloVideo(modeloId);
+  return maisProxima(VIDEO_RESOLUCOES, m.resolucoes, resolucao);
+}
+
+export function custoImagem(
+  modeloId: ModeloImagemId,
+  resolucao: ImageResolucao,
+  referencias: number,
+  quantidade = 1,
+): number {
+  const m = modeloImagem(modeloId);
+  const res = resolucaoImagemValida(modeloId, resolucao);
+  const saida = m.precoSaida[res] ?? 0;
+  const porImagem = saida + Math.max(0, referencias) * m.precoReferencia;
+  return porImagem * quantidadeValida(quantidade);
+}
+
+/**
+ * PREÇO DO VÍDEO.
  *
  * O Seedance cobra por "video token", e a própria ficha do modelo dá a
  * fórmula: tokens = (largura × altura × duração × 24) ÷ 1024. O preço do
- * token muda por faixa de resolução (campo `pricing_skus` do modelo).
+ * token muda por faixa de resolução e por modelo (`pricing_skus`).
  *
- * Conferido contra os dois preços por segundo que a OpenRouter publica:
+ * Conferido contra os preços por segundo que a OpenRouter publica:
  *   480p 9:16 → 480×854×24÷1024 = 9607,5 tokens/s × 0,000007 = US$ 0,0673/s
  *               (a ficha diz US$ 0,06726/s ✔)
  *   4K 16:9  → 3840×2160×24÷1024 = 194400 tokens/s × 0,000004 = US$ 0,7776/s
  *               (a ficha diz US$ 0,7776/s ✔)
  */
-const VIDEO_USD_POR_TOKEN: Record<VideoResolucao, number> = {
-  "480p": 0.000007,
-  "720p": 0.000007,
-  "1080p": 0.0000077,
-  "4K": 0.000004,
-};
 
 /**
  * As dimensões exatas que o modelo produz para cada par (resolução, formato).
  * São os `supported_sizes` da ficha do Seedance — não dá para deduzir por
  * regra de três, porque o modelo arredonda cada combinação para um tamanho
- * fixo da lista dele.
+ * fixo da lista dele. Mini e Fast usam as mesmas medidas nas faixas que
+ * atendem (480p e 720p).
  */
 const VIDEO_TAMANHOS: Record<VideoResolucao, Record<Formato, [number, number]>> = {
   "480p": { "1:1": [480, 480], "3:4": [480, 640], "9:16": [480, 854], "4:3": [640, 480], "16:9": [854, 480] },
@@ -96,13 +237,17 @@ const VIDEO_TAMANHOS: Record<VideoResolucao, Record<Formato, [number, number]>> 
 };
 
 export function custoVideo(
+  modeloId: ModeloVideoId,
   resolucao: VideoResolucao,
   formato: Formato,
   duracaoSegundos: number,
+  quantidade = 1,
 ): number {
-  const [largura, altura] = VIDEO_TAMANHOS[resolucao][formato];
+  const m = modeloVideo(modeloId);
+  const res = resolucaoVideoValida(modeloId, resolucao);
+  const [largura, altura] = VIDEO_TAMANHOS[res][formato];
   const tokens = (largura * altura * duracaoSegundos * 24) / 1024;
-  return tokens * VIDEO_USD_POR_TOKEN[resolucao];
+  return tokens * (m.precoPorToken[res] ?? 0) * quantidadeValida(quantidade);
 }
 
 /**
@@ -296,3 +441,11 @@ export function migrarFotosAntigas(
     return i >= 0 ? tokenReferencia(i + 1) : "uma das imagens de referência";
   });
 }
+
+/** O que a rota de imagem devolve — lista, porque um pedido pode render várias. */
+export type ImagemGeradaSaida = {
+  imagens: { base64: string; mediaType: string }[];
+  costUsd?: number;
+  /** Preenchido quando parte das imagens veio e o resto falhou. */
+  aviso?: string;
+};

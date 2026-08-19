@@ -17,6 +17,11 @@ import {
   custoVideo,
   formatarUsd,
   formatarBrl,
+  MODELOS_VIDEO,
+  modeloVideo,
+  resolucaoVideoValida,
+  MAX_QUANTIDADE,
+  type ModeloVideoId,
 } from "@/lib/aiMediaOptions";
 import ResultadosGerados from "@/components/ResultadosGerados";
 import { salvarResultado } from "@/lib/resultadosDb";
@@ -31,7 +36,7 @@ import PromptComFotos from "@/components/PromptComFotos";
 import { CitacoesPintadas } from "@/components/TextoComCitacoes";
 
 /**
- * GERADOR DE VÍDEO — bytedance/seedance-2.0, via OpenRouter.
+ * GERADOR DE VÍDEO — família Seedance 2.0, via OpenRouter.
  *
  * Irmã da tela de Gerador de Imagem, com uma diferença de fundo: aqui não há
  * um conjunto de referências, e sim UM "primeiro frame" — a foto de onde o
@@ -137,6 +142,8 @@ export default function GeradorVideoPage() {
   const [editor, setEditor] = useState<null | "base" | "controle">(null);
   const [rascunho, setRascunho] = useState("");
   const [salvandoPrompt, setSalvandoPrompt] = useState(false);
+  const [modelo, setModelo] = useState<ModeloVideoId>("seedance");
+  const [quantidade, setQuantidade] = useState(1);
   const [duration, setDuration] = useState<Duracao>(5);
   const [resolution, setResolution] = useState<Resolucao>("720p");
   const [aspectRatio, setAspectRatio] = useState<Formato>("9:16");
@@ -153,7 +160,9 @@ export default function GeradorVideoPage() {
   const pollingRef = useRef<Set<string>>(new Set());
   /** Parâmetros de cada pedido, para etiquetar o vídeo quando ele ficar pronto
    *  (a essa altura o item já saiu da lista de andamento). */
-  const pedidoRef = useRef<Record<string, { duration: Duracao; resolution: Resolucao; aspectRatio: Formato }>>({});
+  const pedidoRef = useRef<
+    Record<string, { duration: Duracao; resolution: Resolucao; aspectRatio: Formato; modelo: string }>
+  >({});
 
   useEffect(() => {
     apiGet<{ settings: { openrouter?: { enabled?: boolean; hasKey?: boolean } } }>("/api/settings/ai")
@@ -180,7 +189,8 @@ export default function GeradorVideoPage() {
       .catch(() => {});
   }, [profileId]);
 
-  const custoEstimado = custoVideo(resolution, aspectRatio, duration);
+  const infoModelo = modeloVideo(modelo);
+  const custoEstimado = custoVideo(modelo, resolution, aspectRatio, duration, quantidade);
   const temFrame = frameGaleria.length > 0 || Boolean(frameBase64);
   /** O texto que vai ao Seedance: no modo livre é o prompt escrito à mão, no
    *  modo caixinha é o roteiro que a IA montou (e que dá para editar). */
@@ -275,6 +285,13 @@ export default function GeradorVideoPage() {
     if (ids.length > 0) escolherFrameArquivo(null); // idem, no sentido inverso
   }
 
+  /** Trocar de modelo pode invalidar a resolução (o 2.0 vai até 4K, Mini e
+   *  Fast param no 720p), então ela é reajustada junto. */
+  function trocarModelo(id: ModeloVideoId) {
+    setModelo(id);
+    setResolution((r) => resolucaoVideoValida(id, r));
+  }
+
   function usarPromptPadrao() {
     setPrompt(promptLivrePadrao(temFrame));
   }
@@ -334,7 +351,7 @@ export default function GeradorVideoPage() {
             mediaType: blob.type || "video/mp4",
             costUsd: r.costUsd,
             legenda: feito
-              ? `${feito.duration}s · ${feito.resolution} · ${feito.aspectRatio}`
+              ? `${feito.modelo} · ${feito.duration}s · ${feito.resolution} · ${feito.aspectRatio}`
               : "vídeo",
             createdAt: Date.now(),
           });
@@ -381,8 +398,13 @@ export default function GeradorVideoPage() {
     setErro(null);
     try {
       const seedNum = seed.trim() ? Number(seed.trim()) : undefined;
-      const r = await apiSend<{ jobId: string; status: string }>("/api/ai/video-gen", "POST", {
+      const r = await apiSend<{
+        jobs: { jobId: string; status: string }[];
+        aviso?: string;
+      }>("/api/ai/video-gen", "POST", {
         prompt: promptEfetivo,
+        modelo,
+        quantidade,
         duration,
         resolution,
         aspectRatio,
@@ -391,21 +413,20 @@ export default function GeradorVideoPage() {
         firstFrameBase64: frameBase64 || undefined,
         firstFrameMediaId: frameGaleria[0],
       });
-      const id = crypto.randomUUID();
-      pedidoRef.current[id] = { duration, resolution, aspectRatio };
-      setResultados((prev) => [
-        {
-          id,
-          jobId: r.jobId,
-          status: "pending",
-          duration,
-          resolution,
-          aspectRatio,
-          createdAt: Date.now(),
-        },
-        ...prev,
-      ]);
-      consultarJob(id, r.jobId);
+
+      // Cada job aceito vira uma linha em andamento, acompanhada em paralelo.
+      for (const job of r.jobs) {
+        const id = crypto.randomUUID();
+        pedidoRef.current[id] = { duration, resolution, aspectRatio, modelo: infoModelo.nome };
+        setResultados((prev) => [
+          { id, jobId: job.jobId, status: "pending", duration, resolution, aspectRatio, createdAt: Date.now() },
+          ...prev,
+        ]);
+        consultarJob(id, job.jobId);
+      }
+      // Parte dos jobs entrou e o resto falhou: os aceitos seguem, e o motivo
+      // aparece em vez de sumir.
+      if (r.aviso) setErro(`${r.jobs.length} de ${quantidade} enviados — ${r.aviso}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Falha ao enviar o pedido de vídeo.";
       setErro(msg);
@@ -659,6 +680,56 @@ export default function GeradorVideoPage() {
           </div>
         )}
 
+        {/* MODELO */}
+        <div className="mt-5">
+          <label className="eyebrow">Modelo</label>
+          <div className="mt-1.5 flex flex-wrap gap-2">
+            {MODELOS_VIDEO.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => trocarModelo(m.id)}
+                className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                  modelo === m.id
+                    ? "border-emerald-500/40 bg-emerald-500/[0.12] font-semibold text-emerald-300"
+                    : "border-white/10 text-zinc-400 hover:border-white/25 hover:text-zinc-200"
+                }`}
+              >
+                {m.nome}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+            {infoModelo.resolucoes.includes("4K")
+              ? "Vai até 4K."
+              : "Mais barato que o 2.0, e vai só até 720p."}
+          </p>
+        </div>
+
+        {/* QUANTIDADE */}
+        <div className="mt-5">
+          <label className="eyebrow">Quantidade</label>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+            Cada um é um vídeo separado, gerado em paralelo — o custo acompanha.
+          </p>
+          <div className="mt-1.5 flex gap-2">
+            {Array.from({ length: MAX_QUANTIDADE }, (_, i) => i + 1).map((q) => (
+              <button
+                key={q}
+                type="button"
+                onClick={() => setQuantidade(q)}
+                className={`rounded-lg border px-4 py-1.5 text-sm transition-colors ${
+                  quantidade === q
+                    ? "border-emerald-500/40 bg-emerald-500/[0.12] font-semibold text-emerald-300"
+                    : "border-white/10 text-zinc-400 hover:border-white/25 hover:text-zinc-200"
+                }`}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* DURAÇÃO */}
         <div className="mt-5">
           <label className="eyebrow">Duração</label>
@@ -684,7 +755,7 @@ export default function GeradorVideoPage() {
         <div className="mt-5">
           <label className="eyebrow">Resolução</label>
           <div className="mt-1.5 flex gap-2">
-            {VIDEO_RESOLUCOES.map((r) => (
+            {infoModelo.resolucoes.map((r) => (
               <button
                 key={r}
                 type="button"
@@ -771,7 +842,7 @@ export default function GeradorVideoPage() {
           </button>
           <span
             className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1 font-mono text-[12px] text-zinc-300"
-            title="Preço de tabela do Seedance, calculado pela fórmula dele: largura × altura × duração × 24 ÷ 1024 tokens, à taxa da resolução escolhida. O valor real da geração aparece embaixo de cada resultado."
+            title={`Preço de tabela do ${infoModelo.nome}, pela fórmula do Seedance: largura × altura × duração × 24 ÷ 1024 tokens, à taxa da resolução, vezes a quantidade. O valor real aparece embaixo de cada resultado.`}
           >
             ~{formatarUsd(custoEstimado)}
             {cotacao && ` · ~${formatarBrl(custoEstimado, cotacao.brlPorUsd)}`}

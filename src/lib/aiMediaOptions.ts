@@ -45,35 +45,51 @@ export function quantidadeValida(n: unknown): number {
 /* ------------------------------------------------------------------ *
  * CATÁLOGO DE MODELOS
  *
- * Preços e limites conferidos AO VIVO na OpenRouter (não deduzidos):
- * imagem em /api/v1/images/models/<slug>/endpoints, vídeo na ficha de
- * /api/v1/videos/models. O que muda de um modelo para outro não é só o
- * preço — é a lista de resoluções e o `n` — e é por isso que isto é uma
- * tabela por modelo em vez de constantes soltas.
+ * Preços e limites conferidos nas fontes oficiais (não deduzidos): os da
+ * OpenRouter em /api/v1/images/models/<slug>/endpoints e na ficha de
+ * /api/v1/videos/models; os do Google na documentação da Gemini API e na
+ * tabela de preços dela.
+ *
+ * O que muda de um modelo para outro não é só o preço: é a lista de
+ * resoluções, de formatos, de durações, o teto de imagens por chamada e até
+ * a FORMA de cobrar (por token no Seedance, por segundo no Veo). Por isso
+ * isto é uma tabela por modelo, lida pela tela E pelo servidor.
  * ------------------------------------------------------------------ */
 
-export type ModeloImagemId = "pro" | "lite";
+/** Quem atende a chamada — decide o módulo que a rota usa. */
+export type Provedor = "openrouter" | "google";
+
+export const NOME_PROVEDOR: Record<Provedor, string> = {
+  openrouter: "OpenRouter",
+  google: "Google",
+};
+
+export type ModeloImagemId = "pro" | "lite" | "nb-pro" | "nb2" | "nb2-lite";
 
 export type ModeloImagem = {
   id: ModeloImagemId;
+  provedor: Provedor;
   /** O que vai no campo `model` da API. Nunca vem cru do cliente. */
   slug: string;
   nome: string;
   resolucoes: readonly ImageResolucao[];
-  /** Imagens por chamada que o modelo aceita. O Pro trava em 1. */
+  formatos: readonly Formato[];
+  /** Imagens por chamada que o modelo aceita. */
   maxN: number;
   /** US$ por imagem gerada, por resolução. */
   precoSaida: Partial<Record<ImageResolucao, number>>;
-  /** US$ por imagem de referência enviada. O Lite não cobra. */
+  /** US$ por imagem de referência enviada. */
   precoReferencia: number;
 };
 
 export const MODELOS_IMAGEM: readonly ModeloImagem[] = [
   {
     id: "pro",
+    provedor: "openrouter",
     slug: "bytedance-seed/seedream-5-0-pro",
     nome: "Seedream 5.0 Pro",
     resolucoes: ["1K", "2K"],
+    formatos: FORMATOS,
     maxN: 1,
     // output_image US$ 0,045 · variante high_resolution (2K) US$ 0,090
     precoSaida: { "1K": 0.045, "2K": 0.09 },
@@ -81,49 +97,151 @@ export const MODELOS_IMAGEM: readonly ModeloImagem[] = [
   },
   {
     id: "lite",
+    provedor: "openrouter",
     slug: "bytedance-seed/seedream-5-0-lite",
     nome: "Seedream 5.0 Lite",
     resolucoes: ["2K", "4K"],
+    formatos: FORMATOS,
     maxN: 4,
     // Preço único de US$ 0,035, sem variante de alta resolução e sem linha
     // de input_image — o provedor não cobra as referências à parte aqui.
     precoSaida: { "2K": 0.035, "4K": 0.035 },
     precoReferencia: 0,
   },
+  // --- Google (Nano Banana). Uma imagem por chamada: a Images API deles não
+  // tem `n`, então quantidade vira chamadas repetidas.
+  {
+    id: "nb-pro",
+    provedor: "google",
+    slug: "gemini-3-pro-image",
+    nome: "Nano Banana Pro",
+    resolucoes: ["1K", "2K", "4K"],
+    formatos: FORMATOS,
+    maxN: 1,
+    // 1120 tokens (1K e 2K) e 2000 (4K) a US$ 120/1M de tokens de saída.
+    precoSaida: { "1K": 0.134, "2K": 0.134, "4K": 0.24 },
+    precoReferencia: 0.0011,
+  },
+  {
+    id: "nb2",
+    provedor: "google",
+    slug: "gemini-3.1-flash-image",
+    nome: "Nano Banana 2",
+    resolucoes: ["1K", "2K", "4K"],
+    formatos: FORMATOS,
+    maxN: 1,
+    // 1120 / 1680 / 2520 tokens a US$ 60/1M.
+    precoSaida: { "1K": 0.067, "2K": 0.101, "4K": 0.151 },
+    precoReferencia: 0,
+  },
+  {
+    id: "nb2-lite",
+    provedor: "google",
+    slug: "gemini-3.1-flash-lite-image",
+    nome: "Nano Banana 2 Lite",
+    resolucoes: ["1K", "2K", "4K"],
+    formatos: FORMATOS,
+    maxN: 1,
+    // A tabela publica só o de 1K (US$ 0,0336). Os outros saem da mesma
+    // contagem de tokens por resolução (1120/1680/2520) vezes os US$ 30/1M
+    // deste modelo — método conferido contra o número de 1K, que bate exato.
+    precoSaida: { "1K": 0.0336, "2K": 0.0504, "4K": 0.0756 },
+    precoReferencia: 0,
+  },
 ];
 
-export type ModeloVideoId = "seedance" | "mini" | "fast";
+export type ModeloVideoId = "seedance" | "mini" | "fast" | "veo" | "veo-fast";
+
+/**
+ * Como o modelo cobra. O Seedance cobra por "video token" (fórmula de
+ * dimensão × duração); o Veo cobra por segundo, direto. Uma tabela de preço
+ * só não modelaria os dois.
+ */
+export type PrecoVideo =
+  | { tipo: "token"; porToken: Partial<Record<VideoResolucao, number>> }
+  | { tipo: "segundo"; porSegundo: Partial<Record<VideoResolucao, number>> };
 
 export type ModeloVideo = {
   id: ModeloVideoId;
+  provedor: Provedor;
   slug: string;
   nome: string;
   resolucoes: readonly VideoResolucao[];
-  /** US$ por "video token", por faixa de resolução. */
-  precoPorToken: Partial<Record<VideoResolucao, number>>;
+  formatos: readonly Formato[];
+  duracoes: readonly number[];
+  /** Vídeos por chamada. O Veo tem `numberOfVideos`; o Seedance não tem `n`. */
+  maxN: number;
+  preco: PrecoVideo;
+  /** O Veo sempre gera áudio, e isso não muda o preço — a tela esconde o interruptor. */
+  audioSempre?: boolean;
+  /** Resoluções que obrigam a duração máxima (regra do Veo para 1080p e 4k). */
+  exigemDuracaoMaxima?: readonly VideoResolucao[];
 };
 
 export const MODELOS_VIDEO: readonly ModeloVideo[] = [
   {
     id: "seedance",
+    provedor: "openrouter",
     slug: "bytedance/seedance-2.0",
     nome: "Seedance 2.0",
     resolucoes: ["480p", "720p", "1080p", "4K"],
-    precoPorToken: { "480p": 0.000007, "720p": 0.000007, "1080p": 0.0000077, "4K": 0.000004 },
+    formatos: FORMATOS,
+    duracoes: VIDEO_DURACOES,
+    maxN: 1,
+    preco: {
+      tipo: "token",
+      porToken: { "480p": 0.000007, "720p": 0.000007, "1080p": 0.0000077, "4K": 0.000004 },
+    },
   },
   {
     id: "mini",
+    provedor: "openrouter",
     slug: "bytedance/seedance-2.0-mini",
     nome: "Seedance 2.0 Mini",
     resolucoes: ["480p", "720p"],
-    precoPorToken: { "480p": 0.0000035, "720p": 0.0000035 },
+    formatos: FORMATOS,
+    duracoes: VIDEO_DURACOES,
+    maxN: 1,
+    preco: { tipo: "token", porToken: { "480p": 0.0000035, "720p": 0.0000035 } },
   },
   {
     id: "fast",
+    provedor: "openrouter",
     slug: "bytedance/seedance-2.0-fast",
     nome: "Seedance 2.0 Fast",
     resolucoes: ["480p", "720p"],
-    precoPorToken: { "480p": 0.0000042, "720p": 0.0000042 },
+    formatos: FORMATOS,
+    duracoes: VIDEO_DURACOES,
+    maxN: 1,
+    preco: { tipo: "token", porToken: { "480p": 0.0000042, "720p": 0.0000042 } },
+  },
+  // --- Google (Veo 3.1). Limites bem mais estreitos: dois formatos, três
+  // durações, e 1080p/4k só em 8 segundos.
+  {
+    id: "veo",
+    provedor: "google",
+    slug: "veo-3.1-generate-preview",
+    nome: "Veo 3.1",
+    resolucoes: ["720p", "1080p", "4K"],
+    formatos: ["9:16", "16:9"],
+    duracoes: [4, 6, 8],
+    maxN: 4,
+    preco: { tipo: "segundo", porSegundo: { "720p": 0.4, "1080p": 0.4, "4K": 0.6 } },
+    audioSempre: true,
+    exigemDuracaoMaxima: ["1080p", "4K"],
+  },
+  {
+    id: "veo-fast",
+    provedor: "google",
+    slug: "veo-3.1-fast-generate-preview",
+    nome: "Veo 3.1 Fast",
+    resolucoes: ["720p", "1080p", "4K"],
+    formatos: ["9:16", "16:9"],
+    duracoes: [4, 6, 8],
+    maxN: 4,
+    preco: { tipo: "segundo", porSegundo: { "720p": 0.1, "1080p": 0.12, "4K": 0.3 } },
+    audioSempre: true,
+    exigemDuracaoMaxima: ["1080p", "4K"],
   },
 ];
 
@@ -136,19 +254,18 @@ export function modeloVideo(id: unknown): ModeloVideo {
 }
 
 /**
- * A resolução, se o modelo aceita; senão a MAIS PRÓXIMA que ele faz.
+ * O valor pedido, se o modelo aceita; senão o MAIS PRÓXIMO que ele faz.
  *
- * Existe porque a resolução escolhida sobrevive à troca de modelo: sair do
- * Pro em "1K" para o Lite (que só faz 2K/4K) deixaria um valor que a API
- * recusa. A tela usa isto ao trocar de modelo, e a rota usa como guarda —
- * ela não pode confiar que o cliente mandou um par coerente.
+ * Existe porque a escolha sobrevive à troca de modelo: sair do Seedance em
+ * 15s e 3:4 para o Veo (que só faz 4/6/8s e dois formatos) deixaria valores
+ * que a API recusa. "Mais próximo", e não "o primeiro": cair de 4K para 480p
+ * só porque o modelo novo não faz 4K é uma queda de dezesseis vezes, capaz
+ * de estragar a geração que se acabou de pagar.
  *
- * "Mais próxima", e não "a primeira": cair de 4K para 480p só porque o
- * modelo novo não faz 4K é uma queda de dezesseis vezes, capaz de estragar
- * a geração que se acabou de pagar. Quem estava em 4K vai para o teto do
- * modelo novo; quem estava no mínimo continua no mínimo.
+ * A tela usa ao trocar de modelo; a rota usa como guarda, porque não pode
+ * confiar que o cliente mandou um conjunto coerente.
  */
-function maisProxima<T extends string>(
+function maisProxima<T extends string | number>(
   ordem: readonly T[],
   aceitas: readonly T[],
   desejada: unknown,
@@ -167,20 +284,37 @@ function maisProxima<T extends string>(
   return escolha;
 }
 
-export function resolucaoImagemValida(
-  modeloId: unknown,
-  resolucao: unknown,
-): ImageResolucao {
+export function resolucaoImagemValida(modeloId: unknown, resolucao: unknown): ImageResolucao {
   const m = modeloImagem(modeloId);
   return maisProxima(IMAGE_RESOLUCOES, m.resolucoes, resolucao);
 }
 
-export function resolucaoVideoValida(
-  modeloId: unknown,
-  resolucao: unknown,
-): VideoResolucao {
+export function resolucaoVideoValida(modeloId: unknown, resolucao: unknown): VideoResolucao {
   const m = modeloVideo(modeloId);
   return maisProxima(VIDEO_RESOLUCOES, m.resolucoes, resolucao);
+}
+
+export function formatoImagemValido(modeloId: unknown, formato: unknown): Formato {
+  return maisProxima(FORMATOS, modeloImagem(modeloId).formatos, formato);
+}
+
+export function formatoVideoValido(modeloId: unknown, formato: unknown): Formato {
+  return maisProxima(FORMATOS, modeloVideo(modeloId).formatos, formato);
+}
+
+/**
+ * A duração válida para o par (modelo, resolução). Além da lista do modelo,
+ * há a regra cruzada do Veo: 1080p e 4k só saem com a duração máxima.
+ */
+export function duracaoValida(
+  modeloId: unknown,
+  resolucao: unknown,
+  duracao: unknown,
+): number {
+  const m = modeloVideo(modeloId);
+  const res = resolucaoVideoValida(modeloId, resolucao);
+  if (m.exigemDuracaoMaxima?.includes(res)) return Math.max(...m.duracoes);
+  return maisProxima(VIDEO_DURACOES, m.duracoes, duracao);
 }
 
 export function custoImagem(
@@ -197,25 +331,17 @@ export function custoImagem(
 }
 
 /**
- * PREÇO DO VÍDEO.
- *
- * O Seedance cobra por "video token", e a própria ficha do modelo dá a
- * fórmula: tokens = (largura × altura × duração × 24) ÷ 1024. O preço do
- * token muda por faixa de resolução e por modelo (`pricing_skus`).
+ * As dimensões exatas que o Seedance produz para cada par (resolução,
+ * formato). São os `supported_sizes` da ficha dele — não dá para deduzir por
+ * regra de três, porque o modelo arredonda cada combinação para um tamanho
+ * fixo da lista. Só serve à cobrança por token; o Veo cobra por segundo e
+ * não passa por aqui.
  *
  * Conferido contra os preços por segundo que a OpenRouter publica:
  *   480p 9:16 → 480×854×24÷1024 = 9607,5 tokens/s × 0,000007 = US$ 0,0673/s
  *               (a ficha diz US$ 0,06726/s ✔)
  *   4K 16:9  → 3840×2160×24÷1024 = 194400 tokens/s × 0,000004 = US$ 0,7776/s
  *               (a ficha diz US$ 0,7776/s ✔)
- */
-
-/**
- * As dimensões exatas que o modelo produz para cada par (resolução, formato).
- * São os `supported_sizes` da ficha do Seedance — não dá para deduzir por
- * regra de três, porque o modelo arredonda cada combinação para um tamanho
- * fixo da lista dele. Mini e Fast usam as mesmas medidas nas faixas que
- * atendem (480p e 720p).
  */
 const VIDEO_TAMANHOS: Record<VideoResolucao, Record<Formato, [number, number]>> = {
   "480p": { "1:1": [480, 480], "3:4": [480, 640], "9:16": [480, 854], "4:3": [640, 480], "16:9": [854, 480] },
@@ -245,16 +371,17 @@ export function custoVideo(
 ): number {
   const m = modeloVideo(modeloId);
   const res = resolucaoVideoValida(modeloId, resolucao);
-  const [largura, altura] = VIDEO_TAMANHOS[res][formato];
+  const qtd = quantidadeValida(quantidade);
+
+  if (m.preco.tipo === "segundo") {
+    return (m.preco.porSegundo[res] ?? 0) * duracaoSegundos * qtd;
+  }
+  const fmt = formatoVideoValido(modeloId, formato);
+  const [largura, altura] = VIDEO_TAMANHOS[res][fmt];
   const tokens = (largura * altura * duracaoSegundos * 24) / 1024;
-  return tokens * (m.precoPorToken[res] ?? 0) * quantidadeValida(quantidade);
+  return tokens * (m.preco.porToken[res] ?? 0) * qtd;
 }
 
-/**
- * US$ com casas suficientes para o valor não sumir no arredondamento: abaixo
- * de dez centavos usa três casas, senão os US$ 0,003 de cada referência de
- * imagem desapareceriam da conta (0,090 e 0,093 virariam o mesmo "$0.09").
- */
 export function formatarUsd(valor: number): string {
   return `$${valor < 0.1 ? valor.toFixed(3) : valor.toFixed(2)}`;
 }
@@ -449,3 +576,27 @@ export type ImagemGeradaSaida = {
   /** Preenchido quando parte das imagens veio e o resto falhou. */
   aviso?: string;
 };
+
+/* ------------------------------------------------------------------ *
+ * IDENTIFICADOR DE JOB DE VÍDEO
+ *
+ * As rotas de acompanhamento são /api/ai/video-gen/[jobId], um segmento só.
+ * A OpenRouter devolve um id simples, mas o Google devolve o NOME de uma
+ * operação — "operations/abc123", com barra, que partiria o segmento em dois
+ * e daria 404.
+ *
+ * Então o id que trafega leva um prefixo de provedor (para a rota saber a
+ * quem perguntar) e troca a barra por "~". Sem base64 de propósito: o valor
+ * continua legível num log, que é onde ele costuma ser lido.
+ * ------------------------------------------------------------------ */
+
+export function codificarJob(provedor: Provedor, id: string): string {
+  return provedor === "google" ? `gg.${id.replace(/\//g, "~")}` : `or.${id}`;
+}
+
+export function decodificarJob(token: string): { provedor: Provedor; id: string } {
+  if (token.startsWith("gg.")) return { provedor: "google", id: token.slice(3).replace(/~/g, "/") };
+  if (token.startsWith("or.")) return { provedor: "openrouter", id: token.slice(3) };
+  // Job criado antes do prefixo existir: continua sendo da OpenRouter.
+  return { provedor: "openrouter", id: token };
+}

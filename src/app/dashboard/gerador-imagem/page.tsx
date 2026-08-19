@@ -15,6 +15,8 @@ import {
   MODELOS_IMAGEM,
   modeloImagem,
   resolucaoImagemValida,
+  formatoImagemValido,
+  NOME_PROVEDOR,
   MAX_QUANTIDADE,
   custoImagem,
   formatarUsd,
@@ -198,6 +200,7 @@ export default function GeradorImagemPage() {
   function trocarModelo(id: ModeloImagemId) {
     setModelo(id);
     setResolution((r) => resolucaoImagemValida(id, r));
+    setAspectRatio((f) => (f === "auto" ? f : (formatoImagemValido(id, f) as AspectRatio)));
   }
 
   function abrirEditorPrompt() {
@@ -485,25 +488,21 @@ export default function GeradorImagemPage() {
         {/* MODELO */}
         <div className="mt-5">
           <label className="eyebrow">Modelo</label>
-          <div className="mt-1.5 flex flex-wrap gap-2">
-            {MODELOS_IMAGEM.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => trocarModelo(m.id)}
-                className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-                  modelo === m.id
-                    ? "border-emerald-500/40 bg-emerald-500/[0.12] font-semibold text-emerald-300"
-                    : "border-white/10 text-zinc-400 hover:border-white/25 hover:text-zinc-200"
-                }`}
-              >
-                {m.nome}
-                <span className="ml-1.5 font-mono text-[11px] opacity-70">
-                  {formatarUsd(Math.min(...Object.values(m.precoSaida)))}+
-                </span>
-              </button>
+          <select
+            className="input mt-1.5 max-w-[340px]"
+            value={modelo}
+            onChange={(e) => trocarModelo(e.target.value as ModeloImagemId)}
+          >
+            {(["openrouter", "google"] as const).map((prov) => (
+              <optgroup key={prov} label={NOME_PROVEDOR[prov]}>
+                {MODELOS_IMAGEM.filter((m) => m.provedor === prov).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.nome} · a partir de {formatarUsd(Math.min(...Object.values(m.precoSaida)))}
+                  </option>
+                ))}
+              </optgroup>
             ))}
-          </div>
+          </select>
         </div>
 
         {/* QUANTIDADE */}
@@ -557,7 +556,7 @@ export default function GeradorImagemPage() {
         <div className="mt-5">
           <label className="eyebrow">Formato</label>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {OPCOES_FORMATO.map((f) => (
+            {(["auto", ...infoModelo.formatos] as AspectRatio[]).map((f) => (
               <button
                 key={f}
                 type="button"

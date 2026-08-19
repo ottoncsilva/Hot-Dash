@@ -747,3 +747,49 @@ export function planButtonStyleProps(
  * virarem exports genéricos soltos no módulo.
  */
 export const configJson = { ler: getJson, gravar: setJson };
+
+/* ------------------------------------------------------------------ *
+ * CHAVE DO GOOGLE PARA MÍDIA (Nano Banana e Veo)
+ *
+ * Os geradores de imagem e vídeo falam com a Gemini API direto, sem
+ * intermediário. Por padrão usam a MESMA chave do Gemini que já está em
+ * Configurações; um campo opcional sobrescreve, para quem quiser cobrar a
+ * mídia noutro projeto do Google — Veo e Nano Banana exigem tier pago, e a
+ * chave de texto pode ser de um projeto gratuito.
+ *
+ * Não vira um item do union `AiProvider` de propósito: aquele tipo carrega
+ * modelo por atividade e teste de conexão, que não fazem sentido aqui, e
+ * alargá-lo espalharia mudança por meia dúzia de arquivos.
+ * ------------------------------------------------------------------ */
+
+const CHAVE_MIDIA_GOOGLE = "googleMediaKey";
+
+type ChaveMidiaGuardada = { apiKeyEnc?: string };
+
+/** Se existe uma chave só de mídia salva (para a tela mostrar o estado). */
+export function temChaveMidiaGoogle(): boolean {
+  return Boolean(getJson<ChaveMidiaGuardada>(CHAVE_MIDIA_GOOGLE, {}).apiKeyEnc);
+}
+
+/** Grava (ou apaga, com string vazia) a chave só de mídia. */
+export function setChaveMidiaGoogle(apiKey: string): void {
+  const limpa = apiKey.trim();
+  setJson(CHAVE_MIDIA_GOOGLE, limpa ? { apiKeyEnc: encryptSecret(limpa) } : {});
+}
+
+/**
+ * A chave a usar nas chamadas de mídia: a específica quando existe, senão a
+ * do Gemini. Devolve null quando nenhuma das duas está disponível.
+ */
+export function getGoogleMediaKey(): string | null {
+  const propria = getJson<ChaveMidiaGuardada>(CHAVE_MIDIA_GOOGLE, {}).apiKeyEnc;
+  if (propria) {
+    try {
+      return decryptSecret(propria);
+    } catch {
+      // Chave ilegível (mudou o segredo de criptografia): cai na do Gemini
+      // em vez de derrubar a geração.
+    }
+  }
+  return getAiCredentials("gemini")?.apiKey || null;
+}

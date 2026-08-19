@@ -88,6 +88,9 @@ export default function AiSettingsPage() {
   const [geminiModels, setGeminiModels] = useState<string[] | null>(null);
   const [geminiModelsLoading, setGeminiModelsLoading] = useState(false);
   const [geminiModelsError, setGeminiModelsError] = useState<string | null>(null);
+  /** Chave OPCIONAL só para Nano Banana e Veo (ver o campo mais abaixo). */
+  const [googleMediaKey, setGoogleMediaKey] = useState("");
+  const [temChaveMidia, setTemChaveMidia] = useState(false);
 
   const [grokEnabled, setGrokEnabled] = useState(false);
   const [grokKey, setGrokKey] = useState("");
@@ -129,12 +132,13 @@ export default function AiSettingsPage() {
   const grokReadyRef = useRef(false);
 
   useEffect(() => {
-    apiGet<{ settings: AiSettingsPublic }>("/api/settings/ai")
+    apiGet<{ settings: AiSettingsPublic; temChaveMidiaGoogle?: boolean }>("/api/settings/ai")
       .then((d) => {
         setCfg(d.settings);
         setOpenaiEnabled(d.settings.openai.enabled);
         setOpenaiModel(d.settings.openai.model);
         setOpenaiBaseUrl(d.settings.openai.baseUrl || "");
+        setTemChaveMidia(Boolean(d.temChaveMidiaGoogle));
         setGeminiEnabled(d.settings.gemini.enabled);
         setGeminiModel(d.settings.gemini.model);
         setGrokEnabled(d.settings.grok.enabled);
@@ -253,6 +257,7 @@ export default function AiSettingsPage() {
         {
           openai: { enabled: openaiEnabled, model: openaiModel, baseUrl: openaiBaseUrl, ...(openaiKey ? { apiKey: openaiKey } : {}) },
           gemini: { enabled: geminiEnabled, model: geminiModel, ...(geminiKey ? { apiKey: geminiKey } : {}) },
+          ...(googleMediaKey ? { googleMediaKey } : {}),
           grok: { enabled: grokEnabled, model: grokModel, baseUrl: grokBaseUrl, ...(grokKey ? { apiKey: grokKey } : {}) },
           openrouter: { enabled: orEnabled, model: orModel, baseUrl: orBaseUrl, ...(orKey ? { apiKey: orKey } : {}) },
           magnific: { enabled: magnificEnabled, ...(magnificKey ? { apiKey: magnificKey } : {}) },
@@ -442,6 +447,24 @@ export default function AiSettingsPage() {
                 />
                 <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
                   aistudio.google.com → get api key
+                </p>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="eyebrow mb-1.5 block">
+                  Chave só para imagem e vídeo (opcional)
+                </label>
+                <input
+                  className="input font-mono"
+                  type="password"
+                  placeholder={temChaveMidia ? "•••••••• (em branco = manter)" : "vazio = usa a chave acima"}
+                  value={googleMediaKey}
+                  onChange={(e) => setGoogleMediaKey(e.target.value)}
+                />
+                <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                  Os geradores de imagem e vídeo usam o Nano Banana e o Veo pela chave acima.
+                  Preencha aqui só para cobrá-los noutro projeto do Google — os dois exigem
+                  plano pago, e a chave de texto pode ser de um projeto gratuito.
                 </p>
               </div>
 

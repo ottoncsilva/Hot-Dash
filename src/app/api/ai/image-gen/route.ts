@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
 import { getMediaRow, renderVisionImageBase64 } from "@/lib/media";
 import { gerarImagemSeedream, ASPECT_RATIOS, MAX_REFERENCIAS, type AspectRatio } from "@/lib/imageGen";
+import { gerarImagemGoogle } from "@/lib/googleImageGen";
 import {
   modeloImagem,
   resolucaoImagemValida,
@@ -77,7 +78,10 @@ export async function POST(req: NextRequest) {
       const faltam = quantidade - imagens.length;
       if (faltam <= 0) break;
       try {
-        const r = await gerarImagemSeedream({
+        // O provedor do catálogo decide o módulo; os dois têm a mesma
+        // assinatura, então o resto da rota não muda.
+        const gerar = modelo.provedor === "google" ? gerarImagemGoogle : gerarImagemSeedream;
+        const r = await gerar({
           prompt,
           referencias,
           resolution,

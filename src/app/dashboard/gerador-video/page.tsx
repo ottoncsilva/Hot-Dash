@@ -20,6 +20,9 @@ import {
   MODELOS_VIDEO,
   modeloVideo,
   resolucaoVideoValida,
+  formatoVideoValido,
+  duracaoValida,
+  NOME_PROVEDOR,
   MAX_QUANTIDADE,
   type ModeloVideoId,
 } from "@/lib/aiMediaOptions";
@@ -289,7 +292,18 @@ export default function GeradorVideoPage() {
    *  Fast param no 720p), então ela é reajustada junto. */
   function trocarModelo(id: ModeloVideoId) {
     setModelo(id);
-    setResolution((r) => resolucaoVideoValida(id, r));
+    // A ordem importa: a duração válida depende da resolução já reajustada
+    // (no Veo, 1080p e 4k exigem a duração máxima).
+    const novaRes = resolucaoVideoValida(id, resolution);
+    setResolution(novaRes);
+    setAspectRatio((f) => formatoVideoValido(id, f) as Formato);
+    setDuration(duracaoValida(id, novaRes, duration) as Duracao);
+  }
+
+  /** Trocar a resolução também pode forçar a duração (regra do Veo). */
+  function trocarResolucao(r: Resolucao) {
+    setResolution(r);
+    setDuration((d) => duracaoValida(modelo, r, d) as Duracao);
   }
 
   function usarPromptPadrao() {
@@ -683,26 +697,25 @@ export default function GeradorVideoPage() {
         {/* MODELO */}
         <div className="mt-5">
           <label className="eyebrow">Modelo</label>
-          <div className="mt-1.5 flex flex-wrap gap-2">
-            {MODELOS_VIDEO.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => trocarModelo(m.id)}
-                className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-                  modelo === m.id
-                    ? "border-emerald-500/40 bg-emerald-500/[0.12] font-semibold text-emerald-300"
-                    : "border-white/10 text-zinc-400 hover:border-white/25 hover:text-zinc-200"
-                }`}
-              >
-                {m.nome}
-              </button>
+          <select
+            className="input mt-1.5 max-w-[340px]"
+            value={modelo}
+            onChange={(e) => trocarModelo(e.target.value as ModeloVideoId)}
+          >
+            {(["openrouter", "google"] as const).map((prov) => (
+              <optgroup key={prov} label={NOME_PROVEDOR[prov]}>
+                {MODELOS_VIDEO.filter((m) => m.provedor === prov).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.nome}
+                  </option>
+                ))}
+              </optgroup>
             ))}
-          </div>
+          </select>
           <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-            {infoModelo.resolucoes.includes("4K")
-              ? "Vai até 4K."
-              : "Mais barato que o 2.0, e vai só até 720p."}
+            {infoModelo.duracoes.length < VIDEO_DURACOES.length || infoModelo.formatos.length < FORMATOS.length
+              ? `Aceita ${infoModelo.formatos.join(" e ")}, ${infoModelo.duracoes.join("/")}s e ${infoModelo.resolucoes.join("/")}.`
+              : `Vai de ${infoModelo.resolucoes[0]} a ${infoModelo.resolucoes[infoModelo.resolucoes.length - 1]}.`}
           </p>
         </div>
 
@@ -734,11 +747,11 @@ export default function GeradorVideoPage() {
         <div className="mt-5">
           <label className="eyebrow">Duração</label>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {VIDEO_DURACOES.map((d) => (
+            {infoModelo.duracoes.map((d) => (
               <button
                 key={d}
                 type="button"
-                onClick={() => setDuration(d)}
+                onClick={() => setDuration(d as Duracao)}
                 className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
                   duration === d
                     ? "border-emerald-500/40 bg-emerald-500/[0.12] font-semibold text-emerald-300"
@@ -759,7 +772,7 @@ export default function GeradorVideoPage() {
               <button
                 key={r}
                 type="button"
-                onClick={() => setResolution(r)}
+                onClick={() => trocarResolucao(r)}
                 className={`rounded-lg border px-4 py-1.5 text-sm transition-colors ${
                   resolution === r
                     ? "border-emerald-500/40 bg-emerald-500/[0.12] font-semibold text-emerald-300"
@@ -776,7 +789,7 @@ export default function GeradorVideoPage() {
         <div className="mt-5">
           <label className="eyebrow">Formato</label>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {FORMATOS.map((f) => (
+            {infoModelo.formatos.map((f) => (
               <button
                 key={f}
                 type="button"
@@ -804,14 +817,22 @@ export default function GeradorVideoPage() {
           </button>
           {avancadoAberto && (
             <div className="mt-2 flex flex-col gap-3">
-              <label className="flex items-center gap-2 text-sm text-zinc-300">
-                <input
-                  type="checkbox"
-                  checked={generateAudio}
-                  onChange={(e) => setGenerateAudio(e.target.checked)}
-                />
-                Gerar áudio junto com o vídeo
-              </label>
+              {/* O Veo sempre gera áudio, e isso não muda o preço — oferecer
+                  um interruptor que não faz nada seria mentira. */}
+              {infoModelo.audioSempre ? (
+                <p className="text-[11px] leading-relaxed text-zinc-500">
+                  O {infoModelo.nome} sempre gera áudio junto, sem custo extra.
+                </p>
+              ) : (
+                <label className="flex items-center gap-2 text-sm text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={generateAudio}
+                    onChange={(e) => setGenerateAudio(e.target.checked)}
+                  />
+                  Gerar áudio junto com o vídeo
+                </label>
+              )}
               <div className="max-w-[220px]">
                 <label className="eyebrow mb-1 block">Seed (opcional)</label>
                 <input

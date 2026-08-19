@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiUpload } from "@/lib/api";
 import { showToast } from "@/lib/toast";
-import { IconDownload, IconCheck, IconTrash } from "@/components/icons";
+import { IconDownload, IconCheck, IconTrash, IconChevronRight, IconArrowLeft } from "@/components/icons";
+import Modal from "@/components/Modal";
 import {
   listarResultados,
   removerResultado,
@@ -82,6 +83,8 @@ export default function ResultadosGerados({
   const [urls, setUrls] = useState<Record<string, string>>({});
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [ocupado, setOcupado] = useState(false);
+  /** Índice do item ampliado, ou null. Clicar na mídia abre; não marca. */
+  const [ampliado, setAmpliado] = useState<number | null>(null);
 
   useEffect(() => {
     let vivo = true;
@@ -214,7 +217,7 @@ export default function ResultadosGerados({
 
       {/* Rolagem lateral própria: a faixa cresce para o lado, não para baixo. */}
       <div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-2">
-        {itens.map((item) => {
+        {itens.map((item, i) => {
           const marcado = selecionados.has(item.id);
           return (
             <div
@@ -223,27 +226,50 @@ export default function ResultadosGerados({
                 marcado ? "border-emerald-500/50" : ""
               }`}
             >
-              <button
-                type="button"
-                onClick={() => alternar(item.id)}
-                className="relative block w-full"
-                aria-label={marcado ? "Desmarcar" : "Marcar"}
-              >
+              <div className="relative">
+                {/* Clicar na mídia AMPLIA. Marcar tem botão próprio: antes o
+                    clique na foto marcava, e não havia como olhar de perto o
+                    que se acabou de gerar — que é o que se quer fazer antes
+                    de salvar. Vídeo mantém os controles nativos, então a
+                    ampliação vem pelo botão sobre ele. */}
                 {item.tipo === "video" ? (
-                  <video src={urls[item.id]} controls className="h-[280px] w-full bg-black/30 object-contain" />
+                  <>
+                    <video src={urls[item.id]} controls className="h-[280px] w-full bg-black/30 object-contain" />
+                    <button
+                      type="button"
+                      onClick={() => setAmpliado(i)}
+                      className="absolute bottom-2 right-2 rounded-lg bg-black/70 px-2 py-1 text-[11px] text-white hover:bg-black/90"
+                    >
+                      Ampliar
+                    </button>
+                  </>
                 ) : (
-                  <img src={urls[item.id]} alt="" className="h-[280px] w-full bg-black/30 object-contain" />
+                  <button
+                    type="button"
+                    onClick={() => setAmpliado(i)}
+                    className="block w-full cursor-zoom-in"
+                    aria-label="Ampliar"
+                  >
+                    <img src={urls[item.id]} alt="" className="h-[280px] w-full bg-black/30 object-contain" />
+                  </button>
                 )}
-                <span
-                  className={`absolute left-2 top-2 grid h-5 w-5 place-items-center rounded-full border text-[10px] font-bold ${
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    alternar(item.id);
+                  }}
+                  aria-label={marcado ? "Desmarcar" : "Selecionar"}
+                  title={marcado ? "Desmarcar" : "Selecionar"}
+                  className={`absolute left-2 top-2 grid h-6 w-6 place-items-center rounded-full border transition-colors ${
                     marcado
                       ? "border-emerald-400 bg-emerald-500 text-black"
-                      : "border-white/40 bg-black/50 text-transparent"
+                      : "border-white/50 bg-black/60 text-transparent hover:border-emerald-400 hover:text-white/60"
                   }`}
                 >
-                  <IconCheck size={11} />
-                </span>
-              </button>
+                  <IconCheck size={12} />
+                </button>
+              </div>
 
               <div className="p-2.5">
                 <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
@@ -286,6 +312,64 @@ export default function ResultadosGerados({
           );
         })}
       </div>
+
+      {/* AMPLIAÇÃO — Modal já é portal com foco preso e Esc (components/Modal). */}
+      <Modal open={ampliado !== null} onClose={() => setAmpliado(null)} maxWidth="max-w-5xl">
+        {ampliado !== null && itens[ampliado] && (
+          <div>
+            {itens[ampliado].tipo === "video" ? (
+              <video
+                src={urls[itens[ampliado].id]}
+                controls
+                autoPlay
+                className="max-h-[75vh] w-full rounded-lg bg-black object-contain"
+              />
+            ) : (
+              <img
+                src={urls[itens[ampliado].id]}
+                alt=""
+                className="max-h-[75vh] w-full rounded-lg bg-black object-contain"
+              />
+            )}
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
+                {itens[ampliado].legenda}
+                {typeof itens[ampliado].costUsd === "number" && (
+                  <>
+                    {" · "}
+                    {formatarUsd(itens[ampliado].costUsd as number)}
+                    {brlPorUsd ? ` · ${formatarBrl(itens[ampliado].costUsd as number, brlPorUsd)}` : ""}
+                  </>
+                )}
+              </p>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-zinc-500">
+                  {ampliado + 1}/{itens.length}
+                </span>
+                <button
+                  onClick={() => setAmpliado((n) => (n === null ? null : (n - 1 + itens.length) % itens.length))}
+                  disabled={itens.length < 2}
+                  className="grid h-8 w-8 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white disabled:opacity-30"
+                  aria-label="Anterior"
+                >
+                  <IconArrowLeft size={16} />
+                </button>
+                <button
+                  onClick={() => setAmpliado((n) => (n === null ? null : (n + 1) % itens.length))}
+                  disabled={itens.length < 2}
+                  className="grid h-8 w-8 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white disabled:opacity-30"
+                  aria-label="Próxima"
+                >
+                  <IconChevronRight size={16} />
+                </button>
+                <button onClick={() => setAmpliado(null)} className="btn-ghost px-3 py-1.5 text-xs">
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
-import { getAiSettingsPublic, updateAiSettings, type AiActivityModels } from "@/lib/settings";
+import {
+  getAiSettingsPublic,
+  updateAiSettings,
+  setChaveMidiaGoogle,
+  temChaveMidiaGoogle,
+  type AiActivityModels,
+} from "@/lib/settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,7 +14,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     await requireUser(req);
-    return NextResponse.json({ settings: getAiSettingsPublic() });
+    return NextResponse.json({ settings: getAiSettingsPublic(), temChaveMidiaGoogle: temChaveMidiaGoogle() });
   } catch (err) {
     return errorResponse(err);
   }
@@ -44,7 +50,14 @@ export async function PATCH(req: NextRequest) {
           ? (body.activityModels as AiActivityModels)
           : undefined,
     });
-    return NextResponse.json({ settings });
+    // A chave só de mídia (Nano Banana e Veo) não é um "provedor": não tem
+    // modelo por atividade nem teste de conexão, então anda por fora do
+    // updateAiSettings. String vazia apaga.
+    if (typeof body.googleMediaKey === "string") {
+      setChaveMidiaGoogle(body.googleMediaKey);
+    }
+
+    return NextResponse.json({ settings, temChaveMidiaGoogle: temChaveMidiaGoogle() });
   } catch (err) {
     return errorResponse(err);
   }

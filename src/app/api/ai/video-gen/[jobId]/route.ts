@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
 import { consultarStatusVideo } from "@/lib/videoGen";
+import { consultarStatusVeo } from "@/lib/googleVideoGen";
+import { decodificarJob } from "@/lib/aiMediaOptions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +13,10 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     await requireUser(req);
     const jobId = params.jobId?.trim();
     if (!jobId) throw new ApiError(400, "Job inválido.");
-    const status = await consultarStatusVideo(jobId);
+    // O prefixo do id diz de qual provedor é o job.
+    const { provedor, id } = decodificarJob(jobId);
+    const status =
+      provedor === "google" ? await consultarStatusVeo(id) : await consultarStatusVideo(id);
     return NextResponse.json(status);
   } catch (err) {
     return errorResponse(err);

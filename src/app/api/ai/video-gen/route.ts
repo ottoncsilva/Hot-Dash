@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
 import { getMediaRow, renderVisionImageBase64 } from "@/lib/media";
+import { submeterVideoSeedance, type VideoDuration, type VideoAspectRatio } from "@/lib/videoGen";
+import { submeterVideoVeo } from "@/lib/googleVideoGen";
 import {
-  submeterVideoSeedance,
-  DURACOES,
-  FORMATOS_VIDEO,
-  type VideoDuration,
-  type VideoAspectRatio,
-} from "@/lib/videoGen";
-import { modeloVideo, resolucaoVideoValida, quantidadeValida } from "@/lib/aiMediaOptions";
+  modeloVideo,
+  resolucaoVideoValida,
+  formatoVideoValido,
+  duracaoValida,
+  quantidadeValida,
+  codificarJob,
+} from "@/lib/aiMediaOptions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,15 +28,15 @@ export async function POST(req: NextRequest) {
     const prompt = String(body.prompt || "").trim();
     if (!prompt) throw new ApiError(400, "Escreva o prompt do vídeo.");
 
-    const duration: VideoDuration = DURACOES.includes(body.duration) ? body.duration : 5;
-    // Modelo e resolução andam juntos: o 2.0 vai até 4K, Mini e Fast param
-    // no 720p.
+    // Modelo, resolução, formato e duração andam juntos: o Seedance vai de
+    // 480p a 4K com 5 formatos e 4-15s, o Veo faz 720p+ com 2 formatos e
+    // só 4/6/8s (e exige 8s em 1080p/4k). A tela já manda coerente, mas a
+    // rota não pode confiar nisso.
     const modelo = modeloVideo(body.modelo);
     const resolution = resolucaoVideoValida(modelo.id, body.resolution);
+    const aspectRatio = formatoVideoValido(modelo.id, body.aspectRatio) as VideoAspectRatio;
+    const duration = duracaoValida(modelo.id, resolution, body.duration) as VideoDuration;
     const quantidade = quantidadeValida(body.quantidade);
-    const aspectRatio: VideoAspectRatio = FORMATOS_VIDEO.includes(body.aspectRatio)
-      ? body.aspectRatio
-      : "9:16";
     const seed =
       typeof body.seed === "number" && Number.isFinite(body.seed) ? body.seed : undefined;
     // Áudio LIGADO por padrão: só desliga quem pedir explicitamente. Um
@@ -66,18 +68,21 @@ export async function POST(req: NextRequest) {
     let erroParcial = "";
     for (let i = 0; i < quantidade; i++) {
       try {
-        jobs.push(
-          await submeterVideoSeedance({
-            prompt,
-            firstFrame,
-            duration,
-            resolution,
-            aspectRatio,
-            generateAudio,
-            seed,
-            modelo: modelo.id,
-          }),
-        );
+        const submeter =
+          modelo.provedor === "google" ? submeterVideoVeo : submeterVideoSeedance;
+        const job = await submeter({
+          prompt,
+          firstFrame,
+          duration,
+          resolution,
+          aspectRatio,
+          generateAudio,
+          seed,
+          modelo: modelo.id,
+        });
+        // O id sai daqui já com o prefixo do provedor: é ele que diz às
+        // rotas de acompanhamento a quem perguntar.
+        jobs.push({ ...job, jobId: codificarJob(modelo.provedor, job.jobId) });
       } catch (e) {
         erroParcial = e instanceof Error ? e.message : "falha";
         break;

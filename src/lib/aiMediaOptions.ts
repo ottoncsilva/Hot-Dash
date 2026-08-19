@@ -206,50 +206,66 @@ export function aplicarMencoes(prompt: string, papeis: Record<string, PapelMenca
 
 
 /**
- * CITAÇÃO DE IMAGEM COM @ (marcador nosso, `@[foto:id]`).
+ * CITAÇÃO DE IMAGEM COM @ (marcador nosso).
  *
- * Diferente das menções trazidas de fora, estas o painel cria: o operador
- * digita "@" no prompt e escolhe uma das imagens que ELE já pôs na tela. O
- * marcador guarda a IDENTIDADE da imagem (o id da mídia, ou `copia`), não a
- * posição — se depois ele acrescentar ou tirar uma referência, o texto
- * continua apontando para a foto certa, porque a posição só é calculada na
- * hora de enviar.
+ * O operador digita "@" no prompt e escolhe uma das imagens que ele já pôs na
+ * tela. O marcador fica LEGÍVEL no texto — "@referência 2", "@imagem a
+ * copiar" — em vez de um id opaco: quem lê o prompt tem que entender o que
+ * está escrito sem decifrar código.
+ *
+ * Por ser legível, o marcador é POSICIONAL. A troco disso, quem cita uma
+ * posição que não existe mais recebe um aviso na tela (ver citacoesInvalidas)
+ * em vez de mandar calado a foto errada.
  */
-export const ID_COPIA = "copia";
+export const TOKEN_COPIA = "@imagem a copiar";
 
-const RE_FOTO = /@\[foto:([^\]]+)\]/g;
+export function tokenReferencia(n: number): string {
+  return `@referência ${n}`;
+}
 
-/** Como a imagem é citada no prompt final, conforme a posição real no envio. */
-export function rotuloDaFoto(
-  id: string,
-  referenciaIds: string[],
+/** Casa os marcadores nossos — é o mesmo padrão usado para pintar na tela. */
+export const RE_CITACAO = /@(?:referência\s+(\d+)|imagem a copiar)/gi;
+
+/** Quantas referências o prompt cita além das que existem. */
+export function citacoesInvalidas(
+  prompt: string,
+  qtdReferencias: number,
   temCopia: boolean,
-): string {
-  if (id === ID_COPIA) {
-    return temCopia
-      ? "a ÚLTIMA imagem de referência (a composição/cenário a copiar)"
-      : "a composição de referência";
+): string[] {
+  const problemas: string[] = [];
+  for (const m of prompt.matchAll(RE_CITACAO)) {
+    if (m[1]) {
+      const n = Number(m[1]);
+      if (n < 1 || n > qtdReferencias) problemas.push(`@referência ${n}`);
+    } else if (!temCopia) {
+      problemas.push(TOKEN_COPIA);
+    }
   }
-  const i = referenciaIds.indexOf(id);
-  if (i < 0) return "uma das imagens de referência";
-  return `a ${i + 1}ª imagem de referência`;
+  return [...new Set(problemas)];
 }
 
 /**
- * Troca os marcadores `@[foto:id]` pela posição que cada imagem realmente
- * ocupa no envio. É o último passo antes de mandar ao modelo.
+ * Troca os marcadores pela posição real no envio. É o último passo antes de
+ * mandar ao modelo, que recebe as imagens numa lista sem rótulo.
  */
 export function resolverFotos(
   prompt: string,
-  referenciaIds: string[],
+  qtdReferencias: number,
   temCopia: boolean,
 ): string {
-  const trocado = prompt.replace(RE_FOTO, (_, id: string) =>
-    rotuloDaFoto(id.trim(), referenciaIds, temCopia),
-  );
-  // Os rótulos começam com "a ", então a preposição que vinha antes do
-  // marcador produz "de a 1ª imagem". Contrai para o prompt não sair com
-  // português capenga — o modelo lê isso, e texto torto atrapalha.
+  const trocado = prompt.replace(RE_CITACAO, (_, num?: string) => {
+    if (num) {
+      const n = Number(num);
+      if (n < 1 || n > qtdReferencias) return "uma das imagens de referência";
+      return `a ${n}ª imagem de referência`;
+    }
+    return temCopia
+      ? "a ÚLTIMA imagem de referência (a composição/cenário a copiar)"
+      : "a composição de referência";
+  });
+  // Os rótulos começam com "a ", então a preposição anterior produziria
+  // "de a 1ª imagem". Contrai para o prompt não sair com português capenga —
+  // o modelo lê esse texto.
   return trocado.replace(
     /\b(de|em|por)\s+a\s+(?=(?:\d+ª imagem|ÚLTIMA imagem|composição de refer|uma das imagens))/gi,
     (_, prep: string) => {
@@ -260,4 +276,23 @@ export function resolverFotos(
         : base + " ";
     },
   );
+}
+
+/**
+ * Converte os marcadores do formato antigo (`@[foto:id]`, opaco) para o
+ * legível. Roda ao abrir a tela, porque prompt já salvo com o formato velho
+ * continuaria ilegível — e, pior, casava com o regex das menções trazidas de
+ * fora, aparecendo como uma "referência" chamada `foto`.
+ */
+export function migrarFotosAntigas(
+  prompt: string,
+  referenciaIds: string[],
+  idCopia = "copia",
+): string {
+  return prompt.replace(/@\[foto:([^\]]+)\]/g, (_, id: string) => {
+    const limpo = id.trim();
+    if (limpo === idCopia) return TOKEN_COPIA;
+    const i = referenciaIds.indexOf(limpo);
+    return i >= 0 ? tokenReferencia(i + 1) : "uma das imagens de referência";
+  });
 }

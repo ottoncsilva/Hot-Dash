@@ -2,6 +2,7 @@ import "server-only";
 import { getAiCredentials } from "./settings";
 import { cabecalhosOpenRouter } from "./ai";
 import { FORMATOS } from "./aiMediaOptions";
+import { mensagemDeModeracao } from "./aiMediaErros";
 
 /**
  * GERADOR DE IMAGEM — bytedance-seed/seedream-5-0-pro, via OpenRouter.
@@ -64,8 +65,11 @@ export type ImagemGerada = {
 function mensagemDoErro(status: number, apiMsg: string): string {
   const base = apiMsg ? ` (${apiMsg})` : "";
   switch (status) {
-    case 400:
+    case 400: {
+      const moderacao = mensagemDeModeracao(apiMsg);
+      if (moderacao) return moderacao;
       return `Pedido recusado — parâmetro inválido ou conteúdo barrado pela moderação do provedor${base}.`;
+    }
     case 401:
       return "Chave do OpenRouter inválida. Confira em Configurações → Conexão com IA.";
     case 402:

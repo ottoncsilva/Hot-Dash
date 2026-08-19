@@ -1,6 +1,7 @@
 import "server-only";
 import { getAiCredentials } from "./settings";
 import { cabecalhosOpenRouter } from "./ai";
+import { FORMATOS } from "./aiMediaOptions";
 
 /**
  * GERADOR DE IMAGEM — bytedance-seed/seedream-5-0-pro, via OpenRouter.
@@ -23,31 +24,11 @@ const ENDPOINT = "https://openrouter.ai/api/v1/images";
 export type ImageResolution = "1K" | "2K";
 
 /**
- * Os formatos aceitos pelo modelo, na ordem em que a tela os mostra —
- * populares primeiro. "Auto" deixa o próprio modelo decidir a partir do
- * prompt e das referências, e é o padrão: quem está reproduzindo uma imagem
- * de referência normalmente quer o formato DELA, não um imposto de fora.
+ * Formatos oferecidos — o recorte de aiMediaOptions, mais "auto", que só
+ * existe aqui: deixa o modelo herdar o formato da imagem de referência, que
+ * é o que se quer ao reproduzir uma composição.
  */
-export const ASPECT_RATIOS = [
-  "auto",
-  "1:1",
-  "4:5",
-  "3:4",
-  "9:16",
-  "16:9",
-  "3:2",
-  "2:3",
-  "4:3",
-  "5:4",
-  "1:2",
-  "2:1",
-  "9:19.5",
-  "19.5:9",
-  "9:20",
-  "20:9",
-  "9:21",
-  "21:9",
-] as const;
+export const ASPECT_RATIOS = ["auto", ...FORMATOS] as const;
 export type AspectRatio = (typeof ASPECT_RATIOS)[number];
 
 /** Até 14 referências por pedido — é o teto do próprio modelo. */

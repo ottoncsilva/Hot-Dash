@@ -1,6 +1,7 @@
 import "server-only";
 import { getAiCredentials } from "./settings";
 import { cabecalhosOpenRouter } from "./ai";
+import { FORMATOS, VIDEO_DURACOES, VIDEO_RESOLUCOES } from "./aiMediaOptions";
 
 /**
  * GERADOR DE VÍDEO — bytedance/seedance-2.0, via OpenRouter.
@@ -16,13 +17,13 @@ import { cabecalhosOpenRouter } from "./ai";
 const MODELO = "bytedance/seedance-2.0";
 const ENDPOINT = "https://openrouter.ai/api/v1/videos";
 
-export const DURACOES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
+export const DURACOES = VIDEO_DURACOES;
 export type VideoDuration = (typeof DURACOES)[number];
 
-export const RESOLUCOES = ["480p", "720p", "1080p", "4K"] as const;
+export const RESOLUCOES = VIDEO_RESOLUCOES;
 export type VideoResolution = (typeof RESOLUCOES)[number];
 
-export const FORMATOS_VIDEO = ["1:1", "3:4", "9:16", "4:3", "16:9", "21:9", "9:21"] as const;
+export const FORMATOS_VIDEO = FORMATOS;
 export type VideoAspectRatio = (typeof FORMATOS_VIDEO)[number];
 
 export type PedidoVideo = {

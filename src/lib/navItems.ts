@@ -13,6 +13,7 @@ export type NavKey =
   | "firstframe"
   | "caixinha"
   | "imagegen"
+  | "videogen"
   | "payments"
   | "funil"
   | "telegram"
@@ -28,6 +29,7 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   firstframe: { key: "firstframe", label: "First Frame", href: "/dashboard/first-frame" },
   caixinha: { key: "caixinha", label: "Caixinha de perguntas", href: "/dashboard/caixinha" },
   imagegen: { key: "imagegen", label: "Gerador de Imagem", href: "/dashboard/gerador-imagem" },
+  videogen: { key: "videogen", label: "Gerador de Vídeo", href: "/dashboard/gerador-video" },
   payments: { key: "payments", label: "Financeiro", href: "/dashboard/payments" },
   funil: { key: "funil", label: "Funil de Vendas", href: "/dashboard/funil" },
   telegram: { key: "telegram", label: "Telegram", href: "/dashboard/telegram" },
@@ -48,6 +50,7 @@ export const DEFAULT_MENU_ORDER: NavKey[] = [
   "firstframe",
   "caixinha",
   "imagegen",
+  "videogen",
   "schedule",
   "payments",
   "funil",

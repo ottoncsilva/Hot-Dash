@@ -31,6 +31,7 @@ import {
   IconFilm,
   IconQuestion,
   IconSparkle,
+  IconPlay,
   IconSearch,
   IconFunnel,
 } from "@/components/icons";
@@ -48,6 +49,7 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   firstframe: IconFilm,
   caixinha: IconQuestion,
   imagegen: IconSparkle,
+  videogen: IconPlay,
   payments: IconPayments,
   funil: IconFunnel,
   telegram: IconTelegram,

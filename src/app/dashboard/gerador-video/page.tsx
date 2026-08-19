@@ -21,7 +21,14 @@ import {
 import ResultadosGerados from "@/components/ResultadosGerados";
 import { salvarResultado } from "@/lib/resultadosDb";
 import type { Cotacao } from "@/lib/cotacao";
-import { PROMPT_VIDEO_BASE_PADRAO, PROMPT_VIDEO_CONTROLE_PADRAO } from "@/lib/aiMediaPrompts";
+import {
+  PROMPT_VIDEO_BASE_PADRAO,
+  PROMPT_VIDEO_CONTROLE_PADRAO,
+  VARIAVEIS_CONTROLE,
+  RE_VARIAVEIS_CONTROLE,
+} from "@/lib/aiMediaPrompts";
+import PromptComFotos from "@/components/PromptComFotos";
+import { CitacoesPintadas } from "@/components/TextoComCitacoes";
 
 /**
  * GERADOR DE VÍDEO — bytedance/seedance-2.0, via OpenRouter.
@@ -592,13 +599,23 @@ export default function GeradorVideoPage() {
                 <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
                   {editor === "base"
                     ? "Quem ela é, como a câmera olha para ela e o que nunca muda entre um vídeo e outro. Os campos entre colchetes são preenchidos pela IA a cada geração."
-                    : "As instruções que a IA segue para fundir a caixinha com o roteiro base. Use {{ROTEIRO_BASE}} e {{CAIXINHA}} para marcar onde cada peça entra."}
+                    : "As instruções que a IA segue para fundir a caixinha com o roteiro base. Digite @ para inserir onde cada peça entra: @transcrição, @roteiro base e @first frame."}
                 </p>
-                <textarea
-                  className="input mt-1.5 max-h-[420px] min-h-[220px] resize-y overflow-y-auto font-mono text-[12px]"
-                  value={rascunho}
-                  onChange={(e) => setRascunho(e.target.value)}
-                />
+                {editor === "base" ? (
+                  <textarea
+                    className="input mt-1.5 max-h-[420px] min-h-[220px] resize-y overflow-y-auto font-mono text-[12px]"
+                    value={rascunho}
+                    onChange={(e) => setRascunho(e.target.value)}
+                  />
+                ) : (
+                  <PromptComFotos
+                    className="input mt-1.5 max-h-[420px] min-h-[220px] w-full resize-y overflow-y-auto font-mono text-[12px]"
+                    value={rascunho}
+                    onChange={setRascunho}
+                    fotos={VARIAVEIS_CONTROLE}
+                    padrao={RE_VARIAVEIS_CONTROLE}
+                  />
+                )}
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <button onClick={salvarPrompt} disabled={salvandoPrompt} className="btn-primary px-3 py-1.5 text-xs">
                     {salvandoPrompt ? "Salvando..." : "Salvar"}
@@ -633,7 +650,7 @@ export default function GeradorVideoPage() {
             <div className="mt-4">
               <label className="eyebrow">Prompt final (confira antes de gerar)</label>
               <textarea
-                className="input mt-1 max-h-[420px] min-h-[150px] resize-y overflow-y-auto font-mono text-[12px]"
+                className="input mt-1 max-h-[420px] min-h-[150px] w-full resize-y overflow-y-auto font-mono text-[12px]"
                 placeholder="Clique em “Montar prompt final com IA” — o roteiro aparece aqui e pode ser ajustado à mão."
                 value={promptFinal}
                 onChange={(e) => setPromptFinal(e.target.value)}

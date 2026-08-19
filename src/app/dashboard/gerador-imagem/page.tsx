@@ -20,10 +20,12 @@ import {
   resolverFotos,
   citacoesInvalidas,
   migrarFotosAntigas,
+  RE_CITACAO,
 } from "@/lib/aiMediaOptions";
 import { promptImagemPadrao } from "@/lib/aiMediaPrompts";
 import ResultadosGerados from "@/components/ResultadosGerados";
 import PromptComFotos, { montarCitaveis } from "@/components/PromptComFotos";
+import { CitacoesPintadas } from "@/components/TextoComCitacoes";
 import { salvarResultado } from "@/lib/resultadosDb";
 import type { Cotacao } from "@/lib/cotacao";
 
@@ -412,7 +414,13 @@ export default function GeradorImagemPage() {
             </div>
           ) : (
             <p className="mt-1 max-h-[220px] overflow-y-auto whitespace-pre-wrap rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-[12px] leading-relaxed text-zinc-400">
-              {promptBase.trim() || promptImagemPadrao(Boolean(copiaBase64), referenciasModelo.length > 0)}
+              <CitacoesPintadas
+                texto={
+                  promptBase.trim() ||
+                  promptImagemPadrao(Boolean(copiaBase64), referenciasModelo.length > 0)
+                }
+                padrao={RE_CITACAO}
+              />
             </p>
           )}
         </div>

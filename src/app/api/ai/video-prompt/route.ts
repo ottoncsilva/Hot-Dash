@@ -7,8 +7,7 @@ import { getAiCredentials, type AiProvider } from "@/lib/settings";
 import {
   PROMPT_VIDEO_BASE_PADRAO,
   PROMPT_VIDEO_CONTROLE_PADRAO,
-  MARCA_TRANSCRICAO,
-  MARCA_ROTEIRO_BASE,
+  montarInstrucaoControle,
 } from "@/lib/aiMediaPrompts";
 
 export const runtime = "nodejs";
@@ -37,11 +36,11 @@ export async function POST(req: NextRequest) {
     const controle =
       (body.promptControle ?? profile?.videogenPromptControle ?? "").trim() || PROMPT_VIDEO_CONTROLE_PADRAO;
 
-    const instrucao = controle
-      .split(MARCA_ROTEIRO_BASE)
-      .join(roteiroBase)
-      .split(MARCA_TRANSCRICAO)
-      .join(caixinha);
+    // Resolve as variáveis (@transcrição, @roteiro base, @first frame),
+    // traduz os marcadores de outras ferramentas e — se o prompt de controle
+    // não citar alguma peça — anexa ela no fim, para a IA nunca escrever sem
+    // o template ou sem a caixinha na mão.
+    const instrucao = montarInstrucaoControle(controle, roteiroBase, caixinha);
 
     // A foto do primeiro frame é o que o prompt de controle manda analisar
     // (figurino, cenário, luz) — sem ela a IA preencheria esses campos no

@@ -12,7 +12,10 @@ import { IconSparkle, IconUpload, IconClose } from "@/components/icons";
 import type { Profile } from "@/lib/types";
 import {
   FORMATOS,
-  IMAGE_RESOLUCOES,
+  MODELOS_IMAGEM,
+  modeloImagem,
+  resolucaoImagemValida,
+  MAX_QUANTIDADE,
   custoImagem,
   formatarUsd,
   formatarBrl,
@@ -21,6 +24,8 @@ import {
   citacoesInvalidas,
   migrarFotosAntigas,
   RE_CITACAO,
+  type ModeloImagemId,
+  type ImageResolucao,
 } from "@/lib/aiMediaOptions";
 import { promptImagemPadrao } from "@/lib/aiMediaPrompts";
 import ResultadosGerados from "@/components/ResultadosGerados";
@@ -96,7 +101,9 @@ export default function GeradorImagemPage() {
   const [editandoPrompt, setEditandoPrompt] = useState(false);
   const [rascunhoPrompt, setRascunhoPrompt] = useState("");
   const [salvandoPrompt, setSalvandoPrompt] = useState(false);
-  const [resolution, setResolution] = useState<"1K" | "2K">("2K");
+  const [modelo, setModelo] = useState<ModeloImagemId>("pro");
+  const [quantidade, setQuantidade] = useState(1);
+  const [resolution, setResolution] = useState<ImageResolucao>("2K");
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("auto");
   const [seed, setSeed] = useState("");
   const [avancadoAberto, setAvancadoAberto] = useState(false);
@@ -186,6 +193,13 @@ export default function GeradorImagemPage() {
     (extra.trim() ? `\n\n${extra.trim()}` : "")
   ).trim();
 
+  /** Trocar de modelo pode invalidar a resolução escolhida (o Pro faz 1K/2K,
+   *  o Lite faz 2K/4K), então ela é reajustada junto. */
+  function trocarModelo(id: ModeloImagemId) {
+    setModelo(id);
+    setResolution((r) => resolucaoImagemValida(id, r));
+  }
+
   function abrirEditorPrompt() {
     setRascunhoPrompt(
       promptBase.trim() || promptImagemPadrao(Boolean(copiaBase64), referenciasModelo.length > 0),
@@ -218,10 +232,11 @@ export default function GeradorImagemPage() {
     setErro(null);
     try {
       const seedNum = seed.trim() ? Number(seed.trim()) : undefined;
-      const r = await apiSend<{ base64: string; mediaType: string; costUsd?: number }>(
-        "/api/ai/image-gen",
-        "POST",
-        {
+      const r = await apiSend<{
+        imagens: { base64: string; mediaType: string }[];
+        costUsd?: number;
+        aviso?: string;
+      }>("/api/ai/image-gen", "POST", {
           // aplicarMencoes cuida dos marcadores trazidos de outra ferramenta
           // (`@[id:rótulo:tipo]`); resolverFotos, dos nossos.
           prompt: resolverFotos(
@@ -229,28 +244,45 @@ export default function GeradorImagemPage() {
             referenciasModelo.length,
             Boolean(copiaBase64),
           ),
-          resolution,
-          aspectRatio,
-          seed: seedNum,
-          copyImageBase64: copiaBase64 || undefined,
-          referenceMediaIds: referenciasModelo,
-        },
-      );
-      // base64 -> Blob: o resultado é guardado como arquivo no banco local,
-      // não como data: URL (que ocuparia ~33% a mais e é texto).
-      const bin = atob(r.base64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      await salvarResultado({
-        id: crypto.randomUUID(),
-        tipo: "imagem",
-        blob: new Blob([bytes], { type: r.mediaType }),
-        mediaType: r.mediaType,
-        costUsd: r.costUsd,
-        legenda: `${resolution} · ${aspectRatio}`,
-        createdAt: Date.now(),
+        modelo,
+        quantidade,
+        resolution,
+        aspectRatio,
+        seed: seedNum,
+        copyImageBase64: copiaBase64 || undefined,
+        referenceMediaIds: referenciasModelo,
       });
+      // O custo vem da chamada inteira; rateia entre as imagens para cada
+      // cartão mostrar o que ele custou, e a soma continuar batendo.
+      const custoPorImagem =
+        typeof r.costUsd === "number" && r.imagens.length > 0
+          ? r.costUsd / r.imagens.length
+          : undefined;
+
+      for (const img of r.imagens) {
+        // base64 -> Blob: o resultado é guardado como arquivo no banco local,
+        // não como data: URL (que ocuparia ~33% a mais e é texto).
+        const bin = atob(img.base64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        await salvarResultado({
+          id: crypto.randomUUID(),
+          tipo: "imagem",
+          blob: new Blob([bytes], { type: img.mediaType }),
+          mediaType: img.mediaType,
+          costUsd: custoPorImagem,
+          // O modelo entra na legenda: com vários na mesma faixa, sem isso
+          // não dá para saber qual gerou o quê.
+          legenda: `${infoModelo.nome} · ${resolution} · ${aspectRatio}`,
+          createdAt: Date.now(),
+        });
+      }
       setRecarregar((n) => n + 1);
+      // Parte das imagens veio e o resto falhou: o que veio já está salvo, e
+      // o motivo aparece em vez de sumir.
+      if (r.aviso) {
+        setErro(`${r.imagens.length} de ${quantidade} imagens vieram — ${r.aviso}`);
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Falha ao gerar a imagem.";
       setErro(msg);
@@ -284,7 +316,8 @@ export default function GeradorImagemPage() {
     Boolean(copiaBase64),
   );
   const totalReferencias = referenciasModelo.length + (copiaBase64 ? 1 : 0);
-  const custoEstimado = custoImagem(resolution, totalReferencias);
+  const infoModelo = modeloImagem(modelo);
+  const custoEstimado = custoImagem(modelo, resolution, totalReferencias, quantidade);
 
   return (
     <div className="page">
@@ -449,11 +482,61 @@ export default function GeradorImagemPage() {
           </p>
         )}
 
+        {/* MODELO */}
+        <div className="mt-5">
+          <label className="eyebrow">Modelo</label>
+          <div className="mt-1.5 flex flex-wrap gap-2">
+            {MODELOS_IMAGEM.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => trocarModelo(m.id)}
+                className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                  modelo === m.id
+                    ? "border-emerald-500/40 bg-emerald-500/[0.12] font-semibold text-emerald-300"
+                    : "border-white/10 text-zinc-400 hover:border-white/25 hover:text-zinc-200"
+                }`}
+              >
+                {m.nome}
+                <span className="ml-1.5 font-mono text-[11px] opacity-70">
+                  {formatarUsd(Math.min(...Object.values(m.precoSaida)))}+
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* QUANTIDADE */}
+        <div className="mt-5">
+          <label className="eyebrow">Quantidade</label>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+            {infoModelo.maxN > 1
+              ? `O ${infoModelo.nome} gera até ${infoModelo.maxN} numa chamada só.`
+              : `O ${infoModelo.nome} só gera uma por chamada — mais de uma vira chamadas repetidas, e o custo acompanha.`}
+          </p>
+          <div className="mt-1.5 flex gap-2">
+            {Array.from({ length: MAX_QUANTIDADE }, (_, i) => i + 1).map((q) => (
+              <button
+                key={q}
+                type="button"
+                onClick={() => setQuantidade(q)}
+                className={`rounded-lg border px-4 py-1.5 text-sm transition-colors ${
+                  quantidade === q
+                    ? "border-emerald-500/40 bg-emerald-500/[0.12] font-semibold text-emerald-300"
+                    : "border-white/10 text-zinc-400 hover:border-white/25 hover:text-zinc-200"
+                }`}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* RESOLUÇÃO */}
         <div className="mt-5">
           <label className="eyebrow">Resolução</label>
           <div className="mt-1.5 flex gap-2">
-            {IMAGE_RESOLUCOES.map((r) => (
+            {infoModelo.resolucoes.map((r) => (
               <button
                 key={r}
                 type="button"
@@ -530,7 +613,7 @@ export default function GeradorImagemPage() {
           </button>
           <span
             className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1 font-mono text-[12px] text-zinc-300"
-            title="Preço de tabela do Seedream: a imagem em 1K ou 2K, mais US$ 0,003 por referência enviada. O valor real da geração aparece embaixo de cada resultado."
+            title={`Preço de tabela do ${infoModelo.nome}, multiplicado pela quantidade. O valor real da geração aparece embaixo de cada resultado.`}
           >
             ~{formatarUsd(custoEstimado)}
             {cotacao && ` · ~${formatarBrl(custoEstimado, cotacao.brlPorUsd)}`}

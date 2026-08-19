@@ -1,6 +1,12 @@
 import "server-only";
 import { getAiCredentials } from "./settings";
 import { cabecalhosOpenRouter } from "./ai";
+import {
+  modeloImagem,
+  resolucaoImagemValida,
+  type ModeloImagemId,
+  type ImageResolucao,
+} from "./aiMediaOptions";
 import { FORMATOS } from "./aiMediaOptions";
 import { mensagemDeModeracao } from "./aiMediaErros";
 
@@ -9,20 +15,23 @@ import { mensagemDeModeracao } from "./aiMediaErros";
  *
  * É uma API DIFERENTE da que o resto do app usa: as outras chamadas do
  * OpenRouter em ai.ts falam com `/chat/completions` (texto); esta fala com
- * `/images` (Images API), formato de pedido e de resposta próprios, e o
- * modelo é FIXO — não é o "modelo por atividade" configurável em
- * Configurações, é sempre o Seedream, porque é ele quem tem os parâmetros
- * (resolução, formato, até 14 imagens de referência) que esta tela usa.
+ * `/images` (Images API), formato de pedido e de resposta próprios.
+ *
+ * O modelo é escolhido na tela entre os do catálogo (Seedream Pro e Lite) —
+ * não é o "modelo por atividade" configurável em Configurações, que serve
+ * para escolher o modelo de TEXTO de cada tarefa. Aqui a escolha é entre
+ * modelos de imagem, que têm parâmetros próprios (resolução, formato, até 14
+ * referências) e limites diferentes entre si.
  *
  * Por isso este módulo não deriva do restante de ai.ts: só reaproveita a
  * chave (getAiCredentials) e os cabeçalhos de identificação do OpenRouter
  * (cabecalhosOpenRouter), que são genuinamente comuns aos dois usos.
  */
 
-const MODELO = "bytedance-seed/seedream-5-0-pro";
 const ENDPOINT = "https://openrouter.ai/api/v1/images";
 
-export type ImageResolution = "1K" | "2K";
+/** As resoluções da família; qual delas cada modelo aceita está no catálogo. */
+export type ImageResolution = ImageResolucao;
 
 /**
  * Formatos oferecidos — o recorte de aiMediaOptions, mais "auto", que só
@@ -37,6 +46,10 @@ export const MAX_REFERENCIAS = 14;
 
 export type PedidoImagem = {
   prompt: string;
+  /** Qual modelo do catálogo. O slug da API sai daqui, nunca do cliente. */
+  modelo?: ModeloImagemId;
+  /** Quantas imagens pedir nesta chamada — só onde o modelo aceita `n` > 1. */
+  quantidade?: number;
   /**
    * URLs de imagem (https ou `data:` base64), NA ORDEM em que devem ser
    * lidas. Quando há uma "imagem a copiar", ela é sempre a PRIMEIRA desta
@@ -53,6 +66,10 @@ export type PedidoImagem = {
 export type ImagemGerada = {
   base64: string;
   mediaType: string;
+};
+
+export type RespostaImagem = {
+  imagens: ImagemGerada[];
   /** Custo em dólares desta chamada, quando o provedor informa. */
   costUsd?: number;
 };
@@ -89,7 +106,7 @@ function mensagemDoErro(status: number, apiMsg: string): string {
   }
 }
 
-export async function gerarImagemSeedream(pedido: PedidoImagem): Promise<ImagemGerada> {
+export async function gerarImagemSeedream(pedido: PedidoImagem): Promise<RespostaImagem> {
   const creds = getAiCredentials("openrouter");
   if (!creds) {
     throw new Error(
@@ -100,11 +117,19 @@ export async function gerarImagemSeedream(pedido: PedidoImagem): Promise<ImagemG
     throw new Error(`No máximo ${MAX_REFERENCIAS} imagens de referência por geração.`);
   }
 
+  const modelo = modeloImagem(pedido.modelo);
+  // A quantidade pedida pode passar do que o modelo aceita numa chamada (o
+  // Pro trava em 1): aqui pede só o que cabe, e quem chamou repete a chamada
+  // para o resto.
+  const n = Math.min(modelo.maxN, Math.max(1, Math.round(pedido.quantidade || 1)));
+
   const body: Record<string, unknown> = {
-    model: MODELO,
+    model: modelo.slug,
     prompt: pedido.prompt,
-    n: 1,
-    resolution: pedido.resolution || "2K",
+    n,
+    // Guarda contra par (modelo, resolução) incoerente — o Pro faz 1K/2K e o
+    // Lite faz 2K/4K, e a resolução sobrevive à troca de modelo na tela.
+    resolution: resolucaoImagemValida(modelo.id, pedido.resolution),
     aspect_ratio: pedido.aspectRatio || "auto",
   };
   if (pedido.referencias.length > 0) {
@@ -135,15 +160,16 @@ export async function gerarImagemSeedream(pedido: PedidoImagem): Promise<ImagemG
     throw new Error(mensagemDoErro(res.status, msg));
   }
 
-  const item = (data.data as { b64_json?: string; media_type?: string }[] | undefined)?.[0];
-  if (!item?.b64_json) {
+  // TODAS as imagens, não só a primeira: com `n` > 1 (o Lite faz até 4) ficar
+  // com data[0] jogaria fora o que já foi pago.
+  const itens = (data.data as { b64_json?: string; media_type?: string }[] | undefined) || [];
+  const imagens = itens
+    .filter((i) => typeof i?.b64_json === "string" && i.b64_json)
+    .map((i) => ({ base64: i.b64_json as string, mediaType: i.media_type || "image/png" }));
+  if (imagens.length === 0) {
     throw new Error("O provedor não devolveu imagem nenhuma.");
   }
   const usage = data.usage as { cost?: number } | undefined;
 
-  return {
-    base64: item.b64_json,
-    mediaType: item.media_type || "image/png",
-    costUsd: typeof usage?.cost === "number" ? usage.cost : undefined,
-  };
+  return { imagens, costUsd: typeof usage?.cost === "number" ? usage.cost : undefined };
 }

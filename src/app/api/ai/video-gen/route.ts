@@ -4,12 +4,11 @@ import { getMediaRow, renderVisionImageBase64 } from "@/lib/media";
 import {
   submeterVideoSeedance,
   DURACOES,
-  RESOLUCOES,
   FORMATOS_VIDEO,
   type VideoDuration,
-  type VideoResolution,
   type VideoAspectRatio,
 } from "@/lib/videoGen";
+import { modeloVideo, resolucaoVideoValida, quantidadeValida } from "@/lib/aiMediaOptions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +27,11 @@ export async function POST(req: NextRequest) {
     if (!prompt) throw new ApiError(400, "Escreva o prompt do vídeo.");
 
     const duration: VideoDuration = DURACOES.includes(body.duration) ? body.duration : 5;
-    const resolution: VideoResolution = RESOLUCOES.includes(body.resolution) ? body.resolution : "720p";
+    // Modelo e resolução andam juntos: o 2.0 vai até 4K, Mini e Fast param
+    // no 720p.
+    const modelo = modeloVideo(body.modelo);
+    const resolution = resolucaoVideoValida(modelo.id, body.resolution);
+    const quantidade = quantidadeValida(body.quantidade);
     const aspectRatio: VideoAspectRatio = FORMATOS_VIDEO.includes(body.aspectRatio)
       ? body.aspectRatio
       : "9:16";
@@ -57,16 +60,32 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const resultado = await submeterVideoSeedance({
-      prompt,
-      firstFrame,
-      duration,
-      resolution,
-      aspectRatio,
-      generateAudio,
-      seed,
-    });
-    return NextResponse.json(resultado);
+    // A Video API não tem `n`: quantidade vira N jobs. A faixa de resultados
+    // já acompanha vários em paralelo. Um que falhe não descarta os aceitos.
+    const jobs: { jobId: string; status: string }[] = [];
+    let erroParcial = "";
+    for (let i = 0; i < quantidade; i++) {
+      try {
+        jobs.push(
+          await submeterVideoSeedance({
+            prompt,
+            firstFrame,
+            duration,
+            resolution,
+            aspectRatio,
+            generateAudio,
+            seed,
+            modelo: modelo.id,
+          }),
+        );
+      } catch (e) {
+        erroParcial = e instanceof Error ? e.message : "falha";
+        break;
+      }
+    }
+    if (jobs.length === 0) throw new ApiError(502, erroParcial || "Nenhum job foi aceito.");
+
+    return NextResponse.json({ jobs, aviso: erroParcial || undefined });
   } catch (err) {
     return errorResponse(err);
   }

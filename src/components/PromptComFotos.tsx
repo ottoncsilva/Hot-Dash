@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { RE_CITACAO, TOKEN_COPIA, tokenReferencia } from "@/lib/aiMediaOptions";
+import { CitacoesPintadas } from "@/components/TextoComCitacoes";
 
 /**
  * Campo de prompt com CITAÇÃO DE IMAGEM: digite "@" e escolha uma das fotos
@@ -44,32 +45,21 @@ export function montarCitaveis(
   ];
 }
 
-/** Quebra o texto em pedaços, marcando quais são citação. */
-function pedacos(texto: string): { txt: string; marcado: boolean }[] {
-  const saida: { txt: string; marcado: boolean }[] = [];
-  let ultimo = 0;
-  for (const m of texto.matchAll(RE_CITACAO)) {
-    const i = m.index ?? 0;
-    if (i > ultimo) saida.push({ txt: texto.slice(ultimo, i), marcado: false });
-    saida.push({ txt: m[0], marcado: true });
-    ultimo = i + m[0].length;
-  }
-  saida.push({ txt: texto.slice(ultimo), marcado: false });
-  return saida;
-}
-
 export default function PromptComFotos({
   value,
   onChange,
   fotos,
   className,
   placeholder,
+  padrao = RE_CITACAO,
 }: {
   value: string;
   onChange: (v: string) => void;
   fotos: FotoCitavel[];
   className?: string;
   placeholder?: string;
+  /** O que pintar. O gerador de vídeo passa as variáveis dele. */
+  padrao?: RegExp;
 }) {
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const pinturaRef = useRef<HTMLDivElement>(null);
@@ -156,18 +146,7 @@ export default function PromptComFotos({
         aria-hidden
         className={`${base} pointer-events-none absolute inset-0 overflow-hidden`}
       >
-        {pedacos(value).map((p, i) =>
-          p.marcado ? (
-            <mark
-              key={i}
-              className="rounded bg-emerald-500/25 px-0.5 text-emerald-200"
-            >
-              {p.txt}
-            </mark>
-          ) : (
-            <span key={i}>{p.txt}</span>
-          ),
-        )}
+        <CitacoesPintadas texto={value} padrao={padrao} />
         {/* Um espaço no fim para a última linha vazia contar na altura. */}
         {"​"}
       </div>
@@ -199,12 +178,10 @@ export default function PromptComFotos({
               onClick={() => escolher(f)}
               className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-white/10"
             >
-              {f.thumbUrl ? (
+              {/* Sem miniatura quando o item é variável de texto (o gerador de
+                  vídeo), em vez de um quadrado com "?" que não diz nada. */}
+              {f.thumbUrl && (
                 <img src={f.thumbUrl} alt="" className="h-9 w-7 rounded object-cover" />
-              ) : (
-                <span className="grid h-9 w-7 place-items-center rounded bg-white/10 text-[9px] text-zinc-400">
-                  ?
-                </span>
               )}
               <span className={`text-xs ${f.ehCopia ? "text-sky-300" : "text-zinc-300"}`}>
                 {f.rotulo}

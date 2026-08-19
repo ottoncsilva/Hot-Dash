@@ -121,6 +121,83 @@ RESTRIÇÕES (não alterar)
 export const MARCA_TRANSCRICAO = "{{CAIXINHA}}";
 export const MARCA_ROTEIRO_BASE = "{{ROTEIRO_BASE}}";
 
+/**
+ * VARIÁVEIS DO PROMPT DE CONTROLE, citáveis com @ na tela.
+ *
+ * Legíveis de propósito: quem lê o prompt de controle precisa entender onde
+ * cada peça entra sem decorar sintaxe. Os `{{...}}` acima continuam valendo
+ * para quem já escreveu com eles.
+ */
+export const VAR_TRANSCRICAO = "@transcrição";
+export const VAR_ROTEIRO_BASE = "@roteiro base";
+export const VAR_FIRST_FRAME = "@first frame";
+
+export const VARIAVEIS_CONTROLE = [
+  { token: VAR_TRANSCRICAO, rotulo: "transcrição (a caixinha colada)" },
+  { token: VAR_ROTEIRO_BASE, rotulo: "roteiro base da modelo" },
+  { token: VAR_FIRST_FRAME, rotulo: "first frame (a foto anexada)" },
+];
+
+/** Casa as variáveis acima — usado para pintá-las no campo. */
+export const RE_VARIAVEIS_CONTROLE =
+  /@(?:transcrição|transcricao|roteiro base|first frame)/gi;
+
+/**
+ * Traduz os marcadores de OUTRAS ferramentas (`@[uuid:Rótulo:tipo]`) para as
+ * nossas variáveis, pelo RÓTULO. Prompt de controle trazido de fora chega
+ * cheio deles, e sem isso eles não significam nada aqui.
+ */
+function traduzirMarcadoresExternos(texto: string): string {
+  return texto.replace(/@\[[^\]]*\]/g, (inteiro) => {
+    const rotulo = inteiro.toLowerCase();
+    if (/transcri/.test(rotulo)) return VAR_TRANSCRICAO;
+    if (/roteiro|base/.test(rotulo)) return VAR_ROTEIRO_BASE;
+    if (/foto|frame|imagem/.test(rotulo)) return VAR_FIRST_FRAME;
+    return inteiro;
+  });
+}
+
+/**
+ * Monta a instrução que vai à IA de texto, pondo o roteiro base e a
+ * transcrição nos lugares marcados.
+ *
+ * A REDE DE SEGURANÇA no fim é o que mais importa: um prompt de controle sem
+ * nenhum marcador (o caso de quem cola o texto de outra ferramenta) fazia a
+ * IA receber só as instruções, sem o template nem a caixinha — e ela então
+ * inventava um roteiro do zero, ignorando o modelo da modelo. Agora, se a
+ * peça não foi injetada em lugar nenhum, ela é anexada no fim.
+ */
+export function montarInstrucaoControle(
+  controle: string,
+  roteiroBase: string,
+  caixinha: string,
+): string {
+  // As menções viram REFERÊNCIA a um bloco, e o conteúdo entra UMA VEZ no
+  // fim. Substituir cada menção pelo texto inteiro colaria o roteiro base
+  // (que tem páginas) tantas vezes quantas ele fosse citado — caro e
+  // confuso, e é justamente o que um prompt de controle bem escrito cita
+  // várias vezes.
+  const texto = traduzirMarcadoresExternos(controle)
+    .split(MARCA_ROTEIRO_BASE)
+    .join("o ROTEIRO BASE (bloco no fim deste prompt)")
+    .split(MARCA_TRANSCRICAO)
+    .join("a CAIXINHA (bloco no fim deste prompt)")
+    .replace(/@roteiro base/gi, "o ROTEIRO BASE (bloco no fim deste prompt)")
+    .replace(/@transcri[çc]ão|@transcricao/gi, "a CAIXINHA (bloco no fim deste prompt)")
+    // O first frame não é texto: viaja anexado como imagem.
+    .replace(/@first frame/gi, "a imagem de referência anexada");
+
+  return [
+    texto,
+    "",
+    "--- ROTEIRO BASE ---",
+    roteiroBase,
+    "",
+    "--- CAIXINHA DE PERGUNTAS ---",
+    caixinha,
+  ].join("\n");
+}
+
 export const PROMPT_VIDEO_CONTROLE_PADRAO = `1 - ANÁLISE DE TEMPO
 Analise o texto da caixinha de perguntas abaixo e defina a quantidade exata de segundos ideais para um vídeo em que a modelo leia a pergunta e responda de forma natural, em ritmo de fala coloquial brasileiro. Não faça vídeos longos: só o necessário para ler e responder.
 É estritamente proibido alterar, cortar ou resumir qualquer parte do texto da caixinha.
@@ -128,7 +205,7 @@ No roteiro, a modelo é sempre a personagem que lê a pergunta e responde.
 Coloque a duração ideal no começo do prompt final.
 
 2 - ANÁLISE VISUAL
-Analise a imagem de referência anexada e extraia:
+Analise ${VAR_FIRST_FRAME} e extraia:
 a) Confirmação de identidade — verifique se a pessoa da imagem corresponde ao bloco PERSONAGEM do roteiro base. Esse bloco é "não alterar": não reescreva nem substitua. Havendo divergência visual relevante, apenas sinalize.
 b) FIGURINO — descrição detalhada de roupas e acessórios visíveis, preenchendo os subcampos do roteiro base.
 c) CENÁRIO — descrição detalhada do ambiente ao fundo, preenchendo os subcampos do roteiro base.
@@ -142,8 +219,4 @@ O resultado deve ser o template completo preenchido, sem colchetes remanescentes
 4 - SAÍDA
 Responda APENAS com o prompt final, sem comentários, sem explicação e sem cercas de código.
 
---- ROTEIRO BASE ---
-${MARCA_ROTEIRO_BASE}
-
---- CAIXINHA DE PERGUNTAS ---
-${MARCA_TRANSCRICAO}`;
+Trabalhe sobre ${VAR_ROTEIRO_BASE} e ${VAR_TRANSCRICAO}, analisando ${VAR_FIRST_FRAME}.`;

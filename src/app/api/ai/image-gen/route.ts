@@ -31,9 +31,12 @@ export async function POST(req: NextRequest) {
     // A IMAGEM A COPIAR (se houver) já chega do cliente como data: URL, já
     // redimensionada lá — o cliente é quem tem a foto original na mão, e
     // mandá-la sem redimensionar só para o servidor encolher depois seria
-    // gastar banda à toa. Ela vem SEMPRE PRIMEIRO na lista: é essa ordem que o
-    // prompt padrão da tela pressupõe ("a primeira referência é a composição
-    // a reproduzir").
+    // gastar banda à toa.
+    //
+    // Ela vai SEMPRE POR ÚLTIMO na lista, depois das fotos da modelo. Essa é
+    // a ordem que os prompts escritos à mão já usavam (primeiro QUEM é a
+    // pessoa, depois a CENA a reproduzir), e é o que o prompt padrão e a
+    // citação com @ pressupõem ao falar em "última imagem de referência".
     const copyImage = typeof body.copyImageBase64 === "string" ? body.copyImageBase64.trim() : "";
     if (copyImage && !copyImage.startsWith("data:image/")) {
       throw new ApiError(400, "Imagem a copiar inválida.");
@@ -43,9 +46,12 @@ export async function POST(req: NextRequest) {
       ? body.referenceMediaIds.filter((x: unknown): x is string => typeof x === "string")
       : [];
 
-    const referencias: string[] = copyImage ? [copyImage] : [];
+    // Reserva a última vaga para a imagem a copiar, para o teto do modelo não
+    // engolir justamente a cena que se quer reproduzir.
+    const tetoGaleria = copyImage ? MAX_REFERENCIAS - 1 : MAX_REFERENCIAS;
+    const referencias: string[] = [];
     for (const id of referenceMediaIds) {
-      if (referencias.length >= MAX_REFERENCIAS) break;
+      if (referencias.length >= tetoGaleria) break;
       const row = getMediaRow(id);
       if (!row) continue;
       // Mesma renderização usada para a IA "ver" fotos na legenda: até 1024px,
@@ -54,6 +60,7 @@ export async function POST(req: NextRequest) {
       const b64 = await renderVisionImageBase64(row.path);
       if (b64) referencias.push(`data:image/jpeg;base64,${b64}`);
     }
+    if (copyImage) referencias.push(copyImage);
 
     const resultado = await gerarImagemSeedream({ prompt, referencias, resolution, aspectRatio, seed });
     return NextResponse.json(resultado);

@@ -145,8 +145,8 @@ export type MencaoPrompt = {
 const RE_MENCAO = /@\[([^\]]+)\]/g;
 
 const TEXTO_PAPEL: Record<PapelMencao, string> = {
-  copia: "a primeira imagem de referência (a imagem a copiar)",
-  modelo: "as imagens de referência da modelo",
+  copia: "a ÚLTIMA imagem de referência (a composição/cenário a copiar)",
+  modelo: "as primeiras imagens de referência (as fotos da modelo)",
 };
 
 function partesDaMencao(bruto: string): { id: string; label: string; tipo: string } {
@@ -202,4 +202,62 @@ export function aplicarMencoes(prompt: string, papeis: Record<string, PapelMenca
     saida = saida.replace(new RegExp(`${escapada}(\\s*${escapada})+`, "g"), frase);
   }
   return saida;
+}
+
+
+/**
+ * CITAÇÃO DE IMAGEM COM @ (marcador nosso, `@[foto:id]`).
+ *
+ * Diferente das menções trazidas de fora, estas o painel cria: o operador
+ * digita "@" no prompt e escolhe uma das imagens que ELE já pôs na tela. O
+ * marcador guarda a IDENTIDADE da imagem (o id da mídia, ou `copia`), não a
+ * posição — se depois ele acrescentar ou tirar uma referência, o texto
+ * continua apontando para a foto certa, porque a posição só é calculada na
+ * hora de enviar.
+ */
+export const ID_COPIA = "copia";
+
+const RE_FOTO = /@\[foto:([^\]]+)\]/g;
+
+/** Como a imagem é citada no prompt final, conforme a posição real no envio. */
+export function rotuloDaFoto(
+  id: string,
+  referenciaIds: string[],
+  temCopia: boolean,
+): string {
+  if (id === ID_COPIA) {
+    return temCopia
+      ? "a ÚLTIMA imagem de referência (a composição/cenário a copiar)"
+      : "a composição de referência";
+  }
+  const i = referenciaIds.indexOf(id);
+  if (i < 0) return "uma das imagens de referência";
+  return `a ${i + 1}ª imagem de referência`;
+}
+
+/**
+ * Troca os marcadores `@[foto:id]` pela posição que cada imagem realmente
+ * ocupa no envio. É o último passo antes de mandar ao modelo.
+ */
+export function resolverFotos(
+  prompt: string,
+  referenciaIds: string[],
+  temCopia: boolean,
+): string {
+  const trocado = prompt.replace(RE_FOTO, (_, id: string) =>
+    rotuloDaFoto(id.trim(), referenciaIds, temCopia),
+  );
+  // Os rótulos começam com "a ", então a preposição que vinha antes do
+  // marcador produz "de a 1ª imagem". Contrai para o prompt não sair com
+  // português capenga — o modelo lê isso, e texto torto atrapalha.
+  return trocado.replace(
+    /\b(de|em|por)\s+a\s+(?=(?:\d+ª imagem|ÚLTIMA imagem|composição de refer|uma das imagens))/gi,
+    (_, prep: string) => {
+      const c: Record<string, string> = { de: "da", em: "na", por: "pela" };
+      const base = c[prep.toLowerCase()];
+      return prep[0] === prep[0].toUpperCase()
+        ? base[0].toUpperCase() + base.slice(1) + " "
+        : base + " ";
+    },
+  );
 }

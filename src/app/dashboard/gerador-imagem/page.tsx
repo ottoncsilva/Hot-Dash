@@ -18,10 +18,13 @@ import {
   formatarBrl,
   acharMencoes,
   aplicarMencoes,
+  resolverFotos,
+  ID_COPIA,
   type PapelMencao,
 } from "@/lib/aiMediaOptions";
 import { promptImagemPadrao } from "@/lib/aiMediaPrompts";
 import ResultadosGerados from "@/components/ResultadosGerados";
+import PromptComFotos, { type FotoCitavel } from "@/components/PromptComFotos";
 import { salvarResultado } from "@/lib/resultadosDb";
 import type { Cotacao } from "@/lib/cotacao";
 
@@ -37,8 +40,10 @@ import type { Cotacao } from "@/lib/cotacao";
  *   • "referências da modelo" — QUEM deve aparecer: rosto e corpo, tirados da
  *     própria Galeria dela, para a identidade sair fiel.
  *
- * O servidor sempre manda a imagem a copiar como a PRIMEIRA referência — é
- * essa ordem que o prompt padrão desta tela pressupõe.
+ * O servidor manda as fotos da modelo PRIMEIRO e a imagem a copiar por
+ * ÚLTIMO — a mesma ordem que os prompts escritos à mão já usavam (quem é a
+ * pessoa, depois a cena a reproduzir). É essa ordem que o prompt padrão e a
+ * citação com @ pressupõem.
  */
 
 const OPCOES_FORMATO = ["auto", ...FORMATOS] as const;
@@ -215,7 +220,11 @@ export default function GeradorImagemPage() {
         "/api/ai/image-gen",
         "POST",
         {
-          prompt: aplicarMencoes(promptEfetivo, papeisMencoes),
+          prompt: resolverFotos(
+            aplicarMencoes(promptEfetivo, papeisMencoes),
+            referenciasModelo,
+            Boolean(copiaBase64),
+          ),
           resolution,
           aspectRatio,
           seed: seedNum,
@@ -255,6 +264,19 @@ export default function GeradorImagemPage() {
       </div>
     );
   }
+
+  // O que dá para citar com @: as referências escolhidas, na ordem em que
+  // são enviadas, mais a imagem a copiar (que vai por último).
+  const fotosCitaveis: FotoCitavel[] = [
+    ...referenciasModelo.map((id, i) => ({
+      id,
+      rotulo: `${i + 1}ª referência da modelo`,
+      thumbUrl: `/api/media/${id}/thumbnail`,
+    })),
+    ...(copiaBase64
+      ? [{ id: ID_COPIA, rotulo: "imagem a copiar (última)", thumbUrl: copiaPreview || undefined }]
+      : []),
+  ];
 
   const mencoes = acharMencoes(promptEfetivo);
   const totalReferencias = referenciasModelo.length + (copiaBase64 ? 1 : 0);
@@ -304,7 +326,8 @@ export default function GeradorImagemPage() {
           <label className="eyebrow">Imagem a copiar (composição, pose, cenário)</label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
             Opcional. A foto que você quer reproduzir — o pedido do assinante, por exemplo. Fica só
-            nesta geração, não entra na Galeria.
+            nesta geração, não entra na Galeria. É enviada por ÚLTIMO, depois das fotos da modelo:
+            por isso o prompt pode se referir a ela como “a última imagem de referência”.
           </p>
           <div className="mt-2">
             {copiaPreview ? (
@@ -360,10 +383,11 @@ export default function GeradorImagemPage() {
 
           {editandoPrompt ? (
             <div className="mt-1">
-              <textarea
-                className="input max-h-[420px] min-h-[160px] resize-y overflow-y-auto font-mono text-[12px]"
+              <PromptComFotos
+                className="input max-h-[420px] min-h-[160px] w-full resize-y overflow-y-auto font-mono text-[12px]"
                 value={rascunhoPrompt}
-                onChange={(e) => setRascunhoPrompt(e.target.value)}
+                onChange={setRascunhoPrompt}
+                fotos={fotosCitaveis}
               />
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <button onClick={salvarPromptBase} disabled={salvandoPrompt} className="btn-primary px-3 py-1.5 text-xs">
@@ -395,12 +419,15 @@ export default function GeradorImagemPage() {
           <label className="eyebrow">Acrescentar nesta geração (opcional)</label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
             Entra no fim do prompt padrão — o que muda só nesta imagem: roupa, cenário, pose, clima.
+            Digite <span className="font-mono text-zinc-400">@</span> para citar uma imagem
+            específica; na hora de enviar ela vira a posição real (“a 2ª imagem de referência”).
           </p>
-          <textarea
-            className="input mt-1 max-h-[220px] min-h-[70px] resize-y overflow-y-auto"
-            placeholder="ex.: de biquíni vermelho, na varanda, no fim da tarde"
+          <PromptComFotos
+            className="input mt-1 max-h-[220px] min-h-[70px] w-full resize-y overflow-y-auto"
+            placeholder="ex.: de biquíni vermelho, na varanda — digite @ para citar uma das imagens"
             value={extra}
-            onChange={(e) => setExtra(e.target.value)}
+            onChange={setExtra}
+            fotos={fotosCitaveis}
           />
         </div>
 

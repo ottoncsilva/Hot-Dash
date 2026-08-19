@@ -9,16 +9,17 @@
 
 /**
  * IMAGEM — o prompt padrão muda com o que foi escolhido, porque a instrução
- * certa depende de haver ou não uma composição a reproduzir. O servidor
- * manda a imagem a copiar como a PRIMEIRA referência, e é isso que os textos
- * abaixo pressupõem ao falar em "primeira imagem de referência".
+ * certa depende de haver ou não uma composição a reproduzir. O servidor manda
+ * as fotos da modelo primeiro e a imagem a copiar por ÚLTIMO — é essa ordem
+ * que os textos abaixo pressupõem, e é a mesma que os prompts escritos à mão
+ * já usavam (primeiro quem é a pessoa, depois a cena a reproduzir).
  */
 export function promptImagemPadrao(temCopia: boolean, temReferencias: boolean): string {
   if (temCopia && temReferencias) {
     return (
       "Reproduza fielmente a composição, a pose, o enquadramento, a iluminação e o cenário da " +
-      "primeira imagem de referência — mas troque a pessoa pela mostrada nas imagens de " +
-      "referência seguintes, mantendo o rosto, o corpo e as características dela com fidelidade. " +
+      "ÚLTIMA imagem de referência — mas troque a pessoa pela mostrada nas imagens de " +
+      "referência anteriores, mantendo o rosto, o corpo e as características dela com fidelidade. " +
       "Resultado fotorrealista, sem marca d'água, sem texto na imagem."
     );
   }

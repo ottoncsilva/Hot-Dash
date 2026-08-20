@@ -608,6 +608,11 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "media", "public_token", "TEXT");
   ensureColumn(d, "media", "updated_at", "INTEGER");
   ensureColumn(d, "media", "file_created_at", "INTEGER");
+  // Mídia OCULTA da Galeria: arquivos que só existem para alimentar um
+  // recurso (o vídeo de referência do Motion Control, que a API externa
+  // precisa buscar por URL pública). Guardar aqui reaproveita gravação,
+  // limpeza de metadados e token público sem sujar a galeria da modelo.
+  ensureColumn(d, "media", "hidden", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(d, "profiles", "status", "TEXT NOT NULL DEFAULT 'configuring'");
   ensureColumn(d, "profiles", "bio_physical", "TEXT");
   ensureColumn(d, "profiles", "bio_unique", "TEXT");

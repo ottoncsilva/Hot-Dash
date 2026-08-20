@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
 import { baixarConteudoVideo } from "@/lib/videoGen";
 import { baixarConteudoVeo } from "@/lib/googleVideoGen";
+import { baixarConteudoMotion } from "@/lib/motionGen";
 import { decodificarJob } from "@/lib/aiMediaOptions";
 
 export const runtime = "nodejs";
@@ -20,7 +21,11 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     if (!jobId) throw new ApiError(400, "Job inválido.");
     const { provedor, id } = decodificarJob(jobId);
     const { bytes, contentType } =
-      provedor === "google" ? await baixarConteudoVeo(id) : await baixarConteudoVideo(id);
+      provedor === "google"
+        ? await baixarConteudoVeo(id)
+        : provedor === "magnific"
+          ? await baixarConteudoMotion(id)
+          : await baixarConteudoVideo(id);
     return new NextResponse(new Uint8Array(bytes), { headers: { "Content-Type": contentType } });
   } catch (err) {
     return errorResponse(err);

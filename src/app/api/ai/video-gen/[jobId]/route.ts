@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
 import { consultarStatusVideo } from "@/lib/videoGen";
 import { consultarStatusVeo } from "@/lib/googleVideoGen";
+import { consultarStatusMotion } from "@/lib/motionGen";
 import { decodificarJob } from "@/lib/aiMediaOptions";
 
 export const runtime = "nodejs";
@@ -16,7 +17,11 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     // O prefixo do id diz de qual provedor é o job.
     const { provedor, id } = decodificarJob(jobId);
     const status =
-      provedor === "google" ? await consultarStatusVeo(id) : await consultarStatusVideo(id);
+      provedor === "google"
+        ? await consultarStatusVeo(id)
+        : provedor === "magnific"
+          ? await consultarStatusMotion(id)
+          : await consultarStatusVideo(id);
     return NextResponse.json(status);
   } catch (err) {
     return errorResponse(err);

@@ -116,10 +116,12 @@ ${enableMedia ? "" : "- O envio de imagens está DESATIVADO nas configurações.
       `).get(profileId, result.prompt_imagem || "") as any;
 
       if (!mediaRow) {
-        // Fallback para qualquer imagem aleatória se a etiqueta não bater ou não existir
+        // Fallback para qualquer imagem aleatória se a etiqueta não bater ou não existir.
+        // Mídia oculta fica de fora: são insumos de recurso (ver `insertMedia`),
+        // não fotos que a modelo mandaria para um cliente.
         mediaRow = db.prepare(`
           SELECT * FROM media 
-          WHERE profile_id = ? AND kind = 'image' 
+          WHERE profile_id = ? AND kind = 'image' AND COALESCE(hidden, 0) = 0
           ORDER BY RANDOM() LIMIT 1
         `).get(profileId) as any;
       }

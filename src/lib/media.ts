@@ -23,6 +23,7 @@ type MediaRow = {
   height: number | null;
   public_token: string | null;
   file_created_at: number | null;
+  hidden: number | null;
 };
 
 function toClient(r: MediaRow, tags: Tag[], postCounts?: MediaPostCounts): MediaItem {
@@ -145,12 +146,14 @@ export function insertMedia(input: {
   width?: number;
   height?: number;
   fileCreatedAt?: number;
+  /** Não aparece na Galeria — só serve de insumo para um recurso (ver `db.ts`). */
+  hidden?: boolean;
 }): MediaItem {
   const now = Date.now();
   getDb()
     .prepare(
-      `INSERT INTO media (id, profile_id, filename, path, kind, mime, size, created_at, updated_at, edited_from, width, height, file_created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO media (id, profile_id, filename, path, kind, mime, size, created_at, updated_at, edited_from, width, height, file_created_at, hidden)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.id,
@@ -166,6 +169,7 @@ export function insertMedia(input: {
       input.width || null,
       input.height || null,
       input.fileCreatedAt || null,
+      input.hidden ? 1 : 0,
     );
   return toClient(
     {
@@ -183,6 +187,7 @@ export function insertMedia(input: {
       height: input.height || null,
       public_token: null,
       file_created_at: input.fileCreatedAt || null,
+      hidden: input.hidden ? 1 : 0,
     },
     [],
   );
@@ -225,7 +230,9 @@ export async function overwriteMediaFile(input: {
 export function listMedia(profileId: string): MediaItem[] {
   const rows = getDb()
     .prepare(
-      "SELECT * FROM media WHERE profile_id = ? ORDER BY created_at DESC",
+      // `hidden` fica de fora: são insumos de recurso (ver `insertMedia`),
+      // não fotos da modelo.
+      "SELECT * FROM media WHERE profile_id = ? AND COALESCE(hidden, 0) = 0 ORDER BY created_at DESC",
     )
     .all(profileId) as MediaRow[];
   // Contagem de publicações E etiquetas do perfil inteiro em UMA consulta cada

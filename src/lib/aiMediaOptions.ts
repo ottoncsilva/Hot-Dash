@@ -57,11 +57,12 @@ export function quantidadeValida(n: unknown): number {
  * ------------------------------------------------------------------ */
 
 /** Quem atende a chamada — decide o módulo que a rota usa. */
-export type Provedor = "openrouter" | "google";
+export type Provedor = "openrouter" | "google" | "magnific";
 
 export const NOME_PROVEDOR: Record<Provedor, string> = {
   openrouter: "OpenRouter",
   google: "Google",
+  magnific: "Magnific",
 };
 
 export type ModeloImagemId = "pro" | "lite" | "nb-pro" | "nb2" | "nb2-lite";
@@ -590,13 +591,77 @@ export type ImagemGeradaSaida = {
  * continua legível num log, que é onde ele costuma ser lido.
  * ------------------------------------------------------------------ */
 
+const PREFIXO: Record<Provedor, string> = { google: "gg.", openrouter: "or.", magnific: "mg." };
+
 export function codificarJob(provedor: Provedor, id: string): string {
-  return provedor === "google" ? `gg.${id.replace(/\//g, "~")}` : `or.${id}`;
+  // A barra vira "~" porque o nome da operação do Google tem uma, e ela
+  // partiria o segmento da rota /api/ai/video-gen/[jobId] em dois.
+  return `${PREFIXO[provedor]}${id.replace(/\//g, "~")}`;
 }
 
 export function decodificarJob(token: string): { provedor: Provedor; id: string } {
-  if (token.startsWith("gg.")) return { provedor: "google", id: token.slice(3).replace(/~/g, "/") };
-  if (token.startsWith("or.")) return { provedor: "openrouter", id: token.slice(3) };
+  for (const [prov, pre] of Object.entries(PREFIXO) as [Provedor, string][]) {
+    if (token.startsWith(pre)) {
+      return { provedor: prov, id: token.slice(pre.length).replace(/~/g, "/") };
+    }
+  }
   // Job criado antes do prefixo existir: continua sendo da OpenRouter.
   return { provedor: "openrouter", id: token };
 }
+
+
+/* ------------------------------------------------------------------ *
+ * MOTION CONTROL (Kling 2.6)
+ *
+ * Catálogo SEPARADO do de vídeo de propósito: aquele carrega resolução,
+ * formato e duração escolhíveis, e aqui nada disso existe — a Kling deriva
+ * tudo do vídeo de referência. Enfiar estes modelos lá obrigaria campos
+ * falsos na tela.
+ *
+ * Cada entrada já carrega `provedor`, como as de imagem e vídeo. Hoje todas
+ * são "magnific"; acrescentar a API oficial da Kuaishou depois é somar
+ * entradas com `provedor: "kling"` e um módulo irmão, sem mexer na tela nem
+ * nas rotas.
+ * ------------------------------------------------------------------ */
+
+export type ModeloMotionId = "kling26-pro" | "kling26-std";
+
+export type ModeloMotion = {
+  id: ModeloMotionId;
+  provedor: Provedor;
+  /** Vai no caminho da URL da API. Nunca vem cru do cliente. */
+  slug: string;
+  nome: string;
+};
+
+export const MODELOS_MOTION: readonly ModeloMotion[] = [
+  {
+    id: "kling26-pro",
+    provedor: "magnific",
+    slug: "kling-v2-6-motion-control-pro",
+    nome: "Kling 2.6 Pro",
+  },
+  {
+    id: "kling26-std",
+    provedor: "magnific",
+    slug: "kling-v2-6-motion-control-std",
+    nome: "Kling 2.6 Standard",
+  },
+];
+
+export function modeloMotion(id: unknown): ModeloMotion {
+  return MODELOS_MOTION.find((m) => m.id === id) || MODELOS_MOTION[0];
+}
+
+/** Limites que a API impõe ao vídeo de referência — a tela barra antes de gastar. */
+export const MOTION_VIDEO_SEGUNDOS_MIN = 3;
+export const MOTION_VIDEO_SEGUNDOS_MAX = 30;
+export const MOTION_VIDEO_FORMATOS = [".mp4", ".mov", ".webm", ".m4v"] as const;
+export const MOTION_IMAGEM_FORMATOS = [".jpg", ".jpeg", ".png", ".webp"] as const;
+
+/** Como a modelo se orienta na cena. Muda o teto de duração da saída. */
+export const ORIENTACOES = [
+  { value: "video", label: "Seguir o vídeo", hint: "Saída até 30s" },
+  { value: "image", label: "Seguir a foto", hint: "Saída até 10s" },
+] as const;
+export type OrientacaoMotion = (typeof ORIENTACOES)[number]["value"];

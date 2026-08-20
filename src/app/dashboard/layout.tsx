@@ -50,6 +50,7 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   caixinha: IconQuestion,
   imagegen: IconSparkle,
   videogen: IconPlay,
+  motion: IconFilm,
   payments: IconPayments,
   funil: IconFunnel,
   telegram: IconTelegram,

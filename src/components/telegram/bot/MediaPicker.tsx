@@ -22,6 +22,7 @@ export default function MediaPicker({
   onChange,
   max = 10,
   apenasImagens = false,
+  apenasVideos = false,
 }: {
   profileId: string;
   selected: string[];
@@ -31,9 +32,15 @@ export default function MediaPicker({
    *  (ex.: referência para o gerador de imagem). Não filtra as JÁ escolhidas,
    *  para nunca sumir uma seleção antiga por baixo dos panos. */
   apenasImagens?: boolean;
+  /** O inverso: só vídeo (ex.: a referência de movimento do Motion Control). */
+  apenasVideos?: boolean;
 }) {
   const [allRaw, setAll] = useState<Item[]>([]);
-  const all = apenasImagens ? allRaw.filter((m) => m.kind === "image") : allRaw;
+  const all = apenasImagens
+    ? allRaw.filter((m) => m.kind === "image")
+    : apenasVideos
+      ? allRaw.filter((m) => m.kind === "video")
+      : allRaw;
   const [abrindo, setAbrindo] = useState(false);
   const [carregando, setCarregando] = useState(false);
 

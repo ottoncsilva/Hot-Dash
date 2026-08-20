@@ -902,8 +902,7 @@ function SuccessRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; 
 
       {semMarcador && (
         <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-2.5 text-xs text-amber-300">
-          Sem <b>{"{link_vip}"}</b> no texto, o link do VIP é anexado no fim da mensagem. Escreva a
-          variável onde você quiser que ele apareça para mandar no lugar dele.
+          Sem <b>{"{link_vip}"}</b> no texto, o link do VIP entra no fim da mensagem. Escreva a variável para escolher onde ele aparece.
         </p>
       )}
 
@@ -1686,8 +1685,8 @@ function FunnelCard({
       <div className="card p-4">
         <h2 className="font-display text-lg font-semibold">Recuperação</h2>
         <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-          Três gatilhos diferentes, com sequências separadas. Cada etapa dispara depois do tempo
-          indicado, contado a partir da anterior — e a sequência <b>para sozinha</b> assim que a
+          Três gatilhos, com sequências separadas. Cada etapa dispara depois do tempo indicado, contado da
+          anterior — e <b>para sozinha</b> assim que a
           pessoa muda de estado (pagou, no caso dos downsells).
         </p>
       </div>
@@ -2162,10 +2161,7 @@ function PrecoDinamicoRow({
     >
       <div className="flex items-start justify-between gap-3">
         <p className="min-w-0 text-xs leading-relaxed text-zinc-400">
-          Soma ou subtrai alguns centavos do valor, de forma <b>única por cliente</b>. A conta vem do
-          ID do Telegram, então o mesmo lead recebe sempre o mesmo valor — é isso que permite casar
-          um PIX recebido com quem devia pagá-lo, mesmo quando o comprovante não traz mais nada.
-          Dificulta o estorno indevido e o &quot;já paguei&quot; de quem não pagou.
+          Soma ou subtrai alguns centavos do valor, de forma <b>única por cliente</b>. Os centavos vêm do ID do Telegram, então o mesmo lead recebe sempre o mesmo valor — é assim que um PIX é casado com quem devia pagá-lo.
         </p>
         <Switch
           checked={preco.enabled}
@@ -2263,9 +2259,7 @@ function CoresBotoesRow({
       status={comCor > 0 ? { label: `${comCor} com cor`, tone: "ok" } : undefined}
     >
       <p className="text-xs leading-relaxed text-zinc-400">
-        Cor dos botões que o bot desta modelo mostra dentro do Telegram. Cada papel do fluxo tem a
-        sua, porque a intenção muda: a lista de planos pede destaque, copiar a chave é auxiliar, e o
-        acesso ao VIP depois do pagamento merece o verde. Um plano com cor própria ignora a cor da
+        Cor dos botões do bot desta modelo, por papel do fluxo. Um plano com cor própria ignora a cor da
         lista.
       </p>
       <p className="mt-2 rounded-lg border border-indigo-500/25 bg-indigo-500/[0.07] p-2.5 text-[11px] leading-relaxed text-zinc-300">
@@ -2479,8 +2473,7 @@ function ApprovalCard({
       <h2 className="font-display text-lg font-semibold">Aprovação automática</h2>
       <p className="mt-1 text-xs text-zinc-500">
         O que o bot faz quando alguém pede para entrar em cada grupo. Vale só para grupos com{" "}
-        <b>&quot;aprovar novos membros&quot;</b> ligado nas configurações do Telegram — sem isso o
-        Telegram nem avisa o bot, e nenhuma regra aqui tem efeito.
+        <b>&quot;aprovar novos membros&quot;</b> ligado nas configurações do Telegram — sem isso nenhuma regra aqui tem efeito.
       </p>
 
       <GrupoAprovacao
@@ -2516,8 +2509,7 @@ function ApprovalCard({
       />
 
       <p className="mt-4 rounded-lg border border-white/10 bg-ink-850 p-3 text-xs text-zinc-400">
-        Em qualquer modo o bot precisa ser <b>administrador</b> do grupo, com permissão de convidar
-        por link — é assim que ele aprova a entrada e gera o convite de quem pagou.
+        Em qualquer modo o bot precisa ser <b>administrador</b> do grupo, com permissão de convidar por link — é assim que ele aprova a entrada e gera o convite.
       </p>
 
       <button onClick={save} disabled={busy} className="btn-primary mt-4">
@@ -2795,8 +2787,7 @@ function BotoesDoPasso({
       )}
       {!padrao && (
         <p className="mt-1.5 text-[11px] text-amber-400">
-          O @ do bot ainda não foi lido — salve as credenciais em Modelos para o link do botão vir
-          preenchido sozinho.
+          O @ do bot ainda não foi lido — salve as credenciais em Modelos para o link vir preenchido.
         </p>
       )}
     </div>

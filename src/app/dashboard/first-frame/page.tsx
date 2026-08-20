@@ -250,7 +250,8 @@ export default function FirstFramePage() {
               <IconFilm size={22} /> First Frame
             </span>
           }
-          description="Suba vários vídeos e pegue o primeiro frame de cada um. Dá para girar a linha do tempo e escolher outro quadro. No fim, baixa tudo num ZIP só."
+          description="Suba vários vídeos e pegue o primeiro frame de cada um — ou outro quadro, pela linha do
+          tempo. Baixa tudo num ZIP."
         />
       </div>
 
@@ -427,8 +428,7 @@ export default function FirstFramePage() {
                 </p>
               ) : (
                 <p className="mt-1 text-xs text-amber-400/90">
-                  Escolha uma modelo no seletor do menu para enviar os frames para a galeria dela.
-                  Baixar funciona sem escolher.
+                  Escolha uma modelo no menu para mandar os frames para a galeria dela. Baixar funciona sem escolher.
                 </p>
               )}
               <button

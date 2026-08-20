@@ -11,9 +11,8 @@ export default function SecuritySettingsPage() {
           <IconLock size={18} />
         </span>
         <p className="text-sm text-zinc-400">
-          O e-mail e a senha de login ficam nas variáveis de ambiente
-          (`AUTH_EMAIL` / `AUTH_PASSWORD`) no EasyPanel. Para trocar, edite lá e
-          reinicie o app.
+          E-mail e senha ficam em `AUTH_EMAIL` / `AUTH_PASSWORD` no EasyPanel. Para trocar, edite lá e
+          reinicie.
         </p>
       </div>
     </div>

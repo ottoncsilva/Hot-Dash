@@ -76,16 +76,13 @@ export default function GeneralSettingsPage() {
       <BackToSettings />
       <h1 className="mt-4 font-display text-2xl font-semibold tracking-tight">Geral</h1>
       <p className="mt-2 text-sm text-zinc-500">
-        Ajustes que valem para o sistema inteiro: o fuso da operação e a contagem de
-        integrantes dos grupos do Telegram.
+        Fuso da operação e contagem de integrantes dos grupos.
       </p>
 
       <h2 className="mt-6 font-display text-lg font-semibold tracking-tight">Fuso horário</h2>
       <p className="mt-1.5 text-sm text-zinc-500">
-        Define o que é “hoje” em todo o sistema: os totais e o gráfico de vendas do
-        Dashboard, e o planejamento de horários dos posts do Telegram. O servidor roda
-        em UTC — sem este ajuste, o dia virava às 21h de Brasília e as vendas da noite
-        apareciam no dia seguinte.
+        Define o que é “hoje” no sistema todo: Dashboard e horários dos posts. O servidor roda em UTC — sem
+        isso o dia viraria às 21h de Brasília.
       </p>
 
       <div className="mt-3 card p-4">
@@ -124,8 +121,7 @@ export default function GeneralSettingsPage() {
 
         {changed && (
           <p className="mt-3 text-[11px] text-amber-400">
-            Alterar o fuso muda como os dias são contados. Os posts já agendados mantêm o
-            horário exato — só a leitura de “hoje” muda.
+            Os posts já agendados mantêm o horário exato — só a leitura de “hoje” muda.
           </p>
         )}
 
@@ -145,11 +141,8 @@ export default function GeneralSettingsPage() {
         Integrantes fixos dos grupos
       </h2>
       <p className="mt-1.5 text-sm text-zinc-500">
-        O Telegram conta você, o bot e os demais administradores junto com o público
-        quando informa o tamanho de um grupo. Este número é descontado de cada grupo nos
-        painéis, para os totais e os gráficos mostrarem só a audiência de verdade. O
-        padrão é 2 (você + o bot); se você tem outro administrador em todos os grupos,
-        use 3.
+        O Telegram conta você, o bot e os admins junto com o público. Este número é descontado de cada grupo
+        nos painéis. Padrão 2 (você + o bot); com outro admin em todos os grupos, 3.
       </p>
 
       <div className="mt-3 card p-4">
@@ -177,8 +170,7 @@ export default function GeneralSettingsPage() {
 
         {membrosChanged && (
           <p className="mt-3 text-[11px] text-amber-400">
-            O banco guarda o número cru que o Telegram respondeu — o desconto é aplicado na
-            leitura. Mudar aqui reajusta também o histórico já registrado, na hora.
+            O desconto é aplicado na leitura, então mudar aqui reajusta o histórico na hora.
           </p>
         )}
 

@@ -75,17 +75,14 @@ export default function NotificationsSettingsPage() {
         Alertas no celular
       </h1>
       <p className="mt-2 text-sm text-zinc-500">
-        O Hot Dash é um app instalável (PWA): dá para colocar na tela do celular e receber
-        notificação a cada <b>venda aprovada</b>, mesmo com o app fechado. Não precisa baixar
-        nada da App Store nem da Play Store.
+        O Hot Dash é instalável (PWA): dá para pôr na tela do celular e receber notificação a cada <b>venda aprovada</b>, mesmo fechado. Sem baixar nada da App Store nem da Play Store.
       </p>
 
       <div className="mt-4 card p-4">
         <p className="eyebrow mb-3">Este aparelho</p>
         <PushToggle />
         <p className="mt-3 text-[11px] text-zinc-500">
-          A ativação é <b>por aparelho</b>. Se quiser receber no celular e no computador,
-          repita em cada um. Use “Enviar teste” para confirmar que chega.
+          A ativação é <b>por aparelho</b>. Para receber no celular e no computador, repita em cada um.
         </p>
       </div>
 
@@ -112,7 +109,7 @@ export default function NotificationsSettingsPage() {
               <li>Abra pelo ícone e ative os alertas aqui.</li>
             </ol>
             <p className="mt-1.5 text-[11px] text-zinc-500">
-              No Android também funciona direto no navegador, sem instalar.
+              No Android funciona direto no navegador.
             </p>
           </div>
         </div>
@@ -126,8 +123,7 @@ export default function NotificationsSettingsPage() {
         </p>
         <AlertTypes />
         <p className="mt-3 text-[11px] text-zinc-500">
-          Vendas e Pix dependem do webhook do SyncPay apontado para o seu domínio em
-          Configurações → Pagamentos.
+          Vendas e Pix dependem do webhook da SyncPay em Configurações → Pagamentos.
         </p>
       </div>
     </div>

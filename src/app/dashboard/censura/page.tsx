@@ -604,8 +604,8 @@ export default function CensuraPage() {
                 </p>
               ) : (
                 <p className="mt-1 text-xs text-amber-400/90">
-                  Escolha uma modelo no seletor do menu para poder enviar os arquivos para a
-                  galeria dela. Baixar funciona sem escolher.
+                  Escolha uma modelo no menu para mandar os arquivos para a galeria dela. Baixar funciona sem
+                  escolher.
                 </p>
               )}
               <button

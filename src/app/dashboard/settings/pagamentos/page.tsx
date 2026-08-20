@@ -210,8 +210,7 @@ export default function PaymentSettingsPage() {
       <div className="mt-4 card p-4">
         <p className="eyebrow">meta de faturamento</p>
         <p className="mt-1 text-xs text-zinc-500">
-          Quanto você quer faturar por mês. Aparece como barra de progresso no Dashboard.
-          Deixe em branco (ou zero) para não usar meta.
+          Vira a barra de progresso do Dashboard. Vazio ou zero, sem meta.
         </p>
         <div className="mt-3 flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-1">
@@ -286,10 +285,7 @@ export default function PaymentSettingsPage() {
             “Url alvo do disparo”), evento <b>Recebimento — Cash in</b>, com
             “Disparar para todos os produtos” ativo. Esse cadastro é{" "}
             <b>por conta, não por cobrança</b>: uma vez colado, a SyncPay avisa o
-            Hot-Dash de <b>toda</b> venda paga — não importa quem gerou o PIX
-            (bot do Telegram, checkout externo, o que for). É isso que alimenta
-            o Dashboard, e continua funcionando mesmo antes (ou independente)
-            de o bot de vendas estar rodando pelo Hot-Dash.
+            Hot-Dash de <b>toda</b> venda paga, tenha o PIX saído de onde tiver saído. É o que alimenta o Dashboard, e funciona mesmo sem o bot de vendas.
           </p>
           <div className="mt-2.5 flex items-center gap-2">
             <input
@@ -326,8 +322,8 @@ export default function PaymentSettingsPage() {
                 </p>
               ) : (
                 <p className="mt-0.5 text-xs text-amber-300">
-                  Nenhuma venda registrada ainda. Se você já tem vendas pagas na SyncPay, confira
-                  se colou a URL acima no painel da SyncPay.
+                  Nenhuma venda registrada. Se já tem vendas pagas na SyncPay, confira se colou a URL acima no painel
+                  dela.
                 </p>
               )}
             </div>
@@ -399,8 +395,7 @@ export default function PaymentSettingsPage() {
                   ))}
                   {cadastrados.lista.some((w) => w.event !== "cashin") && (
                     <p className="text-[11px] text-amber-400/80">
-                      Há cadastro com evento diferente de <b>cashin</b>: é por ele que chegam saques e
-                      outros movimentos. Ajuste no painel da SyncPay para receber só as vendas.
+                      Há cadastro com evento diferente de <b>cashin</b>: é por ele que chegam saques e outros movimentos. Ajuste no painel da SyncPay.
                     </p>
                   )}
                 </div>
@@ -417,8 +412,8 @@ export default function PaymentSettingsPage() {
                   Webhooks recebidos
                 </p>
                 <p className="mt-0.5 text-xs text-zinc-500">
-                  Os últimos eventos que a SyncPay mandou, com o conteúdo cru e o que o sistema
-                  fez com cada um. Serve para conferir por que algo entrou (ou não) no Financeiro.
+                  O que a SyncPay mandou e o que o sistema fez com cada evento — para conferir por que algo entrou (ou
+                  não) no Financeiro.
                 </p>
               </div>
               <button type="button" onClick={carregarEventos} className="btn-ghost shrink-0 px-3 py-1.5 text-xs">
@@ -474,11 +469,9 @@ export default function PaymentSettingsPage() {
               Importar histórico da SyncPay
             </p>
             <p className="mt-0.5 text-xs text-zinc-500">
-              O Financeiro já calcula taxa e líquido sozinho — a taxa da SyncPay é fixa
-              (R$&nbsp;0,80 até R$&nbsp;100; + 1,99% acima). Use a importação só quando quiser os
-              números exatos do painel dela, inclusive de vendas que nunca chegaram aqui: gere a
-              <b> Exportação: Transaction</b> do período e envie o arquivo (PDF ou CSV). Os
-              horários do arquivo estão em UTC e são convertidos para o seu fuso.
+              O Financeiro já calcula taxa e líquido sozinho (R$&nbsp;0,80 até R$&nbsp;100; + 1,99% acima).
+              Importe só para bater com os números exatos do painel dela: gere a
+              <b> Exportação: Transaction</b> do período e envie o arquivo (PDF ou CSV). Os horários vêm em UTC e são convertidos para o seu fuso.
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <input

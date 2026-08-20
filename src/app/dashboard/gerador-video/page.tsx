@@ -557,7 +557,7 @@ export default function GeradorVideoPage() {
             </div>
             <textarea
               className="input mt-1 max-h-[260px] min-h-[110px] resize-y overflow-y-auto"
-              placeholder="Descreva o vídeo — ou clique em “Usar prompt padrão” para começar de um modelo pronto."
+              placeholder="Descreva o vídeo."
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
             />
@@ -655,7 +655,7 @@ export default function GeradorVideoPage() {
               <label className="eyebrow">Prompt final (confira antes de gerar)</label>
               <textarea
                 className="input mt-1 max-h-[420px] min-h-[150px] w-full resize-y overflow-y-auto font-mono text-[12px]"
-                placeholder="Clique em “Montar prompt final com IA” — o roteiro aparece aqui e pode ser ajustado à mão."
+                placeholder="O roteiro montado pela IA aparece aqui — dá para ajustar à mão."
                 value={promptFinal}
                 onChange={(e) => setPromptFinal(e.target.value)}
               />

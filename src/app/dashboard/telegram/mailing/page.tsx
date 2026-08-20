@@ -514,9 +514,7 @@ function MailingForm({
           })}
         </div>
         <div className="mt-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.05] p-3 text-xs text-amber-200/90">
-          <b>Atenção:</b> só entram no disparo as pessoas que já falaram com o bot no privado — o
-          Telegram não deixa um bot iniciar conversa. Quem bloqueou o bot fica de fora e volta
-          sozinho para a lista se desbloquear.
+          <b>Atenção:</b> só entram as pessoas que já falaram com o bot no privado. Quem bloqueou fica de fora e volta sozinho se desbloquear.
         </div>
       </div>
 
@@ -651,9 +649,7 @@ function MailingForm({
       <div className="mt-5">
         <p className="text-sm font-semibold text-white">Mídia e áudio</p>
         <p className="mt-1 text-xs text-zinc-500">
-          Opcional. As mídias são escolhidas a dedo e vão nesta ordem — sortear por etiqueta saiu
-          de todo o bot: numa mensagem que vai para milhares de pessoas, não saber o que elas vão
-          ver é o oposto do que se quer.
+          Opcional. As mídias vão nesta ordem, escolhidas a dedo.
         </p>
         <div className="mt-2">
           <MediaPicker profileId={profileId} selected={mediaIds} onChange={setMediaIds} />
@@ -691,9 +687,7 @@ function MailingForm({
           onChange={(e) => setAudioUrl(e.target.value)}
         />
         <p className="mt-1 text-[11px] text-zinc-500">
-          Enviado como mensagem de voz <b>depois</b> do texto — o que o lead veio ler não pode
-          ficar atrás de um áudio. O Telegram baixa o arquivo sozinho, então a URL precisa ser
-          alcançável da internet.
+          Enviado como mensagem de voz <b>depois</b> do texto. A URL precisa ser alcançável da internet.
         </p>
       </div>
 

@@ -118,7 +118,7 @@ export default function BotPreview({
 
         {buttons.length === 0 && (
           <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-2 text-center text-[11px] text-amber-300">
-            Nenhum botão: sem plano cadastrado, o lead recebe a mensagem e não tem como comprar.
+            Sem plano cadastrado o lead recebe a mensagem e não tem como comprar.
           </p>
         )}
       </div>

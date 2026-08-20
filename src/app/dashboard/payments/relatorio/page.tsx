@@ -121,8 +121,7 @@ function RelatorioFinanceiro() {
             Relatório financeiro
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-500 print:hidden">
-            PIX gerados e pagamentos recebidos no período, com as curvas por horário e por dia da
-            semana.
+            PIX gerados e pagos no período, por horário e dia da semana.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 print:hidden">
@@ -188,10 +187,9 @@ function RelatorioFinanceiro() {
       </div>
 
       <p className="mt-3 text-[11px] leading-relaxed text-zinc-600 print:text-[8pt]">
-        <b>Gerados</b> conta pelo instante da geração do PIX; <b>recebido</b>, pelo instante do
-        pagamento. Um PIX gerado num dia e pago em outro aparece em dias diferentes — por isso a
-        conversão é calculada só dentro da coorte dos gerados no período, e não dividindo um
-        número pelo outro.
+        <b>Gerados</b> conta pela geração do PIX; <b>recebido</b>, pelo pagamento. Um PIX gerado num dia e
+        pago em outro cai em dias diferentes — por isso a conversão sai da coorte dos gerados no
+        período.
       </p>
 
       <p className="eyebrow secao mt-8">por horário</p>

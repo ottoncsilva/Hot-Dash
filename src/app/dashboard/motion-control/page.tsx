@@ -402,18 +402,15 @@ export default function MotionControlPage() {
 
       <div className="card mt-4 p-4">
         <p className="text-[12px] leading-relaxed text-zinc-400">
-          Dê uma foto de {profile?.name || "a modelo"} e um vídeo com o movimento que ela deve fazer —
-          a Kling 2.6 transfere a coreografia para ela. Diferente do Gerador de Vídeo, duração,
-          resolução e formato saem do próprio vídeo de referência.
+          Uma foto de {profile?.name || "a modelo"} + um vídeo com o movimento, e ela repete a
+          coreografia. Duração, resolução e formato saem do vídeo.
         </p>
 
         {/* FOTO DA MODELO */}
         <div className="mt-5">
           <label className="eyebrow">Foto da modelo</label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-            Quem vai executar o movimento. Da Galeria de {profile?.name || "a modelo"} ou do seu
-            aparelho, no mesmo botão. Mínimo 300×300, até 10 MB, em{" "}
-            {MOTION_IMAGEM_FORMATOS.join(", ")}.
+            Quem executa o movimento. Mín. 300×300, até 10 MB.
           </p>
           <div className="mt-2">
             <MediaPicker
@@ -437,9 +434,8 @@ export default function MotionControlPage() {
         <div className="mt-6">
           <label className="eyebrow">Vídeo de referência</label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-            De onde vem o movimento. Da Galeria ou do seu aparelho. De{" "}
-            {MOTION_VIDEO_SEGUNDOS_MIN} a {MOTION_VIDEO_SEGUNDOS_MAX} segundos, em{" "}
-            {MOTION_VIDEO_FORMATOS.join(", ")}.
+            De onde vem o movimento. {MOTION_VIDEO_SEGUNDOS_MIN} a {MOTION_VIDEO_SEGUNDOS_MAX}s,
+            em {MOTION_VIDEO_FORMATOS.join(", ")}.
           </p>
           <div className="mt-2">
             <MediaPicker
@@ -474,7 +470,7 @@ export default function MotionControlPage() {
             ))}
           </select>
           <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-            O Standard custa menos e serve para testar o movimento antes de repetir no Pro.
+            O Standard custa menos — bom para testar antes do Pro.
           </p>
         </div>
 
@@ -482,7 +478,7 @@ export default function MotionControlPage() {
         <div className="mt-5">
           <label className="eyebrow">Prompt (opcional)</label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-            Só para ajustar cenário, roupa ou clima — o movimento vem do vídeo, não daqui.
+            Ajusta cenário, roupa ou clima. O movimento vem do vídeo.
           </p>
           <textarea
             className="input mt-1 max-h-[220px] min-h-[80px] resize-y overflow-y-auto"
@@ -538,8 +534,7 @@ export default function MotionControlPage() {
                 className="w-full"
               />
               <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-                Perto de 0 o vídeo de referência manda em tudo; perto de 1 o prompt pesa mais e o
-                movimento pode se afastar do original.
+                Perto de 0 manda o vídeo; perto de 1 manda o prompt.
               </p>
             </div>
           )}
@@ -563,15 +558,14 @@ export default function MotionControlPage() {
               e não publica preço por unidade do motion control. Um número
               inventado aqui teria autoridade que não tem. */}
           <p className="text-[11px] leading-relaxed text-zinc-500">
-            A Magnific cobra em créditos e não informa o valor na resposta — o consumo aparece no
-            painel dela.
+            A Magnific cobra em créditos — o consumo aparece no painel dela.
           </p>
         </div>
 
         <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
-          ⚠️ Para a Magnific conseguir baixar os arquivos, a foto e o vídeo escolhidos ganham um
-          <strong className="text-zinc-400"> link público permanente</strong> — quem tiver a URL
-          abre sem login. É o mesmo link que as automações usam, então ele não é revogado depois.
+          ⚠️ A foto e o vídeo ganham um{" "}
+          <strong className="text-zinc-400">link público permanente</strong> — é assim que a
+          Magnific os baixa, e quem tiver a URL abre sem login.
         </p>
       </div>
 

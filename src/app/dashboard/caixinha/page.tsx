@@ -337,8 +337,8 @@ export default function CaixinhaPage() {
             </div>
           ) : (
             <p className="mt-1.5 text-[12px] leading-relaxed text-amber-400">
-              Esta modelo não tem características cadastradas. As ideias vão sair genéricas —
-              preencha o Perfil da modelo em Modelos.
+              Sem características cadastradas, as ideias saem genéricas — preencha o Perfil em
+              Modelos.
             </p>
           )}
         </div>
@@ -352,8 +352,7 @@ export default function CaixinhaPage() {
             onChange={(e) => setTema(e.target.value)}
           />
           <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-            Entra no prompt junto com a persona acima, como o assunto desta leva. Deixe vazio para
-            a IA escolher sozinha.
+            O assunto desta leva. Vazio, a IA escolhe sozinha.
           </p>
         </div>
 
@@ -397,16 +396,15 @@ export default function CaixinhaPage() {
             <IconPlus size={14} /> Escrever uma
           </button>
           <p className="flex-1 text-[11px] leading-relaxed text-zinc-500">
-            Cada clique pede <b>3 para cada IA acesa</b>, ao mesmo tempo —{" "}
+            Cada clique pede <b>3 por IA acesa</b> —{" "}
             {ias.length > 0 ? (
               <>
-                agora são <b>{ias.length * 3}</b> ({ias.map((p) => PROVEDOR[p]).join(" + ")}).
+                agora <b>{ias.length * 3}</b> ({ias.map((p) => PROVEDOR[p]).join(" + ")}).
               </>
             ) : (
               <b className="text-amber-400">acenda pelo menos uma IA.</b>
             )}{" "}
-            Poucos de cada um rende mais ângulo do que muitos de um só — e o que já está aqui não
-            se repete.
+            O que já está aqui não se repete.
           </p>
         </div>
 

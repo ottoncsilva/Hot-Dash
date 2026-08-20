@@ -521,8 +521,7 @@ export default function GeradorVideoPage() {
             Primeiro frame {modo === "caixinha" ? "(a foto que a IA vai analisar)" : "(opcional)"}
           </label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-            A imagem de onde o vídeo começa a se mover. Da Galeria de{" "}
-            {profile?.name || "a modelo"} ou do seu aparelho, no mesmo botão.
+            A imagem de onde o vídeo começa a se mover.
           </p>
           <div className="mt-2">
             <MediaPicker
@@ -586,8 +585,8 @@ export default function GeradorVideoPage() {
               </div>
             </div>
             <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-              Cole o texto como veio do Instagram. A IA lê a foto do primeiro frame, junta com o
-              roteiro base de {profile?.name || "a modelo"} e escreve o prompt final.
+              Cole como veio do Instagram. A IA lê o primeiro frame, junta com o roteiro base de{" "}
+              {profile?.name || "a modelo"} e escreve o prompt final.
             </p>
             <textarea
               className="input mt-1 max-h-[220px] min-h-[90px] resize-y overflow-y-auto"
@@ -603,8 +602,8 @@ export default function GeradorVideoPage() {
                 </label>
                 <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
                   {editor === "base"
-                    ? "Quem ela é, como a câmera olha para ela e o que nunca muda entre um vídeo e outro. Os campos entre colchetes são preenchidos pela IA a cada geração."
-                    : "As instruções que a IA segue para fundir a caixinha com o roteiro base. Digite @ para inserir onde cada peça entra: @transcrição, @roteiro base e @first frame."}
+                    ? "Quem ela é e o que nunca muda entre um vídeo e outro. Os colchetes a IA preenche a cada geração."
+                    : "Como a IA funde a caixinha com o roteiro base. Digite @ para: @transcrição, @roteiro base, @first frame."}
                 </p>
                 {editor === "base" ? (
                   <textarea
@@ -693,7 +692,7 @@ export default function GeradorVideoPage() {
         <div className="mt-5">
           <label className="eyebrow">Quantidade</label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-            Cada um é um vídeo separado, gerado em paralelo — o custo acompanha.
+            Cada um é um vídeo separado — o custo acompanha.
           </p>
           <div className="mt-1.5 flex gap-2">
             {Array.from({ length: MAX_QUANTIDADE }, (_, i) => i + 1).map((q) => (
@@ -791,7 +790,7 @@ export default function GeradorVideoPage() {
                   um interruptor que não faz nada seria mentira. */}
               {infoModelo.audioSempre ? (
                 <p className="text-[11px] leading-relaxed text-zinc-500">
-                  O {infoModelo.nome} sempre gera áudio junto, sem custo extra.
+                  O {infoModelo.nome} sempre gera áudio, sem custo extra.
                 </p>
               ) : (
                 <label className="flex items-center gap-2 text-sm text-zinc-300">
@@ -813,8 +812,7 @@ export default function GeradorVideoPage() {
                   onChange={(e) => setSeed(e.target.value)}
                 />
                 <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-                  A mesma seed tende a repetir o mesmo resultado — útil para variar só um detalhe do
-                  prompt sem perder o resto da composição.
+                  A mesma seed tende a repetir o resultado — bom para mudar só um detalhe.
                 </p>
               </div>
             </div>

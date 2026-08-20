@@ -177,8 +177,8 @@ export default function FunilPage() {
         {m && m.pixGenerated > m.totalStarts && (
           <p className="mt-3 text-[11px] text-amber-400/80">
             {m.totalStarts === 0
-              ? "Sem /start no período: as vendas vieram por fora do bot do Hot-Dash, então a etapa de topo do funil não tem como ser medida."
-              : "Há mais PIX do que /start no período — parte das vendas é de gente que entrou antes. As taxas de passagem ficam sem número porque não seria conversão, e sim o encontro de duas gerações de lead."}
+              ? "Sem /start no período — as vendas vieram por fora do bot, então o topo do funil não dá para medir."
+              : "Mais PIX do que /start: parte das vendas é de gente que entrou antes. As taxas ficam sem número porque não seriam conversão."}
           </p>
         )}
       </div>
@@ -313,9 +313,8 @@ export default function FunilPage() {
       </div>
       {data?.linhas.some((l) => l.profileId === null) && (
         <p className="mt-2 max-w-2xl text-[11px] text-zinc-500">
-          <b className="text-amber-400/90">Sem modelo</b>: vendas que chegaram só pelo webhook, sem
-          cobrança criada aqui — a SyncPay não informa de qual modelo é. Dá para atribuir cada uma
-          no{" "}
+          <b className="text-amber-400/90">Sem modelo</b>: vendas que vieram só pelo webhook — a SyncPay não
+          diz de qual modelo. Dá para atribuir no{" "}
           <Link href="/dashboard/payments" className="text-emerald-400 hover:underline">
             Financeiro
           </Link>

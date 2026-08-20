@@ -359,8 +359,8 @@ export default function GeradorImagemPage() {
         <div>
           <label className="eyebrow">Referências da modelo (rosto e corpo)</label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-            Escolhidas da Galeria de {profile?.name || "a modelo"}. É daqui que sai a identidade da
-            imagem gerada — ficam memorizadas no cadastro dela e valem para as próximas gerações.
+            A identidade da imagem gerada. Ficam salvas no cadastro de{" "}
+            {profile?.name || "a modelo"} e valem para as próximas gerações.
           </p>
           <div className="mt-2">
             <MediaPicker
@@ -375,12 +375,10 @@ export default function GeradorImagemPage() {
 
         {/* IMAGEM A COPIAR */}
         <div className="mt-5">
-          <label className="eyebrow">Imagem a copiar (composição, pose, cenário)</label>
+          <label className="eyebrow">Imagem a copiar</label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-            Opcional. A foto que você quer reproduzir — o pedido do assinante, por exemplo. Da
-            Galeria ou do seu aparelho, no mesmo botão; o que vem do aparelho fica só nesta geração
-            e não entra na Galeria. É enviada por ÚLTIMO, depois das fotos da modelo: por isso o
-            prompt pode se referir a ela como “a última imagem de referência”.
+            Opcional. A pose e o cenário a reproduzir. Vai por ÚLTIMO — no prompt, “a última imagem de
+            referência”.
           </p>
           <div className="mt-2">
             <MediaPicker
@@ -453,13 +451,12 @@ export default function GeradorImagemPage() {
         <div className="mt-4">
           <label className="eyebrow">Acrescentar nesta geração (opcional)</label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-            Entra no fim do prompt padrão — o que muda só nesta imagem: roupa, cenário, pose, clima.
-            Digite <span className="font-mono text-zinc-400">@</span> para citar uma imagem
-            específica; na hora de enviar ela vira a posição real (“a 2ª imagem de referência”).
+            O que muda só nesta imagem: roupa, cenário, pose, clima. Digite{" "}
+            <span className="font-mono text-zinc-400">@</span> para citar uma referência.
           </p>
           <PromptComFotos
             className="input mt-1 max-h-[220px] min-h-[70px] w-full resize-y overflow-y-auto"
-            placeholder="ex.: de biquíni vermelho, na varanda — digite @ para citar uma das imagens"
+            placeholder="ex.: de biquíni vermelho, na varanda"
             value={extra}
             onChange={setExtra}
             fotos={fotosCitaveis}
@@ -468,9 +465,8 @@ export default function GeradorImagemPage() {
 
         {citacoesRuins.length > 0 && (
           <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-[11px] leading-relaxed text-amber-300">
-            O prompt cita {citacoesRuins.join(", ")}, que não existe(m) na seleção atual. Essas
-            citações vão virar “uma das imagens de referência” — ajuste o texto ou escolha as
-            imagens que faltam.
+            O prompt cita {citacoesRuins.join(", ")}, que não existe(m) na seleção — essas
+            citações viram “uma das imagens de referência”.
           </p>
         )}
 
@@ -500,7 +496,7 @@ export default function GeradorImagemPage() {
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
             {infoModelo.maxN > 1
               ? `O ${infoModelo.nome} gera até ${infoModelo.maxN} numa chamada só.`
-              : `O ${infoModelo.nome} só gera uma por chamada — mais de uma vira chamadas repetidas, e o custo acompanha.`}
+              : `O ${infoModelo.nome} gera uma por chamada — mais de uma vira chamadas repetidas.`}
           </p>
           <div className="mt-1.5 flex gap-2">
             {Array.from({ length: MAX_QUANTIDADE }, (_, i) => i + 1).map((q) => (
@@ -582,8 +578,7 @@ export default function GeradorImagemPage() {
                 onChange={(e) => setSeed(e.target.value)}
               />
               <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-                A mesma seed tende a repetir o mesmo resultado — útil para variar só um detalhe do
-                prompt sem perder o resto da composição.
+                A mesma seed tende a repetir o resultado — bom para mudar só um detalhe.
               </p>
             </div>
           )}

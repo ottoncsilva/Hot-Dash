@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { IconPlus, IconClose, IconUpload } from "@/components/icons";
+import ToggleChip from "@/components/ToggleChip";
+import type { Tag } from "@/lib/types";
 
 /**
  * Escolha de mídia da modelo — o controle ÚNICO de "escolher foto/vídeo" do
@@ -22,7 +24,14 @@ import { IconPlus, IconClose, IconUpload } from "@/components/icons";
  * entra na Galeria — quem chama decide o que fazer com ele e devolve a
  * pré-visualização em `locais`.
  */
-type Item = { id: string; kind: "image" | "video"; updatedAt?: number; createdAt: number; filename: string };
+type Item = {
+  id: string;
+  kind: "image" | "video";
+  updatedAt?: number;
+  createdAt: number;
+  filename: string;
+  tags?: Tag[];
+};
 
 /** Um arquivo já escolhido do dispositivo, para aparecer junto das da Galeria. */
 export type ArquivoLocal = {
@@ -68,6 +77,8 @@ export default function MediaPicker({
       : allRaw;
   const [abrindo, setAbrindo] = useState(false);
   const [carregando, setCarregando] = useState(false);
+  /** Etiquetas marcadas no filtro. Vazio = sem filtro. */
+  const [filtro, setFiltro] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
 
   const carregar = useCallback(async () => {
@@ -92,6 +103,24 @@ export default function MediaPicker({
   const escolhidas = selected
     .map((id) => all.find((m) => m.id === id) || { id, kind: "image" as const, createdAt: 0, filename: "" })
     .filter(Boolean);
+
+  // As etiquetas vêm das PRÓPRIAS mídias já carregadas — só aparecem as que
+  // esta modelo de fato usa. Uma lista com todas as do sistema encheria o
+  // painel de opções que não filtram nada aqui.
+  const etiquetas = useMemo(() => {
+    const mapa = new Map<string, Tag>();
+    for (const m of all) for (const t of m.tags || []) if (!mapa.has(t.id)) mapa.set(t.id, t);
+    return [...mapa.values()].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  }, [all]);
+
+  // Marcar duas etiquetas mostra a união, não a interseção: quem procura "de
+  // biquíni ou na praia" quer as duas pilhas, e a interseção quase sempre sai
+  // vazia.
+  const visiveis = useMemo(
+    () =>
+      filtro.size === 0 ? all : all.filter((m) => (m.tags || []).some((t) => filtro.has(t.id))),
+    [all, filtro],
+  );
 
   const total = selected.length + locais.length;
   const aceita = apenasVideos ? "video/*" : apenasImagens ? "image/*" : "image/*,video/*";
@@ -200,6 +229,39 @@ export default function MediaPicker({
             </div>
           ) : (
             <>
+              {/* FILTRO POR ETIQUETA. A Galeria da modelo passa de centenas de
+                  itens; sem isto, achar "a foto de biquíni" aqui dentro é
+                  rolar a grade inteira. */}
+              {etiquetas.length > 0 && (
+                <div className="mb-2 flex flex-wrap items-center gap-1.5 border-b border-white/5 pb-2">
+                  {etiquetas.map((t) => (
+                    <ToggleChip
+                      key={t.id}
+                      active={filtro.has(t.id)}
+                      color={t.color}
+                      onClick={() =>
+                        setFiltro((antes) => {
+                          const proximo = new Set(antes);
+                          if (proximo.has(t.id)) proximo.delete(t.id);
+                          else proximo.add(t.id);
+                          return proximo;
+                        })
+                      }
+                    >
+                      {t.name}
+                    </ToggleChip>
+                  ))}
+                  {filtro.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setFiltro(new Set())}
+                      className="font-mono text-[10px] uppercase tracking-wider text-zinc-500 hover:text-white"
+                    >
+                      limpar
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="grid max-h-64 grid-cols-5 gap-1.5 overflow-y-auto sm:grid-cols-8">
                 {/* PRIMEIRO item: o aparelho. Fica na grade, e não num botão à
                     parte, porque a pergunta é a mesma das outras casinhas. */}
@@ -213,7 +275,7 @@ export default function MediaPicker({
                     <span className="px-0.5 text-center text-[9px] leading-tight">do aparelho</span>
                   </button>
                 )}
-                {all.map((m) => {
+                {visiveis.map((m) => {
                   const i = selected.indexOf(m.id);
                   return (
                     <button
@@ -238,15 +300,18 @@ export default function MediaPicker({
                   );
                 })}
               </div>
-              {all.length === 0 && (
+              {visiveis.length === 0 && (
                 <p className="pt-2 text-center text-xs text-zinc-500">
-                  Nenhuma mídia na Galeria desta modelo ainda.
+                  {all.length === 0
+                    ? "Nenhuma mídia na Galeria desta modelo ainda."
+                    : "Nenhuma mídia com estas etiquetas."}
                 </p>
               )}
             </>
           )}
           <p className="mt-2 text-center text-[11px] text-zinc-500">
             {total}/{max} escolhidas · clique para incluir ou tirar
+            {filtro.size > 0 && ` · ${visiveis.length} de ${all.length} pelo filtro`}
           </p>
           {onArquivo && (
             <input

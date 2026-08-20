@@ -118,9 +118,15 @@ export async function POST(
         ? getImageDimensions(cleaned, ext)
         : await getVideoInfo(absolutePath(relPath));
 
+    // Mídia OCULTA: insumo de recurso (ex.: o vídeo de referência do Motion
+    // Control, que a Magnific busca por link público) — fica gravada com todo
+    // o encanamento normal, mas fora da Galeria da modelo.
+    const hidden = form.get("hidden") === "1";
+
     const item = insertMedia({
       id,
       profileId: params.id,
+      hidden,
       filename: file.name,
       relPath,
       kind,

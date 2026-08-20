@@ -73,6 +73,20 @@ function isReservedHost(hostname: string): boolean {
   return false;
 }
 
+/**
+ * A base é alcançável da INTERNET? Mais frouxo que `webhookOriginProblem`:
+ * não exige HTTPS nem porta do Telegram — só que o host não seja interno.
+ * É o que basta para um serviço externo baixar um arquivo nosso (o Motion
+ * Control manda a Magnific buscar a foto e o vídeo por link).
+ */
+export function origemAlcancavel(origin: string): boolean {
+  try {
+    return !isReservedHost(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** Um candidato serve como base pública? */
 function isUsableOrigin(origin: string | null): origin is string {
   if (!origin) return false;

@@ -166,6 +166,13 @@ export const IconSparkle = (p: IconProps) => (
   </Base>
 );
 
+export const IconFire = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M12 3c.6 2.4 2 3.4 3.3 4.8A6.8 6.8 0 0 1 17.5 13a5.5 5.5 0 0 1-11 0c0-1.8.8-3 1.8-4.2.3 .8.9 1.4 1.7 1.7C9.6 8 10.4 5.4 12 3z" />
+    <path d="M12 20a2.6 2.6 0 0 1-2.6-2.6c0-1.5 1.3-2.3 2.6-4 1.3 1.7 2.6 2.5 2.6 4A2.6 2.6 0 0 1 12 20z" />
+  </Base>
+);
+
 export const IconLock = (p: IconProps) => (
   <Base {...p}>
     <rect x="4.5" y="10" width="15" height="10" rx="2" />

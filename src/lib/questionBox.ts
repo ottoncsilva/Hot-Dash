@@ -56,6 +56,9 @@ export type QuestionBoxItem = {
   provider?: string;
   used: boolean;
   usedAt?: number;
+  /** Rendeu nas redes — candidata a repostar. Só existe em item já usado. */
+  viral: boolean;
+  viralAt?: number;
   createdAt: number;
 };
 
@@ -70,6 +73,8 @@ type Row = {
   provider: string | null;
   used: number;
   used_at: number | null;
+  viral: number;
+  viral_at: number | null;
   created_at: number;
 };
 
@@ -85,6 +90,8 @@ function toClient(r: Row): QuestionBoxItem {
     provider: r.provider || undefined,
     used: r.used === 1,
     usedAt: r.used_at || undefined,
+    viral: r.viral === 1,
+    viralAt: r.viral_at || undefined,
     createdAt: r.created_at,
   };
 }
@@ -92,8 +99,11 @@ function toClient(r: Row): QuestionBoxItem {
 export function listQuestionBoxItems(profileId: string): QuestionBoxItem[] {
   const rows = getDb()
     .prepare(
+      // Não usadas primeiro (é a resposta para "o que eu posto hoje?"), depois
+      // as que viralizaram — que são material provado, esperando a repetição —
+      // e por último o resto das usadas.
       `SELECT * FROM question_box_items WHERE profile_id = ?
-        ORDER BY used ASC, created_at DESC`,
+        ORDER BY used ASC, viral DESC, created_at DESC`,
     )
     .all(profileId) as Row[];
   return rows.map(toClient);
@@ -101,9 +111,66 @@ export function listQuestionBoxItems(profileId: string): QuestionBoxItem[] {
 
 export function setQuestionBoxUsed(id: string, used: boolean): QuestionBoxItem | null {
   const db = getDb();
-  db.prepare("UPDATE question_box_items SET used = ?, used_at = ? WHERE id = ?").run(
-    used ? 1 : 0,
-    used ? Date.now() : null,
+  // Desmarcar "usada" apaga o "viralizou" junto: a ideia volta a ser algo que
+  // nunca foi ao ar, e post que não saiu não pode ter viralizado.
+  db.prepare(
+    `UPDATE question_box_items
+        SET used = ?, used_at = ?,
+            viral = CASE WHEN ? = 0 THEN 0 ELSE viral END,
+            viral_at = CASE WHEN ? = 0 THEN NULL ELSE viral_at END
+      WHERE id = ?`,
+  ).run(used ? 1 : 0, used ? Date.now() : null, used ? 1 : 0, used ? 1 : 0, id);
+  const row = db.prepare("SELECT * FROM question_box_items WHERE id = ?").get(id) as Row | undefined;
+  return row ? toClient(row) : null;
+}
+
+/**
+ * Marca (ou desmarca) que a ideia viralizou.
+ *
+ * Marcar como viral IMPLICA usada — o botão só aparece em item já usado, mas a
+ * regra fica aqui para a rota não depender da tela.
+ */
+export function setQuestionBoxViral(id: string, viral: boolean): QuestionBoxItem | null {
+  const db = getDb();
+  const agora = Date.now();
+  if (viral) {
+    db.prepare(
+      `UPDATE question_box_items
+          SET viral = 1, viral_at = ?,
+              used = 1, used_at = COALESCE(used_at, ?)
+        WHERE id = ?`,
+    ).run(agora, agora, id);
+  } else {
+    db.prepare("UPDATE question_box_items SET viral = 0, viral_at = NULL WHERE id = ?").run(id);
+  }
+  const row = db.prepare("SELECT * FROM question_box_items WHERE id = ?").get(id) as Row | undefined;
+  return row ? toClient(row) : null;
+}
+
+/**
+ * Ajusta o texto de uma ideia — a qualquer momento, usada ou não.
+ *
+ * A ideia da IA às vezes chega quase pronta: o ângulo é bom e uma palavra
+ * está errada. Sem poder editar, o caminho era apagar e reescrever à mão,
+ * perdendo de quem veio e quando nasceu.
+ *
+ * A DURAÇÃO é recalculada do texto novo — ela é o que decide se a ideia cabe
+ * na sequência de stories do dia, e ficar com o número da versão antiga seria
+ * pior do que não ter número.
+ */
+export function updateQuestionBoxItem(
+  id: string,
+  text: string,
+  idea?: string,
+): QuestionBoxItem | null {
+  const db = getDb();
+  const limpo = text.trim();
+  if (!limpo) return null;
+  const ideia = (idea || "").trim();
+  db.prepare("UPDATE question_box_items SET text = ?, idea = ?, seconds = ? WHERE id = ?").run(
+    limpo.slice(0, 400),
+    ideia.slice(0, 600) || null,
+    segundosDoTexto(limpo, ideia),
     id,
   );
   const row = db.prepare("SELECT * FROM question_box_items WHERE id = ?").get(id) as Row | undefined;
@@ -133,6 +200,8 @@ export function addQuestionBoxItem(
     provider: "manual",
     used: 0,
     used_at: null,
+    viral: 0,
+    viral_at: null,
     created_at: Date.now(),
   };
   getDb()
@@ -514,6 +583,7 @@ export async function gerarIdeias(
         seconds: segundos,
         provider: r.provider,
         used: false,
+        viral: false,
         createdAt: agora,
       });
     }

@@ -7,6 +7,8 @@ import {
   gerarIdeias,
   listQuestionBoxItems,
   setQuestionBoxUsed,
+  setQuestionBoxViral,
+  updateQuestionBoxItem,
   type QuestionBoxKind,
 } from "@/lib/questionBox";
 
@@ -52,6 +54,20 @@ export async function POST(req: NextRequest) {
 
     if (action === "toggle-used") {
       const item = setQuestionBoxUsed(String(body.id || ""), Boolean(body.used));
+      if (!item) throw new ApiError(404, "Ideia não encontrada.");
+      return NextResponse.json({ item });
+    }
+
+    if (action === "toggle-viral") {
+      const item = setQuestionBoxViral(String(body.id || ""), Boolean(body.viral));
+      if (!item) throw new ApiError(404, "Ideia não encontrada.");
+      return NextResponse.json({ item });
+    }
+
+    if (action === "edit") {
+      const text = String(body.text || "").trim();
+      if (!text) throw new ApiError(400, "Escreva a pergunta ou a frase.");
+      const item = updateQuestionBoxItem(String(body.id || ""), text, String(body.idea || ""));
       if (!item) throw new ApiError(404, "Ideia não encontrada.");
       return NextResponse.json({ item });
     }

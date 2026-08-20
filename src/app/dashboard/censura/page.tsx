@@ -554,15 +554,14 @@ export default function CensuraPage() {
                     className="mt-1.5 w-full accent-white"
                   />
                   <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-                    Acima de uns 80% o quadro só fica mais escuro, não mais escondido — quem
-                    esconde é o desfoque.
+                    Acima de ~80% só escurece o quadro — quem esconde é o desfoque.
                   </p>
                 </div>
               )}
               {modoVideo === "emoji" && (
                 <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-                  Usa os mesmos emojis escolhidos acima. O vídeo volta pronto — diferente da foto,
-                  não dá para arrastar o emoji com a mão, porque quem monta é o servidor.
+                  Usa os emojis escolhidos acima. O vídeo volta pronto — aqui não dá para arrastar
+                  o emoji com a mão.
                 </p>
               )}
             </div>
@@ -632,9 +631,8 @@ export default function CensuraPage() {
               <IconBlur size={30} />
               <p className="mt-3 font-display text-lg text-zinc-300">Editor de censura</p>
               <p className="mt-1 max-w-sm text-sm text-zinc-500">
-                Carregue fotos e vídeos — pode ser tudo junto — e clique em{" "}
-                <b>Detectar e editar</b>. Aparecem aqui, um embaixo do outro, na ordem em que
-                foram carregados.
+                Carregue fotos e vídeos juntos e clique em <b>Detectar e editar</b>. Aparecem aqui
+                na ordem em que entraram.
               </p>
             </div>
           )}
@@ -759,9 +757,8 @@ function VideoJobCard({
 
       {nada && (
         <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-2.5 text-[11px] leading-relaxed text-amber-300">
-          A IA não encontrou nenhuma das partes escolhidas em {job.amostras} quadro(s) analisado(s)
-          — este vídeo voltou <b>sem alteração</b>. Use o borrão total, ou confira se a parte certa
-          está marcada.
+          A IA não achou as partes escolhidas em {job.amostras} quadro(s) — o vídeo voltou{" "}
+          <b>sem alteração</b>. Use o borrão total ou revise a parte marcada.
         </p>
       )}
 
@@ -771,8 +768,8 @@ function VideoJobCard({
           <b className="text-zinc-300">
             {job.partesCobertas.map((p) => BODY_PART_LABELS[p] || p).join(", ")}
           </b>
-          . Onde a detecção falhou, o emoji foi mantido na última posição e a região continuou
-          borrada. Confira os trechos com movimento rápido antes de postar.
+          . Onde a detecção falhou o emoji ficou na última posição, ainda borrado — confira os
+          trechos de movimento rápido.
         </p>
       )}
 

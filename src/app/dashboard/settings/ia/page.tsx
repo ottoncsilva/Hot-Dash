@@ -462,9 +462,8 @@ export default function AiSettingsPage() {
                   onChange={(e) => setGoogleMediaKey(e.target.value)}
                 />
                 <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-                  Os geradores de imagem e vídeo usam o Nano Banana e o Veo pela chave acima.
-                  Preencha aqui só para cobrá-los noutro projeto do Google — os dois exigem
-                  plano pago, e a chave de texto pode ser de um projeto gratuito.
+                  Preencha só para cobrar o Nano Banana e o Veo noutro projeto do Google. Os dois exigem plano pago; a
+                  chave de texto pode ser de um projeto gratuito.
                 </p>
               </div>
 

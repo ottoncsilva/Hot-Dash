@@ -407,9 +407,8 @@ export default function FirstFramePage() {
             {zipping ? "Montando ZIP..." : `Baixar todos em ZIP${stats.prontos ? ` (${stats.prontos})` : ""}`}
           </button>
           <p className="mt-1.5 text-[11px] text-zinc-500">
-            Cada imagem sai com o nome do vídeo + <b className="text-zinc-400">-ff</b> (ex.:{" "}
-            <span className="font-mono">clipe.mp4</span> →{" "}
-            <span className="font-mono">clipe-ff{FRAME_EXT[format]}</span>).
+            Sai como <span className="font-mono">clipe.mp4</span> →{" "}
+            <span className="font-mono">clipe-ff{FRAME_EXT[format]}</span>.
           </p>
           <button onClick={resetAll} disabled={stats.ajustados === 0} className="btn-ghost mt-2 w-full">
             Voltar todos ao primeiro frame
@@ -455,8 +454,8 @@ export default function FirstFramePage() {
               <IconFilm size={30} />
               <p className="mt-3 font-display text-lg text-zinc-300">Nenhum vídeo carregado</p>
               <p className="mt-1 max-w-sm text-sm text-zinc-500">
-                Carregue os vídeos ao lado. Cada um aparece aqui já no primeiro frame — arraste a
-                linha do tempo se quiser outro quadro.
+                Carregue os vídeos ao lado. Cada um abre no primeiro frame — arraste a linha do
+                tempo para outro.
               </p>
             </div>
           )}

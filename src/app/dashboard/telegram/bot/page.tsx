@@ -636,9 +636,8 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
             ))}
           </ul>
           <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">
-            Promova o bot a <b>administrador</b> nos grupos, com permissão de{" "}
-            <b>convidar por link</b> e <b>remover membros</b>. Sem isso ele não gera o convite do
-            VIP depois do pagamento nem aprova entradas.
+            Promova o bot a <b>administrador</b> nos grupos, com <b>convidar por link</b> e{" "} <b>remover
+            membros</b>. Sem isso não há convite do VIP nem aprovação.
           </p>
         </div>
       )}
@@ -1012,9 +1011,8 @@ function PixRow({
         onChange={setLegenda}
       />
       <p className="mt-1 text-[11px] text-zinc-500">
-        Aceita as marcações do Telegram (<code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>,{" "}
-        <code>&lt;code&gt;</code>). Se você remover <b>{"{pix_code}"}</b>, o código é acrescentado no
-        fim mesmo assim.
+        Aceita <code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;code&gt;</code>. Sem{" "}
+        <b>{"{pix_code}"}</b>, o código entra no fim mesmo assim.
       </p>
 
       {/* Prova social — números REAIS, e só isso. Não existe campo para
@@ -1025,8 +1023,7 @@ function PixRow({
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white">Prova social</p>
             <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-              Uma linha acima do PIX com os números <b>reais</b> desta modelo. Quando o número do
-              dia é zero, a linha não é enviada.
+              Uma linha acima do PIX com os números <b>reais</b> desta modelo. Zerado, não é enviada.
             </p>
           </div>
           <Switch checked={prova} onChange={setProva} ariaLabel="Prova social" />
@@ -1054,9 +1051,8 @@ function PixRow({
 
       <label className="eyebrow mt-5 block">Botões que acompanham o PIX</label>
       <p className="mb-1.5 mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-        A mensagem vai como <b>texto</b>, não como legenda de foto: só assim o Telegram faz
-        &quot;toque para copiar&quot; no código, e a legenda de foto cortaria a chave (limite de
-        1024 caracteres). O QR fica atrás do botão.
+        Vai como <b>texto</b>, não legenda de foto — só assim o Telegram faz &quot;toque para copiar&quot;
+        no código. O QR fica atrás do botão.
       </p>
       <div className="grid gap-2 sm:grid-cols-3">
         <input
@@ -1087,8 +1083,8 @@ function PixRow({
         onChange={(e) => setNaoPago(e.target.value)}
       />
       <p className="mt-1 text-[11px] text-zinc-500">
-        Enviada quando o cliente toca em <b>Verificar Status</b> e a confirmação do gateway ainda
-        não chegou. Se já constar paga, o bot reenvia o acesso.
+        Enviada quando o cliente toca em <b>Verificar Status</b> e o pagamento ainda não consta. Se já
+        constar pago, o bot reenvia o acesso.
       </p>
 
       <label className="eyebrow mt-4 block">Áudio do PIX (URL pública .ogg)</label>
@@ -1099,10 +1095,8 @@ function PixRow({
         onChange={(e) => setAudio(e.target.value)}
       />
       <p className="mt-1 text-[11px] text-zinc-500">
-        Enviado como mensagem de voz <b>depois</b> do PIX — o código copia-e-cola é o que o cliente
-        veio buscar e não pode ficar atrás de um áudio. O Telegram baixa o arquivo sozinho, então a
-        URL precisa ser alcançável da internet; fora do formato OGG/OPUS ele entrega como arquivo
-        comum, sem a bolha de áudio.
+        Vai como voz <b>depois</b> do PIX. A URL precisa ser alcançável da internet; fora de OGG/OPUS o
+        Telegram entrega como arquivo comum, sem a bolha de áudio.
       </p>
 
       <EfeitoPicker
@@ -2275,9 +2269,7 @@ function CoresBotoesRow({
         lista.
       </p>
       <p className="mt-2 rounded-lg border border-indigo-500/25 bg-indigo-500/[0.07] p-2.5 text-[11px] leading-relaxed text-zinc-300">
-        A cor chegou na <b>Bot API 9.4</b> (fev/2026) e aparece nos apps atualizados. Em apps antigos
-        o botão sai na cor padrão — o texto e a ação continuam funcionando, então não há risco em
-        ligar.
+        A cor chegou na <b>Bot API 9.4</b>. Em apps antigos o botão sai na cor padrão, sem quebrar nada.
       </p>
 
       <div className="mt-4 space-y-3">
@@ -2628,9 +2620,8 @@ function WelcomeSequence({
     <div className="mt-5">
       <p className="text-sm font-semibold text-white">{titulo}</p>
       <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-        Enviadas no <b>privado</b> de quem foi aprovado. Só chegam se a pessoa já tiver dado{" "}
-        <code>/start</code> no bot — antes disso o Telegram proíbe a mensagem. Deixe vazio para não
-        enviar nada.
+        Vão no <b>privado</b> de quem foi aprovado, e só se a pessoa já tiver dado{" "} <code>/start</code>.
+        Vazio, não envia nada.
       </p>
 
       {/* REUSAR A MENSAGEM DE BOAS-VINDAS. É a mesma conversa: quem entra no
@@ -2641,8 +2632,8 @@ function WelcomeSequence({
           <div className="min-w-0">
             <p className="text-sm font-medium text-zinc-100">Usar a mensagem de boas-vindas</p>
             <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-              Manda a MESMA mensagem do <code>/start</code> — texto, mídias e botões dos planos —
-              como primeira mensagem. Editar as boas-vindas muda as duas de uma vez.
+              Manda a MESMA mensagem do <code>/start</code> — texto, mídias e botões. Editar as boas-vindas muda
+              as duas.
             </p>
           </div>
           <Switch
@@ -2843,8 +2834,7 @@ function BumpEditor({
         <div className="min-w-0">
           <p className="text-sm font-semibold text-white">Order Bump</p>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-            Oferta extra mostrada depois de escolher este plano e antes de gerar o PIX. O aceite
-            soma ao <b>mesmo</b> pagamento.
+            Oferta extra depois de escolher o plano, antes do PIX. O aceite soma ao <b>mesmo</b> pagamento.
           </p>
         </div>
         <Switch
@@ -2920,9 +2910,8 @@ function BumpEditor({
             </div>
           </div>
           <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-            Aparecem lado a lado, sem mostrar o preço. O aceitar ganha ✅ e o recusar ❌
-            automaticamente — se você já puser um emoji no texto, ele é mantido como está. A cor sai
-            de <b>Configurações → Bot de vendas</b>.
+            Lado a lado, sem preço. Ganham ✅ e ❌ automaticamente (emoji seu é mantido). A cor sai de{" "}
+            <b>Configurações → Bot de vendas</b>.
           </p>
 
           <label className="eyebrow mt-3 block">Mídia da oferta (opcional)</label>

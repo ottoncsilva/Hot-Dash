@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { IconPlus, IconClose, IconUpload } from "@/components/icons";
 import ToggleChip from "@/components/ToggleChip";
+import FilterDropdown from "@/components/FilterDropdown";
 import type { Tag } from "@/lib/types";
 
 /**
@@ -231,35 +232,43 @@ export default function MediaPicker({
             <>
               {/* FILTRO POR ETIQUETA. A Galeria da modelo passa de centenas de
                   itens; sem isto, achar "a foto de biquíni" aqui dentro é
-                  rolar a grade inteira. */}
+                  rolar a grade inteira.
+                  Vive num MENU SUSPENSO, e não numa fileira de chips: uma
+                  operação com uma dúzia de etiquetas enchia a largura do painel
+                  e empurrava a grade para fora da tela — o mesmo motivo pelo
+                  qual a Galeria já usa este componente. */}
               {etiquetas.length > 0 && (
-                <div className="mb-2 flex flex-wrap items-center gap-1.5 border-b border-white/5 pb-2">
-                  {etiquetas.map((t) => (
-                    <ToggleChip
-                      key={t.id}
-                      active={filtro.has(t.id)}
-                      color={t.color}
-                      onClick={() =>
-                        setFiltro((antes) => {
-                          const proximo = new Set(antes);
-                          if (proximo.has(t.id)) proximo.delete(t.id);
-                          else proximo.add(t.id);
-                          return proximo;
-                        })
-                      }
-                    >
-                      {t.name}
-                    </ToggleChip>
-                  ))}
-                  {filtro.size > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setFiltro(new Set())}
-                      className="font-mono text-[10px] uppercase tracking-wider text-zinc-500 hover:text-white"
-                    >
-                      limpar
-                    </button>
-                  )}
+                <div className="mb-2 border-b border-white/5 pb-2">
+                  <FilterDropdown label="etiquetas" count={filtro.size}>
+                    <div className="flex flex-wrap gap-2">
+                      {etiquetas.map((t) => (
+                        <ToggleChip
+                          key={t.id}
+                          active={filtro.has(t.id)}
+                          color={t.color}
+                          onClick={() =>
+                            setFiltro((antes) => {
+                              const proximo = new Set(antes);
+                              if (proximo.has(t.id)) proximo.delete(t.id);
+                              else proximo.add(t.id);
+                              return proximo;
+                            })
+                          }
+                        >
+                          {t.name}
+                        </ToggleChip>
+                      ))}
+                    </div>
+                    {filtro.size > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setFiltro(new Set())}
+                        className="mt-3 font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-white"
+                      >
+                        limpar etiquetas
+                      </button>
+                    )}
+                  </FilterDropdown>
                 </div>
               )}
               <div className="grid max-h-64 grid-cols-5 gap-1.5 overflow-y-auto sm:grid-cols-8">

@@ -94,8 +94,7 @@ export default function TagSettingsPage() {
         <IconTag size={20} /> Etiquetas
       </h1>
       <p className="mt-2 text-sm text-zinc-500">
-        Crie etiquetas para categorizar fotos e vídeos na Biblioteca de Mídia
-        — depois é só aplicar em cada item e filtrar/agrupar por elas.
+        Etiquetas para categorizar as mídias da Galeria e depois filtrar por elas.
       </p>
 
       {tags.length > 0 && (

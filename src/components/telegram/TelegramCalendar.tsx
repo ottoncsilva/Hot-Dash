@@ -650,7 +650,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
                         </div>
                       ))}
                     </div>
-                    <p className="mt-3 text-[11px] text-[#8e98a3]">Enviada como enquete nativa do Telegram. Para alterar as opções, use “Editar post completo”.</p>
+                    <p className="mt-3 text-[11px] text-[#8e98a3]">Enquete nativa do Telegram. Para mudar as opções, use “Editar post completo”.</p>
                   </div>
                 </div>
               ) : (

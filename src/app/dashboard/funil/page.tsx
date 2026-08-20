@@ -354,10 +354,9 @@ export default function FunilPage() {
       <p className="eyebrow mt-8">crescimento dos grupos</p>
       <div className="mt-3 card p-4">
         <p className="text-xs text-zinc-500">
-          As <b>barras</b> são o total de membros de cada dia, medido por consulta ao Telegram
-          (funciona mesmo sem o Hot-Dash operar o bot). As <b>linhas</b> são quantos entraram e
-          quantos saíram, contados pelos eventos do bot — só existem nos dias em que o Hot-Dash
-          estava operando. Toque num dia para ver os números dele.
+          <b>Barras</b>: total de membros por dia, consultado no Telegram. <b>Linhas</b>: entradas e saídas
+          pelos eventos do bot, só nos dias em que o Hot-Dash operava. Toque num dia para ver os
+          números.
         </p>
         <CrescimentoGrupos series={grupos} />
       </div>
@@ -417,8 +416,7 @@ export default function FunilPage() {
           <div className="h-12 animate-pulse rounded bg-white/[0.03]" />
         ) : data.planos.length === 0 ? (
           <p className="text-xs text-zinc-600">
-            Nenhuma venda ligada a um plano no período. O vínculo é criado quando a compra passa
-            pelo bot de vendas do Hot-Dash.
+            Nenhuma venda ligada a um plano — o vínculo nasce quando a compra passa pelo bot de vendas.
           </p>
         ) : (
           <div className="space-y-2">
@@ -538,7 +536,7 @@ function CrescimentoGrupos({ series }: { series: GroupGrowthPoint[] | null }) {
   if (series.length === 0) {
     return (
       <p className="mt-4 text-xs text-zinc-600">
-        Ainda sem histórico. A medição do tamanho dos grupos começa no primeiro dia.
+        Ainda sem histórico — a medição começa no primeiro dia.
       </p>
     );
   }

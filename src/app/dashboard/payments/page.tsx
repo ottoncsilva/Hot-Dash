@@ -525,8 +525,7 @@ function EditarCobranca({
             ))}
           </select>
           <p className="mt-1 text-[11px] text-zinc-600">
-            Venda que chega só pelo webhook nasce sem modelo — a SyncPay não informa de qual é.
-            Atribuir aqui faz ela entrar no Funil de Vendas do modelo certo.
+            Venda que chega só pelo webhook nasce sem modelo. Atribuir aqui a coloca no Funil de Vendas certo.
           </p>
         </div>
         <div className="grid grid-cols-3 gap-3">

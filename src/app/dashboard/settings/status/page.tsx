@@ -98,8 +98,7 @@ export default function ProfileStatusSettingsPage() {
         <IconDot size={20} /> Status de modelos
       </h1>
       <p className="mt-2 text-sm text-zinc-500">
-        Crie, renomeie e mude a cor dos status usados na tela Modelos (ex.:
-        Online, Configurando, Pausado) — depois é só escolher em cada modelo.
+        Crie, renomeie e recolora os status da tela Modelos (Online, Configurando, Pausado…).
       </p>
 
       {statuses.length > 0 && (

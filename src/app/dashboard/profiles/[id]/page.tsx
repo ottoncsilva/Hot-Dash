@@ -301,7 +301,7 @@ export default function ProfileDetailPage() {
               <div className="mb-1 font-display text-sm font-semibold text-white/90">
                 Perfil da modelo · <span className="text-zinc-500 font-normal">a I.A. escreve a Copy</span>
               </div>
-              <p className="text-xs text-zinc-500 mb-4">A I.A. cria uma legenda com micro-história no fetiche da modelo, no formato certo pro Telegram.</p>
+              <p className="text-xs text-zinc-500 mb-4">A IA escreve a legenda no fetiche da modelo, no formato do Telegram.</p>
             </div>
 
             <div>
@@ -420,7 +420,7 @@ export default function ProfileDetailPage() {
             <div className="panel rounded-xl p-4 space-y-3">
               <p className="eyebrow">WhatsApp particular (posts do VIP)</p>
               <p className="text-xs text-zinc-500 -mt-1">
-                Botão que puxa o lead do grupo VIP pro seu WhatsApp. Aparece só nos posts VIP que você marcar (no preview do post).
+                Puxa o lead do grupo VIP para o WhatsApp. Aparece só nos posts VIP que você marcar.
               </p>
               <div>
                 <label className="eyebrow mb-1.5 block">Link do WhatsApp</label>
@@ -488,8 +488,7 @@ export default function ProfileDetailPage() {
             <div className="panel rounded-xl p-4">
               <p className="eyebrow">Bot do Telegram</p>
               <p className="mt-1 text-xs text-zinc-500">
-                Token do @BotFather + IDs dos grupos. Usado tanto na automação de postagens quanto
-                no bot de vendas desta modelo.
+                Token do @BotFather + IDs dos grupos. Vale para as postagens e para o bot de vendas.
               </p>
               <div className="mt-3 space-y-3">
                 <div>
@@ -506,8 +505,7 @@ export default function ProfileDetailPage() {
                   />
                   {hasToken && (
                     <p className="mt-1 text-[11px] text-zinc-500">
-                      O token salvo não é exibido de volta — ele dá controle total do bot. Deixe em
-                      branco para mantê-lo.
+                      O token salvo não volta para a tela — ele dá controle total do bot. Vazio, mantém o atual.
                     </p>
                   )}
                 </div>
@@ -539,7 +537,7 @@ export default function ProfileDetailPage() {
                       onChange={(e) => setBotIdPrevias(e.target.value)}
                     />
                     <p className="mt-1 text-[11px] text-zinc-500">
-                      Grupo gratuito de aquecimento. Também recebe as postagens automáticas.
+                      Grupo gratuito de aquecimento. Também recebe as postagens.
                     </p>
                     {hasToken && (
                       <div className="mt-1.5">

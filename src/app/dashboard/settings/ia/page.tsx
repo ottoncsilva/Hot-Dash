@@ -283,10 +283,8 @@ export default function AiSettingsPage() {
       <BackToSettings />
       <h1 className="mt-4 font-display text-2xl font-semibold tracking-tight">Conexão com IA</h1>
       <p className="mt-2 text-sm text-zinc-500">
-        Usada para gerar legendas e para montar o Cronograma automaticamente.
-        Ative um ou os dois provedores abaixo e cole a chave de API — ela fica
-        criptografada (AES-256) no servidor. Qual usar é escolhido na hora de
-        cada atividade, não há um provedor fixo.
+        Gera legendas e monta o Cronograma. Ative um provedor e cole a chave — ela fica criptografada no
+        servidor. Qual usar é escolhido em cada atividade.
       </p>
 
       <div className="mt-4 flex flex-col gap-4">
@@ -462,8 +460,7 @@ export default function AiSettingsPage() {
                   onChange={(e) => setGoogleMediaKey(e.target.value)}
                 />
                 <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-                  Preencha só para cobrar o Nano Banana e o Veo noutro projeto do Google. Os dois exigem plano pago; a
-                  chave de texto pode ser de um projeto gratuito.
+                  Só para cobrar o Nano Banana e o Veo noutro projeto do Google — os dois exigem plano pago.
                 </p>
               </div>
 
@@ -496,7 +493,7 @@ export default function AiSettingsPage() {
             />
           </label>
           <p className="mt-2 text-xs text-zinc-500">
-            Usado exclusivamente como o "Cérebro" sem censura do seu Agente de Vendas no WhatsApp (xAI ou OpenRouter).
+            O cérebro sem censura do Agente de Vendas no WhatsApp (xAI ou OpenRouter).
           </p>
           {grokEnabled && (
             <div className="grid gap-4 md:grid-cols-2 mt-4">
@@ -683,7 +680,7 @@ export default function AiSettingsPage() {
             />
           </label>
           <p className="mt-2 text-xs text-zinc-500">
-            Usado no Estúdio de Criação para edição mágica de fotos com SeeDream (consistência de rosto/corpo) e geração de vídeos/dancinhas com Kling (Motion Control). Ambos são acessados através da API do Magnific.
+            SeeDream (edição de fotos) e Kling (Motion Control), pela API do Magnific.
           </p>
           {magnificEnabled && (
             <div className="grid gap-4 md:grid-cols-2 mt-4">
@@ -741,8 +738,7 @@ export default function AiSettingsPage() {
             <div className="grid gap-4 md:grid-cols-2 mt-4 border-t border-white/10 pt-4">
               <p className="md:col-span-2 text-xs text-zinc-500">
                 <b>Avançado (opcional):</b> se preferir, aponte para um serviço{" "}
-                <span className="font-mono">nudenet-service</span> externo em vez do motor
-                embutido. Deixe a URL em branco para continuar usando o motor embutido.
+                <span className="font-mono">nudenet-service</span> externo em vez do motor embutido. URL em branco mantém o embutido.
               </p>
               <div className="md:col-span-2">
                 <label className="eyebrow mb-1.5 block">URL do serviço (opcional)</label>

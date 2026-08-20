@@ -125,8 +125,7 @@ export default function PushToggle() {
       <div className="rounded-lg border border-amber-500/20 bg-amber-500/[0.06] p-4 text-sm text-amber-200">
         <p className="font-semibold">Falta instalar o app no iPhone</p>
         <p className="mt-1 text-xs text-amber-200/80">
-          No iPhone/iPad a Apple só entrega notificações quando o Hot Dash está na tela de
-          início. No Safari, toque em <b>Compartilhar</b> → <b>Adicionar à Tela de Início</b>,
+          No iPhone a Apple só entrega notificações com o app na tela de início. No Safari, toque em <b>Compartilhar</b> → <b>Adicionar à Tela de Início</b>,
           abra o app por lá e volte aqui para ativar.
         </p>
       </div>
@@ -136,8 +135,8 @@ export default function PushToggle() {
   if (!supported) {
     return (
       <div className="rounded-lg border border-white/[0.06] bg-black/20 p-4 text-sm text-zinc-400">
-        Este navegador não suporta notificações. Abra o Hot Dash no Chrome (Android) ou
-        instale na tela de início do iPhone.
+        Este navegador não suporta notificações. Use o Chrome (Android) ou instale na tela de início do
+        iPhone.
       </div>
     );
   }

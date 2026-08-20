@@ -118,8 +118,7 @@ export default function ScheduleTemplateModal({ onClose }: { onClose: () => void
         <p className="eyebrow">programa</p>
         <h2 className="mt-1.5 font-display text-lg font-semibold">Programa de postagens</h2>
         <p className="mt-2 text-sm text-zinc-500">
-          Defina os horários recorrentes da semana. Ao gerar um cronograma com IA, cada
-          janela vira posts reais preenchidos com mídia da biblioteca do perfil escolhido.
+          Os horários recorrentes da semana. Ao gerar com IA, cada janela vira post com mídia da Galeria.
         </p>
 
         {err && (

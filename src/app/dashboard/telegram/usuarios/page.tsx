@@ -241,8 +241,7 @@ export default function TelegramUsuariosPage() {
             </div>
           ) : users.length === 0 ? (
             <p className="mt-5 text-sm text-zinc-500">
-              Nenhum usuário nesta lista ainda. A lista é montada pelos eventos do bot — o Telegram
-              não permite consultar os membros de um grupo de uma vez.
+              Ninguém na lista ainda. Ela é montada pelos eventos do bot.
             </p>
           ) : (
             <div className="mt-3 divide-y divide-white/[0.06]">
@@ -282,8 +281,8 @@ export default function TelegramUsuariosPage() {
           )}
 
           <p className="mt-3 text-[11px] text-zinc-600">
-            A lista cresce sozinha com o uso do bot. Para capturar entradas e saídas dos grupos, o
-            webhook precisa estar registrado na versão atual — se este bot já rodava antes, use
+            A lista cresce com o uso do bot. Para capturar entradas e saídas o webhook precisa estar atualizado
+            — se este bot já rodava antes, use
             <b> Bot de vendas → Reenviar webhook</b> uma vez.
           </p>
         </div>
@@ -342,7 +341,7 @@ function SendMessageModal({ user, onClose }: { user: TelegramUser | null; onClos
         Mensagem para {user ? displayName(user) : ""}
       </h2>
       <p className="mt-1 text-xs text-zinc-500">
-        Enviada agora, no privado do bot. Aceita as tags de formatação do Telegram.
+        Enviada agora, no privado. Aceita as tags do Telegram.
       </p>
       <textarea
         className="input mt-3 min-h-[120px]"

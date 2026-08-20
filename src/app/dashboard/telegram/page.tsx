@@ -633,8 +633,8 @@ export default function TelegramUnifiedPage() {
           {(!settings.botToken || !settings.idVip || !settings.idAquecimento) && (
             <div className="mb-8 max-w-4xl rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-4">
               <p className="text-sm text-amber-200">
-                ⚠️ Configure o <b>Token do bot</b> e os <b>IDs dos grupos (VIP e Prévias)</b> em{" "}
-                <b>Modelos → editar a modelo → Bot do Telegram</b>. Sem isso, a automação não posta.
+                ⚠️ Configure o <b>Token do bot</b> e os <b>IDs dos grupos</b> em{" "} <b>Modelos → editar a
+                modelo</b>. Sem isso a automação não posta.
               </p>
             </div>
           )}
@@ -768,11 +768,8 @@ export default function TelegramUnifiedPage() {
                   {settings.vipScheduleType === "mk" && (
                     <div className="space-y-3 pt-2">
                       <p className="text-[11px] text-zinc-400">
-                        Planeja o dia do VIP para quem <b>já comprou</b>: <b>20 a 25 posts/dia</b>
-                        (resto de hoje + dias seguintes), de <b>relacionamento</b>
-                        (bom dia, intimidade, bastidores, exclusivas) e engajamento
-                        (reação/enquete), no fuso de São Paulo. A IA <b>analisa cada foto</b> e
-                        escreve a legenda.
+                        Planeja o dia do VIP para quem <b>já comprou</b>: <b>20 a 25 posts/dia</b> de relacionamento e
+                        engajamento. A IA <b>analisa cada foto</b> e escreve a legenda.
                       </p>
                       {/* Escolha DESTA geração: o contato particular é produto
                           à parte, então nasce em "nenhum". Um destino por vez —
@@ -847,8 +844,7 @@ export default function TelegramUnifiedPage() {
                             ))}
                           </select>
                           <p className="mt-1.5 text-[11px] text-zinc-500">
-                            Os destinos vêm das <b>Contas</b> da modelo. O texto do botão continua
-                            sendo o do cadastro — aqui você escolhe só o destino.
+                            Os destinos vêm das <b>Contas</b> da modelo. O texto do botão vem do cadastro — aqui só o destino.
                           </p>
                           {/* Conferência: o link EXATO que vai ser gravado nos
                               posts desta geração. É o mesmo cálculo que a rota
@@ -971,7 +967,7 @@ export default function TelegramUnifiedPage() {
                 {/* VIP Prompt */}
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-zinc-300">Prompt de Geração de Legenda (VIP)</label>
-                  <p className="text-[11px] text-zinc-500 mb-1">Escreva as instruções completas para a Inteligência Artificial. Peça para ela analisar a foto, defina o tom de voz e integre seus modelos de legenda desejados aqui dentro.</p>
+                  <p className="text-[11px] text-zinc-500 mb-1">As instruções completas para a IA: o que olhar na foto, o tom de voz e os modelos de legenda.</p>
                   <textarea 
                      rows={8}
                      placeholder="Ex: Analise a foto anexada e crie uma legenda sedutora. Siga estes modelos como exemplo: 'Que tal um docinho hoje? 🍬', etc..."
@@ -989,10 +985,9 @@ export default function TelegramUnifiedPage() {
                     Botões da copy (VIP) <span className="text-blue-200/50 font-normal">— 1 por linha</span>
                   </label>
                   <p className="text-[11px] text-blue-200/60">
-                    Usadas nos posts de convite ao <b>WhatsApp particular</b>: 1 frase vira o{" "}
-                    <b>botão</b> e outras 3 viram os <b>hiperlinks</b> no fim da legenda. O limite de{" "}
-                    <b>{CTA_BUTTON_MAX} caracteres</b> vale só para o botão — nos hiperlinks a frase
-                    sai inteira. Deixe em branco para usar as frases-padrão.
+                    Nos posts de convite ao <b>WhatsApp particular</b>: 1 frase vira o <b>botão</b> (máx.{" "}
+                    <b>{CTA_BUTTON_MAX} caracteres</b>) e outras 3 viram <b>hiperlinks</b> na
+                    legenda, sem limite. Vazio usa as frases-padrão.
                   </p>
                   <textarea
                     rows={8}
@@ -1132,12 +1127,9 @@ export default function TelegramUnifiedPage() {
                   {settings.warmupScheduleType === "mk" && (
                     <div className="space-y-3 pt-2">
                       <p className="text-[11px] text-zinc-400">
-                        Planeja o dia inteiro como um social media profissional: <b>30 a 35 posts/dia</b>
-                        (resto de hoje + dias seguintes), misturando humanização, engajamento
-                        (reação/enquete) e conversão (foto/vídeo premium com CTA), nos horários de
-                        maior venda (meio-dia e noite/madrugada), no fuso de <b>São Paulo</b>. A IA
-                        <b> analisa cada foto</b> e escreve uma legenda contextual; só os posts de
-                        conversão levam o link do VIP (~14/dia). O bot semeia a 1ª reação 🔥.
+                        Planeja o dia inteiro: <b>30 a 35 posts/dia</b>, misturando humanização, engajamento e conversão,
+                        nos horários de maior venda. A IA <b>analisa cada foto</b> e escreve a
+                        legenda; só os posts de conversão levam o link do VIP (~14/dia).
                       </p>
                       <p className="text-[11px] text-emerald-300/80">
                         Escolha os <b>dias</b> e clique em <b>“Gerar dias (Método MK)”</b> ali em cima
@@ -1230,7 +1222,7 @@ export default function TelegramUnifiedPage() {
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-zinc-300">Prompt de Geração de Legenda (Prévias)</label>
-                  <p className="text-[11px] text-zinc-500 mb-1">Escreva as instruções completas para a Inteligência Artificial. Peça para ela analisar a foto, defina o tom de voz e integre seus modelos de legenda desejados aqui dentro.</p>
+                  <p className="text-[11px] text-zinc-500 mb-1">As instruções completas para a IA: o que olhar na foto, o tom de voz e os modelos de legenda.</p>
                   <textarea 
                      rows={8}
                      placeholder="Ex: Analise a foto anexada e crie uma legenda convidativa. Siga estes modelos como exemplo: 'Vem ver o que te espera no VIP 🔥', etc..."
@@ -1242,7 +1234,7 @@ export default function TelegramUnifiedPage() {
                   <div className="space-y-2 rounded-lg border border-orange-500/10 bg-orange-900/10 p-3">
                     <label className="text-xs font-semibold text-orange-300 flex items-center gap-2">Link da Legenda (Call To Action) <span className="bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded text-[10px]">Sempre anexado no final</span></label>
                     <p className="text-xs text-orange-200/60 mt-1">
-                      O link do grupo VIP é puxado automaticamente das configurações de <strong>Edição de Perfil</strong> (campo "Link do Bot/Assinatura VIP").
+                      O link do VIP vem do cadastro da modelo (campo "Link do Bot/Assinatura VIP").
                     </p>
                   </div>
 
@@ -1253,8 +1245,8 @@ export default function TelegramUnifiedPage() {
                       Botões da copy <span className="text-orange-200/50 font-normal">— 1 por linha (a IA escolhe 1 por post)</span>
                     </label>
                     <p className="text-[11px] text-orange-200/60">
-                      Cada linha vira um <b>botão</b> com o link do VIP. Limite de <b>{CTA_BUTTON_MAX} caracteres</b> por linha
-                      (o que passar é cortado). Deixe em branco para usar as frases-padrão.
+                      Cada linha vira um <b>botão</b> com o link do VIP, de até <b>{CTA_BUTTON_MAX} caracteres</b>. Vazio
+                      usa as frases-padrão.
                     </p>
                     <textarea
                       rows={8}

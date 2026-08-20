@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
 import { showToast } from "@/lib/toast";
 import { useProfile } from "@/context/ProfileContext";
@@ -8,7 +8,7 @@ import { PrecisaDeModelo } from "@/components/ProfilePicker";
 import PageHeader from "@/components/PageHeader";
 import Link from "next/link";
 import MediaPicker from "@/components/telegram/bot/MediaPicker";
-import { IconSparkle, IconUpload, IconClose } from "@/components/icons";
+import { IconSparkle } from "@/components/icons";
 import type { Profile } from "@/lib/types";
 import {
   FORMATOS,
@@ -95,7 +95,9 @@ export default function GeradorImagemPage() {
 
   const [conectado, setConectado] = useState<boolean | null>(null);
   const [referenciasModelo, setReferenciasModelo] = useState<string[]>([]);
-  const [copiaFile, setCopiaFile] = useState<File | null>(null);
+  // A imagem a copiar vem de UM dos dois lugares: a Galeria da modelo ou um
+  // arquivo do aparelho. Escolher de um lado limpa o outro — é uma foto só.
+  const [copiaGaleria, setCopiaGaleria] = useState<string[]>([]);
   const [copiaPreview, setCopiaPreview] = useState<string | null>(null);
   const [copiaBase64, setCopiaBase64] = useState<string | null>(null);
   const [extra, setExtra] = useState("");
@@ -113,7 +115,6 @@ export default function GeradorImagemPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [recarregar, setRecarregar] = useState(0);
   const [cotacao, setCotacao] = useState<Cotacao | null>(null);
-  const dropRef = useRef<HTMLDivElement>(null);
 
   // A tela precisa saber se o OpenRouter está pronto ANTES de tentar gerar —
   // sem isso o operador só descobriria depois de preencher tudo e clicar.
@@ -154,7 +155,6 @@ export default function GeradorImagemPage() {
 
   async function escolherCopia(file: File | null) {
     if (!file) {
-      setCopiaFile(null);
       setCopiaPreview((p) => {
         if (p) URL.revokeObjectURL(p);
         return null;
@@ -166,7 +166,7 @@ export default function GeradorImagemPage() {
       showToast("Escolha um arquivo de imagem.", "error");
       return;
     }
-    setCopiaFile(file);
+    setCopiaGaleria([]); // uma foto só: enviar substitui a escolha da Galeria
     setCopiaPreview((p) => {
       if (p) URL.revokeObjectURL(p);
       return URL.createObjectURL(file);
@@ -178,6 +178,17 @@ export default function GeradorImagemPage() {
       setCopiaBase64(null);
     }
   }
+
+  function escolherCopiaGaleria(ids: string[]) {
+    setCopiaGaleria(ids);
+    if (ids.length > 0) escolherCopia(null); // idem, no sentido inverso
+  }
+
+  /** Tem imagem a copiar, não importa de onde ela veio. */
+  const temCopia = Boolean(copiaBase64) || copiaGaleria.length > 0;
+  /** A miniatura dela, para a citação com @ mostrar do que se está falando. */
+  const copiaThumb =
+    copiaPreview || (copiaGaleria[0] ? `/api/media/${copiaGaleria[0]}/thumbnail` : null);
 
   /** Guarda a escolha de referências no perfil da modelo, não só na tela. */
   function trocarReferencias(ids: string[]) {
@@ -191,7 +202,7 @@ export default function GeradorImagemPage() {
   /** O texto que realmente vai ao modelo: o prompt da modelo mais o que o
    *  operador acrescentou nesta geração. */
   const promptEfetivo = (
-    (promptBase.trim() || promptImagemPadrao(Boolean(copiaBase64), referenciasModelo.length > 0)) +
+    (promptBase.trim() || promptImagemPadrao(temCopia, referenciasModelo.length > 0)) +
     (extra.trim() ? `\n\n${extra.trim()}` : "")
   ).trim();
 
@@ -205,7 +216,7 @@ export default function GeradorImagemPage() {
 
   function abrirEditorPrompt() {
     setRascunhoPrompt(
-      promptBase.trim() || promptImagemPadrao(Boolean(copiaBase64), referenciasModelo.length > 0),
+      promptBase.trim() || promptImagemPadrao(temCopia, referenciasModelo.length > 0),
     );
     setEditandoPrompt(true);
   }
@@ -245,7 +256,7 @@ export default function GeradorImagemPage() {
           prompt: resolverFotos(
             aplicarMencoes(promptEfetivo, {}),
             referenciasModelo.length,
-            Boolean(copiaBase64),
+            temCopia,
           ),
         modelo,
         quantidade,
@@ -253,6 +264,7 @@ export default function GeradorImagemPage() {
         aspectRatio,
         seed: seedNum,
         copyImageBase64: copiaBase64 || undefined,
+        copyImageMediaId: copiaGaleria[0],
         referenceMediaIds: referenciasModelo,
       });
       // O custo vem da chamada inteira; rateia entre as imagens para cada
@@ -309,16 +321,16 @@ export default function GeradorImagemPage() {
   const fotosCitaveis = montarCitaveis(
     referenciasModelo,
     (id) => `/api/media/${id}/thumbnail`,
-    copiaPreview,
+    copiaThumb,
   );
   // Citação a uma posição que não existe: avisa em vez de mandar calado a
   // foto errada — é o preço de o marcador ser legível (e posicional).
   const citacoesRuins = citacoesInvalidas(
     promptEfetivo,
     referenciasModelo.length,
-    Boolean(copiaBase64),
+    temCopia,
   );
-  const totalReferencias = referenciasModelo.length + (copiaBase64 ? 1 : 0);
+  const totalReferencias = referenciasModelo.length + (temCopia ? 1 : 0);
   const infoModelo = modeloImagem(modelo);
   const custoEstimado = custoImagem(modelo, resolution, totalReferencias, quantidade);
 
@@ -365,48 +377,25 @@ export default function GeradorImagemPage() {
         <div className="mt-5">
           <label className="eyebrow">Imagem a copiar (composição, pose, cenário)</label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-            Opcional. A foto que você quer reproduzir — o pedido do assinante, por exemplo. Fica só
-            nesta geração, não entra na Galeria. É enviada por ÚLTIMO, depois das fotos da modelo:
-            por isso o prompt pode se referir a ela como “a última imagem de referência”.
+            Opcional. A foto que você quer reproduzir — o pedido do assinante, por exemplo. Da
+            Galeria ou do seu aparelho, no mesmo botão; o que vem do aparelho fica só nesta geração
+            e não entra na Galeria. É enviada por ÚLTIMO, depois das fotos da modelo: por isso o
+            prompt pode se referir a ela como “a última imagem de referência”.
           </p>
           <div className="mt-2">
-            {copiaPreview ? (
-              <div className="relative inline-block">
-                <img
-                  src={copiaPreview}
-                  alt=""
-                  className="h-32 w-24 rounded-lg border border-white/10 object-cover"
-                />
-                <button
-                  type="button"
-                  onClick={() => escolherCopia(null)}
-                  className="absolute -right-1.5 -top-1.5 grid h-6 w-6 place-items-center rounded-full bg-black/80 text-white hover:bg-red-500/80"
-                  aria-label="Remover imagem a copiar"
-                >
-                  <IconClose size={13} />
-                </button>
-              </div>
-            ) : (
-              <div
-                ref={dropRef}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  escolherCopia(e.dataTransfer.files?.[0] || null);
-                }}
-                className="grid h-32 w-24 cursor-pointer place-items-center rounded-lg border border-dashed border-white/15 text-zinc-500 transition-colors hover:border-emerald-500/40 hover:text-emerald-300"
-                onClick={() => document.getElementById("copia-input")?.click()}
-              >
-                <IconUpload size={18} />
-                <input
-                  id="copia-input"
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => escolherCopia(e.target.files?.[0] || null)}
-                />
-              </div>
-            )}
+            <MediaPicker
+              profileId={profileId}
+              selected={copiaGaleria}
+              onChange={escolherCopiaGaleria}
+              max={1}
+              apenasImagens
+              onArquivo={escolherCopia}
+              locais={
+                copiaPreview
+                  ? [{ url: copiaPreview, kind: "image", onRemover: () => escolherCopia(null) }]
+                  : []
+              }
+            />
           </div>
         </div>
 
@@ -439,7 +428,7 @@ export default function GeradorImagemPage() {
                 <button
                   onClick={() =>
                     setRascunhoPrompt(
-                      promptImagemPadrao(Boolean(copiaBase64), referenciasModelo.length > 0),
+                      promptImagemPadrao(temCopia, referenciasModelo.length > 0),
                     )
                   }
                   className="btn-ghost px-3 py-1.5 text-xs"
@@ -453,7 +442,7 @@ export default function GeradorImagemPage() {
               <CitacoesPintadas
                 texto={
                   promptBase.trim() ||
-                  promptImagemPadrao(Boolean(copiaBase64), referenciasModelo.length > 0)
+                  promptImagemPadrao(temCopia, referenciasModelo.length > 0)
                 }
                 padrao={RE_CITACAO}
               />

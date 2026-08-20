@@ -8,7 +8,7 @@ import { useProfile } from "@/context/ProfileContext";
 import { PrecisaDeModelo } from "@/components/ProfilePicker";
 import PageHeader from "@/components/PageHeader";
 import MediaPicker from "@/components/telegram/bot/MediaPicker";
-import { IconPlay, IconUpload, IconClose } from "@/components/icons";
+import { IconPlay } from "@/components/icons";
 import ResultadosGerados from "@/components/ResultadosGerados";
 import { salvarResultado } from "@/lib/resultadosDb";
 import type { Cotacao } from "@/lib/cotacao";
@@ -411,9 +411,9 @@ export default function MotionControlPage() {
         <div className="mt-5">
           <label className="eyebrow">Foto da modelo</label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-            Quem vai executar o movimento. Mínimo 300×300, até 10 MB, em{" "}
-            {MOTION_IMAGEM_FORMATOS.join(", ")}. Escolha da Galeria ou envie uma — escolher uma
-            substitui a outra.
+            Quem vai executar o movimento. Da Galeria de {profile?.name || "a modelo"} ou do seu
+            aparelho, no mesmo botão. Mínimo 300×300, até 10 MB, em{" "}
+            {MOTION_IMAGEM_FORMATOS.join(", ")}.
           </p>
           <div className="mt-2">
             <MediaPicker
@@ -422,57 +422,24 @@ export default function MotionControlPage() {
               onChange={escolherFotoGaleria}
               max={1}
               apenasImagens
+              onArquivo={escolherFoto}
+              locais={
+                fotoPreview
+                  ? [{ url: fotoPreview, kind: "image", onRemover: () => escolherFoto(null) }]
+                  : []
+              }
+              enviando={enviandoFoto}
             />
           </div>
-          <p className="my-2 text-center text-[11px] text-zinc-600">ou</p>
-          {fotoPreview ? (
-            <div className="relative inline-block">
-              <img
-                src={fotoPreview}
-                alt=""
-                className="h-32 w-24 rounded-lg border border-white/10 object-cover"
-              />
-              <button
-                type="button"
-                onClick={() => escolherFoto(null)}
-                className="absolute -right-1.5 -top-1.5 grid h-6 w-6 place-items-center rounded-full bg-black/80 text-white hover:bg-red-500/80"
-                aria-label="Remover foto"
-              >
-                <IconClose size={13} />
-              </button>
-            </div>
-          ) : (
-            <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                escolherFoto(e.dataTransfer.files?.[0] || null);
-              }}
-              className="grid h-32 w-24 cursor-pointer place-items-center rounded-lg border border-dashed border-white/15 text-zinc-500 transition-colors hover:border-emerald-500/40 hover:text-emerald-300"
-              onClick={() => document.getElementById("motion-foto-input")?.click()}
-            >
-              {enviandoFoto ? (
-                <span className="h-4 w-4 animate-spin rounded-full border border-white/15 border-t-white" />
-              ) : (
-                <IconUpload size={18} />
-              )}
-              <input
-                id="motion-foto-input"
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => escolherFoto(e.target.files?.[0] || null)}
-              />
-            </div>
-          )}
         </div>
 
         {/* VÍDEO DE REFERÊNCIA */}
         <div className="mt-6">
           <label className="eyebrow">Vídeo de referência</label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-            De onde vem o movimento. De {MOTION_VIDEO_SEGUNDOS_MIN} a {MOTION_VIDEO_SEGUNDOS_MAX}{" "}
-            segundos, em {MOTION_VIDEO_FORMATOS.join(", ")}.
+            De onde vem o movimento. Da Galeria ou do seu aparelho. De{" "}
+            {MOTION_VIDEO_SEGUNDOS_MIN} a {MOTION_VIDEO_SEGUNDOS_MAX} segundos, em{" "}
+            {MOTION_VIDEO_FORMATOS.join(", ")}.
           </p>
           <div className="mt-2">
             <MediaPicker
@@ -481,51 +448,15 @@ export default function MotionControlPage() {
               onChange={escolherVideoGaleria}
               max={1}
               apenasVideos
+              onArquivo={escolherVideo}
+              locais={
+                videoPreview
+                  ? [{ url: videoPreview, kind: "video", onRemover: () => escolherVideo(null) }]
+                  : []
+              }
+              enviando={enviandoVideo}
             />
           </div>
-          <p className="my-2 text-center text-[11px] text-zinc-600">ou</p>
-          {videoPreview ? (
-            <div className="relative inline-block">
-              <video
-                src={videoPreview}
-                muted
-                playsInline
-                controls
-                className="h-32 rounded-lg border border-white/10 object-cover"
-              />
-              <button
-                type="button"
-                onClick={() => escolherVideo(null)}
-                className="absolute -right-1.5 -top-1.5 grid h-6 w-6 place-items-center rounded-full bg-black/80 text-white hover:bg-red-500/80"
-                aria-label="Remover vídeo"
-              >
-                <IconClose size={13} />
-              </button>
-            </div>
-          ) : (
-            <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                escolherVideo(e.dataTransfer.files?.[0] || null);
-              }}
-              className="grid h-32 w-24 cursor-pointer place-items-center rounded-lg border border-dashed border-white/15 text-zinc-500 transition-colors hover:border-emerald-500/40 hover:text-emerald-300"
-              onClick={() => document.getElementById("motion-video-input")?.click()}
-            >
-              {enviandoVideo ? (
-                <span className="h-4 w-4 animate-spin rounded-full border border-white/15 border-t-white" />
-              ) : (
-                <IconUpload size={18} />
-              )}
-              <input
-                id="motion-video-input"
-                type="file"
-                accept="video/*"
-                className="hidden"
-                onChange={(e) => escolherVideo(e.target.files?.[0] || null)}
-              />
-            </div>
-          )}
         </div>
 
         {/* MODELO */}

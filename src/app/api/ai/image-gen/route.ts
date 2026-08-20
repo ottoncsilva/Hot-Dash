@@ -42,14 +42,31 @@ export async function POST(req: NextRequest) {
     // a ordem que os prompts escritos à mão já usavam (primeiro QUEM é a
     // pessoa, depois a CENA a reproduzir), e é o que o prompt padrão e a
     // citação com @ pressupõem ao falar em "última imagem de referência".
-    const copyImage = typeof body.copyImageBase64 === "string" ? body.copyImageBase64.trim() : "";
+    // Ela também pode vir da Galeria, escolhida na mesma grade das outras —
+    // aí é aqui que vira base64, com a mesma renderização das referências.
+    let copyImage = typeof body.copyImageBase64 === "string" ? body.copyImageBase64.trim() : "";
     if (copyImage && !copyImage.startsWith("data:image/")) {
       throw new ApiError(400, "Imagem a copiar inválida.");
     }
+    const copyImageMediaId =
+      typeof body.copyImageMediaId === "string" ? body.copyImageMediaId.trim() : "";
+    if (!copyImage && copyImageMediaId) {
+      const row = getMediaRow(copyImageMediaId);
+      if (row) {
+        const b64 = await renderVisionImageBase64(row.path);
+        if (b64) copyImage = `data:image/jpeg;base64,${b64}`;
+      }
+    }
 
-    const referenceMediaIds = Array.isArray(body.referenceMediaIds)
-      ? body.referenceMediaIds.filter((x: unknown): x is string => typeof x === "string")
-      : [];
+    const referenceMediaIds = (
+      Array.isArray(body.referenceMediaIds)
+        ? body.referenceMediaIds.filter((x: unknown): x is string => typeof x === "string")
+        : []
+    )
+      // A mesma foto nos dois papéis iria duas vezes e ainda bagunçaria a
+      // contagem das citações com @ — vale como imagem a copiar, que é a
+      // escolha mais específica.
+      .filter((id: string) => id !== copyImageMediaId);
 
     // Reserva a última vaga para a imagem a copiar, para o teto do modelo não
     // engolir justamente a cena que se quer reproduzir.

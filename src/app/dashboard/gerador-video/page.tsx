@@ -8,7 +8,7 @@ import { PrecisaDeModelo } from "@/components/ProfilePicker";
 import PageHeader from "@/components/PageHeader";
 import Link from "next/link";
 import MediaPicker from "@/components/telegram/bot/MediaPicker";
-import { IconFilm, IconUpload, IconClose, IconSparkle } from "@/components/icons";
+import { IconFilm, IconSparkle } from "@/components/icons";
 import type { Profile } from "@/lib/types";
 import {
   FORMATOS,
@@ -159,7 +159,6 @@ export default function GeradorVideoPage() {
   const [resultados, setResultados] = useState<Resultado[]>([]);
   const [recarregar, setRecarregar] = useState(0);
   const [cotacao, setCotacao] = useState<Cotacao | null>(null);
-  const dropRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef<Set<string>>(new Set());
   /** Parâmetros de cada pedido, para etiquetar o vídeo quando ele ficar pronto
    *  (a essa altura o item já saiu da lista de andamento). */
@@ -522,9 +521,8 @@ export default function GeradorVideoPage() {
             Primeiro frame {modo === "caixinha" ? "(a foto que a IA vai analisar)" : "(opcional)"}
           </label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-            A imagem de onde o vídeo começa a se mover. Escolha uma foto da Galeria de{" "}
-            {profile?.name || "a modelo"} ou envie uma direto — as duas são a mesma coisa, escolher uma
-            substitui a outra.
+            A imagem de onde o vídeo começa a se mover. Da Galeria de{" "}
+            {profile?.name || "a modelo"} ou do seu aparelho, no mesmo botão.
           </p>
           <div className="mt-2">
             <MediaPicker
@@ -533,47 +531,19 @@ export default function GeradorVideoPage() {
               onChange={escolherFrameGaleria}
               max={1}
               apenasImagens
+              onArquivo={escolherFrameArquivo}
+              locais={
+                framePreview
+                  ? [
+                      {
+                        url: framePreview,
+                        kind: "image",
+                        onRemover: () => escolherFrameArquivo(null),
+                      },
+                    ]
+                  : []
+              }
             />
-          </div>
-          <p className="my-2 text-center text-[11px] text-zinc-600">ou</p>
-          <div>
-            {framePreview ? (
-              <div className="relative inline-block">
-                <img
-                  src={framePreview}
-                  alt=""
-                  className="h-32 w-24 rounded-lg border border-white/10 object-cover"
-                />
-                <button
-                  type="button"
-                  onClick={() => escolherFrameArquivo(null)}
-                  className="absolute -right-1.5 -top-1.5 grid h-6 w-6 place-items-center rounded-full bg-black/80 text-white hover:bg-red-500/80"
-                  aria-label="Remover primeiro frame"
-                >
-                  <IconClose size={13} />
-                </button>
-              </div>
-            ) : (
-              <div
-                ref={dropRef}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  escolherFrameArquivo(e.dataTransfer.files?.[0] || null);
-                }}
-                className="grid h-32 w-24 cursor-pointer place-items-center rounded-lg border border-dashed border-white/15 text-zinc-500 transition-colors hover:border-emerald-500/40 hover:text-emerald-300"
-                onClick={() => document.getElementById("frame-input")?.click()}
-              >
-                <IconUpload size={18} />
-                <input
-                  id="frame-input"
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => escolherFrameArquivo(e.target.files?.[0] || null)}
-                />
-              </div>
-            )}
           </div>
         </div>
 

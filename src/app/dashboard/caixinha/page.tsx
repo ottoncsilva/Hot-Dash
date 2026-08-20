@@ -14,6 +14,8 @@ import {
   IconTrash,
   IconCopy,
   IconPlus,
+  IconFire,
+  IconEdit,
 } from "@/components/icons";
 
 /**
@@ -39,6 +41,8 @@ type Item = {
   provider?: string;
   used: boolean;
   usedAt?: number;
+  viral: boolean;
+  viralAt?: number;
   createdAt: number;
 };
 
@@ -124,7 +128,7 @@ export default function CaixinhaPage() {
   const [ias, setIas] = useState<string[]>([...PROVEDORES]);
   /** Quem está de fato conectado — provedor sem chave nasce apagado. */
   const [conectados, setConectados] = useState<string[]>([...PROVEDORES]);
-  const [filtro, setFiltro] = useState<"todas" | "novas" | "usadas">("todas");
+  const [filtro, setFiltro] = useState<"todas" | "novas" | "usadas" | "virais">("todas");
   const [manualOpen, setManualOpen] = useState(false);
   const [manualText, setManualText] = useState("");
   const [manualIdea, setManualIdea] = useState("");
@@ -206,6 +210,31 @@ export default function CaixinhaPage() {
     }
   }
 
+  /** Marca que a ideia rendeu nas redes — o que a habilita a voltar. */
+  async function marcarViral(item: Item, viral: boolean) {
+    setItems((prev) =>
+      prev.map((x) => (x.id === item.id ? { ...x, viral, used: viral ? true : x.used } : x)),
+    );
+    try {
+      await apiSend("/api/question-box", "POST", { action: "toggle-viral", id: item.id, viral });
+    } catch (e) {
+      setItems((prev) => prev.map((x) => (x.id === item.id ? item : x)));
+      showToast(e instanceof Error ? e.message : "Falha ao marcar.", "error");
+    }
+  }
+
+  /** Ajuste de texto. Aqui a espera é do servidor: ele devolve a duração
+   *  recalculada, e mostrar a antiga por um instante seria mentira. */
+  async function salvarEdicao(item: Item, text: string, idea: string) {
+    const r = await apiSend<{ item: Item }>("/api/question-box", "POST", {
+      action: "edit",
+      id: item.id,
+      text,
+      idea,
+    });
+    setItems((prev) => prev.map((x) => (x.id === item.id ? r.item : x)));
+  }
+
   // SEM confirmação: a lista é um rascunho de ideias, e no meio de uma leva de
   // nove a maioria vai fora. Um diálogo por descarte transformaria a triagem
   // numa sequência de cliques em "Sim".
@@ -251,10 +280,20 @@ export default function CaixinhaPage() {
   // sentido concorrem pelo mesmo story — separá-las obrigava a conferir as
   // duas para saber o que sobrou.
   const visiveis = useMemo(
-    () => items.filter((i) => (filtro === "novas" ? !i.used : filtro === "usadas" ? i.used : true)),
+    () =>
+      items.filter((i) =>
+        filtro === "novas"
+          ? !i.used
+          : filtro === "usadas"
+            ? i.used
+            : filtro === "virais"
+              ? i.viral
+              : true,
+      ),
     [items, filtro],
   );
   const novas = items.filter((i) => !i.used).length;
+  const virais = items.filter((i) => i.viral).length;
 
   if (!profileId) {
     return (
@@ -448,6 +487,7 @@ export default function CaixinhaPage() {
               ["todas", `Todas (${items.length})`],
               ["novas", `Não usadas (${novas})`],
               ["usadas", `Usadas (${items.length - novas})`],
+              ["virais", `Viralizaram (${virais})`],
             ] as const
           ).map(([k, label]) => (
             <button
@@ -485,6 +525,8 @@ export default function CaixinhaPage() {
             key={item.id}
             item={item}
             onMarcar={(v) => marcar(item, v)}
+            onViral={(v) => marcarViral(item, v)}
+            onSalvar={(text, idea) => salvarEdicao(item, text, idea)}
             onExcluir={() => excluir(item)}
           />
         ))}
@@ -503,12 +545,41 @@ export default function CaixinhaPage() {
 function IdeiaLinha({
   item,
   onMarcar,
+  onViral,
+  onSalvar,
   onExcluir,
 }: {
   item: Item;
   onMarcar: (v: boolean) => void;
+  onViral: (v: boolean) => void;
+  onSalvar: (text: string, idea: string) => Promise<void>;
   onExcluir: () => void;
 }) {
+  const [editando, setEditando] = useState(false);
+  const [rascText, setRascText] = useState(item.text);
+  const [rascIdea, setRascIdea] = useState(item.idea || "");
+  const [salvando, setSalvando] = useState(false);
+
+  function abrirEdicao() {
+    setRascText(item.text);
+    setRascIdea(item.idea || "");
+    setEditando(true);
+  }
+
+  async function salvar() {
+    if (!rascText.trim() || salvando) return;
+    setSalvando(true);
+    try {
+      await onSalvar(rascText, rascIdea);
+      setEditando(false);
+      showToast("Ideia ajustada.", "success");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha ao salvar.", "error");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
   // Os rótulos saem do tipo DA IDEIA, não do que está escolhido no gerador —
   // a lista mistura os dois, e uma frase de duplo sentido rotulada "Pergunta"
   // seria pior que rótulo nenhum.
@@ -529,8 +600,10 @@ function IdeiaLinha({
   return (
     <div
       className={`card flex items-start gap-3 p-3 transition-opacity ${
-        item.used ? "opacity-50" : ""
-      }`}
+        // A usada comum some de vista; a que VIRALIZOU não — ela está ali para
+        // ser reaproveitada, e apagá-la esconderia o que mais vale da lista.
+        item.used && !item.viral ? "opacity-50" : ""
+      } ${item.viral ? "border-amber-500/30 bg-amber-500/[0.04]" : ""}`}
     >
       <button
         onClick={() => onMarcar(!item.used)}
@@ -546,13 +619,55 @@ function IdeiaLinha({
       </button>
 
       <div className="min-w-0 flex-1">
+        {editando ? (
+          /* EDIÇÃO NO LUGAR. A ideia da IA muitas vezes chega com o ângulo
+             certo e uma palavra errada — trocar a palavra ali, sem apagar e
+             reescrever, preserva de quem veio e quando nasceu. */
+          <div className="rounded-lg border border-white/10 bg-black/25 p-2">
+            <label className="eyebrow">{rotulos.campo1}</label>
+            <textarea
+              className="input mt-1 max-h-[160px] min-h-[52px] w-full resize-y overflow-y-auto text-sm"
+              value={rascText}
+              onChange={(e) => setRascText(e.target.value)}
+              autoFocus
+            />
+            <label className="eyebrow mt-2 block">{rotulos.campo2}</label>
+            <textarea
+              className="input mt-1 max-h-[160px] min-h-[52px] w-full resize-y overflow-y-auto text-sm"
+              value={rascIdea}
+              onChange={(e) => setRascIdea(e.target.value)}
+            />
+            {item.kind === "caixinha" && (
+              <p
+                className={`mt-1 font-mono text-[11px] ${
+                  rascText.length + rascIdea.length > TAMANHO_MAX ? "text-amber-400" : "text-zinc-600"
+                }`}
+              >
+                {rascText.length + rascIdea.length} caracteres · o teto é {TAMANHO_MAX}
+              </p>
+            )}
+            <div className="mt-2 flex gap-2">
+              <button
+                onClick={salvar}
+                disabled={!rascText.trim() || salvando}
+                className="btn-primary px-3 py-1.5 text-xs"
+              >
+                {salvando ? "Salvando..." : "Salvar"}
+              </button>
+              <button onClick={() => setEditando(false)} className="btn-ghost px-3 py-1.5 text-xs">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
         {/* O QUE SE VÊ É O QUE SE COPIA. Estas linhas são exatamente o texto
             que vai para a transcrição do gerador de vídeo — mesmo rótulo,
             mesma ordem, mesma quebra. Mostrar um formato e copiar outro
             obrigaria a conferir a colagem toda vez. */}
         <div
           className={`rounded-lg bg-black/25 px-2.5 py-2 text-sm leading-relaxed text-zinc-100 ${
-            item.used ? "line-through decoration-white/30" : ""
+            item.used && !item.viral ? "line-through decoration-white/30" : ""
           }`}
         >
           {linhas.map((linha, i) => (
@@ -596,10 +711,38 @@ function IdeiaLinha({
           {item.used && item.usedAt && (
             <span>· usada em {new Date(item.usedAt).toLocaleDateString("pt-BR")}</span>
           )}
+          {item.viral && (
+            <span className="rounded bg-amber-500/20 px-1.5 py-0.5 font-semibold text-amber-300">
+              viralizou
+            </span>
+          )}
         </p>
+          </>
+        )}
       </div>
 
-      <div className="flex shrink-0 items-start gap-1">
+      <div className="flex shrink-0 flex-wrap items-start justify-end gap-1">
+        {/* VIRALIZOU só existe em ideia JÁ USADA: é o retorno do que foi ao ar,
+            não um plano. Ligado, ela sobe na lista e ganha filtro próprio —
+            é o material provado, esperando a hora de repetir. */}
+        {item.used && (
+          <button
+            onClick={() => onViral(!item.viral)}
+            className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] transition-colors ${
+              item.viral
+                ? "border-amber-500/50 bg-amber-500/20 font-semibold text-amber-300"
+                : "border-white/10 text-zinc-400 hover:border-amber-500/40 hover:text-amber-300"
+            }`}
+            title={
+              item.viral
+                ? "Viralizou — clique para desmarcar"
+                : "Marcar que esta viralizou, para reaproveitar depois"
+            }
+          >
+            <IconFire size={14} />
+            <span className="hidden sm:inline">Viralizou</span>
+          </button>
+        )}
         {/* COPIAR é a ação principal do cartão — é para isso que a ideia
             existe. Por isso leva rótulo, e não só um ícone entre outros. */}
         <button
@@ -607,7 +750,15 @@ function IdeiaLinha({
           className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 px-2.5 text-[12px] text-zinc-300 hover:border-white/25 hover:bg-white/10 hover:text-white"
           title="Copia no formato da transcrição do gerador de vídeo"
         >
-          <IconCopy size={14} /> Copiar
+          <IconCopy size={14} /> <span className="hidden sm:inline">Copiar</span>
+        </button>
+        <button
+          onClick={abrirEdicao}
+          className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 hover:bg-white/10 hover:text-zinc-100"
+          aria-label="Editar texto"
+          title="Ajustar o texto"
+        >
+          <IconEdit size={15} />
         </button>
         <button
           onClick={onExcluir}

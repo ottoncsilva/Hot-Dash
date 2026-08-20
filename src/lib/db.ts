@@ -613,6 +613,11 @@ function migrate(d: Database.Database) {
   // precisa buscar por URL pública). Guardar aqui reaproveita gravação,
   // limpeza de metadados e token público sem sujar a galeria da modelo.
   ensureColumn(d, "media", "hidden", "INTEGER NOT NULL DEFAULT 0");
+  // VIRALIZOU: uma caixinha já usada que rendeu nas redes. Fica marcada para
+  // ser reaproveitada meses depois — é o oposto de "usada", que serve para
+  // NÃO repetir. Só faz sentido em item já usado (ver `questionBox.ts`).
+  ensureColumn(d, "question_box_items", "viral", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(d, "question_box_items", "viral_at", "INTEGER");
   ensureColumn(d, "profiles", "status", "TEXT NOT NULL DEFAULT 'configuring'");
   ensureColumn(d, "profiles", "bio_physical", "TEXT");
   ensureColumn(d, "profiles", "bio_unique", "TEXT");

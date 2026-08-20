@@ -17,6 +17,7 @@ import { absolutePath, saveFile } from "@/lib/storage";
 import { getImageDimensions } from "@/lib/imageDimensions";
 import { getVideoInfo } from "@/lib/videoDimensions";
 import { addTagsByNameToMedia, copyMediaTags, getTagsForMedia } from "@/lib/tags";
+import { nomeDeMidia } from "@/lib/mediaNome";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -123,11 +124,15 @@ export async function POST(
     // o encanamento normal, mas fora da Galeria da modelo.
     const hidden = form.get("hidden") === "1";
 
+    // O nome do aparelho não entra na Galeria — vira
+    // `modelo-AAAAMMDD-HHMMSS-0001.ext` (ver `mediaNome.ts`). Pelo mesmo
+    // motivo de os metadados serem limpos acima: o nome original não diz nada
+    // e ainda pode entregar de onde o arquivo veio.
     const item = insertMedia({
       id,
       profileId: params.id,
       hidden,
-      filename: file.name,
+      filename: nomeDeMidia({ profileId: params.id, nomeModelo: profile.name, ext }),
       relPath,
       kind,
       mime: file.type || undefined,

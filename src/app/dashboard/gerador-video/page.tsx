@@ -23,6 +23,8 @@ import {
   formatoVideoValido,
   duracaoValida,
   NOME_PROVEDOR,
+  provedoresComModelo,
+  CHAVES_DO_PROVEDOR,
   MAX_QUANTIDADE,
   type ModeloVideoId,
 } from "@/lib/aiMediaOptions";
@@ -129,7 +131,9 @@ const STATUS_LABEL: Record<string, string> = {
 export default function GeradorVideoPage() {
   const { profileId, profile } = useProfile();
 
-  const [conectado, setConectado] = useState<boolean | null>(null);
+  // As configurações inteiras, e não só o OpenRouter: o que precisa estar
+  // conectado depende do PROVEDOR do modelo escolhido (ver CHAVES_DO_PROVEDOR).
+  const [ajustes, setAjustes] = useState<Record<string, { enabled?: boolean; hasKey?: boolean }> | null>(null);
   const [frameGaleria, setFrameGaleria] = useState<string[]>([]);
   const [frameFile, setFrameFile] = useState<File | null>(null);
   const [framePreview, setFramePreview] = useState<string | null>(null);
@@ -167,9 +171,9 @@ export default function GeradorVideoPage() {
   >({});
 
   useEffect(() => {
-    apiGet<{ settings: { openrouter?: { enabled?: boolean; hasKey?: boolean } } }>("/api/settings/ai")
-      .then((d) => setConectado(Boolean(d.settings?.openrouter?.enabled && d.settings?.openrouter?.hasKey)))
-      .catch(() => setConectado(null));
+    apiGet<{ settings: Record<string, { enabled?: boolean; hasKey?: boolean }> }>("/api/settings/ai")
+      .then((d) => setAjustes(d.settings || {}))
+      .catch(() => setAjustes(null));
   }, []);
 
   useEffect(() => {
@@ -192,6 +196,16 @@ export default function GeradorVideoPage() {
   }, [profileId]);
 
   const infoModelo = modeloVideo(modelo);
+  /**
+   * Se o provedor DESTE modelo está pronto. `null` enquanto as configurações
+   * não chegaram — aí o botão não trava, para não piscar desabilitado.
+   */
+  const conectado =
+    ajustes === null
+      ? null
+      : CHAVES_DO_PROVEDOR[infoModelo.provedor].some(
+          (k) => ajustes[k]?.enabled && ajustes[k]?.hasKey,
+        );
   const custoEstimado = custoVideo(modelo, resolution, aspectRatio, duration, quantidade);
   const temFrame = frameGaleria.length > 0 || Boolean(frameBase64);
   /** O texto que vai ao Seedance: no modo livre é o prompt escrito à mão, no
@@ -475,7 +489,7 @@ export default function GeradorVideoPage() {
 
       {conectado === false && (
         <div className="card mt-4 border-amber-500/30 bg-amber-500/[0.06] p-4 text-sm text-amber-300">
-          O OpenRouter ainda não está conectado.{" "}
+          {`${NOME_PROVEDOR[infoModelo.provedor]} ainda não está conectado — é o provedor do ${infoModelo.nome}.`}{" "}
           <Link href="/dashboard/settings/ia" className="underline underline-offset-2 hover:text-white">
             Ative e cole a chave em Configurações → Conexão com IA
           </Link>{" "}
@@ -671,7 +685,7 @@ export default function GeradorVideoPage() {
             value={modelo}
             onChange={(e) => trocarModelo(e.target.value as ModeloVideoId)}
           >
-            {(["openrouter", "google"] as const).map((prov) => (
+            {provedoresComModelo(MODELOS_VIDEO).map((prov) => (
               <optgroup key={prov} label={NOME_PROVEDOR[prov]}>
                 {MODELOS_VIDEO.filter((m) => m.provedor === prov).map((m) => (
                   <option key={m.id} value={m.id}>
@@ -829,16 +843,30 @@ export default function GeradorVideoPage() {
           <button onClick={gerar} disabled={enviando || conectado === false} className="btn-primary">
             <IconFilm size={16} /> {enviando ? "Enviando..." : "Gerar vídeo"}
           </button>
+          {/* Sem estimativa quando não há tabela — ver o mesmo trecho no
+              gerador de imagem. A Magnific cobra em crédito. */}
           <span
             className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1 font-mono text-[12px] text-zinc-300"
-            title={`Preço de tabela do ${infoModelo.nome}, pela fórmula do Seedance: largura × altura × duração × 24 ÷ 1024 tokens, à taxa da resolução, vezes a quantidade. O valor real aparece embaixo de cada resultado.`}
+            title={
+              custoEstimado === null
+                ? `O ${infoModelo.nome} pela Magnific é cobrado em crédito, e ela não publica valor por unidade. O consumo aparece no painel da Magnific.`
+                : `Preço de tabela do ${infoModelo.nome}, pela fórmula do Seedance: largura × altura × duração × 24 ÷ 1024 tokens, à taxa da resolução, vezes a quantidade. O valor real aparece embaixo de cada resultado.`
+            }
           >
-            ~{formatarUsd(custoEstimado)}
-            {cotacao && ` · ~${formatarBrl(custoEstimado, cotacao.brlPorUsd)}`}
+            {custoEstimado === null ? (
+              "em créditos"
+            ) : (
+              <>
+                ~{formatarUsd(custoEstimado)}
+                {cotacao && ` · ~${formatarBrl(custoEstimado, cotacao.brlPorUsd)}`}
+              </>
+            )}
           </span>
           <p className="text-[11px] text-zinc-500">
             {temFrame ? "com primeiro frame" : "sem primeiro frame (texto para vídeo)"}
-            {cotacao && ` · dólar a R$ ${cotacao.brlPorUsd.toFixed(2).replace(".", ",")} (${cotacao.fonte})`}
+            {custoEstimado !== null &&
+              cotacao &&
+              ` · dólar a R$ ${cotacao.brlPorUsd.toFixed(2).replace(".", ",")} (${cotacao.fonte})`}
           </p>
         </div>
       </div>

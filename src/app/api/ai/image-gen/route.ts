@@ -3,6 +3,7 @@ import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
 import { getMediaRow, renderVisionImageBase64 } from "@/lib/media";
 import { gerarImagemSeedream, ASPECT_RATIOS, MAX_REFERENCIAS, type AspectRatio } from "@/lib/imageGen";
 import { gerarImagemGoogle } from "@/lib/googleImageGen";
+import { gerarImagemMagnific } from "@/lib/magnificImageGen";
 import {
   modeloImagem,
   resolucaoImagemValida,
@@ -13,7 +14,12 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 /** Geração de imagem em 2K pode levar dezenas de segundos — folga generosa
- *  para não cortar a chamada no meio de um pedido que estava indo bem. */
+ *  para não cortar a chamada no meio de um pedido que estava indo bem.
+ *
+ *  Pela Magnific o custo de tempo é maior: ela é assíncrona, e quem espera a
+ *  tarefa ficar pronta é o servidor (ver magnificImageGen). O teto de lá é
+ *  150s, escolhido para caber aqui com folga — o estouro vira uma mensagem
+ *  nossa em vez de um corte seco da requisição. */
 export const maxDuration = 180;
 
 export async function POST(req: NextRequest) {
@@ -95,9 +101,14 @@ export async function POST(req: NextRequest) {
       const faltam = quantidade - imagens.length;
       if (faltam <= 0) break;
       try {
-        // O provedor do catálogo decide o módulo; os dois têm a mesma
+        // O provedor do catálogo decide o módulo; os três têm a mesma
         // assinatura, então o resto da rota não muda.
-        const gerar = modelo.provedor === "google" ? gerarImagemGoogle : gerarImagemSeedream;
+        const gerar =
+          modelo.provedor === "google"
+            ? gerarImagemGoogle
+            : modelo.provedor === "magnific"
+              ? gerarImagemMagnific
+              : gerarImagemSeedream;
         const r = await gerar({
           prompt,
           referencias,

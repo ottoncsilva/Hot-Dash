@@ -65,7 +65,18 @@ export const NOME_PROVEDOR: Record<Provedor, string> = {
   magnific: "Magnific",
 };
 
-export type ModeloImagemId = "pro" | "lite" | "nb-pro" | "nb2" | "nb2-lite";
+export type ModeloImagemId =
+  | "pro"
+  | "lite"
+  | "nb-pro"
+  | "nb2"
+  | "nb2-lite"
+  // Os mesmos modelos acima, pela Magnific. O sufixo `-mg` é o que separa as
+  // duas rotas; a `familia` é o que diz que são o mesmo modelo.
+  | "pro-mg"
+  | "lite-mg"
+  | "nb-pro-mg"
+  | "nb2-mg";
 
 export type ModeloImagem = {
   id: ModeloImagemId;
@@ -77,15 +88,33 @@ export type ModeloImagem = {
   formatos: readonly Formato[];
   /** Imagens por chamada que o modelo aceita. */
   maxN: number;
-  /** US$ por imagem gerada, por resolução. */
+  /**
+   * US$ por imagem gerada, por resolução. VAZIO quando o provedor cobra em
+   * crédito e não publica valor por unidade — ver `semPrecoDeTabela`.
+   */
   precoSaida: Partial<Record<ImageResolucao, number>>;
   /** US$ por imagem de referência enviada. */
   precoReferencia: number;
+  /**
+   * O MESMO modelo por outra rota. Duas entradas com a mesma família são o
+   * mesmo Seedream/Veo/Seedance atendido por provedores diferentes: serve
+   * para a tela preservar resolução e formato ao trocar de rota, e para
+   * dizer que a troca não muda o resultado, só quem cobra.
+   */
+  familia?: string;
+  /** Teto de referências deste modelo, quando difere do teto geral (14). */
+  maxReferencias?: number;
+  /**
+   * Se aceita o formato "auto" (herdar o da referência). A Magnific não tem —
+   * o formato lá é um enum fechado.
+   */
+  aceitaAuto?: boolean;
 };
 
 export const MODELOS_IMAGEM: readonly ModeloImagem[] = [
   {
     id: "pro",
+    familia: "seedream-5-pro",
     provedor: "openrouter",
     slug: "bytedance-seed/seedream-5-0-pro",
     nome: "Seedream 5.0 Pro",
@@ -98,6 +127,7 @@ export const MODELOS_IMAGEM: readonly ModeloImagem[] = [
   },
   {
     id: "lite",
+    familia: "seedream-5-lite",
     provedor: "openrouter",
     slug: "bytedance-seed/seedream-5-0-lite",
     nome: "Seedream 5.0 Lite",
@@ -113,6 +143,7 @@ export const MODELOS_IMAGEM: readonly ModeloImagem[] = [
   // tem `n`, então quantidade vira chamadas repetidas.
   {
     id: "nb-pro",
+    familia: "nano-banana-pro",
     provedor: "google",
     slug: "gemini-3-pro-image",
     nome: "Nano Banana Pro",
@@ -125,6 +156,7 @@ export const MODELOS_IMAGEM: readonly ModeloImagem[] = [
   },
   {
     id: "nb2",
+    familia: "nano-banana-2",
     provedor: "google",
     slug: "gemini-3.1-flash-image",
     nome: "Nano Banana 2",
@@ -149,9 +181,92 @@ export const MODELOS_IMAGEM: readonly ModeloImagem[] = [
     precoSaida: { "1K": 0.0336, "2K": 0.0504, "4K": 0.0756 },
     precoReferencia: 0,
   },
+
+  // --- Magnific (ex-Freepik). Não são modelos novos: são os MESMOS quatro
+  // acima, revendidos por ela. Existir em duas rotas serve para comparar
+  // preço e para ter para onde correr quando uma delas cai.
+  //
+  // `precoSaida` vazio de propósito: a Magnific cobra em crédito e não
+  // publica valor por unidade — nem na documentação, nem na resposta da
+  // tarefa. Um número aqui seria inventado, e a tela mostra a nota de crédito
+  // em vez da estimativa.
+  //
+  // `aceitaAuto: false` em todas: o formato lá é um enum fechado
+  // (`square_1_1`, `social_story_9_16`…), sem a opção de herdar o da
+  // referência.
+  {
+    id: "pro-mg",
+    familia: "seedream-5-pro",
+    provedor: "magnific",
+    // O slug real depende de haver referência ou não (`-edit` ou simples);
+    // quem resolve isso é o magnificImageGen, porque só ele sabe do pedido.
+    slug: "seedream-v5-pro",
+    nome: "Seedream 5.0 Pro",
+    // A Magnific oferece 1.5K e 2K neste modelo; o 1.5K entra como "1K" na
+    // escala do painel, que é a mais próxima que existe aqui.
+    resolucoes: ["1K", "2K"],
+    formatos: FORMATOS,
+    maxN: 1,
+    precoSaida: {},
+    precoReferencia: 0,
+    maxReferencias: 10,
+    aceitaAuto: false,
+  },
+  {
+    id: "lite-mg",
+    familia: "seedream-5-lite",
+    provedor: "magnific",
+    slug: "seedream-v5-lite",
+    nome: "Seedream 5.0 Lite",
+    resolucoes: ["1K", "2K"],
+    formatos: FORMATOS,
+    maxN: 1,
+    precoSaida: {},
+    precoReferencia: 0,
+    maxReferencias: 10,
+    aceitaAuto: false,
+  },
+  {
+    id: "nb-pro-mg",
+    familia: "nano-banana-pro",
+    provedor: "magnific",
+    slug: "nano-banana-pro",
+    nome: "Nano Banana Pro",
+    resolucoes: ["1K", "2K", "4K"],
+    formatos: FORMATOS,
+    maxN: 1,
+    precoSaida: {},
+    precoReferencia: 0,
+    aceitaAuto: false,
+  },
+  {
+    id: "nb2-mg",
+    familia: "nano-banana-2",
+    provedor: "magnific",
+    slug: "nano-banana-pro-flash",
+    nome: "Nano Banana 2",
+    resolucoes: ["1K", "2K", "4K"],
+    formatos: FORMATOS,
+    maxN: 1,
+    precoSaida: {},
+    precoReferencia: 0,
+    aceitaAuto: false,
+  },
 ];
 
-export type ModeloVideoId = "seedance" | "mini" | "fast" | "veo" | "veo-fast";
+export type ModeloVideoId =
+  | "seedance"
+  | "mini"
+  | "fast"
+  | "veo"
+  | "veo-fast"
+  // Pela Magnific: os mesmos quatro, mais o Kling, que só existe lá.
+  | "seedance-mg"
+  | "mini-mg"
+  | "fast-mg"
+  | "veo-mg"
+  | "veo-fast-mg"
+  | "kling26";
 
 /**
  * Como o modelo cobra. O Seedance cobra por "video token" (fórmula de
@@ -160,7 +275,13 @@ export type ModeloVideoId = "seedance" | "mini" | "fast" | "veo" | "veo-fast";
  */
 export type PrecoVideo =
   | { tipo: "token"; porToken: Partial<Record<VideoResolucao, number>> }
-  | { tipo: "segundo"; porSegundo: Partial<Record<VideoResolucao, number>> };
+  | { tipo: "segundo"; porSegundo: Partial<Record<VideoResolucao, number>> }
+  /**
+   * Cobrado em crédito, sem preço por unidade publicado — é o caso da
+   * Magnific. Não é "preço zero": é "não dá para estimar", e a tela diz isso
+   * em vez de mostrar um número inventado.
+   */
+  | { tipo: "creditos" };
 
 export type ModeloVideo = {
   id: ModeloVideoId;
@@ -173,6 +294,8 @@ export type ModeloVideo = {
   /** Vídeos por chamada. O Veo tem `numberOfVideos`; o Seedance não tem `n`. */
   maxN: number;
   preco: PrecoVideo;
+  /** O MESMO modelo por outra rota — ver `familia` em ModeloImagem. */
+  familia?: string;
   /** O Veo sempre gera áudio, e isso não muda o preço — a tela esconde o interruptor. */
   audioSempre?: boolean;
   /** Resoluções que obrigam a duração máxima (regra do Veo para 1080p e 4k). */
@@ -182,6 +305,7 @@ export type ModeloVideo = {
 export const MODELOS_VIDEO: readonly ModeloVideo[] = [
   {
     id: "seedance",
+    familia: "seedance-2-pro",
     provedor: "openrouter",
     slug: "bytedance/seedance-2.0",
     nome: "Seedance 2.0",
@@ -196,6 +320,7 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
   },
   {
     id: "mini",
+    familia: "seedance-2-mini",
     provedor: "openrouter",
     slug: "bytedance/seedance-2.0-mini",
     nome: "Seedance 2.0 Mini",
@@ -207,6 +332,7 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
   },
   {
     id: "fast",
+    familia: "seedance-2-fast",
     provedor: "openrouter",
     slug: "bytedance/seedance-2.0-fast",
     nome: "Seedance 2.0 Fast",
@@ -220,6 +346,7 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
   // durações, e 1080p/4k só em 8 segundos.
   {
     id: "veo",
+    familia: "veo-3-1",
     provedor: "google",
     slug: "veo-3.1-generate-preview",
     nome: "Veo 3.1",
@@ -233,6 +360,7 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
   },
   {
     id: "veo-fast",
+    familia: "veo-3-1-fast",
     provedor: "google",
     slug: "veo-3.1-fast-generate-preview",
     nome: "Veo 3.1 Fast",
@@ -244,7 +372,128 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     audioSempre: true,
     exigemDuracaoMaxima: ["1080p", "4K"],
   },
+
+  // --- Magnific. Os mesmos Seedance e Veo de cima, por outra rota, mais o
+  // Kling, que só existe aqui. Preço em crédito, sem tabela — ver o bloco
+  // equivalente em MODELOS_IMAGEM.
+  //
+  // Uma diferença que fica no módulo, não aqui: no Seedance da Magnific a
+  // RESOLUÇÃO VAI NO CAMINHO da URL (`seedance-2-pro-1080p`), não num campo
+  // do corpo. O slug abaixo é o prefixo; quem completa é o magnificVideoGen.
+  {
+    id: "seedance-mg",
+    familia: "seedance-2-pro",
+    provedor: "magnific",
+    slug: "video/seedance-2-pro",
+    nome: "Seedance 2.0",
+    resolucoes: ["480p", "720p", "1080p", "4K"],
+    formatos: FORMATOS,
+    duracoes: VIDEO_DURACOES,
+    maxN: 1,
+    preco: { tipo: "creditos" },
+  },
+  {
+    id: "mini-mg",
+    familia: "seedance-2-mini",
+    provedor: "magnific",
+    slug: "video/seedance-2-mini",
+    nome: "Seedance 2.0 Mini",
+    resolucoes: ["480p", "720p"],
+    formatos: FORMATOS,
+    duracoes: VIDEO_DURACOES,
+    maxN: 1,
+    preco: { tipo: "creditos" },
+  },
+  {
+    id: "fast-mg",
+    familia: "seedance-2-fast",
+    provedor: "magnific",
+    slug: "video/seedance-2-fast",
+    nome: "Seedance 2.0 Fast",
+    resolucoes: ["480p", "720p"],
+    formatos: FORMATOS,
+    duracoes: VIDEO_DURACOES,
+    maxN: 1,
+    preco: { tipo: "creditos" },
+  },
+  {
+    id: "veo-mg",
+    familia: "veo-3-1",
+    provedor: "magnific",
+    slug: "image-to-video/veo-3-1",
+    nome: "Veo 3.1",
+    resolucoes: ["720p", "1080p", "4K"],
+    formatos: ["9:16", "16:9"],
+    duracoes: [4, 6, 8],
+    maxN: 1,
+    preco: { tipo: "creditos" },
+    audioSempre: true,
+    exigemDuracaoMaxima: ["1080p", "4K"],
+  },
+  {
+    id: "veo-fast-mg",
+    familia: "veo-3-1-fast",
+    provedor: "magnific",
+    slug: "image-to-video/veo-3-1-fast",
+    nome: "Veo 3.1 Fast",
+    resolucoes: ["720p", "1080p", "4K"],
+    formatos: ["9:16", "16:9"],
+    duracoes: [4, 6, 8],
+    maxN: 1,
+    preco: { tipo: "creditos" },
+    audioSempre: true,
+    exigemDuracaoMaxima: ["1080p", "4K"],
+  },
+  {
+    id: "kling26",
+    provedor: "magnific",
+    slug: "image-to-video/kling-v2-6-pro",
+    nome: "Kling 2.6 Pro",
+    // Sem `familia`: é o único do painel que não tem irmão em outra rota.
+    // A Kling escolhe a resolução sozinha — a lista abaixo existe só para o
+    // seletor da tela não ficar vazio, e o módulo não manda o campo.
+    resolucoes: ["1080p"],
+    formatos: ["9:16", "16:9", "1:1"],
+    // Só 5 ou 10 segundos, e é a própria API que impõe.
+    duracoes: [5, 10],
+    maxN: 1,
+    preco: { tipo: "creditos" },
+  },
 ];
+
+/**
+ * Os provedores que aparecem na lista suspensa, na ordem do catálogo.
+ *
+ * DERIVADO, e não escrito à mão: as duas telas traziam `["openrouter",
+ * "google"]` fixo, então acrescentar a Magnific ao catálogo não a fazia
+ * aparecer em lugar nenhum — o modelo existia e era inalcançável. Tirando a
+ * lista daqui, a próxima rota entra sozinha.
+ */
+/**
+ * O que a tela precisa ter conectado para gerar com determinado modelo.
+ *
+ * Antes as duas telas olhavam SÓ o OpenRouter e travavam o botão sem ele —
+ * mesmo com um modelo do Google escolhido, que não passa nem perto da chave
+ * do OpenRouter. Com uma terceira rota o erro ficaria mais visível ainda, e a
+ * checagem passa a seguir o provedor do modelo escolhido.
+ *
+ * O Google entra por dois lugares (o Gemini normal ou a chave só de mídia), e
+ * a Magnific compartilha o slot com o Kling — por isso cada um lista mais de
+ * uma chave possível.
+ */
+export const CHAVES_DO_PROVEDOR: Record<Provedor, readonly string[]> = {
+  openrouter: ["openrouter"],
+  google: ["gemini", "googleMedia"],
+  magnific: ["magnific", "kling"],
+};
+
+export function provedoresComModelo(
+  modelos: readonly { provedor: Provedor }[],
+): Provedor[] {
+  const vistos: Provedor[] = [];
+  for (const m of modelos) if (!vistos.includes(m.provedor)) vistos.push(m.provedor);
+  return vistos;
+}
 
 export function modeloImagem(id: unknown): ModeloImagem {
   return MODELOS_IMAGEM.find((m) => m.id === id) || MODELOS_IMAGEM[0];
@@ -299,6 +548,26 @@ export function formatoImagemValido(modeloId: unknown, formato: unknown): Format
   return maisProxima(FORMATOS, modeloImagem(modeloId).formatos, formato);
 }
 
+/**
+ * O formato a mostrar na tela, já contando com o "auto".
+ *
+ * "auto" (herdar o formato da referência) existe na OpenRouter e no Google,
+ * mas não na Magnific. Ao trocar para um modelo que não o aceita, quem estava
+ * em "auto" precisa cair em algo concreto — e cai no 9:16, que é o formato de
+ * quase tudo que este painel publica.
+ */
+export function formatoImagemDaTela(modeloId: unknown, formato: unknown): string {
+  const m = modeloImagem(modeloId);
+  const aceitaAuto = m.aceitaAuto !== false;
+  if (formato === "auto") return aceitaAuto ? "auto" : "9:16";
+  return formatoImagemValido(modeloId, formato);
+}
+
+/** Quantas referências este modelo aceita. */
+export function tetoReferencias(modeloId: unknown, tetoGeral: number): number {
+  return Math.min(tetoGeral, modeloImagem(modeloId).maxReferencias ?? tetoGeral);
+}
+
 export function formatoVideoValido(modeloId: unknown, formato: unknown): Formato {
   return maisProxima(FORMATOS, modeloVideo(modeloId).formatos, formato);
 }
@@ -318,13 +587,28 @@ export function duracaoValida(
   return maisProxima(VIDEO_DURACOES, m.duracoes, duracao);
 }
 
+/**
+ * Se dá para estimar o custo deste modelo ANTES de gerar.
+ *
+ * Os modelos da Magnific não têm: ela cobra em crédito e não publica valor por
+ * unidade. Isto é uma pergunta de propósito, e não um preço zero enfiado na
+ * tabela — a diferença entre "custa nada" e "não dá para saber" é justamente
+ * o que a tela precisa dizer.
+ */
+export function semPrecoDeTabela(m: ModeloImagem | ModeloVideo): boolean {
+  if ("preco" in m) return m.preco.tipo === "creditos";
+  return Object.keys(m.precoSaida).length === 0;
+}
+
+/** O custo estimado, ou `null` quando o provedor não publica preço. */
 export function custoImagem(
   modeloId: ModeloImagemId,
   resolucao: ImageResolucao,
   referencias: number,
   quantidade = 1,
-): number {
+): number | null {
   const m = modeloImagem(modeloId);
+  if (semPrecoDeTabela(m)) return null;
   const res = resolucaoImagemValida(modeloId, resolucao);
   const saida = m.precoSaida[res] ?? 0;
   const porImagem = saida + Math.max(0, referencias) * m.precoReferencia;
@@ -363,14 +647,16 @@ const VIDEO_TAMANHOS: Record<VideoResolucao, Record<Formato, [number, number]>> 
   },
 };
 
+/** O custo estimado, ou `null` quando o provedor não publica preço. */
 export function custoVideo(
   modeloId: ModeloVideoId,
   resolucao: VideoResolucao,
   formato: Formato,
   duracaoSegundos: number,
   quantidade = 1,
-): number {
+): number | null {
   const m = modeloVideo(modeloId);
+  if (m.preco.tipo === "creditos") return null;
   const res = resolucaoVideoValida(modeloId, resolucao);
   const qtd = quantidadeValida(quantidade);
 
@@ -382,6 +668,18 @@ export function custoVideo(
   const tokens = (largura * altura * duracaoSegundos * 24) / 1024;
   return tokens * (m.preco.porToken[res] ?? 0) * qtd;
 }
+
+/**
+ * O nome que a Magnific dá a cada formato. Ela não usa "9:16": usa
+ * `social_story_9_16`, num enum fechado — e não tem "auto".
+ */
+export const FORMATO_MAGNIFIC: Record<Formato, string> = {
+  "1:1": "square_1_1",
+  "3:4": "traditional_3_4",
+  "9:16": "social_story_9_16",
+  "4:3": "classic_4_3",
+  "16:9": "widescreen_16_9",
+};
 
 export function formatarUsd(valor: number): string {
   return `$${valor < 0.1 ? valor.toFixed(3) : valor.toFixed(2)}`;

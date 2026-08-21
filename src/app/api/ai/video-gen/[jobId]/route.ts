@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
 import { consultarStatusVideo } from "@/lib/videoGen";
 import { consultarStatusVeo } from "@/lib/googleVideoGen";
-import { consultarStatusMotion } from "@/lib/motionGen";
+import { consultarStatusVideoMagnific } from "@/lib/magnificVideoGen";
 import { decodificarJob } from "@/lib/aiMediaOptions";
 
 export const runtime = "nodejs";
@@ -20,7 +20,9 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       provedor === "google"
         ? await consultarStatusVeo(id)
         : provedor === "magnific"
-          ? await consultarStatusMotion(id)
+          ? // Motion control e vídeo pela Magnific dividem este braço: os dois
+            // carimbam o caminho no id, e a consulta é a mesma para ambos.
+            await consultarStatusVideoMagnific(id)
           : await consultarStatusVideo(id);
     return NextResponse.json(status);
   } catch (err) {

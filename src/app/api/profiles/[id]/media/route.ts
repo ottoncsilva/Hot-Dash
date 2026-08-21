@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extname } from "node:path";
 import { errorResponse, recusaSePesado, requireUser } from "@/lib/apiAuth";
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/uploadLimit";
+import { getUploadLimitMb } from "@/lib/settings";
 import { getProfile } from "@/lib/profiles";
 import { cleanMetadataInPlace, mediaKind } from "@/lib/metadata";
 import {
@@ -51,8 +51,11 @@ export async function POST(
 ) {
   try {
     await requireUser(req);
+    // O limite vive em Configurações → Geral, não numa variável de ambiente.
+    const maxMb = getUploadLimitMb();
+    const maxBytes = maxMb * 1024 * 1024;
     // Barra pelo cabeçalho, antes de o corpo virar memória.
-    recusaSePesado(req, MAX_UPLOAD_BYTES, MAX_UPLOAD_MB);
+    recusaSePesado(req, maxBytes, maxMb);
     const profile = await getProfile(params.id);
     if (!profile) {
       return NextResponse.json(
@@ -74,9 +77,9 @@ export async function POST(
     if (!(file instanceof File) || file.size === 0) {
       return NextResponse.json({ error: "Arquivo inválido." }, { status: 400 });
     }
-    if (file.size > MAX_UPLOAD_BYTES) {
+    if (file.size > maxBytes) {
       return NextResponse.json(
-        { error: `Arquivo excede o limite de ${MAX_UPLOAD_MB} MB.` },
+        { error: `Arquivo excede o limite de ${maxMb} MB.` },
         { status: 413 },
       );
     }

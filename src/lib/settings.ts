@@ -232,6 +232,34 @@ function normalizeFixedGroupMembers(n: unknown): number {
   return Math.min(MEMBROS_FIXOS_MAX, Math.max(0, v));
 }
 
+// ---- Tamanho máximo de upload ----
+// Vive no banco, e não numa variável de ambiente, porque `NEXT_PUBLIC_*` é
+// embutida no BUILD: mudar o número obrigava um redeploy inteiro. A variável
+// continua valendo como valor INICIAL de uma instalação nova.
+export const UPLOAD_MB_PADRAO = (() => {
+  const mb = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? "500");
+  return Number.isFinite(mb) && mb > 0 ? Math.round(mb) : 500;
+})();
+/** Teto de sanidade. Acima disso o container morre antes de o upload acabar. */
+export const UPLOAD_MB_MAX = 2000;
+export const UPLOAD_MB_MIN = 1;
+
+export function getUploadLimitMb(): number {
+  return normalizeUploadLimit(getJson<number>("upload_limit_mb", UPLOAD_MB_PADRAO));
+}
+
+export function setUploadLimitMb(n: unknown): number {
+  const next = normalizeUploadLimit(n);
+  setJson("upload_limit_mb", next);
+  return next;
+}
+
+function normalizeUploadLimit(n: unknown): number {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v)) return UPLOAD_MB_PADRAO;
+  return Math.min(UPLOAD_MB_MAX, Math.max(UPLOAD_MB_MIN, v));
+}
+
 // ---- Tipos de alerta (push) que o operador quer receber ----
 export function getNotificationPrefs(): NotificationPrefs {
   return normalizeNotificationPrefs(getJson<unknown>("notification_prefs", {}));

@@ -5,13 +5,19 @@ import { apiGet, apiSend } from "@/lib/api";
 import { TIME_ZONES, DEFAULT_TIME_ZONE } from "@/lib/timezone";
 import { BackToSettings } from "../_shared";
 import { showToast } from "@/lib/toast";
+import { definirLimiteUpload } from "@/lib/uploadLimit";
 
 type GeneralSettings = {
   timeZone: string;
   now: string;
   serverUtc?: string;
   fixedGroupMembers: number;
+  uploadLimitMb: number;
 };
+
+/** Os mesmos limites que o servidor aplica (ver `settings.ts`). */
+const UPLOAD_MIN = 1;
+const UPLOAD_MAX = 2000;
 
 export default function GeneralSettingsPage() {
   const [timeZone, setTimeZone] = useState(DEFAULT_TIME_ZONE);
@@ -22,6 +28,9 @@ export default function GeneralSettingsPage() {
   const [savingMembros, setSavingMembros] = useState(false);
   const [ok, setOk] = useState(false);
   const [okMembros, setOkMembros] = useState(false);
+  const [upload, setUpload] = useState("500");
+  const [savingUpload, setSavingUpload] = useState(false);
+  const [okUpload, setOkUpload] = useState(false);
 
   useEffect(() => {
     apiGet<GeneralSettings>("/api/settings/general")
@@ -29,6 +38,8 @@ export default function GeneralSettingsPage() {
         setSaved(d);
         setTimeZone(d.timeZone);
         setMembros(String(d.fixedGroupMembers));
+        setUpload(String(d.uploadLimitMb));
+        definirLimiteUpload(d.uploadLimitMb);
       })
       .catch(() => {});
   }, []);
@@ -62,6 +73,30 @@ export default function GeneralSettingsPage() {
     }
   }
 
+  async function saveUpload() {
+    setSavingUpload(true);
+    setOkUpload(false);
+    try {
+      const d = await apiSend<GeneralSettings>("/api/settings/general", "PATCH", {
+        uploadLimitMb: uploadNum,
+      });
+      setSaved(d);
+      setUpload(String(d.uploadLimitMb));
+      // As telas de envio leem daqui, sem recarregar a página.
+      definirLimiteUpload(d.uploadLimitMb);
+      setOkUpload(true);
+      showToast("Salvo!");
+    } finally {
+      setSavingUpload(false);
+    }
+  }
+
+  const uploadNum = Math.round(Number(upload));
+  const uploadValido =
+    upload.trim() !== "" && Number.isFinite(uploadNum) &&
+    uploadNum >= UPLOAD_MIN && uploadNum <= UPLOAD_MAX;
+  const uploadChanged = saved ? uploadValido && uploadNum !== saved.uploadLimitMb : false;
+
   const membrosNum = Math.round(Number(membros));
   const membrosValido = membros.trim() !== "" && Number.isFinite(membrosNum) && membrosNum >= 0;
   const membrosChanged = saved ? membrosValido && membrosNum !== saved.fixedGroupMembers : false;
@@ -76,7 +111,7 @@ export default function GeneralSettingsPage() {
       <BackToSettings />
       <h1 className="mt-4 font-display text-2xl font-semibold tracking-tight">Geral</h1>
       <p className="mt-2 text-sm text-zinc-500">
-        Fuso da operação e contagem de integrantes dos grupos.
+        Fuso da operação, tamanho máximo de upload e contagem de integrantes dos grupos.
       </p>
 
       <h2 className="mt-6 font-display text-lg font-semibold tracking-tight">Fuso horário</h2>
@@ -183,6 +218,77 @@ export default function GeneralSettingsPage() {
             {savingMembros ? "Salvando..." : "Salvar desconto"}
           </button>
           {okMembros && (
+            <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
+              salvo ✓
+            </span>
+          )}
+        </div>
+      </div>
+
+      <h2 className="mt-8 font-display text-lg font-semibold tracking-tight">
+        Tamanho máximo de upload
+      </h2>
+      <p className="mt-1.5 text-sm text-zinc-500">
+        Vale para a Galeria, a Censura e a limpeza de metadados. Passa a valer na hora, sem
+        redeploy.
+      </p>
+
+      <div className="mt-3 card p-4">
+        <label className="eyebrow mb-1.5 block" htmlFor="upload-mb">
+          Limite por arquivo (MB)
+        </label>
+        <input
+          id="upload-mb"
+          type="number"
+          min={UPLOAD_MIN}
+          max={UPLOAD_MAX}
+          step={50}
+          inputMode="numeric"
+          className="input"
+          value={upload}
+          onChange={(e) => {
+            setUpload(e.target.value);
+            setOkUpload(false);
+          }}
+        />
+
+        {!uploadValido && upload.trim() !== "" && (
+          <p className="mt-2 text-[11px] text-red-400">
+            Use um número inteiro entre {UPLOAD_MIN} e {UPLOAD_MAX}.
+          </p>
+        )}
+
+        {/* O aviso é o resultado medido: um vídeo de 456 MB fez o processo
+            chegar a 1,9 GB, porque o Next monta a requisição inteira na
+            memória antes de a rota rodar. Sem dizer isso, o operador põe
+            1500 aqui e o painel morre no meio do upload. */}
+        <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
+          O container precisa de cerca de <b className="text-zinc-300">4× o limite</b> em memória
+          durante o envio — 500 MB pedem ~2 GB. Acima disso o painel é morto no meio do upload em
+          vez de recusar o arquivo.
+        </p>
+
+        {uploadChanged && uploadNum > 500 && (
+          <p className="mt-2 text-[11px] text-amber-400">
+            {uploadNum} MB pedem ~{Math.ceil((uploadNum * 4) / 1024)} GB de memória no container.
+            Confira antes de salvar.
+          </p>
+        )}
+
+        <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+          O proxy na frente do painel tem um limite próprio e vale o menor dos dois. No Nginx do
+          EasyPanel é o <code className="font-mono text-zinc-400">client_max_body_size</code>.
+        </p>
+
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            onClick={saveUpload}
+            disabled={savingUpload || !uploadValido}
+            className="btn-primary"
+          >
+            {savingUpload ? "Salvando..." : "Salvar limite"}
+          </button>
+          {okUpload && (
             <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
               salvo ✓
             </span>

@@ -18,7 +18,7 @@ import {
   IconCheck,
 } from "@/components/icons";
 import PageHeader from "@/components/PageHeader";
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/uploadLimit";
+import { limiteUploadBytes, limiteUploadMb } from "@/lib/uploadLimit";
 
 const MAX_DIM = 2000;
 const IMG_EXTS = [".jpg", ".jpeg", ".png", ".webp", ".bmp"];
@@ -118,8 +118,8 @@ export default function CensuraPage() {
         showToast(`"${file.name}": formato não suportado.`, "error");
         continue;
       }
-      if (file.size > MAX_UPLOAD_BYTES) {
-        showToast(`"${file.name}" passa de ${MAX_UPLOAD_MB} MB.`, "error");
+      if (file.size > limiteUploadBytes()) {
+        showToast(`"${file.name}" passa de ${limiteUploadMb()} MB.`, "error");
         continue;
       }
       const url = URL.createObjectURL(file);

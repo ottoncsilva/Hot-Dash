@@ -3,8 +3,12 @@ import { errorResponse, requireUser } from "@/lib/apiAuth";
 import {
   getAppTimeZone,
   getFixedGroupMembers,
+  getUploadLimitMb,
   setAppTimeZone,
   setFixedGroupMembers,
+  setUploadLimitMb,
+  UPLOAD_MB_MAX,
+  UPLOAD_MB_MIN,
 } from "@/lib/settings";
 import { isValidTimeZone, partsInTimeZone } from "@/lib/timezone";
 
@@ -19,6 +23,7 @@ function payload() {
     now: `${String(p.day).padStart(2, "0")}/${String(p.month).padStart(2, "0")}/${p.year} ${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}`,
     serverUtc: new Date().toISOString(),
     fixedGroupMembers: getFixedGroupMembers(),
+    uploadLimitMb: getUploadLimitMb(),
   };
 }
 
@@ -58,6 +63,17 @@ export async function PATCH(req: NextRequest) {
         );
       }
       setFixedGroupMembers(n);
+    }
+
+    if (body.uploadLimitMb !== undefined) {
+      const n = Number(body.uploadLimitMb);
+      if (!Number.isFinite(n) || n < UPLOAD_MB_MIN || n > UPLOAD_MB_MAX) {
+        return NextResponse.json(
+          { error: `Informe um limite entre ${UPLOAD_MB_MIN} e ${UPLOAD_MB_MAX} MB.` },
+          { status: 400 },
+        );
+      }
+      setUploadLimitMb(n);
     }
 
     return NextResponse.json(payload());

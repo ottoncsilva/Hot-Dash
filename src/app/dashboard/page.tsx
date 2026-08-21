@@ -7,6 +7,7 @@ import type { Profile } from "@/lib/types";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import type { PeriodStats, QuandoRow } from "@/lib/transactions";
 import { IconSettings } from "@/components/icons";
+import FaixaRolavel from "@/components/FaixaRolavel";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import PageHeader from "@/components/PageHeader";
 import CurvaSort, {
@@ -223,21 +224,47 @@ function SetupChecklist({
     { done: payDone, label: "Conecte os pagamentos (SyncPay)", href: "/dashboard/settings/pagamentos" },
   ];
   const doneCount = steps.filter((s) => s.done).length;
-  // Some quando tudo está configurado.
+
+  // NO CELULAR, DOBRADO ASSIM QUE A CONFIGURAÇÃO COMEÇA.
+  //
+  // O cartão aberto ocupava a primeira tela inteira, e o faturamento — o motivo
+  // de abrir o painel — só aparecia rolando. Quem ainda não fez nada continua
+  // vendo a lista aberta (é uma tela nova, e a lista é o que fazer primeiro);
+  // quem já cumpriu um passo vê a linha de progresso e abre se quiser.
+  //
+  // O padrão é CALCULADO a cada render, não congelado num `useState` inicial:
+  // na montagem os dados de modelos/IA/pagamento ainda não chegaram, então
+  // `doneCount` vale 0 e um estado inicial deixaria o cartão aberto para
+  // sempre — que era exatamente o que acontecia. `manual` guarda só a decisão
+  // de quem clicou, e ela tem a última palavra.
+  const [manual, setManual] = useState<boolean | null>(null);
+  const aberto = manual ?? doneCount === 0;
+
+  // Some quando tudo está configurado. Depois dos hooks, sempre: um `return`
+  // antes deles mudaria a quantidade de hooks entre renders.
   if (doneCount === steps.length) return null;
 
   return (
     <div className="mt-5 card p-4">
-      <div className="flex items-center justify-between">
+      <button
+        type="button"
+        onClick={() => setManual(!aberto)}
+        aria-expanded={aberto}
+        // No celular esta linha é o que abre e fecha o cartão, e tinha só a
+        // altura do texto. `-my-1` devolve a folga ao card para o cartão não
+        // crescer por causa do alvo maior.
+        className="flex w-full items-center justify-between gap-3 text-left [@media(pointer:coarse)]:-my-1 [@media(pointer:coarse)]:min-h-[44px] sm:cursor-default"
+      >
         <p className="font-display text-base font-semibold text-white">Primeiros passos</p>
-        <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
+        <span className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-zinc-500">
           {doneCount}/{steps.length}
+          <span className={`transition-transform sm:hidden ${aberto ? "rotate-180" : ""}`}>▾</span>
         </span>
-      </div>
-      <p className="mt-1 text-xs text-zinc-500">
+      </button>
+      <p className={`mt-1 text-xs text-zinc-500 ${aberto ? "" : "hidden sm:block"}`}>
         Complete a configuração para o painel funcionar por inteiro.
       </p>
-      <div className="mt-3 space-y-1.5">
+      <div className={`mt-3 space-y-1.5 ${aberto ? "" : "hidden sm:block"}`}>
         {steps.map((s) => (
           <div
             key={s.href}
@@ -673,8 +700,10 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
         <span className="font-display text-sm font-semibold text-emerald-400">{brl(total)}</span>
       </div>
       {/* Gráfico + datas rolam JUNTOS: com 30 dias os rótulos não caberiam num
-          celular, então garantimos uma largura mínima por dia e deixamos rolar. */}
-      <div className="mt-2 overflow-x-auto">
+          celular, então garantimos uma largura mínima por dia e deixamos rolar.
+          A faixa põe o degradê nas pontas: rolar já rolava, mas nada dizia que
+          havia mais dias fora da tela. */}
+      <FaixaRolavel className="mt-2" ariaLabel="Faturamento por dia">
       <div style={{ minWidth: `${Math.max(280, series.length * 38)}px` }}>
       {/* `relative` para ancorar a camada de interação e o balão do valor. */}
       <div className="relative" onMouseLeave={() => setActive(null)}>
@@ -770,7 +799,7 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
         ))}
       </div>
       </div>
-      </div>
+      </FaixaRolavel>
     </div>
   );
 }

@@ -22,7 +22,9 @@ export default function ToggleChip({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors ${
+      // No dedo o chip tinha 25px de altura. Cresce para 44 em tela de toque e
+      // continua compacto no mouse — a densidade só atrapalha quem aponta.
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:px-4 ${
         active
           ? "border-white bg-white text-ink-950"
           : "border-white/15 bg-white/[0.03] text-zinc-400 hover:border-white/30 hover:bg-white/10 hover:text-zinc-100"

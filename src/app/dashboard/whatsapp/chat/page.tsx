@@ -138,21 +138,62 @@ export default function LiveChatPage() {
   const selectedChat = chats.find(c => c.id === selectedChatId);
 
   return (
-    <div className="flex h-dvh flex-col bg-ink-950 text-zinc-100 overflow-hidden font-sans">
+    // `h-dvh` cortava a barra do topo: o <main> do painel já põe 3,5rem em cima
+    // e 2rem embaixo no celular (2,5rem de cada lado em telas grandes), então a
+    // tela inteira somava mais que a janela e a página rolava por baixo do
+    // cabeçalho. Aqui a altura desconta essa folga.
+    <div className="flex h-[calc(100dvh-5.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex-col overflow-hidden bg-ink-950 font-sans text-zinc-100 lg:h-[calc(100dvh-5rem)]">
       {/* Barra superior. `pl-20` no celular porque o botão de menu do painel é
           flutuante e cairia bem em cima do voltar; no desktop não existe. */}
-      <div className="z-10 flex items-center gap-4 border-b border-white/[0.04] bg-ink-900/80 py-4 pl-20 pr-6 shadow-sm backdrop-blur-md lg:px-6">
-        <Link href="/dashboard/whatsapp" className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/[0.03] hover:bg-white/[0.08] transition-colors">
+      <div className="z-10 flex items-center gap-3 border-b border-white/[0.04] bg-ink-900/80 py-3 pl-20 pr-4 shadow-sm backdrop-blur-md lg:gap-4 lg:px-6 lg:py-4">
+        {/* UM voltar só, e ele muda de destino conforme o que está na tela.
+            No celular com uma conversa aberta, ele devolve para a lista — que
+            é onde o dedo espera voltar; nos demais casos sai da tela. */}
+        {selectedChatId ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setSelectedChatId(null)}
+              aria-label="Voltar para as conversas"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/[0.03] text-zinc-400 transition-colors hover:bg-white/[0.08] hover:text-white md:hidden"
+            >
+              <IconArrowLeft size={16} />
+            </button>
+            <Link
+              href="/dashboard/whatsapp"
+              aria-label="Sair do Live Chat"
+              className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/[0.03] text-zinc-400 transition-colors hover:bg-white/[0.08] hover:text-white md:flex"
+            >
+              <IconArrowLeft size={16} />
+            </Link>
+          </>
+        ) : (
+          <Link
+            href="/dashboard/whatsapp"
+            aria-label="Sair do Live Chat"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/[0.03] text-zinc-400 transition-colors hover:bg-white/[0.08] hover:text-white"
+          >
             <IconArrowLeft size={16} />
-          </div>
-        </Link>
-        <h1 className="font-display text-xl font-medium tracking-tight">Live Chat</h1>
+          </Link>
+        )}
+        <h1 className="truncate font-display text-lg font-medium tracking-tight lg:text-xl">Live Chat</h1>
       </div>
 
+      {/* UMA COLUNA DE CADA VEZ NO CELULAR.
+          A tela era feita de duas colunas fixas — 320px travados para a lista
+          e o resto para a conversa. Num iPhone sobravam 68px para ler e
+          responder, com 14px ainda fora da tela: era a tela com mais motivo
+          para existir no celular (atender um lead) e a única que não existia
+          lá. Agora a lista ocupa a tela inteira, escolher uma conversa troca
+          para ela, e um voltar devolve à lista. De `md` para cima nada muda:
+          as duas colunas lado a lado, como sempre. */}
       <div className="flex flex-1 overflow-hidden relative">
         {/* Sidebar - Chats List */}
-        <div className="w-80 flex-shrink-0 border-r border-white/[0.04] bg-ink-900 flex flex-col overflow-y-auto">
+        <div
+          className={`w-full min-w-0 flex-shrink-0 flex-col overflow-y-auto border-r border-white/[0.04] bg-ink-900 md:flex md:w-80 ${
+            selectedChatId ? "hidden" : "flex"
+          }`}
+        >
           {chats.length === 0 ? (
             <div className="p-8 text-center text-sm text-zinc-500 mt-10">Nenhum chat ativo no momento.</div>
           ) : (
@@ -186,9 +227,20 @@ export default function LiveChatPage() {
         </div>
 
         {/* Chat Window */}
-        <div className="flex flex-1 flex-col bg-ink-950 relative">
-          {/* Subtle Background Pattern */}
-          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.02] pointer-events-none"></div>
+        <div
+          // `min-w-0`: item de flex não encolhe abaixo do próprio conteúdo por
+          // padrão, e a barra de digitação segurava o painel em 414px numa tela
+          // de 390 — o pai cortava o excedente e a conversa saía torta.
+          className={`relative min-w-0 flex-1 flex-col bg-ink-950 md:flex ${
+            selectedChatId ? "flex" : "hidden"
+          }`}
+        >
+          {/* Textura de fundo.
+              Era um PNG buscado em transparenttextures.com — dependência
+              externa num painel auto-hospedado, uma visita a terceiro a cada
+              abertura da tela, e a 2% de opacidade. Agora é gradiente,
+              nenhuma requisição. */}
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(255,255,255,0.035),transparent_55%),radial-gradient(circle_at_85%_100%,rgba(16,185,129,0.03),transparent_55%)]"></div>
           
           {!selectedChat ? (
             <div className="flex flex-1 items-center justify-center flex-col gap-4 text-zinc-600">
@@ -200,21 +252,22 @@ export default function LiveChatPage() {
           ) : (
             <>
               {/* Active Chat Header */}
-              <div className="flex items-center justify-between border-b border-white/[0.04] bg-ink-900/90 backdrop-blur-md px-6 py-4 shadow-sm z-10">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-zinc-700 to-zinc-900 border border-white/[0.1] text-zinc-300">
+              <div className="flex items-center justify-between border-b border-white/[0.04] bg-ink-900/90 backdrop-blur-md px-4 py-4 shadow-sm z-10 md:px-6">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-zinc-700 to-zinc-900 border border-white/[0.1] text-zinc-300">
                     <IconUser size={18} />
                   </div>
-                  <div>
-                    <h2 className="font-medium text-[15px] tracking-wide">+{selectedChat.remote_jid.split('@')[0]}</h2>
-                    <p className="text-[11px] text-zinc-400 mt-0.5">IA assumindo como <span className="text-emerald-400 font-medium">{selectedChat.profile_name}</span></p>
+                  <div className="min-w-0">
+                    <h2 className="truncate font-medium text-[15px] tracking-wide">+{selectedChat.remote_jid.split('@')[0]}</h2>
+                    <p className="truncate text-[11px] text-zinc-400 mt-0.5">IA assumindo como <span className="text-emerald-400 font-medium">{selectedChat.profile_name}</span></p>
                   </div>
                 </div>
                 
                 {/* Modern Toggle Switch */}
                 <button 
                   onClick={toggleAi} 
-                  className={`relative flex h-8 w-14 items-center rounded-full p-1 transition-colors duration-300 ${chatState === 'active' ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                  aria-label={chatState === 'active' ? "Desligar a IA nesta conversa" : "Religar a IA nesta conversa"}
+                  className={`relative flex h-8 w-14 shrink-0 items-center rounded-full p-1 transition-colors duration-300 ${chatState === 'active' ? 'bg-emerald-500' : 'bg-zinc-700'}`}
                 >
                   <div className={`h-6 w-6 rounded-full bg-white shadow-md transform transition-transform duration-300 flex items-center justify-center ${chatState === 'active' ? 'translate-x-6' : 'translate-x-0'}`}>
                     {chatState === 'active' ? <IconBot size={12} className="text-emerald-500" /> : <IconUser size={12} className="text-zinc-500" />}
@@ -223,12 +276,12 @@ export default function LiveChatPage() {
               </div>
 
               {/* Chat Bubbles Area */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-6 z-0 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+              <div className="flex-1 overflow-y-auto p-4 space-y-5 z-0 md:p-6 md:space-y-6 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
                 {messages.map(msg => {
                   const isAssistant = msg.role === "assistant";
                   return (
                     <div key={msg.id} className={`flex ${isAssistant ? 'justify-end' : 'justify-start'} group animate-in slide-in-from-bottom-2 duration-300`}>
-                      <div className={`relative max-w-[75%] md:max-w-[65%] px-5 py-3.5 text-[15px] shadow-sm backdrop-blur-sm 
+                      <div className={`relative max-w-[85%] px-4 py-3 text-[15px] sm:max-w-[75%] sm:px-5 sm:py-3.5 md:max-w-[65%] shadow-sm backdrop-blur-sm 
                         ${isAssistant 
                           ? 'bg-gradient-to-br from-emerald-600 to-emerald-700 text-white rounded-2xl rounded-tr-sm' 
                           : 'bg-ink-850 text-zinc-200 border border-white/[0.04] rounded-2xl rounded-tl-sm'
@@ -265,7 +318,7 @@ export default function LiveChatPage() {
                       value={inputMsg}
                       onChange={(e) => setInputMsg(e.target.value)}
                       placeholder={chatState === 'active' ? "Escreva algo (a IA será ignorada neste envio)..." : "Digite sua mensagem..."}
-                      className="flex-1 bg-transparent px-2 py-2 text-[15px] text-white placeholder-zinc-600 focus:outline-none"
+                      className="min-w-0 flex-1 bg-transparent px-2 py-2 text-[15px] text-white placeholder-zinc-600 focus:outline-none"
                     />
                     
                     <button 
@@ -279,7 +332,7 @@ export default function LiveChatPage() {
 
                   {/* Media Picker Popup */}
                   {showMediaPicker && (
-                    <div className="absolute bottom-full left-0 mb-4 w-[320px] rounded-2xl border border-white/[0.08] bg-ink-900/95 backdrop-blur-xl shadow-2xl p-4 max-h-80 overflow-y-auto z-20 animate-in fade-in slide-in-from-bottom-4 duration-200">
+                    <div className="absolute bottom-full left-0 mb-4 w-[min(320px,calc(100vw-2.5rem))] rounded-2xl border border-white/[0.08] bg-ink-900/95 backdrop-blur-xl shadow-2xl p-4 max-h-80 overflow-y-auto z-20 animate-in fade-in slide-in-from-bottom-4 duration-200">
                       <div className="flex items-center justify-between mb-3">
                         <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Mídias do Perfil</span>
                         <button type="button" onClick={() => setShowMediaPicker(false)} className="text-zinc-500 hover:text-white"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>

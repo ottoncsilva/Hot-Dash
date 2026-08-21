@@ -103,6 +103,25 @@ body {
   }
 }
 
+/* PISO DE 11px NO CELULAR.
+   Há mais de cem usos de `text-[10px]` espalhados pelo painel: provedor,
+   tema, duração, data de uso — as linhas de metadado. No monitor passam; num
+   celular ficam no limite, e boa parte delas está em maiúsculas com
+   espaçamento entre letras, o que piora. Nenhuma é secundária a ponto de
+   justificar 10px no aparelho em que a tela é menor.
+
+   Vale a pena a regra em vez de trocar classe a classe: são mais de cem
+   pontos, e um `text-[10px]` novo escrito amanhã já nasce corrigido.
+
+   `[class]` duplicado leva a especificidade a (0,2,0) e vence o utilitário do
+   Tailwind sem `!important`. É `max-width`, não `pointer: coarse`: aqui o que
+   manda é a tela pequena, não o dedo — num iPad de 1180px o 10px lê bem. */
+@media (max-width: 639px) {
+  [class*="text-[10px]"][class]:not(input):not(select):not(textarea) {
+    font-size: 11px;
+  }
+}
+
 /* ALVO DE 44px NO DEDO.
    A recomendação da Apple (e a do Material, com 48dp) é que nada tocável tenha
    menos de 44px de lado. Medindo a tela num iPhone, a maior parte dos botões
@@ -120,8 +139,25 @@ body {
 @media (pointer: coarse) {
   .btn,
   .input,
-  select {
+  select,
+  textarea,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="hidden"]) {
     min-height: 44px;
+  }
+
+  /* A barra deslizante tinha 16px de altura inteira — o polegar não acha o
+     cursor. A altura maior é só área de toque: o traço continua fino. */
+  input[type="range"] {
+    min-height: 44px;
+  }
+
+  /* Caixa de marcar não vai a 44px: viraria um quadrado enorme ao lado de uma
+     linha de texto. Vai a 22px, que é o dobro do padrão do sistema e já se
+     acerta com o dedo — o rótulo ao lado continua clicável junto. */
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-width: 22px;
+    min-height: 22px;
   }
 }
 

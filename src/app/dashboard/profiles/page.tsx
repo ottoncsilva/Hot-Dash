@@ -215,8 +215,100 @@ export default function ProfilesPage() {
             </select>
           </div>
 
+          {/* CARTÕES ATÉ `lg`, TABELA DAQUI PARA CIMA.
+              A tabela mede 850px. Rolava — isso estava certo —, mas rolava
+              tanto em 390px quanto num iPad em retrato, onde a coluna "Ações"
+              caía 47px além da borda. Pior: faturamento, contas e posts, que
+              são o motivo de abrir a lista, ficavam fora da primeira leitura.
+              O cartão põe nome, faturamento e status na frente e deixa o resto
+              para dentro da modelo. */}
+          <ul className="mt-3 space-y-2 lg:hidden">
+            {filtered.map((p) => {
+              const networks = Array.from(new Set(p.accounts.map((a) => a.network)));
+              return (
+                <li key={p.id} className="card p-3.5">
+                  <div className="flex items-center gap-3">
+                    <Link
+                      href={`/dashboard/profiles/${p.id}`}
+                      className="flex min-w-0 flex-1 items-center gap-3"
+                    >
+                      <div className="h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-ink-800">
+                        <AuthImage
+                          src={p.avatarPath ? `/api/profiles/${p.id}/avatar` : null}
+                          alt={p.name}
+                          className="h-11 w-11 object-cover"
+                          fallback={
+                            <div className="grid h-11 w-11 place-items-center font-display text-base font-semibold text-zinc-500">
+                              {p.name.charAt(0).toUpperCase()}
+                            </div>
+                          }
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-white">{p.name}</p>
+                        <p className="mt-0.5 font-mono text-sm text-emerald-400">
+                          {brl(p.revenuePaidCents || 0)}
+                        </p>
+                      </div>
+                    </Link>
+                    <Link
+                      href={`/dashboard/profiles/${p.id}`}
+                      className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-zinc-500 hover:bg-white/10 hover:text-white"
+                      aria-label={`Abrir ${p.name}`}
+                    >
+                      <IconChevronRight size={18} />
+                    </Link>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                    {(() => {
+                      const current = statuses.find((s) => s.id === p.status);
+                      const color = current?.color || "#71717a";
+                      return (
+                        <select
+                          value={p.status}
+                          onChange={(e) => changeStatus(p, e.target.value)}
+                          aria-label={`Status de ${p.name}`}
+                          className="rounded-md border px-2 py-1 text-xs font-medium"
+                          style={{
+                            borderColor: hexAlpha(color, "4d"),
+                            backgroundColor: hexAlpha(color, "1a"),
+                            color,
+                          }}
+                        >
+                          {statuses.map((st) => (
+                            <option key={st.id} value={st.id} className="bg-ink-850 text-zinc-100">
+                              {st.name}
+                            </option>
+                          ))}
+                        </select>
+                      );
+                    })()}
+                    <p className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
+                      {p.accounts.length} conta(s) · {p.postCount ?? 0} post(s)
+                    </p>
+                    {networks.length > 0 && (
+                      <div className="flex items-center gap-1.5 text-zinc-500">
+                        {networks.map((n) => (
+                          <span key={n} title={NETWORK_LABELS[n]}>
+                            <NetworkIcon network={n} size={14} />
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+            {filtered.length === 0 && (
+              <li className="card p-8 text-center text-sm text-zinc-500">
+                Nenhum modelo encontrado com esses filtros.
+              </li>
+            )}
+          </ul>
+
           {/* Tabela */}
-          <div className="mt-3 card overflow-hidden">
+          <div className="mt-3 hidden card overflow-hidden lg:block">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>

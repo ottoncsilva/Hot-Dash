@@ -348,7 +348,7 @@ export default function CaixinhaPage() {
             <p className="eyebrow">Persona · do cadastro de {profile?.name || "a modelo"}</p>
             <Link
               href="/dashboard/profiles"
-              className="text-[11px] text-zinc-400 underline-offset-2 hover:text-white hover:underline"
+              className="inline-flex items-center text-[11px] text-zinc-400 underline-offset-2 hover:text-white hover:underline [@media(pointer:coarse)]:min-h-[44px]"
             >
               editar em Modelos
             </Link>
@@ -411,7 +411,7 @@ export default function CaixinhaPage() {
                       antes.includes(p) ? antes.filter((x) => x !== p) : [...antes, p],
                     )
                   }
-                  className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                  className={`rounded-lg border px-3 py-1.5 text-sm transition-colors [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:px-4 ${
                     !disponivel
                       ? "cursor-not-allowed border-white/5 text-zinc-700"
                       : ligado

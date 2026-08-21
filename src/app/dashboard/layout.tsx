@@ -322,7 +322,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
             <Brand />
             <button
               onClick={() => setMobileMenuOpen(false)}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-400 hover:bg-white/5 hover:text-white"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-400 hover:bg-white/5 hover:text-white [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
               aria-label="Fechar menu"
             >
               <IconX size={20} />
@@ -519,7 +519,7 @@ function UserBox({
       </p>
       <button
         onClick={onSignOut}
-        className="mt-2 flex w-full items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-zinc-400 transition-all hover:bg-white/5 hover:text-zinc-200"
+        className="mt-2 flex w-full items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-zinc-400 transition-all hover:bg-white/5 hover:text-zinc-200 [@media(pointer:coarse)]:min-h-[44px]"
       >
         <IconLogout size={16} />
         Sair

@@ -8,7 +8,6 @@ import ToggleChip from "@/components/ToggleChip";
 import ScheduleTemplateModal from "@/components/schedule/ScheduleTemplateModal";
 import GenerateScheduleModal from "@/components/schedule/GenerateScheduleModal";
 import CalendarGrid from "@/components/schedule/CalendarGrid";
-import { PushNotificationButton } from "./PushNotificationButton";
 import { useConfirm } from "@/hooks/useConfirm";
 import { useProfile } from "@/context/ProfileContext";
 import {
@@ -330,14 +329,21 @@ export default function SchedulePage() {
           </>
         }
       />
-      <div className="mt-3">
-        <PushNotificationButton />
-      </div>
+      {/* O convite de "Ativar Notificações (PWA)" saiu daqui.
+          Era um bloco roxo disputando atenção com "Novo post", que é a ação
+          real da tela — e fazia exatamente o que Configurações → Alertas no
+          celular já faz, com explicação de como instalar o app e a escolha
+          dos tipos de alerta. Era duplicata, não atalho. */}
 
       {/* Filtros + abas */}
       <div className="mt-6 card p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex gap-1 rounded-lg border border-white/10 p-1">
+        {/* No celular esta barra virava uma linha só, e as duas listas
+            suspensas sobravam com 67px — mostravam "To" e pronto, sem dar para
+            saber se aquilo era conta ou status. Agora as abas ficam numa linha
+            inteira e os filtros na de baixo; de `sm` para cima, tudo lado a
+            lado como antes. */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div className="flex w-full gap-1 rounded-lg border border-white/10 p-1 sm:w-auto">
             {(
               [
                 ["calendar", "Calendário"],
@@ -348,7 +354,7 @@ export default function SchedulePage() {
               <button
                 key={key}
                 onClick={() => setView(key)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors [@media(pointer:coarse)]:min-h-[40px] sm:flex-none ${
                   view === key ? "bg-white text-ink-950" : "text-zinc-400 hover:text-white"
                 }`}
               >
@@ -356,9 +362,13 @@ export default function SchedulePage() {
               </button>
             ))}
           </div>
-          <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2 sm:justify-end">
+          {/* No celular as duas listas lado a lado ainda cortavam o rótulo em
+              "Todas as c…". Aqui a de contas fica com a linha inteira e a de
+              status divide a de baixo com o olho; de `sm` para cima voltam à
+              grade de duas colunas. */}
+          <div className="grid w-full grid-cols-[1fr_auto] gap-2 sm:flex-1 sm:grid-cols-2 sm:justify-end">
             <select
-              className="input py-2 text-sm"
+              className="input col-span-2 min-w-0 py-2 text-sm sm:col-span-1"
               value={networkFilter}
               onChange={(e) => setNetworkFilter(e.target.value)}
             >
@@ -370,7 +380,7 @@ export default function SchedulePage() {
               ))}
             </select>
             <select
-              className="input py-2 text-sm"
+              className="input min-w-0 py-2 text-sm"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
             >
@@ -382,7 +392,7 @@ export default function SchedulePage() {
               type="button"
               onClick={() => setHidePosted((v) => !v)}
               title={hidePosted ? "Mostrar também os já postados" : "Ocultar os já postados"}
-              className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
+              className={`flex shrink-0 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
                 hidePosted
                   ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
                   : "border-white/10 text-zinc-300 hover:bg-white/5"

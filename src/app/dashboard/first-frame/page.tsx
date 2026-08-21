@@ -342,7 +342,7 @@ export default function FirstFramePage() {
               <button
                 key={opt.value}
                 onClick={() => setFormat(opt.value)}
-                className={`rounded-lg border px-3 py-2 text-sm transition-colors ${
+                className={`rounded-lg border px-3 py-2 text-sm transition-colors [@media(pointer:coarse)]:min-h-[44px] ${
                   format === opt.value
                     ? "border-white/40 bg-white/10 text-white"
                     : "border-white/10 text-zinc-400 hover:bg-white/5"
@@ -381,7 +381,7 @@ export default function FirstFramePage() {
               <button
                 key={v}
                 onClick={() => setFps(v)}
-                className={`flex-1 rounded-lg border px-2 py-1.5 text-xs transition-colors ${
+                className={`flex-1 rounded-lg border px-2 py-1.5 text-xs transition-colors [@media(pointer:coarse)]:min-h-[44px] ${
                   fps === v
                     ? "border-white/40 bg-white/10 text-white"
                     : "border-white/10 text-zinc-400 hover:bg-white/5"

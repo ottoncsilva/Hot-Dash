@@ -274,7 +274,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
           <div className="flex rounded-lg border border-white/10 bg-black/20 p-1">
             <button
               onClick={() => setView("calendar")}
-              className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors [@media(pointer:coarse)]:min-h-[40px] ${
                 view === "calendar" ? "bg-white text-ink-950" : "text-zinc-400 hover:text-white"
               }`}
             >
@@ -282,7 +282,7 @@ export default function TelegramCalendar({ profileId, profiles }: { profileId: s
             </button>
             <button
               onClick={() => setView("list")}
-              className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors [@media(pointer:coarse)]:min-h-[40px] ${
                 view === "list" ? "bg-white text-ink-950" : "text-zinc-400 hover:text-white"
               }`}
             >

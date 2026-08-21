@@ -517,7 +517,7 @@ export default function MotionControlPage() {
           <button
             type="button"
             onClick={() => setAvancadoAberto((v) => !v)}
-            className="text-[11px] text-zinc-500 hover:text-zinc-300"
+            className="inline-flex items-center text-[11px] text-zinc-500 hover:text-zinc-300 [@media(pointer:coarse)]:min-h-[44px]"
           >
             {avancadoAberto ? "▾" : "▸"} avançado
           </button>

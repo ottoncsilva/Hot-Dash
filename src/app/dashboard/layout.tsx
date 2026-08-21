@@ -40,6 +40,7 @@ import PullToRefresh from "@/components/PullToRefresh";
 import MobileDrawer from "@/components/MobileDrawer";
 import { ProfileProvider } from "@/context/ProfileContext";
 import ProfilePicker from "@/components/ProfilePicker";
+import { carregarLimiteUpload } from "@/lib/uploadLimit";
 
 const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   dashboard: IconDashboard,
@@ -110,6 +111,13 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   const [whatsappOpen, setWhatsappOpen] = useState(false);
   const [telegramOpen, setTelegramOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // O limite de upload vive no banco (Configurações → Geral). Buscado UMA vez,
+  // aqui, porque toda tela de envio precisa dele para recusar um arquivo antes
+  // de começar a subi-lo.
+  useEffect(() => {
+    carregarLimiteUpload();
+  }, []);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");

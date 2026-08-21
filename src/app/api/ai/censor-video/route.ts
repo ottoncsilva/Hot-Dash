@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extname } from "node:path";
 import { errorResponse, recusaSePesado, requireUser } from "@/lib/apiAuth";
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/uploadLimit";
+import { getUploadLimitMb } from "@/lib/settings";
 import { borrarVideoInteiro, censurarVideoComEmoji, INTENSIDADE_PADRAO } from "@/lib/videoCensor";
 import { BODY_PARTS, type BodyPart } from "@/lib/bodyParts";
 
@@ -33,8 +33,11 @@ const DURACAO_MAX = 30;
 export async function POST(req: NextRequest) {
   try {
     await requireUser(req);
+    // O limite vive em Configurações → Geral, não numa variável de ambiente.
+    const maxMb = getUploadLimitMb();
+    const maxBytes = maxMb * 1024 * 1024;
     // Barra pelo cabeçalho, antes de o corpo virar memória.
-    recusaSePesado(req, MAX_UPLOAD_BYTES, MAX_UPLOAD_MB);
+    recusaSePesado(req, maxBytes, maxMb);
 
     const form = await req.formData();
     const file = form.get("file");
@@ -44,9 +47,9 @@ export async function POST(req: NextRequest) {
     // O MESMO limite do resto do app. Tinha um teto próprio, menor: a tela de
     // censura aceitava o vídeo, subia os 100% e só então ouvia "não" — com um
     // número que ela nunca mostrou.
-    if (file.size > MAX_UPLOAD_BYTES) {
+    if (file.size > maxBytes) {
       return NextResponse.json(
-        { error: `Vídeo acima de ${MAX_UPLOAD_MB} MB.` },
+        { error: `Vídeo acima de ${maxMb} MB.` },
         { status: 413 },
       );
     }

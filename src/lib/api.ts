@@ -1,4 +1,4 @@
-import { MAX_UPLOAD_MB } from "./uploadLimit";
+import { limiteUploadMb } from "./uploadLimit";
 
 /**
  * Cliente de API do frontend. A autenticação é por cookie de sessão
@@ -106,7 +106,7 @@ export function erroPadrao(status: number): string {
     return (
       `Arquivo recusado pelo servidor da frente (proxy), não pelo painel. ` +
       `Aumente o limite de tamanho de requisição do Nginx/Traefik no EasyPanel ` +
-      `(client_max_body_size) — o limite do painel é ${MAX_UPLOAD_MB} MB.`
+      `(client_max_body_size) — o limite do painel é ${limiteUploadMb()} MB.`
     );
   }
   return `Erro ${status}`;

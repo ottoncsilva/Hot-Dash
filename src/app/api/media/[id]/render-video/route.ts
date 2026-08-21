@@ -7,7 +7,9 @@ import { renderVideoEdit, type BlurRect } from "@/lib/videoEdit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+/** Maior que o teto do próprio ffmpeg (10 min em `videoEdit.ts`), para quem
+ *  desiste primeiro ser ele — com a mensagem que explica o que fazer. */
+export const maxDuration = 900;
 
 /**
  * Processa a edição de um vídeo (corte + borrão de região + sobreposições de

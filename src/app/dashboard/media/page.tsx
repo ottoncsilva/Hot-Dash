@@ -26,7 +26,7 @@ import PeriodPicker, { type PeriodState } from "@/components/PeriodPicker";
 import FilterDropdown from "@/components/FilterDropdown";
 import { resolvePeriodLocal } from "@/lib/periods";
 import { showToast } from "@/lib/toast";
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/uploadLimit";
+import { limiteUploadBytes, limiteUploadMb } from "@/lib/uploadLimit";
 import Link from "next/link";
 
 
@@ -165,8 +165,8 @@ export default function MediaPage() {
     
     for (const file of Array.from(files)) {
       // Pré-validação de tamanho no frontend
-      if (file.size > MAX_UPLOAD_BYTES) {
-        setError(`O arquivo "${file.name}" excede o limite de ${MAX_UPLOAD_MB} MB.`);
+      if (file.size > limiteUploadBytes()) {
+        setError(`O arquivo "${file.name}" excede o limite de ${limiteUploadMb()} MB.`);
         continue;
       }
       // Pré-validação de extensão

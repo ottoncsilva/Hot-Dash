@@ -8,7 +8,7 @@ import {
   IconSparkle,
 } from "@/components/icons";
 import PageHeader from "@/components/PageHeader";
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/uploadLimit";
+import { limiteUploadBytes, limiteUploadMb, useLimiteUpload } from "@/lib/uploadLimit";
 
 type Status = "pendente" | "processando" | "pronto" | "erro";
 
@@ -27,6 +27,9 @@ export default function MetadataPage() {
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // O limite é editável em Configurações → Geral; a tela o MOSTRA, então
+  // acompanha a mudança em vez de ler o valor uma vez só.
+  const maxMb = useLimiteUpload();
 
   const addFiles = useCallback((files: FileList | null) => {
     if (!files) return;
@@ -37,12 +40,12 @@ export default function MetadataPage() {
       const isImg = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".tiff", ".tif", ".gif"].includes(ext);
       const isVid = [".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".mpg", ".mpeg"].includes(ext);
 
-      if (file.size > MAX_UPLOAD_BYTES) {
+      if (file.size > limiteUploadBytes()) {
         next.push({
           id: `${file.name}-${file.size}-${crypto.randomUUID()}`,
           file,
           status: "erro",
-          error: `Excede o limite de ${MAX_UPLOAD_MB} MB.`,
+          error: `Excede o limite de ${limiteUploadMb()} MB.`,
         });
       } else if (!isImg && !isVid) {
         next.push({
@@ -175,7 +178,7 @@ export default function MetadataPage() {
           </p>
           <p className="mt-1 text-xs text-zinc-500">
             Fotos (JPG, PNG, WEBP, HEIC…) e vídeos (MP4, MOV, MKV…) · até{" "}
-            {MAX_UPLOAD_MB} MB
+            {maxMb} MB
           </p>
         </div>
         <input

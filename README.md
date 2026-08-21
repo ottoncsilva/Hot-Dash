@@ -91,17 +91,24 @@ MEDIA_STORAGE_DIR=./data          # em produção: /app/data
 
 > **Uploads grandes — são DOIS limites, e vale o menor deles:**
 >
-> 1. **O do painel:** `NEXT_PUBLIC_MAX_UPLOAD_MB`, padrão **200**. Como toda
+> 1. **O do painel:** `NEXT_PUBLIC_MAX_UPLOAD_MB`, padrão **500**. Como toda
 >    variável `NEXT_PUBLIC_*`, ela é embutida no **build** — mudá-la no
 >    Environment do EasyPanel só vale depois de um **novo deploy**.
 > 2. **O do proxy na frente** (Nginx/Traefik do EasyPanel, e a Cloudflare se
 >    o domínio passar por ela). Este corta a requisição **antes** de ela chegar
 >    ao app, então nenhuma configuração daqui o afeta. No Nginx é o
->    `client_max_body_size` (ex.: `client_max_body_size 200m;`).
+>    `client_max_body_size` (ex.: `client_max_body_size 500m;`).
 >
 > Como saber qual dos dois recusou: se a mensagem diz *"excede o limite de N
 > MB"*, é o do painel (item 1). Se ela fala em **proxy**, é o item 2 — o painel
 > nem chegou a ver o arquivo.
+>
+> **Memória do container:** o Next monta a requisição inteira na RAM antes de
+> entregar o arquivo à rota — é dele, não do app. Medido com um vídeo de
+> 456 MB: pico de **~1,9 GB** no processo. Para trabalhar com 500 MB, o
+> container precisa de **pelo menos 2 GB**; com menos que isso ele é morto no
+> meio do upload em vez de responder. Arquivo ACIMA do limite não custa nada:
+> é recusado pelo `Content-Length`, antes de o corpo ser lido.
 
 > **Bot de vendas — `WEBHOOK_APP_URL`:** defina com o domínio público do painel
 > (ex.: `https://painel.seudominio.com`). É a base das URLs de webhook do

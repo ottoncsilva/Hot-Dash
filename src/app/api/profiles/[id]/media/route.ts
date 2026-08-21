@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extname } from "node:path";
-import { errorResponse, requireUser } from "@/lib/apiAuth";
+import { errorResponse, recusaSePesado, requireUser } from "@/lib/apiAuth";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/uploadLimit";
 import { getProfile } from "@/lib/profiles";
-import { cleanMetadata, mediaKind } from "@/lib/metadata";
+import { cleanMetadataInPlace, mediaKind } from "@/lib/metadata";
 import {
   ensureVideoThumbnail,
   ensureImageThumbnail,
@@ -13,7 +13,7 @@ import {
   listUsedMediaIds,
   newMediaPath,
 } from "@/lib/media";
-import { absolutePath, saveFile } from "@/lib/storage";
+import { absolutePath, fileSize, readBuffer, saveStream } from "@/lib/storage";
 import { getImageDimensions } from "@/lib/imageDimensions";
 import { getVideoInfo } from "@/lib/videoDimensions";
 import { addTagsByNameToMedia, copyMediaTags, getTagsForMedia } from "@/lib/tags";
@@ -51,6 +51,8 @@ export async function POST(
 ) {
   try {
     await requireUser(req);
+    // Barra pelo cabeçalho, antes de o corpo virar memória.
+    recusaSePesado(req, MAX_UPLOAD_BYTES, MAX_UPLOAD_MB);
     const profile = await getProfile(params.id);
     if (!profile) {
       return NextResponse.json(
@@ -87,13 +89,16 @@ export async function POST(
       );
     }
 
-    // Limpa os metadados antes de guardar (privacidade).
-    const cleaned = await cleanMetadata(
-      Buffer.from(await file.arrayBuffer()),
-      ext,
-    );
+    // O arquivo vai do corpo da requisição DIRETO para o disco, e só depois é
+    // limpo ali mesmo. O caminho antigo (arrayBuffer → cleanMetadata → Buffer)
+    // mantinha o vídeo inteiro na RAM duas vezes: com 456 MB o processo
+    // chegava a 2,2 GB e o container morria antes de responder.
     const { id, relPath } = newMediaPath(params.id, ext);
-    await saveFile(relPath, cleaned);
+    await saveStream(relPath, file.stream());
+
+    // Limpa os metadados no próprio arquivo gravado (privacidade).
+    await cleanMetadataInPlace(absolutePath(relPath), ext);
+    const tamanho = await fileSize(relPath);
 
     // Miniatura já gerada no upload para aparecer instantânea na galeria
     // (vídeo: 1º frame; imagem: versão reduzida ~480px). Nunca lança — se
@@ -114,9 +119,11 @@ export async function POST(
 
     // Resolução: imagem sai dos próprios bytes; vídeo vem do ffprobe, já com a
     // rotação aplicada. Antes o vídeo era gravado sem resolução nenhuma.
+    // Só a IMAGEM precisa voltar para a memória: a leitura de dimensão é feita
+    // sobre os bytes. O vídeo é medido pelo ffprobe, que lê do disco.
     const dimensions =
       kind === "image"
-        ? getImageDimensions(cleaned, ext)
+        ? getImageDimensions(await readBuffer(relPath), ext)
         : await getVideoInfo(absolutePath(relPath));
 
     // Mídia OCULTA: insumo de recurso (ex.: o vídeo de referência do Motion
@@ -136,7 +143,7 @@ export async function POST(
       relPath,
       kind,
       mime: file.type || undefined,
-      size: cleaned.length,
+      size: tamanho,
       editedFrom,
       width: dimensions?.width,
       height: dimensions?.height,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extname } from "node:path";
-import { errorResponse, requireUser } from "@/lib/apiAuth";
+import { errorResponse, recusaSePesado, requireUser } from "@/lib/apiAuth";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/uploadLimit";
 import { borrarVideoInteiro, censurarVideoComEmoji, INTENSIDADE_PADRAO } from "@/lib/videoCensor";
 import { BODY_PARTS, type BodyPart } from "@/lib/bodyParts";
@@ -33,6 +33,8 @@ const DURACAO_MAX = 30;
 export async function POST(req: NextRequest) {
   try {
     await requireUser(req);
+    // Barra pelo cabeçalho, antes de o corpo virar memória.
+    recusaSePesado(req, MAX_UPLOAD_BYTES, MAX_UPLOAD_MB);
 
     const form = await req.formData();
     const file = form.get("file");

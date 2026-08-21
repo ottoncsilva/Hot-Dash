@@ -83,7 +83,7 @@ export function BackToSettings() {
     <div className="-mt-11 pl-14 lg:mt-0 lg:pl-0">
       <Link
         href="/dashboard/settings"
-        className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-white"
+        className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-white [@media(pointer:coarse)]:min-h-[44px]"
       >
         <IconArrowLeft size={14} /> Configurações
       </Link>

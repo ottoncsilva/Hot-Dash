@@ -648,7 +648,7 @@ export default function TelegramUnifiedPage() {
                     <h3 className="font-semibold text-sky-400 flex items-center gap-2">Canal / Grupo VIP</h3>
                     <div className="flex flex-wrap items-center gap-2">
                        {settings.vipScheduleType === "manual" && (
-                         <button type="button" onClick={() => generateSchedule("vip", true)} disabled={generatingVip} className="rounded-lg bg-sky-500/20 text-sky-300 px-3 py-1.5 text-xs font-semibold hover:bg-sky-500/30 transition-colors disabled:opacity-50">
+                         <button type="button" onClick={() => generateSchedule("vip", true)} disabled={generatingVip} className="rounded-lg bg-sky-500/20 text-sky-300 px-3 py-1.5 text-xs font-semibold hover:bg-sky-500/30 transition-colors disabled:opacity-50 [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:px-4">
                            {generatingVip ? "⏳ Gerando..." : "✨ Gerar postagem única (IA)"}
                          </button>
                        )}
@@ -658,7 +658,7 @@ export default function TelegramUnifiedPage() {
                            type="button"
                            onClick={() => settings.vipScheduleType === "mk" ? generateVipMk(daysToGenerateVip) : generateSchedule("vip", false)}
                            disabled={generatingVip || generatingVipMk}
-                           className="rounded-lg bg-sky-500/20 text-sky-300 px-3 py-1.5 text-xs font-semibold hover:bg-sky-500/30 transition-colors disabled:opacity-50"
+                           className="rounded-lg bg-sky-500/20 text-sky-300 px-3 py-1.5 text-xs font-semibold hover:bg-sky-500/30 transition-colors disabled:opacity-50 [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:px-4"
                          >
                            {generatingVipMk && mkVipJob?.total
                              ? `⏳ ${mkVipJob.done} de ${mkVipJob.total}`
@@ -935,7 +935,7 @@ export default function TelegramUnifiedPage() {
                           <button
                             type="button"
                             onClick={() => setShowNewVipTimeInput(true)}
-                            className="flex items-center gap-1 rounded-lg border border-dashed border-white/20 bg-zinc-900/20 hover:bg-zinc-900/40 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:text-white transition-colors"
+                            className="flex items-center gap-1 rounded-lg border border-dashed border-white/20 bg-zinc-900/20 hover:bg-zinc-900/40 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:text-white transition-colors [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:px-4"
                           >
                             <span>+ Horário</span>
                           </button>
@@ -955,7 +955,7 @@ export default function TelegramUnifiedPage() {
                       <button 
                         key={tag.id}
                         onClick={() => toggleTag("vipTags", tag.name)}
-                        className={`px-3 py-1 text-xs rounded-full border transition-colors ${hasTag("vipTags", tag.name) ? 'bg-sky-500/20 border-sky-500/50 text-sky-200' : 'bg-transparent border-white/10 text-zinc-500 hover:border-white/20'}`}
+                        className={`px-3 py-1 text-xs rounded-full border transition-colors [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:px-4 ${hasTag("vipTags", tag.name) ? 'bg-sky-500/20 border-sky-500/50 text-sky-200' : 'bg-transparent border-white/10 text-zinc-500 hover:border-white/20'}`}
                       >
                         {tag.name}
                       </button>
@@ -1008,7 +1008,7 @@ export default function TelegramUnifiedPage() {
                     <h3 className="font-semibold text-orange-400 flex items-center gap-2">Canal / Grupo Prévias</h3>
                     <div className="flex flex-wrap items-center gap-2">
                        {settings.warmupScheduleType === "manual" && (
-                         <button type="button" onClick={() => generateSchedule("warmup", true)} disabled={generatingWarmup} className="rounded-lg bg-orange-500/20 text-orange-300 px-3 py-1.5 text-xs font-semibold hover:bg-orange-500/30 transition-colors disabled:opacity-50">
+                         <button type="button" onClick={() => generateSchedule("warmup", true)} disabled={generatingWarmup} className="rounded-lg bg-orange-500/20 text-orange-300 px-3 py-1.5 text-xs font-semibold hover:bg-orange-500/30 transition-colors disabled:opacity-50 [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:px-4">
                            {generatingWarmup ? "⏳ Gerando..." : "✨ Gerar postagem única (IA)"}
                          </button>
                        )}
@@ -1018,7 +1018,7 @@ export default function TelegramUnifiedPage() {
                            type="button"
                            onClick={() => settings.warmupScheduleType === "mk" ? generatePrevias(daysToGenerateWarmup) : generateSchedule("warmup", false)}
                            disabled={generatingWarmup || generatingPrevias}
-                           className="rounded-lg bg-orange-500/20 text-orange-300 px-3 py-1.5 text-xs font-semibold hover:bg-orange-500/30 transition-colors disabled:opacity-50"
+                           className="rounded-lg bg-orange-500/20 text-orange-300 px-3 py-1.5 text-xs font-semibold hover:bg-orange-500/30 transition-colors disabled:opacity-50 [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:px-4"
                          >
                            {generatingPrevias && previasJob?.total
                              ? `⏳ ${previasJob.done} de ${previasJob.total}`
@@ -1189,7 +1189,7 @@ export default function TelegramUnifiedPage() {
                           <button
                             type="button"
                             onClick={() => setShowNewWarmupTimeInput(true)}
-                            className="flex items-center gap-1 rounded-lg border border-dashed border-white/20 bg-zinc-900/20 hover:bg-zinc-900/40 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:text-white transition-colors"
+                            className="flex items-center gap-1 rounded-lg border border-dashed border-white/20 bg-zinc-900/20 hover:bg-zinc-900/40 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:text-white transition-colors [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:px-4"
                           >
                             <span>+ Horário</span>
                           </button>
@@ -1209,7 +1209,7 @@ export default function TelegramUnifiedPage() {
                       <button 
                         key={tag.id}
                         onClick={() => toggleTag("warmupTags", tag.name)}
-                        className={`px-3 py-1 text-xs rounded-full border transition-colors ${hasTag("warmupTags", tag.name) ? 'bg-orange-500/20 border-orange-500/50 text-orange-200' : 'bg-transparent border-white/10 text-zinc-500 hover:border-white/20'}`}
+                        className={`px-3 py-1 text-xs rounded-full border transition-colors [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:px-4 ${hasTag("warmupTags", tag.name) ? 'bg-orange-500/20 border-orange-500/50 text-orange-200' : 'bg-transparent border-white/10 text-zinc-500 hover:border-white/20'}`}
                       >
                         {tag.name}
                       </button>

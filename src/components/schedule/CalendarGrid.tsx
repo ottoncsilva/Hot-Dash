@@ -115,11 +115,28 @@ export default function CalendarGrid({
 
   return (
     <div className="mt-4 card overflow-hidden">
-      <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
+      {/* No celular os quatro grupos disputavam uma linha só: o rótulo do
+          período encostava no botão "Semana" com 12px de folga, e as setas
+          ficavam com 25px de largura. Aqui viram duas linhas — o período e o
+          "hoje" em cima, a navegação e o alternador embaixo. De `sm` para
+          cima, tudo volta para a mesma linha. */}
+      <div className="border-b border-white/[0.06] px-4 py-3">
+        {/* Período em cima, sozinho, no celular. */}
+        <div className="mb-2 flex items-center gap-3 sm:hidden">
+          <p className="font-display text-sm font-semibold capitalize text-white">{label}</p>
+          <button
+            onClick={goToday}
+            className="rounded-md border border-white/10 px-3 py-1 font-mono text-[11px] uppercase tracking-wider text-zinc-400 hover:text-white [@media(pointer:coarse)]:min-h-[36px]"
+          >
+            hoje
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <button
             onClick={() => shift(-1)}
-            className="grid h-8 w-8 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
             aria-label={view === "week" ? "Semana anterior" : "Mês anterior"}
           >
             <IconArrowLeft size={16} />
@@ -128,7 +145,7 @@ export default function CalendarGrid({
           <div className="flex rounded-lg border border-white/10 bg-black/20 p-0.5">
             <button
               onClick={() => setView("month")}
-              className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors [@media(pointer:coarse)]:min-h-[40px] [@media(pointer:coarse)]:px-4 ${
                 view === "month" ? "bg-white text-ink-950" : "text-zinc-400 hover:text-white"
               }`}
             >
@@ -136,7 +153,7 @@ export default function CalendarGrid({
             </button>
             <button
               onClick={() => setView("week")}
-              className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors [@media(pointer:coarse)]:min-h-[40px] [@media(pointer:coarse)]:px-4 ${
                 view === "week" ? "bg-white text-ink-950" : "text-zinc-400 hover:text-white"
               }`}
             >
@@ -145,7 +162,8 @@ export default function CalendarGrid({
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        {/* Daí para cima o período volta para o meio da mesma linha. */}
+        <div className="hidden items-center gap-3 sm:flex">
           <p className="font-display text-sm font-semibold capitalize text-white">{label}</p>
           <button
             onClick={goToday}
@@ -157,11 +175,12 @@ export default function CalendarGrid({
 
         <button
           onClick={() => shift(1)}
-          className="grid h-8 w-8 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
           aria-label={view === "week" ? "Próxima semana" : "Próximo mês"}
         >
           <IconChevronRight size={16} />
         </button>
+        </div>
       </div>
 
       {/* No celular, 7 colunas em ~390px deixam cada dia com ~55px — ilegível.

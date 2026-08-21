@@ -504,7 +504,7 @@ export default function GeradorImagemPage() {
                 key={q}
                 type="button"
                 onClick={() => setQuantidade(q)}
-                className={`rounded-lg border px-4 py-1.5 text-sm transition-colors ${
+                className={`rounded-lg border px-4 py-1.5 text-sm transition-colors [@media(pointer:coarse)]:min-h-[44px] ${
                   quantidade === q
                     ? "border-emerald-500/40 bg-emerald-500/[0.12] font-semibold text-emerald-300"
                     : "border-white/10 text-zinc-400 hover:border-white/25 hover:text-zinc-200"
@@ -525,7 +525,7 @@ export default function GeradorImagemPage() {
                 key={r}
                 type="button"
                 onClick={() => setResolution(r)}
-                className={`rounded-lg border px-4 py-1.5 text-sm transition-colors ${
+                className={`rounded-lg border px-4 py-1.5 text-sm transition-colors [@media(pointer:coarse)]:min-h-[44px] ${
                   resolution === r
                     ? "border-emerald-500/40 bg-emerald-500/[0.12] font-semibold text-emerald-300"
                     : "border-white/10 text-zinc-400 hover:border-white/25 hover:text-zinc-200"
@@ -546,7 +546,7 @@ export default function GeradorImagemPage() {
                 key={f}
                 type="button"
                 onClick={() => setAspectRatio(f)}
-                className={`rounded-lg border px-2.5 py-1 font-mono text-[12px] transition-colors ${
+                className={`rounded-lg border px-2.5 py-1 font-mono text-[12px] transition-colors [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:px-4 ${
                   aspectRatio === f
                     ? "border-emerald-500/40 bg-emerald-500/[0.12] font-semibold text-emerald-300"
                     : "border-white/10 text-zinc-400 hover:border-white/25 hover:text-zinc-200"
@@ -563,7 +563,7 @@ export default function GeradorImagemPage() {
           <button
             type="button"
             onClick={() => setAvancadoAberto((v) => !v)}
-            className="text-[11px] text-zinc-500 hover:text-zinc-300"
+            className="inline-flex items-center text-[11px] text-zinc-500 hover:text-zinc-300 [@media(pointer:coarse)]:min-h-[44px]"
           >
             {avancadoAberto ? "▾" : "▸"} avançado
           </button>

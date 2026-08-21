@@ -153,7 +153,9 @@ export async function cleanMetadataInPlace(absPath: string, ext: string): Promis
   }
   args.push(saida);
   try {
-    await run("ffmpeg", args);
+    // 5 min: é só remux (`-c copy`), mas com o limite de upload em meio giga
+    // um volume lento leva mais que os 60s do padrão.
+    await run("ffmpeg", args, 300_000);
     await rename(saida, absPath);
   } catch (e) {
     await rm(saida, { force: true }).catch(() => {});
@@ -200,7 +202,7 @@ export async function cleanMetadata(
       args.push("-movflags", "+faststart");
     }
     args.push(outputPath);
-    await run("ffmpeg", args);
+    await run("ffmpeg", args, 300_000);
     return await readFile(outputPath);
   } finally {
     await rm(workDir, { recursive: true, force: true }).catch(() => {});

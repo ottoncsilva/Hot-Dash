@@ -95,7 +95,26 @@ export async function renderVideoEdit(
       outputPath,
     );
 
-    await run("ffmpeg", args);
+    // 10 MINUTOS, e não os 60s do padrão de `run`.
+    //
+    // Esta é a operação mais pesada do painel: o vídeo é RECODIFICADO (libx264)
+    // para queimar a sobreposição e o borrão — diferente de quase todo o resto,
+    // que só remuxa com `-c copy`. Com o padrão, um vídeo de poucos minutos num
+    // VPS modesto era morto no meio e o operador via "ffmpeg excedeu o limite
+    // de tempo de 60s" depois de esperar um minuto à toa. A censura de vídeo,
+    // que faz o mesmo tipo de trabalho, já usava um teto próprio.
+    try {
+      await run("ffmpeg", args, 600_000);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg.includes("excedeu o limite de tempo")) {
+        throw new Error(
+          "O vídeo demorou demais para ser processado (mais de 10 minutos). " +
+            "Corte um trecho menor antes de editar.",
+        );
+      }
+      throw e;
+    }
     return await readFile(outputPath);
   } finally {
     await rm(workDir, { recursive: true, force: true }).catch(() => {});

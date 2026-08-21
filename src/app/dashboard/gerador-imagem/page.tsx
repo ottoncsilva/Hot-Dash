@@ -15,8 +15,12 @@ import {
   MODELOS_IMAGEM,
   modeloImagem,
   resolucaoImagemValida,
-  formatoImagemValido,
   NOME_PROVEDOR,
+  provedoresComModelo,
+  CHAVES_DO_PROVEDOR,
+  tetoReferencias,
+  formatoImagemDaTela,
+  semPrecoDeTabela,
   MAX_QUANTIDADE,
   custoImagem,
   formatarUsd,
@@ -58,6 +62,9 @@ const OPCOES_FORMATO = ["auto", ...FORMATOS] as const;
 type AspectRatio = (typeof OPCOES_FORMATO)[number];
 
 const MAX_REFERENCIAS_GALERIA = 13; // + 1 imagem a copiar = 14, o teto do modelo
+/** O teto geral. Modelos com teto próprio (o Seedream da Magnific vai a 10)
+ *  reduzem este número — ver `tetoReferencias` no catálogo. */
+const MAX_REFERENCIAS_TELA = 14;
 
 /**
  * Lê um arquivo de imagem e devolve um data: URL JÁ REDIMENSIONADO (maior
@@ -93,7 +100,9 @@ function arquivoParaBase64Redimensionado(file: File, maxDim = 1280, quality = 0.
 export default function GeradorImagemPage() {
   const { profileId, profile } = useProfile();
 
-  const [conectado, setConectado] = useState<boolean | null>(null);
+  // As configurações inteiras, e não só o OpenRouter: o que precisa estar
+  // conectado depende do PROVEDOR do modelo escolhido (ver CHAVES_DO_PROVEDOR).
+  const [ajustes, setAjustes] = useState<Record<string, { enabled?: boolean; hasKey?: boolean }> | null>(null);
   const [referenciasModelo, setReferenciasModelo] = useState<string[]>([]);
   // A imagem a copiar vem de UM dos dois lugares: a Galeria da modelo ou um
   // arquivo do aparelho. Escolher de um lado limpa o outro — é uma foto só.
@@ -119,9 +128,9 @@ export default function GeradorImagemPage() {
   // A tela precisa saber se o OpenRouter está pronto ANTES de tentar gerar —
   // sem isso o operador só descobriria depois de preencher tudo e clicar.
   useEffect(() => {
-    apiGet<{ settings: { openrouter?: { enabled?: boolean; hasKey?: boolean } } }>("/api/settings/ai")
-      .then((d) => setConectado(Boolean(d.settings?.openrouter?.enabled && d.settings?.openrouter?.hasKey)))
-      .catch(() => setConectado(null));
+    apiGet<{ settings: Record<string, { enabled?: boolean; hasKey?: boolean }> }>("/api/settings/ai")
+      .then((d) => setAjustes(d.settings || {}))
+      .catch(() => setAjustes(null));
   }, []);
 
   // As referências e o prompt vivem no PERFIL, não na tela: são da modelo e
@@ -211,7 +220,10 @@ export default function GeradorImagemPage() {
   function trocarModelo(id: ModeloImagemId) {
     setModelo(id);
     setResolution((r) => resolucaoImagemValida(id, r));
-    setAspectRatio((f) => (f === "auto" ? f : (formatoImagemValido(id, f) as AspectRatio)));
+    // "auto" (herdar o formato da referência) não existe na Magnific — lá o
+    // formato é um enum fechado. Quem estava em "auto" cai no 9:16, que é o
+    // formato de quase tudo que este painel publica.
+    setAspectRatio((f) => formatoImagemDaTela(id, f) as AspectRatio);
   }
 
   function abrirEditorPrompt() {
@@ -332,6 +344,18 @@ export default function GeradorImagemPage() {
   );
   const totalReferencias = referenciasModelo.length + (temCopia ? 1 : 0);
   const infoModelo = modeloImagem(modelo);
+  /**
+   * Se o provedor DESTE modelo está pronto. `null` enquanto as configurações
+   * não chegaram — aí o botão não trava, para não piscar desabilitado.
+   */
+  const conectado =
+    ajustes === null
+      ? null
+      : CHAVES_DO_PROVEDOR[infoModelo.provedor].some(
+          (k) => ajustes[k]?.enabled && ajustes[k]?.hasKey,
+        );
+  // O teto é do MODELO: o Seedream da Magnific aceita 10, o da OpenRouter 14.
+  const tetoDeReferencias = tetoReferencias(modelo, MAX_REFERENCIAS_TELA);
   const custoEstimado = custoImagem(modelo, resolution, totalReferencias, quantidade);
 
   return (
@@ -346,7 +370,7 @@ export default function GeradorImagemPage() {
 
       {conectado === false && (
         <div className="card mt-4 border-amber-500/30 bg-amber-500/[0.06] p-4 text-sm text-amber-300">
-          O OpenRouter ainda não está conectado.{" "}
+          {`${NOME_PROVEDOR[infoModelo.provedor]} ainda não está conectado — é o provedor do ${infoModelo.nome}.`}{" "}
           <Link href="/dashboard/settings/ia" className="underline underline-offset-2 hover:text-white">
             Ative e cole a chave em Configurações → Conexão com IA
           </Link>{" "}
@@ -478,11 +502,14 @@ export default function GeradorImagemPage() {
             value={modelo}
             onChange={(e) => trocarModelo(e.target.value as ModeloImagemId)}
           >
-            {(["openrouter", "google"] as const).map((prov) => (
+            {provedoresComModelo(MODELOS_IMAGEM).map((prov) => (
               <optgroup key={prov} label={NOME_PROVEDOR[prov]}>
                 {MODELOS_IMAGEM.filter((m) => m.provedor === prov).map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.nome} · a partir de {formatarUsd(Math.min(...Object.values(m.precoSaida)))}
+                    {m.nome} ·{" "}
+                    {semPrecoDeTabela(m)
+                      ? "em créditos"
+                      : `a partir de ${formatarUsd(Math.min(...Object.values(m.precoSaida)))}`}
                   </option>
                 ))}
               </optgroup>
@@ -541,7 +568,9 @@ export default function GeradorImagemPage() {
         <div className="mt-5">
           <label className="eyebrow">Formato</label>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {(["auto", ...infoModelo.formatos] as AspectRatio[]).map((f) => (
+            {((infoModelo.aceitaAuto === false
+              ? infoModelo.formatos
+              : ["auto", ...infoModelo.formatos]) as AspectRatio[]).map((f) => (
               <button
                 key={f}
                 type="button"
@@ -594,16 +623,32 @@ export default function GeradorImagemPage() {
           <button onClick={gerar} disabled={gerando || conectado === false} className="btn-primary">
             <IconSparkle size={16} /> {gerando ? "Gerando..." : "Gerar imagem"}
           </button>
+          {/* SEM ESTIMATIVA QUANDO NÃO HÁ TABELA.
+              As outras estimativas existem porque o provedor publica preço por
+              unidade. A Magnific cobra em crédito e não publica — inventar um
+              número aqui daria a ele uma autoridade que ele não tem. */}
           <span
             className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1 font-mono text-[12px] text-zinc-300"
-            title={`Preço de tabela do ${infoModelo.nome}, multiplicado pela quantidade. O valor real da geração aparece embaixo de cada resultado.`}
+            title={
+              custoEstimado === null
+                ? `O ${infoModelo.nome} pela Magnific é cobrado em crédito, e ela não publica valor por unidade. O consumo aparece no painel da Magnific.`
+                : `Preço de tabela do ${infoModelo.nome}, multiplicado pela quantidade. O valor real da geração aparece embaixo de cada resultado.`
+            }
           >
-            ~{formatarUsd(custoEstimado)}
-            {cotacao && ` · ~${formatarBrl(custoEstimado, cotacao.brlPorUsd)}`}
+            {custoEstimado === null ? (
+              "em créditos"
+            ) : (
+              <>
+                ~{formatarUsd(custoEstimado)}
+                {cotacao && ` · ~${formatarBrl(custoEstimado, cotacao.brlPorUsd)}`}
+              </>
+            )}
           </span>
           <p className="text-[11px] text-zinc-500">
-            {totalReferencias}/14 referências enviadas
-            {cotacao && ` · dólar a R$ ${cotacao.brlPorUsd.toFixed(2).replace(".", ",")} (${cotacao.fonte})`}
+            {totalReferencias}/{tetoDeReferencias} referências enviadas
+            {custoEstimado !== null &&
+              cotacao &&
+              ` · dólar a R$ ${cotacao.brlPorUsd.toFixed(2).replace(".", ",")} (${cotacao.fonte})`}
           </p>
         </div>
       </div>

@@ -3,6 +3,7 @@ import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
 import { getMediaRow, renderVisionImageBase64 } from "@/lib/media";
 import { submeterVideoSeedance, type VideoDuration, type VideoAspectRatio } from "@/lib/videoGen";
 import { submeterVideoVeo } from "@/lib/googleVideoGen";
+import { submeterVideoMagnific } from "@/lib/magnificVideoGen";
 import {
   modeloVideo,
   resolucaoVideoValida,
@@ -69,7 +70,11 @@ export async function POST(req: NextRequest) {
     for (let i = 0; i < quantidade; i++) {
       try {
         const submeter =
-          modelo.provedor === "google" ? submeterVideoVeo : submeterVideoSeedance;
+          modelo.provedor === "google"
+            ? submeterVideoVeo
+            : modelo.provedor === "magnific"
+              ? submeterVideoMagnific
+              : submeterVideoSeedance;
         const job = await submeter({
           prompt,
           firstFrame,

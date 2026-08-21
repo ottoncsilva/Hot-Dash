@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
 import { baixarConteudoVideo } from "@/lib/videoGen";
 import { baixarConteudoVeo } from "@/lib/googleVideoGen";
-import { baixarConteudoMotion } from "@/lib/motionGen";
+import { baixarConteudoVideoMagnific } from "@/lib/magnificVideoGen";
 import { decodificarJob } from "@/lib/aiMediaOptions";
 
 export const runtime = "nodejs";
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       provedor === "google"
         ? await baixarConteudoVeo(id)
         : provedor === "magnific"
-          ? await baixarConteudoMotion(id)
+          ? await baixarConteudoVideoMagnific(id)
           : await baixarConteudoVideo(id);
     return new NextResponse(new Uint8Array(bytes), { headers: { "Content-Type": contentType } });
   } catch (err) {

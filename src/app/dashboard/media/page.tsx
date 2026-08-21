@@ -659,7 +659,9 @@ export default function MediaPage() {
             {tags.length > 0 && (
               <button
                 onClick={() => setGrouping((g) => !g)}
-                className={`shrink-0 font-mono text-[11px] uppercase tracking-wider ${
+                // Sem moldura, o alvo era só a altura do texto (17px). No dedo
+                // ganha os 44px de sempre; no mouse continua sendo só o texto.
+                className={`shrink-0 font-mono text-[11px] uppercase tracking-wider [@media(pointer:coarse)]:inline-flex [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:items-center ${
                   grouping ? "text-white" : "text-zinc-500 hover:text-zinc-300"
                 }`}
               >
@@ -1174,12 +1176,16 @@ function MediaGrid({
             )}
 
             {!selecting && (
-              <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-1 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-100 pointer-events-auto transition-opacity md:opacity-0 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto">
+              // No dedo os três alvos tinham 32px e ficavam a menos de 6px um
+              // do outro — e um deles apaga a foto. Aqui eles crescem para 44px
+              // e o EXCLUIR ganha uma folga extra à esquerda, para o erro custar
+              // um movimento, não um pixel.
+              <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-1 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-100 pointer-events-auto transition-opacity [@media(pointer:coarse)]:gap-2 md:opacity-0 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto">
                 <CopyLinkButton
                   mediaId={item.id}
                   publicToken={item.publicToken}
                   iconOnly
-                  className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white hover:bg-white/20"
+                  className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white hover:bg-white/20 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
                 />
                 <SaveMediaButton
                   url={mediaFileUrl(item, { download: true })}
@@ -1187,11 +1193,11 @@ function MediaGrid({
                   mime={item.mime}
                   iconOnly
                   label="Salvar"
-                  className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white hover:bg-white/20"
+                  className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white hover:bg-white/20 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
                 />
                 <button
                   onClick={() => onRemove(item)}
-                  className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white hover:bg-red-500/40"
+                  className="ml-1 grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white hover:bg-red-500/40 [@media(pointer:coarse)]:ml-4 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
                   aria-label="Excluir"
                 >
                   <IconTrash size={16} />

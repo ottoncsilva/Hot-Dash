@@ -78,6 +78,53 @@ body {
   }
 }
 
+/* ZOOM DO iOS AO FOCAR UM CAMPO.
+   O Safari aumenta a página sozinho quando o campo focado tem fonte menor que
+   16px — e não desfaz ao sair. Como todo campo do painel usava 14px, digitar o
+   e-mail no login já jogava a tela para dentro, e cada formulário depois disso
+   repetia o susto.
+
+   `pointer: coarse` mira o DEDO, não a largura: um iPad em paisagem tem 1180px
+   e o mesmo comportamento.
+
+   Os seletores vêm em dois pares de propósito. O `[class]` no fim sobe a
+   especificidade para (0,1,1), que é o necessário para vencer um utilitário de
+   fonte aplicado direto no campo — `.input` traz `text-sm`, e o select de
+   status da tela Modelos traz `text-xs`. O par sem `[class]` cobre os campos
+   sem classe nenhuma. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  select,
+  textarea,
+  input[class]:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  select[class],
+  textarea[class] {
+    font-size: 16px;
+  }
+}
+
+/* ALVO DE 44px NO DEDO.
+   A recomendação da Apple (e a do Material, com 48dp) é que nada tocável tenha
+   menos de 44px de lado. Medindo a tela num iPhone, a maior parte dos botões
+   compactos do painel ficava entre 24 e 38px — passáveis no mouse, ruins no
+   dedo, e piores ainda quando dois ficam colados.
+
+   A regra entra nas peças COMPARTILHADAS (`.btn` e derivados, `.input`,
+   qualquer `<select>`), então uma linha aqui conserta dezenas de telas de uma
+   vez. Só `min-height`: nenhum utilitário do Tailwind usado no painel mexe
+   nessa propriedade, então o `py-1.5` de um botão compacto continua valendo
+   para o espaçamento e o mínimo apenas impede que ele encolha demais.
+
+   `pointer: coarse` de novo mira o dedo, não a largura — no desktop e no
+   trackpad tudo segue compacto. */
+@media (pointer: coarse) {
+  .btn,
+  .input,
+  select {
+    min-height: 44px;
+  }
+}
+
 /* Lista aberta do <select>.
    Fica FORA do @layer components e sem depender da classe `.input` porque a
    regra tem de valer para TODO select do painel — vários (o seletor de modelo

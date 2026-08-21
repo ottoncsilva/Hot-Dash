@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import ContadoresLeva from "@/components/ContadoresLeva";
 import { apiUpload } from "@/lib/api";
 import { showToast } from "@/lib/toast";
 import { useProfile } from "@/context/ProfileContext";
@@ -408,20 +409,15 @@ export default function CensuraPage() {
       </div>
 
 
-      {/* Cards de status */}
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[
+      {/* Cards de status — uma linha só no celular (ver o componente). */}
+      <ContadoresLeva
+        itens={[
           { label: "Carregadas", value: stats.carregadas },
           { label: "Detectadas", value: stats.detectadas },
           { label: "Regiões", value: stats.regioes },
           { label: "Prontas", value: stats.prontas },
-        ].map((c) => (
-          <div key={c.label} className="card p-4">
-            <p className="eyebrow">{c.label}</p>
-            <p className="mt-1 font-display text-3xl font-semibold text-white">{c.value}</p>
-          </div>
-        ))}
-      </div>
+        ]}
+      />
 
       <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
         {/* Coluna de configuração */}

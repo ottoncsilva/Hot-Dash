@@ -49,7 +49,8 @@ export default function FilterDropdown({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider transition-colors ${
+        // Mesmo piso de 44px do ToggleChip: o gatilho fica ao lado deles.
+        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider transition-colors [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:px-4 ${
           count > 0 || open
             ? "border-white/40 bg-white/10 text-white"
             : "border-white/15 bg-white/[0.03] text-zinc-400 hover:border-white/30 hover:bg-white/10 hover:text-zinc-100"

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { IconArrowLeft, IconChevronRight } from "@/components/icons";
+import FaixaRolavel from "@/components/FaixaRolavel";
 import { NETWORK_DOT_COLORS, type ScheduledPost } from "@/lib/postTypes";
 
 // Cabeçalho fixo do MÊS: a grade mensal começa na SEGUNDA-FEIRA.
@@ -165,8 +166,9 @@ export default function CalendarGrid({
 
       {/* No celular, 7 colunas em ~390px deixam cada dia com ~55px — ilegível.
           Aqui a grade rola na horizontal com largura mínima por coluna; a
-          partir de sm volta a caber inteira na tela. */}
-      <div className="overflow-x-auto">
+          partir de sm volta a caber inteira na tela. A faixa acrescenta o
+          degradê na ponta: a semana já rolava, mas nada avisava. */}
+      <FaixaRolavel ariaLabel={view === "week" ? "Semana" : "Mês"}>
       <div className="min-w-[700px] sm:min-w-0">
       <div className="grid grid-cols-7 border-b border-white/[0.06]">
         {/* No MÊS o cabeçalho é fixo (seg…dom); na SEMANA acompanha os dias reais,
@@ -294,7 +296,7 @@ export default function CalendarGrid({
         })}
       </div>
       </div>
-      </div>
+      </FaixaRolavel>
     </div>
   );
 }

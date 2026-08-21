@@ -24,6 +24,25 @@ export async function requireUser(req: NextRequest): Promise<string> {
   return session.email;
 }
 
+/**
+ * Recusa um upload grande demais ANTES de ler o corpo.
+ *
+ * `req.formData()` monta a requisição inteira na memória antes de devolver o
+ * arquivo — inclusive quando ele vai ser recusado logo depois. Medido: mandar
+ * 550 MB para um limite de 500 fazia o processo chegar a 2,2 GB só para
+ * responder "excede o limite". O `Content-Length` chega no cabeçalho, muito
+ * antes disso, e é o que decide aqui.
+ *
+ * A folga de 1 MB é do embrulho multipart (fronteiras e nomes de campo), que
+ * pesa alguns bytes por campo e não deve derrubar um arquivo no limite.
+ */
+export function recusaSePesado(req: NextRequest, maxBytes: number, maxMb: number): void {
+  const bruto = Number(req.headers.get("content-length") || "");
+  if (Number.isFinite(bruto) && bruto > maxBytes + 1024 * 1024) {
+    throw new ApiError(413, `Arquivo excede o limite de ${maxMb} MB.`);
+  }
+}
+
 export function errorResponse(err: unknown): NextResponse {
   if (err instanceof ApiError) {
     return NextResponse.json({ error: err.message }, { status: err.status });

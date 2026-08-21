@@ -7,7 +7,7 @@
  * com um número que a tela nunca mostrou.
  *
  * `NEXT_PUBLIC_` é obrigatório no nome: a validação acontece dos DOIS lados, e
- * o navegador precisa saber o limite antes de começar a subir 200 MB para
+ * o navegador precisa saber o limite antes de começar a subir meio giga para
  * ouvir "não". Como toda variável `NEXT_PUBLIC_*`, ela é embutida no BUILD —
  * mudá-la no runtime do EasyPanel não tem efeito sem um novo build.
  *
@@ -16,8 +16,8 @@
  * Um 413 sem mensagem nossa vem de lá — ver `lib/api.ts`.
  */
 export const MAX_UPLOAD_MB = (() => {
-  const mb = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? "200");
-  return Number.isFinite(mb) && mb > 0 ? mb : 200;
+  const mb = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? "500");
+  return Number.isFinite(mb) && mb > 0 ? mb : 500;
 })();
 
 export const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;

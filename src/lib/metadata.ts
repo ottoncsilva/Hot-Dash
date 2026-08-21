@@ -1,6 +1,6 @@
 import "server-only";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, extname } from "node:path";
 
@@ -117,6 +117,48 @@ export function runCapture(cmd: string, args: string[], timeoutMs = 30000): Prom
       else reject(new Error(`${cmd} saiu com código ${code}: ${stderr.slice(-500)}`));
     });
   });
+}
+
+/**
+ * Remove os metadados de um arquivo QUE JÁ ESTÁ NO DISCO, no lugar.
+ *
+ * É a versão para arquivo grande. A irmã que recebe Buffer continua existindo
+ * (o resto do app a usa para arquivos pequenos), mas ela obriga o arquivo
+ * inteiro a caber na RAM duas vezes — entrada e saída. Com meio giga de vídeo
+ * isso derrubava o container. Aqui as ferramentas leem e escrevem em disco, e
+ * o processo do app não toca nos bytes.
+ *
+ * A imagem é limpa pelo próprio exiftool (`-overwrite_original`); o vídeo sai
+ * num arquivo ao lado e toma o lugar do original no fim.
+ */
+export async function cleanMetadataInPlace(absPath: string, ext: string): Promise<void> {
+  const kind = mediaKind(ext);
+  if (!kind) throw new Error(`Formato não suportado: ${ext || "desconhecido"}.`);
+
+  if (kind === "image") {
+    await run("exiftool", ["-all=", "-overwrite_original", "-P", absPath]);
+    return;
+  }
+
+  const saida = `${absPath}.limpo${ext}`;
+  const args = [
+    "-y", "-i", absPath,
+    "-map_metadata", "-1",
+    "-map_chapters", "-1",
+    "-map", "0",
+    "-c", "copy",
+  ];
+  if (ext === ".mp4" || ext === ".mov" || ext === ".m4v") {
+    args.push("-movflags", "+faststart");
+  }
+  args.push(saida);
+  try {
+    await run("ffmpeg", args);
+    await rename(saida, absPath);
+  } catch (e) {
+    await rm(saida, { force: true }).catch(() => {});
+    throw e;
+  }
 }
 
 /**

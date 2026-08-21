@@ -1,6 +1,8 @@
 import "server-only";
-import { createReadStream } from "node:fs";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
 import { join, resolve, sep } from "node:path";
 
 /**
@@ -28,6 +30,41 @@ export async function saveFile(
   const full = safeResolve(relPath);
   await mkdir(join(full, ".."), { recursive: true });
   await writeFile(full, data);
+}
+
+/**
+ * Grava um arquivo que chega em FLUXO, sem passar pela memória.
+ *
+ * É o caminho dos uploads grandes. `saveFile` recebe um Buffer, o que obriga o
+ * arquivo inteiro a existir na RAM — com meio giga de vídeo isso somava várias
+ * cópias e derrubava o container antes de o upload terminar. Aqui os bytes vão
+ * do corpo da requisição direto para o disco.
+ */
+export async function saveStream(
+  relPath: string,
+  data: ReadableStream<Uint8Array>,
+): Promise<number> {
+  const full = safeResolve(relPath);
+  await mkdir(join(full, ".."), { recursive: true });
+  await pipeline(Readable.fromWeb(data as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(full));
+  const s = await stat(full);
+  return s.size;
+}
+
+/** Move um arquivo que já está no disco para dentro do armazenamento. */
+export async function moveIntoStorage(origemAbs: string, relPath: string): Promise<number> {
+  const full = safeResolve(relPath);
+  await mkdir(join(full, ".."), { recursive: true });
+  try {
+    await rename(origemAbs, full);
+  } catch {
+    // `rename` falha entre sistemas de arquivos diferentes (/tmp e o volume):
+    // aí é copiar em fluxo e apagar a origem.
+    await pipeline(createReadStream(origemAbs), createWriteStream(full));
+    await rm(origemAbs, { force: true });
+  }
+  const s = await stat(full);
+  return s.size;
 }
 
 export function absolutePath(relPath: string): string {

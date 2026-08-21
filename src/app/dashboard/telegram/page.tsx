@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { showToast } from "@/lib/toast";
 import TelegramCalendar from "@/components/telegram/TelegramCalendar";
 import { useConfirm } from "@/hooks/useConfirm";
@@ -42,6 +42,10 @@ type TelegramSettings = {
   warmupMkPrompt: string;
   warmupCtaButtons: string;
 };
+
+/** Marca "estou acompanhando um job, mas ele veio sem id". Ver o uso no
+ *  acompanhamento das Prévias. */
+const SEM_ID = "sem-id";
 
 export default function TelegramUnifiedPage() {
   const { confirm, ConfirmDialog } = useConfirm();
@@ -193,7 +197,21 @@ export default function TelegramUnifiedPage() {
   // um dia inteiro não cabe no tempo de uma requisição). Por isso a tela
   // acompanha por polling em vez de esperar a resposta.
   const [generatingPrevias, setGeneratingPrevias] = useState(false);
+  // QUAL job esta tela está acompanhando.
+  //
+  // Sem isto a barra só aparecia depois de um F5. O GET devolve o ÚLTIMO job do
+  // perfil, terminado ou não — e o efeito de acompanhamento dispara a primeira
+  // consulta assim que `generatingPrevias` vira true, ou seja, ENQUANTO o POST
+  // ainda está indo. Essa consulta encontrava o job da geração ANTERIOR, já
+  // `done`, concluía "acabou", desligava a barra e ainda soltava o aviso de
+  // sucesso da rodada passada. Quando o POST enfim respondia, o job novo até
+  // entrava no estado, mas a barra já estava desligada e o polling, parado.
+  //
+  // Guardando o id, o acompanhamento só age sobre o job que é nosso: enquanto
+  // não soubermos qual é, nenhuma consulta conclui nada.
+  const previasJobIdRef = useRef<string | null>(null);
   const [previasJob, setPreviasJob] = useState<{
+    id?: string;
     status: string;
     total: number;
     done: number;
@@ -220,6 +238,7 @@ export default function TelegramUnifiedPage() {
         if (!vivo) return;
         const job = d.job;
         if (job && (job.status === "pending" || job.status === "processing")) {
+          previasJobIdRef.current = job.id || SEM_ID;
           setPreviasJob(job);
           setGeneratingPrevias(true);
         }
@@ -243,13 +262,22 @@ export default function TelegramUnifiedPage() {
         const d = await res.json();
         if (!vivo) return;
         const job = d.job;
+        const seguido = previasJobIdRef.current;
+        // Ainda não sabemos qual job é o nosso (o POST não respondeu): esperar.
+        if (!seguido || !job) return;
+        // Job de outra rodada — o GET devolve o último do perfil, não o nosso.
+        // `SEM_ID` é a saída de emergência: se um dia a resposta vier sem id,
+        // perde-se a conferência de identidade, mas o acompanhamento continua —
+        // barra presa para sempre seria pior que o defeito que isto conserta.
+        if (seguido !== SEM_ID && job.id && job.id !== seguido) return;
         setPreviasJob(job);
-        if (!job || job.status === "done" || job.status === "error") {
+        if (job.status === "done" || job.status === "error") {
+          previasJobIdRef.current = null;
           setGeneratingPrevias(false);
           window.dispatchEvent(new Event("reloadTelegramCalendar"));
-          if (job?.status === "error") {
+          if (job.status === "error") {
             toast.error(job.error || "Erro ao gerar prévias.");
-          } else if (job) {
+          } else {
             const hoje = job.today
               ? ` (${job.today} ainda hoje)`
               : " (nenhum ainda hoje — o dia já acabou)";
@@ -297,9 +325,11 @@ export default function TelegramUnifiedPage() {
       );
       if (!res.ok) throw new Error("Não deu para cancelar a geração.");
       if (grupo === "previas") {
+        previasJobIdRef.current = null;
         setGeneratingPrevias(false);
         setPreviasJob(null);
       } else {
+        vipJobIdRef.current = null;
         setGeneratingVipMk(false);
         setMkVipJob(null);
       }
@@ -313,6 +343,9 @@ export default function TelegramUnifiedPage() {
   const generatePrevias = async (daysOverride?: number) => {
     setGeneratingPrevias(true);
     setPreviasJob(null);
+    // Zera o job seguido: até o POST responder, nenhuma consulta pode concluir
+    // nada — o que estiver gravado no servidor ainda é da rodada anterior.
+    previasJobIdRef.current = null;
     try {
       const res = await fetch("/api/telegram/generate-previas", {
         method: "POST",
@@ -323,6 +356,7 @@ export default function TelegramUnifiedPage() {
       // Já havia uma geração rodando: em vez de só reclamar, adota o job que a
       // rota devolve — a barra aparece e o acompanhamento recomeça.
       if (res.status === 409 && d.job) {
+        previasJobIdRef.current = d.job.id || SEM_ID;
         setPreviasJob(d.job);
         toast.error(d.error || "Já existe uma geração em andamento.");
         return;
@@ -333,6 +367,7 @@ export default function TelegramUnifiedPage() {
         toast.success(d.message || "Nenhum horário livre no período.");
         return;
       }
+      previasJobIdRef.current = d.job.id || SEM_ID;
       setPreviasJob(d.job);
       toast.success(`Programação montada: ${d.job.total} posts. Escrevendo as legendas…`);
     } catch (err: any) {
@@ -344,7 +379,11 @@ export default function TelegramUnifiedPage() {
   // Método MK do VIP. Igual às Prévias: a rota só ENFILEIRA e responde na hora;
   // quem escreve a copy é o agendador do servidor, em lotes. O convite pro
   // particular é escolha DESTA geração (`vipContato`), não configuração salva.
+  // Mesma história das Prévias: o id do job que esta tela acompanha. Ver o
+  // comentário longo em `previasJobIdRef` — o defeito era idêntico aqui.
+  const vipJobIdRef = useRef<string | null>(null);
   const [mkVipJob, setMkVipJob] = useState<{
+    id?: string;
     status: string;
     total: number;
     done: number;
@@ -369,6 +408,7 @@ export default function TelegramUnifiedPage() {
         if (!vivo) return;
         const job = d.job;
         if (job && (job.status === "pending" || job.status === "processing")) {
+          vipJobIdRef.current = job.id || SEM_ID;
           setMkVipJob(job);
           setGeneratingVipMk(true);
         }
@@ -392,13 +432,22 @@ export default function TelegramUnifiedPage() {
         const d = await res.json();
         if (!vivo) return;
         const job = d.job;
+        const seguido = vipJobIdRef.current;
+        // Ainda não sabemos qual job é o nosso (o POST não respondeu): esperar.
+        if (!seguido || !job) return;
+        // Job de outra rodada — o GET devolve o último do perfil, não o nosso.
+        // `SEM_ID` é a saída de emergência: se um dia a resposta vier sem id,
+        // perde-se a conferência de identidade, mas o acompanhamento continua —
+        // barra presa para sempre seria pior que o defeito que isto conserta.
+        if (seguido !== SEM_ID && job.id && job.id !== seguido) return;
         setMkVipJob(job);
-        if (!job || job.status === "done" || job.status === "error") {
+        if (job.status === "done" || job.status === "error") {
+          vipJobIdRef.current = null;
           setGeneratingVipMk(false);
           window.dispatchEvent(new Event("reloadTelegramCalendar"));
-          if (job?.status === "error") {
+          if (job.status === "error") {
             toast.error(job.error || "Erro ao gerar VIP.");
-          } else if (job) {
+          } else {
             const hoje = job.today
               ? ` (${job.today} ainda hoje)`
               : " (nenhum ainda hoje — o dia já acabou)";
@@ -434,6 +483,7 @@ export default function TelegramUnifiedPage() {
   const generateVipMk = async (daysOverride?: number) => {
     setGeneratingVipMk(true);
     setMkVipJob(null);
+    vipJobIdRef.current = null;
     try {
       const res = await fetch("/api/telegram/generate-vip", {
         method: "POST",
@@ -450,6 +500,7 @@ export default function TelegramUnifiedPage() {
       const d = await res.json();
       // Idem Prévias: o 409 vira acompanhamento do job que já está rodando.
       if (res.status === 409 && d.job) {
+        vipJobIdRef.current = d.job.id || SEM_ID;
         setMkVipJob(d.job);
         toast.error(d.error || "Já existe uma geração em andamento.");
         return;
@@ -460,6 +511,7 @@ export default function TelegramUnifiedPage() {
         toast.success(d.message || "Nenhum horário livre no período.");
         return;
       }
+      vipJobIdRef.current = d.job.id || SEM_ID;
       setMkVipJob(d.job);
       toast.success(`Programação montada: ${d.job.total} posts. Escrevendo as legendas…`);
     } catch (err: any) {

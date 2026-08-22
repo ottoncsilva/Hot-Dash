@@ -31,8 +31,38 @@ export type ImageResolucao = (typeof IMAGE_RESOLUCOES)[number];
 export const VIDEO_RESOLUCOES = ["480p", "720p", "1080p", "4K"] as const;
 export type VideoResolucao = (typeof VIDEO_RESOLUCOES)[number];
 
-export const VIDEO_DURACOES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
+/**
+ * A ESCALA de durações — todos os segundos que algum modelo aceita, em ordem.
+ *
+ * Não é o que a tela mostra: cada modelo traz a sua lista em `duracoes`, e é
+ * ela que vira botão. Esta serve para ordenar (o "mais próximo" ao trocar de
+ * modelo mede distância aqui) e para tipar.
+ *
+ * Vai até 30 por causa do Seedance 2.5, que aceita de 4 a 30 segundos. Os
+ * modelos que param em 15 seguem parando em 15.
+ */
+export const VIDEO_DURACOES = [
+  4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+  16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+] as const;
 export type VideoDuracao = (typeof VIDEO_DURACOES)[number];
+
+/**
+ * As durações que os modelos da família Seedance 2.0 aceitam — 4 a 15, o
+ * intervalo inteiro. Ficava escrito como `VIDEO_DURACOES` quando a escala e a
+ * lista deles eram a mesma coisa; agora que a escala vai a 30, precisa ser
+ * explícito.
+ */
+export const DURACOES_ATE_15 = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
+
+/**
+ * O recorte para os modelos que fazem vídeo longo.
+ *
+ * O Seedance 2.5 aceita QUALQUER inteiro de 4 a 30 — 27 botões na tela, que é
+ * mais escolha do que ajuda. Mesma lógica do recorte de formatos: passo de 1s
+ * onde a diferença se nota (até 6s), depois de 2 em 2 e de 5 em 5.
+ */
+export const DURACOES_LONGAS = [4, 5, 6, 8, 10, 12, 15, 20, 25, 30] as const;
 
 /** Teto de gerações por clique — um clique errado não pode virar oito vídeos. */
 export const MAX_QUANTIDADE = 4;
@@ -258,6 +288,7 @@ export type ModeloVideoId =
   | "seedance"
   | "mini"
   | "fast"
+  | "seedance25"
   | "veo"
   | "veo-fast"
   // Pela Magnific: os mesmos quatro, mais o Kling, que só existe lá.
@@ -294,6 +325,17 @@ export type ModeloVideo = {
   /** Vídeos por chamada. O Veo tem `numberOfVideos`; o Seedance não tem `n`. */
   maxN: number;
   preco: PrecoVideo;
+  /**
+   * As dimensões exatas por (resolução, formato), quando o modelo NÃO usa as
+   * da família Seedance 2.0. Só importa para quem cobra por token, porque é a
+   * área do quadro que vira preço.
+   *
+   * O Seedance 2.5 é o caso: em 16:9 e 9:16 ele bate com a 2.0, mas em 1:1,
+   * 4:3 e 3:4 usa quadros bem maiores (640×640 no lugar de 480×480, por
+   * exemplo). Reaproveitar a tabela da 2.0 subestimaria o custo em quase 80%
+   * nesses três formatos — o contrário do que uma estimativa serve para fazer.
+   */
+  tamanhos?: Record<string, Partial<Record<Formato, [number, number]>>>;
   /** O MESMO modelo por outra rota — ver `familia` em ModeloImagem. */
   familia?: string;
   /** O Veo sempre gera áudio, e isso não muda o preço — a tela esconde o interruptor. */
@@ -311,7 +353,7 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     nome: "Seedance 2.0",
     resolucoes: ["480p", "720p", "1080p", "4K"],
     formatos: FORMATOS,
-    duracoes: VIDEO_DURACOES,
+    duracoes: DURACOES_ATE_15,
     maxN: 1,
     preco: {
       tipo: "token",
@@ -326,7 +368,7 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     nome: "Seedance 2.0 Mini",
     resolucoes: ["480p", "720p"],
     formatos: FORMATOS,
-    duracoes: VIDEO_DURACOES,
+    duracoes: DURACOES_ATE_15,
     maxN: 1,
     preco: { tipo: "token", porToken: { "480p": 0.0000035, "720p": 0.0000035 } },
   },
@@ -338,10 +380,48 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     nome: "Seedance 2.0 Fast",
     resolucoes: ["480p", "720p"],
     formatos: FORMATOS,
-    duracoes: VIDEO_DURACOES,
+    duracoes: DURACOES_ATE_15,
     maxN: 1,
     preco: { tipo: "token", porToken: { "480p": 0.0000042, "720p": 0.0000042 } },
   },
+  {
+    id: "seedance25",
+    familia: "seedance-2-5",
+    provedor: "openrouter",
+    slug: "bytedance/seedance-2.5",
+    nome: "Seedance 2.5",
+    // Números da ficha do próprio modelo na OpenRouter, não deduzidos:
+    // /api/v1/videos/models → bytedance/seedance-2.5.
+    //
+    // Ao contrário da 2.0, a 2.5 NÃO faz 1080p nem 4K — para em 720p. Em
+    // compensação vai a 30 segundos, contra os 15 da 2.0.
+    resolucoes: ["480p", "720p"],
+    formatos: FORMATOS,
+    duracoes: DURACOES_LONGAS,
+    maxN: 1,
+    // `video_tokens: 0.0000107`, o mesmo nas duas resoluções — a 2.0 cobra
+    // 0,000007 em 480p/720p, então a 2.5 sai ~53% mais cara por token.
+    preco: { tipo: "token", porToken: { "480p": 0.0000107, "720p": 0.0000107 } },
+    // `supported_sizes` da ficha. 16:9 e 9:16 coincidem com a 2.0; os outros
+    // três não, e é por isso que esta tabela existe.
+    tamanhos: {
+      "480p": {
+        "16:9": [854, 480],
+        "4:3": [752, 560],
+        "1:1": [640, 640],
+        "3:4": [560, 752],
+        "9:16": [480, 854],
+      },
+      "720p": {
+        "16:9": [1280, 720],
+        "4:3": [1112, 834],
+        "1:1": [960, 960],
+        "3:4": [834, 1112],
+        "9:16": [720, 1280],
+      },
+    },
+  },
+
   // --- Google (Veo 3.1). Limites bem mais estreitos: dois formatos, três
   // durações, e 1080p/4k só em 8 segundos.
   {
@@ -388,7 +468,7 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     nome: "Seedance 2.0",
     resolucoes: ["480p", "720p", "1080p", "4K"],
     formatos: FORMATOS,
-    duracoes: VIDEO_DURACOES,
+    duracoes: DURACOES_ATE_15,
     maxN: 1,
     preco: { tipo: "creditos" },
   },
@@ -400,7 +480,7 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     nome: "Seedance 2.0 Mini",
     resolucoes: ["480p", "720p"],
     formatos: FORMATOS,
-    duracoes: VIDEO_DURACOES,
+    duracoes: DURACOES_ATE_15,
     maxN: 1,
     preco: { tipo: "creditos" },
   },
@@ -412,7 +492,7 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     nome: "Seedance 2.0 Fast",
     resolucoes: ["480p", "720p"],
     formatos: FORMATOS,
-    duracoes: VIDEO_DURACOES,
+    duracoes: DURACOES_ATE_15,
     maxN: 1,
     preco: { tipo: "creditos" },
   },
@@ -664,7 +744,9 @@ export function custoVideo(
     return (m.preco.porSegundo[res] ?? 0) * duracaoSegundos * qtd;
   }
   const fmt = formatoVideoValido(modeloId, formato);
-  const [largura, altura] = VIDEO_TAMANHOS[res][fmt];
+  // A tabela do MODELO quando ele tem uma; senão a da família Seedance 2.0,
+  // que é a que quase todos seguem.
+  const [largura, altura] = m.tamanhos?.[res]?.[fmt] ?? VIDEO_TAMANHOS[res][fmt];
   const tokens = (largura * altura * duracaoSegundos * 24) / 1024;
   return tokens * (m.preco.porToken[res] ?? 0) * qtd;
 }

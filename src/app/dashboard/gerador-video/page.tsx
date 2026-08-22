@@ -695,10 +695,19 @@ export default function GeradorVideoPage() {
               </optgroup>
             ))}
           </select>
+          {/* A frase enumerava as durações uma a uma. Serviu enquanto todo
+              modelo fazia 4 a 15; com o Seedance 2.5 indo a 30 viraria uma
+              parede de números. Agora diz o INTERVALO, e só detalha os
+              formatos quando o modelo restringe algum. */}
           <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-            {infoModelo.duracoes.length < VIDEO_DURACOES.length || infoModelo.formatos.length < FORMATOS.length
-              ? `Aceita ${infoModelo.formatos.join(" e ")}, ${infoModelo.duracoes.join("/")}s e ${infoModelo.resolucoes.join("/")}.`
-              : `Vai de ${infoModelo.resolucoes[0]} a ${infoModelo.resolucoes[infoModelo.resolucoes.length - 1]}.`}
+            {`${infoModelo.resolucoes[0]} a ${
+              infoModelo.resolucoes[infoModelo.resolucoes.length - 1]
+            }, de ${infoModelo.duracoes[0]} a ${
+              infoModelo.duracoes[infoModelo.duracoes.length - 1]
+            }s`}
+            {infoModelo.formatos.length < FORMATOS.length &&
+              `, só em ${infoModelo.formatos.join(" e ")}`}
+            .
           </p>
         </div>
 

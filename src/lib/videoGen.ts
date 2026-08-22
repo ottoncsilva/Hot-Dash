@@ -51,6 +51,14 @@ export type PedidoVideo = {
    * padrão da API.
    */
   filtroSeguranca?: boolean;
+  /** Último frame — o vídeo faz a transição do primeiro para este. */
+  lastFrame?: string;
+  /**
+   * Imagens de referência: guiam personagem e estilo sem fixar quadro. Na
+   * OpenRouter são EXCLUSIVAS com o primeiro frame (ver `referencias` no
+   * catálogo); na Magnific combinam.
+   */
+  referencias?: string[];
 };
 
 export type JobVideo = {
@@ -115,10 +123,34 @@ export async function submeterVideoSeedance(pedido: PedidoVideo): Promise<JobVid
     resolution: resolucaoVideoValida(modelo.id, pedido.resolution || "720p"),
     aspect_ratio: pedido.aspectRatio || "9:16",
   };
+  // FRAMES E REFERÊNCIAS SÃO EXCLUSIVOS AQUI.
+  //
+  // A documentação da OpenRouter: "if both fields are provided, `frame_images`
+  // takes precedence and the request is treated as image-to-video". Ou seja,
+  // mandar os dois faz as referências serem descartadas SEM AVISO. Em vez de
+  // deixar o operador pagar por uma geração que ignorou metade do que ele
+  // escolheu, mandamos um ou outro — e a tela já diz qual vai valer.
+  const quadros: Record<string, unknown>[] = [];
   if (pedido.firstFrame) {
-    body.frame_images = [
-      { type: "image_url", image_url: { url: pedido.firstFrame }, frame_type: "first_frame" },
-    ];
+    quadros.push({
+      type: "image_url",
+      image_url: { url: pedido.firstFrame },
+      frame_type: "first_frame",
+    });
+  }
+  if (pedido.lastFrame && modelo.aceitaUltimoFrame) {
+    quadros.push({
+      type: "image_url",
+      image_url: { url: pedido.lastFrame },
+      frame_type: "last_frame",
+    });
+  }
+  if (quadros.length > 0) {
+    body.frame_images = quadros;
+  } else if (pedido.referencias?.length && modelo.referencias) {
+    body.input_references = pedido.referencias
+      .slice(0, modelo.referencias.max)
+      .map((url) => ({ type: "image_url", image_url: { url } }));
   }
   if (pedido.generateAudio) body.generate_audio = true;
   if (typeof pedido.seed === "number" && Number.isFinite(pedido.seed)) {

@@ -135,6 +135,10 @@ export default function GeradorVideoPage() {
   // conectado depende do PROVEDOR do modelo escolhido (ver CHAVES_DO_PROVEDOR).
   const [ajustes, setAjustes] = useState<Record<string, { enabled?: boolean; hasKey?: boolean }> | null>(null);
   const [frameGaleria, setFrameGaleria] = useState<string[]>([]);
+  // Último frame e referências: os dois saem da Galeria, e o teto de
+  // referências é do modelo. Ver `aceitaUltimoFrame` e `referencias` no catálogo.
+  const [ultimoGaleria, setUltimoGaleria] = useState<string[]>([]);
+  const [referencias, setReferencias] = useState<string[]>([]);
   const [frameFile, setFrameFile] = useState<File | null>(null);
   const [framePreview, setFramePreview] = useState<string | null>(null);
   const [frameBase64, setFrameBase64] = useState<string | null>(null);
@@ -259,6 +263,8 @@ export default function GeradorVideoPage() {
         promptControle: textoControle,
         firstFrameBase64: frameBase64 || undefined,
         firstFrameMediaId: frameGaleria[0],
+        lastFrameMediaId: ultimoGaleria[0],
+        referenciaMediaIds: referencias,
       });
       setPromptFinal(r.prompt);
       showToast("Prompt final montado — confira antes de gerar.", "success");
@@ -314,6 +320,12 @@ export default function GeradorVideoPage() {
     setResolution(novaRes);
     setAspectRatio((f) => formatoVideoValido(id, f) as Formato);
     setDuration(duracaoValida(id, novaRes, duration) as Duracao);
+    // O modelo novo pode não aceitar o que estava escolhido — deixar a seleção
+    // pendurada faria a tela prometer algo que o pedido não leva.
+    const novo = modeloVideo(id);
+    if (!novo.aceitaUltimoFrame) setUltimoGaleria([]);
+    if (!novo.referencias) setReferencias([]);
+    else setReferencias((r) => r.slice(0, novo.referencias!.max));
   }
 
   /** Trocar a resolução também pode forçar a duração (regra do Veo). */
@@ -443,6 +455,8 @@ export default function GeradorVideoPage() {
         seed: seedNum,
         firstFrameBase64: frameBase64 || undefined,
         firstFrameMediaId: frameGaleria[0],
+        lastFrameMediaId: ultimoGaleria[0],
+        referenciaMediaIds: referencias,
       });
 
       // Cada job aceito vira uma linha em andamento, acompanhada em paralelo.
@@ -563,6 +577,59 @@ export default function GeradorVideoPage() {
             />
           </div>
         </div>
+
+        {/* ÚLTIMO FRAME — só faz sentido com o primeiro escolhido, e só nos
+            modelos que aceitam. Na Magnific o Veo e o Kling não aceitam. */}
+        {infoModelo.aceitaUltimoFrame && temFrame && (
+          <div className="mt-5">
+            <label className="eyebrow">Último frame (opcional)</label>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+              O vídeo faz a transição do primeiro frame para este.
+            </p>
+            <div className="mt-2">
+              <MediaPicker
+                profileId={profileId}
+                selected={ultimoGaleria}
+                onChange={setUltimoGaleria}
+                max={1}
+                apenasImagens
+              />
+            </div>
+          </div>
+        )}
+
+        {/* REFERÊNCIAS — guiam quem é a pessoa e o estilo, sem fixar quadro.
+            É o que mantém a mesma modelo reconhecível entre vídeos. */}
+        {infoModelo.referencias && (
+          <div className="mt-5">
+            <label className="eyebrow">
+              Referências (opcional, até {infoModelo.referencias.max})
+            </label>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+              Guiam a aparência da modelo e o estilo, sem fixar nenhum quadro.
+            </p>
+            {/* O AVISO QUE EVITA UMA GERAÇÃO JOGADA FORA.
+                Na OpenRouter a documentação é explícita: mandando primeiro
+                frame E referências, o frame vence e as referências são
+                descartadas em silêncio. Na Magnific as duas coisas convivem. */}
+            {infoModelo.referencias.exclusivas && temFrame && referencias.length > 0 && (
+              <p className="mt-2 rounded-lg border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-[11px] leading-relaxed text-amber-300">
+                Com primeiro frame escolhido, o {infoModelo.nome} ignora as referências —
+                é regra da OpenRouter, não do painel. Tire o primeiro frame para as
+                referências valerem, ou gere pela Magnific, onde as duas coisas somam.
+              </p>
+            )}
+            <div className="mt-2">
+              <MediaPicker
+                profileId={profileId}
+                selected={referencias}
+                onChange={setReferencias}
+                max={Math.min(infoModelo.referencias.max, 6)}
+                apenasImagens
+              />
+            </div>
+          </div>
+        )}
 
         {modo === "livre" ? (
           /* PROMPT LIVRE */

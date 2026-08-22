@@ -350,6 +350,30 @@ export type ModeloVideo = {
    * nem o Google expõem algo assim na API de vídeo.
    */
   aceitaFiltroSeguranca?: boolean;
+  /**
+   * Se o modelo aceita um ÚLTIMO frame além do primeiro — o vídeo faz a
+   * transição de uma foto para a outra.
+   *
+   * Na OpenRouter todos aceitam (`frame_type: "last_frame"`). Na Magnific só a
+   * família Seedance tem (`image_end`); o Veo e o Kling de lá recebem só a
+   * imagem inicial.
+   */
+  aceitaUltimoFrame?: boolean;
+  /**
+   * Se o modelo aceita imagens de REFERÊNCIA — guiam personagem e estilo sem
+   * fixar quadro nenhum. É o que mantém a mesma modelo reconhecível entre
+   * vídeos diferentes.
+   *
+   * `exclusivas` diz o que acontece ao combinar com o primeiro frame, e as
+   * duas rotas se comportam ao CONTRÁRIO uma da outra:
+   *
+   * - OPENROUTER: exclusivas. A documentação é explícita — "if both fields are
+   *   provided, `frame_images` takes precedence" —, ou seja, as referências
+   *   são descartadas EM SILÊNCIO. A tela precisa avisar.
+   * - MAGNIFIC: combináveis. A documentação diz que `reference_images` "can be
+   *   combined with `image`/`image_end`".
+   */
+  referencias?: { max: number; exclusivas: boolean };
   /** Resoluções que obrigam a duração máxima (regra do Veo para 1080p e 4k). */
   exigemDuracaoMaxima?: readonly VideoResolucao[];
 };
@@ -369,6 +393,8 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
       tipo: "token",
       porToken: { "480p": 0.000007, "720p": 0.000007, "1080p": 0.0000077, "4K": 0.000004 },
     },
+    aceitaUltimoFrame: true,
+    referencias: { max: 50, exclusivas: true },
   },
   {
     id: "mini",
@@ -381,6 +407,8 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     duracoes: DURACOES_ATE_15,
     maxN: 1,
     preco: { tipo: "token", porToken: { "480p": 0.0000035, "720p": 0.0000035 } },
+    aceitaUltimoFrame: true,
+    referencias: { max: 50, exclusivas: true },
   },
   {
     id: "fast",
@@ -393,6 +421,8 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     duracoes: DURACOES_ATE_15,
     maxN: 1,
     preco: { tipo: "token", porToken: { "480p": 0.0000042, "720p": 0.0000042 } },
+    aceitaUltimoFrame: true,
+    referencias: { max: 50, exclusivas: true },
   },
   {
     id: "seedance25",
@@ -430,6 +460,8 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
         "9:16": [720, 1280],
       },
     },
+    aceitaUltimoFrame: true,
+    referencias: { max: 50, exclusivas: true },
   },
 
   // --- Google (Veo 3.1). Limites bem mais estreitos: dois formatos, três
@@ -447,6 +479,7 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     preco: { tipo: "segundo", porSegundo: { "720p": 0.4, "1080p": 0.4, "4K": 0.6 } },
     audioSempre: true,
     exigemDuracaoMaxima: ["1080p", "4K"],
+    aceitaUltimoFrame: true,
   },
   {
     id: "veo-fast",
@@ -461,6 +494,7 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     preco: { tipo: "segundo", porSegundo: { "720p": 0.1, "1080p": 0.12, "4K": 0.3 } },
     audioSempre: true,
     exigemDuracaoMaxima: ["1080p", "4K"],
+    aceitaUltimoFrame: true,
   },
 
   // --- Magnific. Os mesmos Seedance e Veo de cima, por outra rota, mais o
@@ -482,6 +516,8 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     maxN: 1,
     preco: { tipo: "creditos" },
     aceitaFiltroSeguranca: true,
+    aceitaUltimoFrame: true,
+    referencias: { max: 9, exclusivas: false },
   },
   {
     id: "mini-mg",
@@ -494,6 +530,8 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     duracoes: DURACOES_ATE_15,
     maxN: 1,
     preco: { tipo: "creditos" },
+    aceitaUltimoFrame: true,
+    referencias: { max: 9, exclusivas: false },
   },
   {
     id: "fast-mg",
@@ -507,6 +545,8 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     maxN: 1,
     preco: { tipo: "creditos" },
     aceitaFiltroSeguranca: true,
+    aceitaUltimoFrame: true,
+    referencias: { max: 9, exclusivas: false },
   },
   {
     id: "veo-mg",

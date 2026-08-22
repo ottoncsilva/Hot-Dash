@@ -117,6 +117,8 @@ export default function AiSettingsPage() {
 
   const [magnificEnabled, setMagnificEnabled] = useState(false);
   const [magnificKey, setMagnificKey] = useState("");
+  const [byteplusEnabled, setByteplusEnabled] = useState(false);
+  const [byteplusKey, setByteplusKey] = useState("");
 
   const [nudenetEnabled, setNudenetEnabled] = useState(false);
   const [nudenetUrl, setNudenetUrl] = useState("");
@@ -148,6 +150,7 @@ export default function AiSettingsPage() {
         setOrModel(d.settings.openrouter?.model || "openai/gpt-4o");
         setOrBaseUrl(d.settings.openrouter?.baseUrl || OPENROUTER_URL_PADRAO);
         setMagnificEnabled(d.settings.magnific?.enabled || false);
+        setByteplusEnabled(d.settings.byteplus?.enabled || false);
         setNudenetEnabled(d.settings.nudenet?.enabled || false);
         setNudenetUrl(d.settings.nudenet?.baseUrl || "");
         setActivityModels(d.settings.activityModels || {});
@@ -261,6 +264,7 @@ export default function AiSettingsPage() {
           grok: { enabled: grokEnabled, model: grokModel, baseUrl: grokBaseUrl, ...(grokKey ? { apiKey: grokKey } : {}) },
           openrouter: { enabled: orEnabled, model: orModel, baseUrl: orBaseUrl, ...(orKey ? { apiKey: orKey } : {}) },
           magnific: { enabled: magnificEnabled, ...(magnificKey ? { apiKey: magnificKey } : {}) },
+          byteplus: { enabled: byteplusEnabled, ...(byteplusKey ? { apiKey: byteplusKey } : {}) },
           nudenet: { enabled: nudenetEnabled, baseUrl: nudenetUrl, ...(nudenetToken ? { apiKey: nudenetToken } : {}) },
           activityModels,
         },
@@ -700,6 +704,47 @@ export default function AiSettingsPage() {
                   buildBody={() => ({ provider: "magnific", apiKey: magnificKey || undefined })}
                   autoTest={true}
                   enabled={magnificEnabled}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* BytePlus ModelArk — a ByteDance oficial */}
+        <div className="card p-4">
+          <label className="flex items-center justify-between">
+            <span className="font-medium text-white">BytePlus ModelArk (Seedance oficial)</span>
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-white"
+              checked={byteplusEnabled}
+              onChange={(e) => setByteplusEnabled(e.target.checked)}
+            />
+          </label>
+          <p className="mt-2 text-xs text-zinc-500">
+            Os Seedance direto da ByteDance, sem revendedor. Traz marca d&apos;água e
+            câmera fixa, que só existem aqui. A 2.0 e a 2.5 recusam foto com rosto
+            humano que não tenha sido gerada na própria plataforma; a 1.5 Pro não tem
+            essa trava.
+          </p>
+          {byteplusEnabled && (
+            <div className="grid gap-4 md:grid-cols-2 mt-4">
+              <div className="md:col-span-2">
+                <label className="eyebrow mb-1.5 block">Chave API BytePlus (ARK_API_KEY)</label>
+                <input
+                  className="input font-mono"
+                  type="password"
+                  placeholder={cfg?.byteplus?.hasKey ? "•••••••• (em branco = manter)" : "..."}
+                  value={byteplusKey}
+                  onChange={(e) => setByteplusKey(e.target.value)}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <ConnectionBadge
+                  testUrl="/api/settings/ai/test"
+                  buildBody={() => ({ provider: "byteplus", apiKey: byteplusKey || undefined })}
+                  autoTest={true}
+                  enabled={byteplusEnabled}
                 />
               </div>
             </div>

@@ -4,6 +4,7 @@ import { getMediaRow, renderVisionImageBase64 } from "@/lib/media";
 import { submeterVideoSeedance, type VideoDuration, type VideoAspectRatio } from "@/lib/videoGen";
 import { submeterVideoVeo } from "@/lib/googleVideoGen";
 import { submeterVideoMagnific } from "@/lib/magnificVideoGen";
+import { submeterVideoByteplus } from "@/lib/byteplusVideoGen";
 import {
   modeloVideo,
   resolucaoVideoValida,
@@ -48,6 +49,10 @@ export async function POST(req: NextRequest) {
     // desligar — e o módulo ainda checa se o MODELO aceita o campo antes de
     // mandá-lo, porque nem todos aceitam.
     const filtroSeguranca = body.filtroSeguranca !== false;
+    // Só a BytePlus tem estes dois. A marca d'água chega DESLIGADA por
+    // padrão aqui, ao contrário do padrão da plataforma.
+    const marcaDagua = body.marcaDagua === true;
+    const cameraFixa = body.cameraFixa === true;
 
     // O first frame chega OU já em base64 (upload direto do operador,
     // redimensionado no navegador) OU como o id de uma mídia da Galeria —
@@ -102,7 +107,9 @@ export async function POST(req: NextRequest) {
             ? submeterVideoVeo
             : modelo.provedor === "magnific"
               ? submeterVideoMagnific
-              : submeterVideoSeedance;
+              : modelo.provedor === "byteplus"
+                ? submeterVideoByteplus
+                : submeterVideoSeedance;
         const job = await submeter({
           prompt,
           firstFrame,
@@ -113,6 +120,8 @@ export async function POST(req: NextRequest) {
           filtroSeguranca,
           lastFrame,
           referencias,
+          marcaDagua,
+          cameraFixa,
           seed,
           modelo: modelo.id,
         });

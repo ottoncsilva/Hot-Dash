@@ -163,6 +163,10 @@ export default function GeradorVideoPage() {
   // Filtro de conteúdo do provedor. Começa LIGADO, que é o padrão da API —
   // desligar é uma escolha consciente, não algo que acontece por descuido.
   const [filtroSeguranca, setFiltroSeguranca] = useState(true);
+  // Só a BytePlus tem os dois. A marca d'água começa DESLIGADA: um vídeo de
+  // venda com selo de IA no canto não serve, e o padrão da plataforma é ligado.
+  const [marcaDagua, setMarcaDagua] = useState(false);
+  const [cameraFixa, setCameraFixa] = useState(false);
   const [seed, setSeed] = useState("");
   const [avancadoAberto, setAvancadoAberto] = useState(false);
   const [enviando, setEnviando] = useState(false);
@@ -452,6 +456,8 @@ export default function GeradorVideoPage() {
         aspectRatio,
         generateAudio,
         filtroSeguranca,
+        marcaDagua,
+        cameraFixa,
         seed: seedNum,
         firstFrameBase64: frameBase64 || undefined,
         firstFrameMediaId: frameGaleria[0],
@@ -782,6 +788,20 @@ export default function GeradorVideoPage() {
           </p>
         </div>
 
+        {/* A TRAVA DE ROSTO DA BYTEPLUS.
+            A 2.0 e a 2.5 de lá recusam retrato humano vindo de fora — só
+            aceitam foto gerada na própria ModelArk, mesma conta, sem edição,
+            em 30 dias. Não bloqueamos a tela: gerar a partir de texto continua
+            valendo. Mas dizer isso ANTES é o que evita pagar para descobrir. */}
+        {infoModelo.exigeFotoDaPlataforma && temFrame && (
+          <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-[11px] leading-relaxed text-amber-300">
+            O {infoModelo.nome} pela BytePlus recusa foto com rosto humano que não
+            tenha sido gerada lá. Se a imagem veio da Galeria ou foi editada aqui, o
+            pedido volta com erro — use a Seedance 1.5 Pro, que não tem essa trava,
+            ou gere sem primeiro frame.
+          </p>
+        )}
+
         {/* QUANTIDADE */}
         <div className="mt-5">
           <label className="eyebrow">Quantidade</label>
@@ -896,6 +916,34 @@ export default function GeradorVideoPage() {
                   Gerar áudio junto com o vídeo
                 </label>
               )}
+              {/* MARCA D'ÁGUA E CÂMERA FIXA — só a BytePlus tem os dois. */}
+              {infoModelo.provedor === "byteplus" && (
+                <>
+                  <div>
+                    <label className="flex items-center gap-2 text-sm text-zinc-300">
+                      <input
+                        type="checkbox"
+                        checked={marcaDagua}
+                        onChange={(e) => setMarcaDagua(e.target.checked)}
+                      />
+                      Marca d&apos;água de IA no vídeo
+                    </label>
+                    <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                      A BytePlus adiciona por padrão, no canto inferior direito. O painel
+                      manda desligado.
+                    </p>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-zinc-300">
+                    <input
+                      type="checkbox"
+                      checked={cameraFixa}
+                      onChange={(e) => setCameraFixa(e.target.checked)}
+                    />
+                    Câmera fixa (tripé)
+                  </label>
+                </>
+              )}
+
               {/* FILTRO DE CONTEÚDO.
                   Só a Magnific expõe isto, e só em alguns modelos — o Seedance
                   Mini não tem o campo, e a OpenRouter e o Google não têm nada

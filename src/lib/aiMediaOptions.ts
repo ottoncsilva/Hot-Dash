@@ -87,12 +87,13 @@ export function quantidadeValida(n: unknown): number {
  * ------------------------------------------------------------------ */
 
 /** Quem atende a chamada — decide o módulo que a rota usa. */
-export type Provedor = "openrouter" | "google" | "magnific";
+export type Provedor = "openrouter" | "google" | "magnific" | "byteplus";
 
 export const NOME_PROVEDOR: Record<Provedor, string> = {
   openrouter: "OpenRouter",
   google: "Google",
   magnific: "Magnific",
+  byteplus: "BytePlus (oficial)",
 };
 
 export type ModeloImagemId =
@@ -297,7 +298,11 @@ export type ModeloVideoId =
   | "fast-mg"
   | "veo-mg"
   | "veo-fast-mg"
-  | "kling26";
+  | "kling26"
+  // Pela BytePlus (ByteDance oficial).
+  | "seedance15-bp"
+  | "seedance20-bp"
+  | "seedance25-bp";
 
 /**
  * Como o modelo cobra. O Seedance cobra por "video token" (fórmula de
@@ -350,6 +355,26 @@ export type ModeloVideo = {
    * nem o Google expõem algo assim na API de vídeo.
    */
   aceitaFiltroSeguranca?: boolean;
+  /**
+   * O modelo RECUSA foto de rosto humano vinda de fora da plataforma.
+   *
+   * É a trava da Seedance 2.0 e 2.5 na BytePlus: elas só aceitam retrato que
+   * a própria ModelArk gerou, na mesma conta, sem edição posterior e dentro
+   * de 30 dias. Foto trazida do painel — da Galeria, do Seedream pela
+   * OpenRouter, ou editada aqui — é barrada.
+   *
+   * Fica na tela como aviso, não como bloqueio: o operador pode gerar sem
+   * imagem nenhuma (texto para vídeo), e aí a trava não se aplica.
+   */
+  exigeFotoDaPlataforma?: boolean;
+  /**
+   * O formato da saída é o da IMAGEM de entrada, não escolhível.
+   *
+   * Na Seedance 2.5 da BytePlus, tarefas com primeiro frame só aceitam
+   * `ratio: "adaptive"` — mandar 9:16 é erro. A tela esconde o seletor de
+   * formato quando há imagem.
+   */
+  formatoDaImagem?: boolean;
   /**
    * Se o modelo aceita um ÚLTIMO frame além do primeiro — o vídeo faz a
    * transição de uma foto para a outra.
@@ -576,6 +601,61 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     audioSempre: true,
     exigemDuracaoMaxima: ["1080p", "4K"],
   },
+  // --- BytePlus ModelArk: a ByteDance OFICIAL. Mesmos Seedance, sem
+  // intermediário — e com campos que só existem aqui (marca d'água, câmera
+  // fixa, referência de áudio e de vídeo).
+  //
+  // A RESTRIÇÃO QUE MANDA NA ESCOLHA: a 2.0 e a 2.5 recusam imagem de
+  // referência com ROSTO HUMANO REAL vinda de fora. Só aceitam foto gerada
+  // na própria ModelArk, mesma conta, sem edição posterior, dentro de 30
+  // dias. A 1.5 Pro NÃO tem essa trava — por isso ela vem primeiro na lista.
+  {
+    id: "seedance15-bp",
+    provedor: "byteplus",
+    slug: "seedance-1-5-pro-251215",
+    nome: "Seedance 1.5 Pro",
+    resolucoes: ["480p", "720p", "1080p", "4K"],
+    formatos: FORMATOS,
+    duracoes: [4, 5, 6, 8, 10, 12],
+    maxN: 1,
+    // O preço da BytePlus sai de token × consumo, e as tabelas ficam num
+    // calculador da própria plataforma, não numa lista publicada. O custo
+    // REAL vem em `usage.completion_tokens` depois da chamada.
+    preco: { tipo: "creditos" },
+    aceitaUltimoFrame: true,
+  },
+  {
+    id: "seedance20-bp",
+    familia: "seedance-2-pro",
+    provedor: "byteplus",
+    slug: "dreamina-seedance-2-0-260128",
+    nome: "Seedance 2.0",
+    resolucoes: ["480p", "720p", "1080p", "4K"],
+    formatos: FORMATOS,
+    duracoes: DURACOES_ATE_15,
+    maxN: 1,
+    preco: { tipo: "creditos" },
+    aceitaUltimoFrame: true,
+    referencias: { max: 9, exclusivas: false },
+    exigeFotoDaPlataforma: true,
+  },
+  {
+    id: "seedance25-bp",
+    familia: "seedance-2-5",
+    provedor: "byteplus",
+    slug: "dreamina-seedance-2-5-260628",
+    nome: "Seedance 2.5",
+    resolucoes: ["480p", "720p", "1080p", "4K"],
+    formatos: FORMATOS,
+    duracoes: DURACOES_LONGAS,
+    maxN: 1,
+    preco: { tipo: "creditos" },
+    aceitaUltimoFrame: true,
+    referencias: { max: 30, exclusivas: false },
+    exigeFotoDaPlataforma: true,
+    formatoDaImagem: true,
+  },
+
   {
     id: "kling26",
     provedor: "magnific",
@@ -617,6 +697,7 @@ export const CHAVES_DO_PROVEDOR: Record<Provedor, readonly string[]> = {
   openrouter: ["openrouter"],
   google: ["gemini", "googleMedia"],
   magnific: ["magnific", "kling"],
+  byteplus: ["byteplus"],
 };
 
 export function provedoresComModelo(
@@ -1023,7 +1104,12 @@ export type ImagemGeradaSaida = {
  * continua legível num log, que é onde ele costuma ser lido.
  * ------------------------------------------------------------------ */
 
-const PREFIXO: Record<Provedor, string> = { google: "gg.", openrouter: "or.", magnific: "mg." };
+const PREFIXO: Record<Provedor, string> = {
+  google: "gg.",
+  openrouter: "or.",
+  magnific: "mg.",
+  byteplus: "bp.",
+};
 
 export function codificarJob(provedor: Provedor, id: string): string {
   // A barra vira "~" porque o nome da operação do Google tem uma, e ela

@@ -3,6 +3,7 @@ import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
 import { baixarConteudoVideo } from "@/lib/videoGen";
 import { baixarConteudoVeo } from "@/lib/googleVideoGen";
 import { baixarConteudoVideoMagnific } from "@/lib/magnificVideoGen";
+import { baixarConteudoByteplus } from "@/lib/byteplusVideoGen";
 import { decodificarJob } from "@/lib/aiMediaOptions";
 
 export const runtime = "nodejs";
@@ -25,6 +26,8 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         ? await baixarConteudoVeo(id)
         : provedor === "magnific"
           ? await baixarConteudoVideoMagnific(id)
+          : provedor === "byteplus"
+            ? await baixarConteudoByteplus(id)
           : await baixarConteudoVideo(id);
     return new NextResponse(new Uint8Array(bytes), { headers: { "Content-Type": contentType } });
   } catch (err) {

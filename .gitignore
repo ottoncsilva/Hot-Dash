@@ -32,3 +32,6 @@ next-env.d.ts
 
 # vercel
 .vercel
+
+# Dependências do microserviço do chip (instaladas no build da imagem).
+telegram-mtproto-service/node_modules/

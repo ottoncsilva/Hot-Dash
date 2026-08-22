@@ -303,6 +303,8 @@ export default function LtvWhatsappPage() {
                       onProdutos={setProdutos}
                       audios={audios}
                       onAudios={setAudios}
+                      maxDiscountPct={agente.maxDiscountPct}
+                      onMaxDiscountPct={(v) => mudarAgente({ maxDiscountPct: v })}
                     />
                   </LtvBlock>
 

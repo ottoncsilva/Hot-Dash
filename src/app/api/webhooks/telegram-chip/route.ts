@@ -25,10 +25,11 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const { accountId, peerRef, peerName, text, hasMedia } = body as {
+    const { accountId, peerRef, peerName, accessHash, text, hasMedia } = body as {
       accountId?: string;
       peerRef?: string;
       peerName?: string;
+      accessHash?: string;
       text?: string;
       hasMedia?: boolean;
     };
@@ -37,7 +38,9 @@ export async function POST(req: NextRequest) {
     const conta = getAccount(accountId);
     if (!conta || conta.channel !== "telegram") return NextResponse.json({ ok: true });
 
-    const chat = ensureChat(conta.id, String(peerRef), peerName);
+    // O access_hash é guardado a cada mensagem: é o que permite responder
+    // depois de um deploy, quando o cache de entidades do serviço já se foi.
+    const chat = ensureChat(conta.id, String(peerRef), peerName, accessHash);
 
     // Foto ou áudio sem legenda ainda é o lead falando: registrar como uma
     // mensagem vazia deixaria a IA respondendo ao nada, então vira uma

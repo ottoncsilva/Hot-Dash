@@ -124,27 +124,48 @@ export async function statusChip(accountId: string): Promise<ChipStatus> {
   }
 }
 
+/**
+ * `comoCodigo` manda o texto em monoespaçado — no Telegram, tocar num trecho
+ * de código copia e mostra "Copiado". É o mais perto de um botão que uma
+ * CONTA REAL alcança: teclado inline é recurso de bot, e o cliente nem
+ * desenharia se a gente tentasse.
+ */
 export async function enviarTexto(
   accountId: string,
   peerRef: string,
   text: string,
-): Promise<void> {
-  await chamar(`/sessions/${accountId}/send`, {
-    method: "POST",
-    body: { session: sessaoDe(accountId), peerRef, text },
-  });
-}
-
-export async function enviarMidia(
-  accountId: string,
-  peerRef: string,
-  opts: { mediaUrl: string; mediaName?: string; caption?: string; voice?: boolean },
+  accessHash?: string,
+  opts?: { comoCodigo?: boolean },
 ): Promise<void> {
   await chamar(`/sessions/${accountId}/send`, {
     method: "POST",
     body: {
       session: sessaoDe(accountId),
       peerRef,
+      accessHash,
+      text,
+      asCode: opts?.comoCodigo || undefined,
+    },
+  });
+}
+
+export async function enviarMidia(
+  accountId: string,
+  peerRef: string,
+  opts: {
+    mediaUrl: string;
+    mediaName?: string;
+    caption?: string;
+    voice?: boolean;
+    accessHash?: string;
+  },
+): Promise<void> {
+  await chamar(`/sessions/${accountId}/send`, {
+    method: "POST",
+    body: {
+      session: sessaoDe(accountId),
+      peerRef,
+      accessHash: opts.accessHash,
       text: opts.caption,
       mediaUrl: opts.mediaUrl,
       mediaName: opts.mediaName,
@@ -154,11 +175,15 @@ export async function enviarMidia(
 }
 
 /** "Digitando…" é enfeite: nunca pode derrubar o envio que vem depois. */
-export async function mostrarDigitando(accountId: string, peerRef: string): Promise<void> {
+export async function mostrarDigitando(
+  accountId: string,
+  peerRef: string,
+  accessHash?: string,
+): Promise<void> {
   try {
     await chamar(`/sessions/${accountId}/typing`, {
       method: "POST",
-      body: { session: sessaoDe(accountId), peerRef },
+      body: { session: sessaoDe(accountId), peerRef, accessHash },
     });
   } catch {
     /* sem problema */

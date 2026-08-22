@@ -648,6 +648,8 @@ function migrate(d: Database.Database) {
       delay_max_s      INTEGER NOT NULL DEFAULT 90,
       daily_limit      INTEGER NOT NULL DEFAULT 80,
       only_reply_first INTEGER NOT NULL DEFAULT 1,
+      -- Teto do desconto que a IA pode dar sozinha. 0 = só o preço de tabela.
+      max_discount_pct INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (account_id) REFERENCES ltv_accounts(id) ON DELETE CASCADE
     );
 
@@ -700,6 +702,11 @@ function migrate(d: Database.Database) {
       account_id          TEXT NOT NULL,
       peer_ref            TEXT NOT NULL,   -- remoteJid (WhatsApp) / user id (Telegram)
       peer_name           TEXT,
+      -- Só Telegram: o access_hash do lead. O GramJS resolve o usuário pelo
+      -- cache de entidades, e esse cache NÃO sobrevive a um restart do
+      -- serviço — sem guardar aqui, todo deploy deixaria o chip sem conseguir
+      -- responder ninguém até o lead falar de novo.
+      peer_access_hash    TEXT,
       state               TEXT NOT NULL DEFAULT 'active',  -- 'active' | 'paused'
       spent_cents         INTEGER NOT NULL DEFAULT 0,
       last_interaction_at INTEGER NOT NULL,
@@ -733,6 +740,10 @@ function migrate(d: Database.Database) {
       product_id     TEXT,
       transaction_id TEXT,
       amount_cents   INTEGER NOT NULL,
+      -- Quanto o produto valia na tabela quando a venda foi feita. O preço do
+      -- produto muda com o tempo; sem isto não dá para saber depois se o
+      -- desconto foi de 10% ou de 50%.
+      list_price_cents INTEGER,
       status         TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'paid' | 'canceled'
       source         TEXT NOT NULL DEFAULT 'ia',       -- 'ia' | 'manual'
       delivered_at   INTEGER,
@@ -1027,6 +1038,9 @@ function migrate(d: Database.Database) {
   // saber se a ideia é de 8s ou de 40s antes de gravar — é o que decide quantas
   // cabem na sequência.
   ensureColumn(d, "question_box_items", "seconds", "INTEGER");
+  ensureColumn(d, "ltv_agent_settings", "max_discount_pct", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(d, "ltv_orders", "list_price_cents", "INTEGER");
+  ensureColumn(d, "ltv_chats", "peer_access_hash", "TEXT");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);

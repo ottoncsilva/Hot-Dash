@@ -245,6 +245,8 @@ export default function LtvTelegramPage() {
                   onProdutos={setProdutos}
                   audios={audios}
                   onAudios={setAudios}
+                  maxDiscountPct={agente.maxDiscountPct}
+                  onMaxDiscountPct={(v) => mudarAgente({ maxDiscountPct: v })}
                   podeCopiarDoWhatsapp
                 />
               </LtvBlock>

@@ -46,6 +46,16 @@ const PROVEDOR_IA = "grok" as const;
 
 type Adaptador = {
   texto(t: string): Promise<void>;
+  /**
+   * Texto que o lead COPIA com um toque — é como o código PIX vai.
+   *
+   * Botão de verdade não existe aqui: teclado inline é recurso de bot, e uma
+   * conta real não consegue anexar. O equivalente nativo é o monoespaçado: no
+   * Telegram, tocar num trecho de código copia e mostra "Copiado". No WhatsApp
+   * não há esse gesto, então lá vira texto normal — que o lead seleciona e
+   * copia como sempre fez.
+   */
+  codigo(t: string): Promise<void>;
   midia(mediaId: string, legenda: string): Promise<void>;
   audio(audio: LtvAudio): Promise<void>;
   digitando(): Promise<void>;
@@ -69,6 +79,11 @@ function adaptadorWhatsapp(conta: LtvAccount, peerRef: string): Adaptador {
     async texto(t) {
       await sendEvolutionText(instancia, peerRef, t);
     },
+    async codigo(t) {
+      // O WhatsApp não tem toque-para-copiar; mandar cercado por crases só
+      // sujaria o código que o lead vai colar no banco.
+      await sendEvolutionText(instancia, peerRef, t);
+    },
     async midia(mediaId, legenda) {
       const row = getMediaRow(mediaId);
       if (!row) throw new Error("Arquivo não encontrado na Galeria.");
@@ -85,10 +100,17 @@ function adaptadorWhatsapp(conta: LtvAccount, peerRef: string): Adaptador {
   };
 }
 
-function adaptadorTelegram(conta: LtvAccount, peerRef: string): Adaptador {
+function adaptadorTelegram(
+  conta: LtvAccount,
+  peerRef: string,
+  acessoDoLead?: string,
+): Adaptador {
   return {
     async texto(t) {
-      await chip.enviarTexto(conta.id, peerRef, t);
+      await chip.enviarTexto(conta.id, peerRef, t, acessoDoLead);
+    },
+    async codigo(t) {
+      await chip.enviarTexto(conta.id, peerRef, t, acessoDoLead, { comoCodigo: true });
     },
     async midia(mediaId, legenda) {
       const url = urlPublicaDaMidia(mediaId);
@@ -98,6 +120,7 @@ function adaptadorTelegram(conta: LtvAccount, peerRef: string): Adaptador {
         mediaUrl: url,
         mediaName: row?.filename,
         caption: legenda || undefined,
+        accessHash: acessoDoLead,
       });
     },
     async audio(a) {
@@ -106,18 +129,19 @@ function adaptadorTelegram(conta: LtvAccount, peerRef: string): Adaptador {
         mediaUrl: url,
         mediaName: a.filename,
         voice: true,
+        accessHash: acessoDoLead,
       });
     },
     async digitando() {
-      await chip.mostrarDigitando(conta.id, peerRef);
+      await chip.mostrarDigitando(conta.id, peerRef, acessoDoLead);
     },
   };
 }
 
-function adaptadorDe(conta: LtvAccount, peerRef: string): Adaptador {
+function adaptadorDe(conta: LtvAccount, chat: LtvChat): Adaptador {
   return conta.channel === "telegram"
-    ? adaptadorTelegram(conta, peerRef)
-    : adaptadorWhatsapp(conta, peerRef);
+    ? adaptadorTelegram(conta, chat.peerRef, chat.peerAccessHash)
+    : adaptadorWhatsapp(conta, chat.peerRef);
 }
 
 /* ------------------------------------------------------------------ prompt */
@@ -189,6 +213,19 @@ function montarPrompt(
           )
           .join("\n"),
     );
+    partes.push(
+      agente.maxDiscountPct > 0
+        ? [
+            `NEGOCIAÇÃO: o desconto é a sua ÚLTIMA CARTADA para não perder a venda — até`,
+            `${agente.maxDiscountPct}% do valor do pacote. Comece sempre pelo preço cheio e`,
+            "defenda ele. Só baixe quando o lead estiver escapando de verdade: disse que está",
+            "caro e travou, ou está indo embora da conversa. Nunca ofereça desconto antes de",
+            "ele reclamar do preço, e nunca dê o máximo de cara — desça aos poucos.",
+            'Para cobrar com desconto, mande "desconto_pct" (só o número) junto do tipo "pix";',
+            "o sistema gera a cobrança já com o valor abatido.",
+          ].join(" ")
+        : "NEGOCIAÇÃO: o preço é fixo. Você NÃO pode dar desconto — se o lead reclamar, segure o valor e mostre o que ele leva por ele.",
+    );
   } else {
     partes.push("VOCÊ AINDA NÃO TEM PRODUTO CADASTRADO: nunca fale de preço nem gere cobrança.");
   }
@@ -201,7 +238,8 @@ function montarPrompt(
       '  "resposta": "o que você diz ao lead",',
       '  "amostra_tag": "quando tipo=amostra, UMA etiqueta exata da lista",',
       '  "audio_contexto": "quando tipo=audio, UM contexto exato da lista",',
-      '  "produto": "quando tipo=pix, o NOME EXATO de um produto da lista"',
+      '  "produto": "quando tipo=pix, o NOME EXATO de um produto da lista",',
+      '  "desconto_pct": "quando tipo=pix e você combinou desconto, só o número (ex: 20)"',
       "}",
     ].join("\n"),
   );
@@ -253,6 +291,7 @@ type Acao = {
   amostra_tag?: string;
   audio_contexto?: string;
   produto?: string;
+  desconto_pct?: number | string;
 };
 
 function parseAcao(bruto: string): Acao {
@@ -300,21 +339,49 @@ function acharMidiaPorEtiqueta(profileId: string, etiqueta: string): string | nu
   return row?.id || null;
 }
 
+/**
+ * Quanto cobrar de fato. O desconto que a IA pediu é CORTADO no teto
+ * configurado — a IA negocia, mas quem decide o piso é a pessoa que
+ * configurou a conta. Sem esse corte, bastaria o lead insistir para o pacote
+ * sair por qualquer valor.
+ */
+function precoComDesconto(
+  produto: LtvProduct,
+  pedido: number | string | undefined,
+  tetoPct: number,
+): { cents: number; descontoPct: number } {
+  const bruto = Number(String(pedido ?? "").replace(/[^\d.,-]/g, "").replace(",", "."));
+  if (!Number.isFinite(bruto) || bruto <= 0) {
+    return { cents: produto.priceCents, descontoPct: 0 };
+  }
+  const pct = Math.min(Math.round(bruto), Math.max(0, tetoPct));
+  if (pct <= 0) return { cents: produto.priceCents, descontoPct: 0 };
+  return {
+    cents: Math.max(1, Math.round(produto.priceCents * (1 - pct / 100))),
+    descontoPct: pct,
+  };
+}
+
 /** Gera a cobrança e devolve o texto do copia-e-cola para mandar ao lead. */
 async function cobrarPix(
   chat: LtvChat,
   conta: LtvAccount,
   produto: LtvProduct,
+  descontoPedido: number | string | undefined,
+  tetoDescontoPct: number,
 ): Promise<string | null> {
   const provider = activeProvider();
   if (!provider) {
     console.error("LTV: PIX pedido sem provedor de pagamento configurado.");
     return null;
   }
+  const { cents, descontoPct } = precoComDesconto(produto, descontoPedido, tetoDescontoPct);
+  const descricao = descontoPct > 0 ? `${produto.name} (-${descontoPct}%)` : produto.name;
+
   const postbackUrl = `${publicOriginSemRequest()}/w/${ensureSyncpayWebhookShortToken()}`;
   const cobranca = await provider.createPixCharge({
-    amountCents: produto.priceCents,
-    description: produto.name,
+    amountCents: cents,
+    description: descricao,
     customer: { name: chat.peerName || "Lead do LTV" },
     postbackUrl,
   });
@@ -322,9 +389,9 @@ async function cobrarPix(
     provider: provider.key,
     providerRef: cobranca.providerRef,
     profileId: conta.profileId,
-    description: produto.name,
+    description: descricao,
     customer: chat.peerName,
-    amountCents: produto.priceCents,
+    amountCents: cents,
     method: "pix",
     status: cobranca.status,
   });
@@ -332,7 +399,8 @@ async function cobrarPix(
     chatId: chat.id,
     productId: produto.id,
     transactionId: tx.id,
-    amountCents: produto.priceCents,
+    amountCents: cents,
+    listPriceCents: produto.priceCents,
     source: "ia",
   });
   return cobranca.pixCode || null;
@@ -385,7 +453,7 @@ export async function responderLead(chatId: string): Promise<void> {
     const acao = parseAcao(bruto);
     let texto = (acao.resposta || "").trim();
 
-    const adaptador = adaptadorDe(conta, chat.peerRef);
+    const adaptador = adaptadorDe(conta, chat);
     await adaptador.digitando();
     await dormir(esperaMs(agente));
 
@@ -402,22 +470,32 @@ export async function responderLead(chatId: string): Promise<void> {
       const produto =
         produtos.find((p) => p.name.toLowerCase() === (acao.produto || "").toLowerCase()) ||
         produtos[0];
-      const pixCode = await cobrarPix(chat, conta, produto);
+      // A SyncPay pode estar fora do ar ou recusar a cobrança. Isso não pode
+      // virar silêncio: o lead acabou de dizer que quer comprar, e sumir aí é
+      // perder a venda que já estava fechada.
+      let pixCode: string | null = null;
+      try {
+        pixCode = await cobrarPix(chat, conta, produto, acao.desconto_pct, agente.maxDiscountPct);
+      } catch (e) {
+        console.error("LTV: falha gerando a cobrança na SyncPay:", e);
+      }
       if (pixCode) {
         if (texto) {
           await adaptador.texto(texto);
           insertMessage({ chatId: chat.id, role: "assistant", content: texto, type: "text" });
           contarEnvio(conta.id);
         }
-        await adaptador.texto(pixCode);
+        // O código vai SOZINHO numa mensagem, em monoespaçado: no Telegram um
+        // toque copia. Misturado com a conversa, o lead copiaria junto o "toca
+        // aqui pra copiar amor" e o banco recusaria o código.
+        await adaptador.codigo(pixCode);
         insertMessage({ chatId: chat.id, role: "assistant", content: pixCode, type: "pix" });
         contarEnvio(conta.id);
         return;
       }
-      // Sem provedor de pagamento não dá para cobrar — mas deixar o lead no
-      // vácuo é pior. Manda a conversa e não inventa código.
+      // Sem cobrança não há o que mandar — mas a IA não inventa código.
       tipo = "texto";
-      if (!texto) texto = "Já te mando o pix, amor 😘";
+      if (!texto) texto = "Peraí amor, já te mando o pix 😘";
     }
 
     if (tipo === "amostra") {
@@ -474,7 +552,7 @@ export async function enviarPeloPainel(
   const conta = getAccount(chat.accountId);
   if (!conta) throw new Error("Conta não encontrada.");
 
-  const adaptador = adaptadorDe(conta, chat.peerRef);
+  const adaptador = adaptadorDe(conta, chat);
   if (conteudo.mediaId) {
     await adaptador.midia(conteudo.mediaId, conteudo.text || "");
     insertMessage({
@@ -507,7 +585,7 @@ export async function entregarPedido(orderId: string): Promise<void> {
   const conta = getAccount(chat.accountId);
   if (!conta) return;
 
-  const adaptador = adaptadorDe(conta, chat.peerRef);
+  const adaptador = adaptadorDe(conta, chat);
   const produto = pedido.product_id
     ? listProducts(conta.id).find((p) => p.id === pedido.product_id)
     : undefined;

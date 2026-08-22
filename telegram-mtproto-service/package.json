@@ -8,6 +8,7 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "big-integer": "^1.6.52",
     "express": "^4.21.2",
     "telegram": "^2.26.22"
   }

@@ -25,6 +25,8 @@ export default function ProdutosBlock({
   onProdutos,
   audios,
   onAudios,
+  maxDiscountPct,
+  onMaxDiscountPct,
   podeCopiarDoWhatsapp,
 }: {
   accountId: string;
@@ -33,6 +35,8 @@ export default function ProdutosBlock({
   onProdutos: (p: ProdutoEditavel[]) => void;
   audios: LtvAudio[];
   onAudios: (a: LtvAudio[]) => void;
+  maxDiscountPct: number;
+  onMaxDiscountPct: (v: number) => void;
   /** Some no WhatsApp: copiar da própria origem não faria sentido. */
   podeCopiarDoWhatsapp?: boolean;
 }) {
@@ -185,8 +189,31 @@ export default function ProdutosBlock({
         A IA gera o <strong className="text-white">PIX na sua conta SyncPay</strong>, manda o
         código para o cliente e, quando o pagamento cai,{" "}
         <strong className="text-white">entrega o conteúdo automaticamente</strong>. A venda entra
-        no seu faturamento.
+        no seu faturamento. No Telegram o código vai em monoespaçado — o lead toca e já copia.
       </div>
+
+      {/* O teto do desconto mora aqui, junto dos preços, porque é sobre eles
+          que ele age. Sem teto, bastaria o lead insistir para o pacote sair
+          por qualquer valor. */}
+      <label className="block">
+        <span className="eyebrow mb-1.5 block">Desconto máximo que a IA pode dar</span>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            max={100}
+            className="input w-24"
+            value={maxDiscountPct}
+            onChange={(e) => onMaxDiscountPct(Number(e.target.value))}
+          />
+          <span className="text-sm text-zinc-400">%</span>
+        </div>
+        <span className="mt-1 block text-xs text-zinc-500">
+          {maxDiscountPct > 0
+            ? `Última cartada para não perder a venda: ela começa pelo valor cheio e só desce quando o lead está escapando. Um pacote de R$ 100 sai por no mínimo R$ ${(100 * (1 - maxDiscountPct / 100)).toFixed(2).replace(".", ",")}.`
+            : "Zero = preço fixo. A IA não baixa de jeito nenhum, mesmo se o lead insistir."}
+        </span>
+      </label>
 
       <div>
         <div className="flex items-center justify-between gap-3">

@@ -1,5 +1,7 @@
 import { getDb } from "./db";
 import { v4 as uuidv4 } from "uuid";
+import { getAppTimeZone } from "./settings";
+import { partsInTimeZone } from "./timezone";
 
 /**
  * Acesso às tabelas `ltv_*` — o LTV da modelo conversando com o lead pela
@@ -38,6 +40,12 @@ export type LtvAgentSettings = {
   delayMaxS: number;
   dailyLimit: number;
   onlyReplyFirst: boolean;
+  /**
+   * Teto do desconto que a IA pode dar sozinha, em %. Zero = ela nunca baixa
+   * do preço de tabela. Existe porque uma IA sem teto entrega o pacote por
+   * qualquer valor assim que o lead reclama do preço.
+   */
+  maxDiscountPct: number;
 };
 
 export type LtvProduct = {
@@ -69,6 +77,8 @@ export type LtvChat = {
   accountId: string;
   peerRef: string;
   peerName?: string;
+  /** Só Telegram: sem ele o chip não resolve o lead depois de um restart. */
+  peerAccessHash?: string;
   state: "active" | "paused";
   spentCents: number;
   lastInteractionAt: number;
@@ -97,6 +107,7 @@ const AGENT_PADRAO: Omit<LtvAgentSettings, "accountId"> = {
   delayMaxS: 90,
   dailyLimit: 80,
   onlyReplyFirst: true,
+  maxDiscountPct: 0,
 };
 
 function mapAccount(r: any): LtvAccount {
@@ -264,6 +275,7 @@ export function getAgent(accountId: string): LtvAgentSettings {
     delayMaxS: r.delay_max_s,
     dailyLimit: r.daily_limit,
     onlyReplyFirst: Boolean(r.only_reply_first),
+    maxDiscountPct: r.max_discount_pct ?? 0,
   };
 }
 
@@ -275,13 +287,18 @@ export function saveAgent(accountId: string, patch: Partial<LtvAgentSettings>): 
   novo.delayMinS = Math.max(0, Math.round(novo.delayMinS));
   novo.delayMaxS = Math.max(novo.delayMinS, Math.round(novo.delayMaxS));
   novo.dailyLimit = Math.max(0, Math.round(novo.dailyLimit));
+  // Acima de 100% o preço viraria negativo e a cobrança seria recusada pela
+  // SyncPay com um erro que ninguém entenderia olhando a conversa.
+  novo.maxDiscountPct = Math.min(100, Math.max(0, Math.round(novo.maxDiscountPct)));
   getDb()
     .prepare(
       `INSERT INTO ltv_agent_settings
          (account_id, enabled, approach, persona_name, tone_tags, personality, mechanism,
-          limits, rhythm, delay_min_s, delay_max_s, daily_limit, only_reply_first)
+          limits, rhythm, delay_min_s, delay_max_s, daily_limit, only_reply_first,
+          max_discount_pct)
        VALUES (@accountId, @enabled, @approach, @personaName, @toneTags, @personality,
-               @mechanism, @limits, @rhythm, @delayMinS, @delayMaxS, @dailyLimit, @onlyReplyFirst)
+               @mechanism, @limits, @rhythm, @delayMinS, @delayMaxS, @dailyLimit, @onlyReplyFirst,
+               @maxDiscountPct)
        ON CONFLICT(account_id) DO UPDATE SET
          enabled = excluded.enabled,
          approach = excluded.approach,
@@ -294,7 +311,8 @@ export function saveAgent(accountId: string, patch: Partial<LtvAgentSettings>): 
          delay_min_s = excluded.delay_min_s,
          delay_max_s = excluded.delay_max_s,
          daily_limit = excluded.daily_limit,
-         only_reply_first = excluded.only_reply_first`,
+         only_reply_first = excluded.only_reply_first,
+         max_discount_pct = excluded.max_discount_pct`,
     )
     .run({
       accountId,
@@ -310,6 +328,7 @@ export function saveAgent(accountId: string, patch: Partial<LtvAgentSettings>): 
       delayMaxS: novo.delayMaxS,
       dailyLimit: novo.dailyLimit,
       onlyReplyFirst: novo.onlyReplyFirst ? 1 : 0,
+      maxDiscountPct: novo.maxDiscountPct,
     });
   return novo;
 }
@@ -487,6 +506,7 @@ function mapChat(r: any): LtvChat {
     accountId: r.account_id,
     peerRef: r.peer_ref,
     peerName: r.peer_name || undefined,
+    peerAccessHash: r.peer_access_hash || undefined,
     state: r.state === "paused" ? "paused" : "active",
     spentCents: r.spent_cents,
     lastInteractionAt: r.last_interaction_at,
@@ -494,17 +514,31 @@ function mapChat(r: any): LtvChat {
   };
 }
 
-export function ensureChat(accountId: string, peerRef: string, peerName?: string): LtvChat {
+export function ensureChat(
+  accountId: string,
+  peerRef: string,
+  peerName?: string,
+  peerAccessHash?: string,
+): LtvChat {
   const db = getDb();
   const existente = db
     .prepare(`SELECT * FROM ltv_chats WHERE account_id = ? AND peer_ref = ?`)
     .get(accountId, peerRef) as any;
   const agora = Date.now();
   if (existente) {
-    // O nome do lead pode chegar depois da primeira mensagem (ou mudar).
+    // O nome do lead pode chegar depois da primeira mensagem (ou mudar). O
+    // access_hash é reescrito sempre que chega: ele muda quando o lead troca
+    // de conta ou o Telegram o rotaciona, e um hash velho faz o envio falhar.
     if (peerName && peerName !== existente.peer_name) {
       db.prepare(`UPDATE ltv_chats SET peer_name = ? WHERE id = ?`).run(peerName, existente.id);
       existente.peer_name = peerName;
+    }
+    if (peerAccessHash && peerAccessHash !== existente.peer_access_hash) {
+      db.prepare(`UPDATE ltv_chats SET peer_access_hash = ? WHERE id = ?`).run(
+        peerAccessHash,
+        existente.id,
+      );
+      existente.peer_access_hash = peerAccessHash;
     }
     return mapChat(existente);
   }
@@ -513,6 +547,7 @@ export function ensureChat(accountId: string, peerRef: string, peerName?: string
     accountId,
     peerRef,
     peerName,
+    peerAccessHash,
     state: "active",
     spentCents: 0,
     lastInteractionAt: agora,
@@ -520,9 +555,10 @@ export function ensureChat(accountId: string, peerRef: string, peerName?: string
   };
   db.prepare(
     `INSERT INTO ltv_chats
-       (id, account_id, peer_ref, peer_name, state, spent_cents, last_interaction_at, created_at)
-     VALUES (?, ?, ?, ?, 'active', 0, ?, ?)`,
-  ).run(chat.id, accountId, peerRef, peerName ?? null, agora, agora);
+       (id, account_id, peer_ref, peer_name, peer_access_hash, state, spent_cents,
+        last_interaction_at, created_at)
+     VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?)`,
+  ).run(chat.id, accountId, peerRef, peerName ?? null, peerAccessHash ?? null, agora, agora);
   return chat;
 }
 
@@ -640,6 +676,8 @@ export type LtvOrder = {
   productId?: string;
   transactionId?: string;
   amountCents: number;
+  /** O preço de tabela na hora da venda — a diferença é o desconto dado. */
+  listPriceCents?: number;
   status: "pending" | "paid" | "canceled";
   source: "ia" | "manual";
   deliveredAt?: number;
@@ -651,6 +689,7 @@ export function createOrder(input: {
   productId?: string;
   transactionId?: string;
   amountCents: number;
+  listPriceCents?: number;
   source?: "ia" | "manual";
   status?: "pending" | "paid";
 }): LtvOrder {
@@ -660,6 +699,7 @@ export function createOrder(input: {
     productId: input.productId,
     transactionId: input.transactionId,
     amountCents: input.amountCents,
+    listPriceCents: input.listPriceCents,
     status: input.status || "pending",
     source: input.source || "ia",
     createdAt: Date.now(),
@@ -667,8 +707,9 @@ export function createOrder(input: {
   getDb()
     .prepare(
       `INSERT INTO ltv_orders
-         (id, chat_id, product_id, transaction_id, amount_cents, status, source, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, chat_id, product_id, transaction_id, amount_cents, list_price_cents,
+          status, source, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       order.id,
@@ -676,6 +717,7 @@ export function createOrder(input: {
       order.productId ?? null,
       order.transactionId ?? null,
       order.amountCents,
+      order.listPriceCents ?? null,
       order.status,
       order.source,
       order.createdAt,
@@ -695,6 +737,7 @@ export function findOrderByTransaction(transactionId: string): LtvOrder | null {
     productId: r.product_id || undefined,
     transactionId: r.transaction_id || undefined,
     amountCents: r.amount_cents,
+    listPriceCents: r.list_price_cents ?? undefined,
     status: r.status,
     source: r.source,
     deliveredAt: r.delivered_at || undefined,
@@ -732,26 +775,33 @@ export function markOrderDelivered(id: string): void {
 /* ------------------------------------------------------- limite diário */
 
 /**
+ * O dia de hoje no fuso do painel. `toISOString()` daria o dia em UTC, e o
+ * limite diário viraria às 21h no horário de Brasília — bem no meio do
+ * horário de maior movimento.
+ */
+function diaDeHoje(): string {
+  const p = partsInTimeZone(Date.now(), getAppTimeZone());
+  return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
+
+/**
  * Conta uma mensagem enviada e diz se ainda cabe no limite do dia. É a
  * proteção que segura a conta viva: passar do limite é o caminho curto para
  * o bloqueio, principalmente no chip do Telegram.
  */
 export function podeEnviar(accountId: string, limite: number): boolean {
   if (limite <= 0) return true; // 0 = sem limite
-  const dia = new Date().toISOString().slice(0, 10);
-  const db = getDb();
-  const r = db
+  const r = getDb()
     .prepare(`SELECT sent FROM ltv_daily_usage WHERE account_id = ? AND dia = ?`)
-    .get(accountId, dia) as { sent: number } | undefined;
+    .get(accountId, diaDeHoje()) as { sent: number } | undefined;
   return (r?.sent || 0) < limite;
 }
 
 export function contarEnvio(accountId: string): void {
-  const dia = new Date().toISOString().slice(0, 10);
   getDb()
     .prepare(
       `INSERT INTO ltv_daily_usage (account_id, dia, sent) VALUES (?, ?, 1)
        ON CONFLICT(account_id, dia) DO UPDATE SET sent = sent + 1`,
     )
-    .run(accountId, dia);
+    .run(accountId, diaDeHoje());
 }

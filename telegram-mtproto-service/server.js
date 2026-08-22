@@ -20,6 +20,10 @@ const path = require("node:path");
 const { TelegramClient, Api } = require("telegram");
 const { StringSession } = require("telegram/sessions");
 const { NewMessage } = require("telegram/events");
+// É a mesma biblioteca que o GramJS usa internamente para os campos de 64
+// bits. O BigInt nativo também serializa hoje, mas construir os objetos de TL
+// com o tipo que a própria biblioteca espera evita depender disso.
+const bigInt = require("big-integer");
 
 const PORT = Number(process.env.PORT || 8100);
 const TOKEN = process.env.CHIP_API_TOKEN || "";
@@ -119,6 +123,10 @@ function escutar(accountId, client) {
       await avisarPainel(accountId, {
         peerRef: String(sender.id),
         peerName: nome || sender.username || undefined,
+        // O painel guarda o access_hash porque o cache de entidades do GramJS
+        // NÃO sobrevive a um restart: sem ele, depois de todo deploy o chip
+        // ficaria sem conseguir responder até o lead falar de novo.
+        accessHash: sender.accessHash ? String(sender.accessHash) : undefined,
         text: msg.message || "",
         hasMedia: Boolean(msg.media),
         messageId: msg.id,
@@ -148,6 +156,25 @@ async function clienteDe(accountId, sessionDoPainel) {
   const session = sessionDoPainel || readSession(accountId);
   if (!session) throw new Error("Este chip não está conectado.");
   return conectar(accountId, session);
+}
+
+/**
+ * Descobre para quem mandar.
+ *
+ * O caminho normal é o access_hash que o painel guardou quando o lead falou:
+ * o cache de entidades do GramJS vive na memória e some no restart, então
+ * `getInputEntity(id)` sozinho falharia em todo deploy. O `getInputEntity`
+ * fica como reserva para o que veio antes de existir hash guardado.
+ */
+async function resolverDestino(client, peerRef, accessHash) {
+  const ref = String(peerRef);
+  if (accessHash && /^-?\d+$/.test(ref)) {
+    return new Api.InputPeerUser({
+      userId: bigInt(ref),
+      accessHash: bigInt(String(accessHash)),
+    });
+  }
+  return client.getInputEntity(/^-?\d+$/.test(ref) ? bigInt(ref) : ref);
 }
 
 const app = express();
@@ -269,13 +296,12 @@ app.post("/sessions/:accountId/status", async (req, res) => {
  */
 app.post("/sessions/:accountId/send", async (req, res) => {
   const { accountId } = req.params;
-  const { session, peerRef, text, mediaUrl, mediaName, voice } = req.body || {};
+  const { session, peerRef, accessHash, text, mediaUrl, mediaName, voice, asCode } =
+    req.body || {};
   if (!peerRef) return res.status(400).json({ error: "peerRef é obrigatório" });
   try {
     const client = await clienteDe(accountId, session);
-    const destino = await client.getInputEntity(
-      /^-?\d+$/.test(String(peerRef)) ? BigInt(peerRef) : String(peerRef),
-    );
+    const destino = await resolverDestino(client, peerRef, accessHash);
 
     if (mediaUrl) {
       const r = await fetch(mediaUrl);
@@ -294,7 +320,25 @@ app.post("/sessions/:accountId/send", async (req, res) => {
       });
     } else {
       if (!text) return res.status(400).json({ error: "mande text ou mediaUrl" });
-      await client.sendMessage(destino, { message: text });
+      if (asCode) {
+        // Monoespaçado: no Telegram, tocar num trecho de código copia e mostra
+        // "Copiado". É o mais perto de um botão que uma CONTA REAL alcança —
+        // teclado inline é recurso de bot, e o cliente nem desenharia.
+        //
+        // A entidade vai explícita, e não por parseMode: o código do PIX tem
+        // caracteres que o HTML e o Markdown comem, e um código mutilado é
+        // recusado pelo banco do lead.
+        await client.sendMessage(destino, {
+          message: text,
+          formattingEntities: [
+            // O comprimento é em unidades UTF-16, que é o que o Telegram
+            // espera e o que `String.length` dá em JavaScript.
+            new Api.MessageEntityCode({ offset: 0, length: text.length }),
+          ],
+        });
+      } else {
+        await client.sendMessage(destino, { message: text });
+      }
     }
     res.json({ ok: true });
   } catch (e) {
@@ -308,9 +352,7 @@ app.post("/sessions/:accountId/typing", async (req, res) => {
   const { session, peerRef } = req.body || {};
   try {
     const client = await clienteDe(accountId, session);
-    const destino = await client.getInputEntity(
-      /^-?\d+$/.test(String(peerRef)) ? BigInt(peerRef) : String(peerRef),
-    );
+    const destino = await resolverDestino(client, peerRef, req.body?.accessHash);
     await client.invoke(
       new Api.messages.SetTyping({ peer: destino, action: new Api.SendMessageTypingAction() }),
     );

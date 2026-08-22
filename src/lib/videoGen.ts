@@ -44,6 +44,13 @@ export type PedidoVideo = {
   aspectRatio?: VideoAspectRatio;
   generateAudio?: boolean;
   seed?: number;
+  /**
+   * O filtro de conteúdo do provedor. Só a Magnific expõe isso, e só em alguns
+   * modelos (ver `aceitaFiltroSeguranca` no catálogo) — nos outros o campo é
+   * ignorado. `undefined` e `true` são a mesma coisa: filtro ligado, que é o
+   * padrão da API.
+   */
+  filtroSeguranca?: boolean;
 };
 
 export type JobVideo = {

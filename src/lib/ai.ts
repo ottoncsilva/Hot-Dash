@@ -451,6 +451,22 @@ export async function testAiProviderKey(
       const msg = (typeof errObj === 'string' ? errObj : (errObj as Record<string, unknown>)?.message as string) || `erro ${res.status}`;
       return { ok: false, message: msg };
     }
+    if (provider === "byteplus") {
+      // A ModelArk não tem endpoint de "ping". Listar as tarefas de vídeo é a
+      // leitura mais barata que prova a chave — não gera nada e não cobra.
+      const res = await fetch(
+        "https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks?page_size=1",
+        { headers: { Authorization: `Bearer ${apiKey}` } },
+      );
+      if (res.ok) return { ok: true };
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      const e = data.error as Record<string, unknown> | undefined;
+      const msg =
+        (typeof e?.message === "string" && e.message) ||
+        (typeof data.message === "string" && data.message) ||
+        `erro ${res.status}`;
+      return { ok: false, message: msg };
+    }
     if (provider === "magnific") {
       const res = await fetch("https://api.magnific.com/v1/analytics/team-api-keys", {
         headers: { "x-magnific-api-key": apiKey },

@@ -3,6 +3,7 @@ import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
 import { consultarStatusVideo } from "@/lib/videoGen";
 import { consultarStatusVeo } from "@/lib/googleVideoGen";
 import { consultarStatusVideoMagnific } from "@/lib/magnificVideoGen";
+import { consultarStatusByteplus } from "@/lib/byteplusVideoGen";
 import { decodificarJob } from "@/lib/aiMediaOptions";
 
 export const runtime = "nodejs";
@@ -23,6 +24,8 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
           ? // Motion control e vídeo pela Magnific dividem este braço: os dois
             // carimbam o caminho no id, e a consulta é a mesma para ambos.
             await consultarStatusVideoMagnific(id)
+          : provedor === "byteplus"
+            ? await consultarStatusByteplus(id)
           : await consultarStatusVideo(id);
     return NextResponse.json(status);
   } catch (err) {

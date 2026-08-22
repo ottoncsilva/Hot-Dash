@@ -59,6 +59,13 @@ export type PedidoVideo = {
    * catálogo); na Magnific combinam.
    */
   referencias?: string[];
+  /**
+   * Marca d'água de IA no canto do vídeo. Só a BytePlus expõe, e lá o padrão
+   * da plataforma é LIGADO — o painel manda desligado a menos que peçam.
+   */
+  marcaDagua?: boolean;
+  /** Câmera fixa (tripé). Só a BytePlus expõe. */
+  cameraFixa?: boolean;
 };
 
 export type JobVideo = {

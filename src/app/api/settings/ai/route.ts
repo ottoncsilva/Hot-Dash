@@ -41,6 +41,7 @@ export async function PATCH(req: NextRequest) {
       grok: parseProviderPatch(body.grok),
       openrouter: parseProviderPatch(body.openrouter),
       magnific: parseProviderPatch(body.magnific),
+      byteplus: parseProviderPatch(body.byteplus),
       kling: parseProviderPatch(body.kling),
       nudenet: parseProviderPatch(body.nudenet),
       // A validação das chaves (atividade e provedor conhecidos) fica em

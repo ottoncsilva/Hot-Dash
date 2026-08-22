@@ -323,6 +323,9 @@ export type AiProvider =
   | "openrouter"
   | "magnific"
   | "kling"
+  // BytePlus ModelArk — a ByteDance oficial. Seedance e Seedream nascem lá;
+  // OpenRouter e Magnific são revenda.
+  | "byteplus"
   | "nudenet";
 
 /**
@@ -392,6 +395,7 @@ export type AiSettingsPublic = {
   openrouter: AiProviderPublic;
   magnific: AiProviderPublic;
   kling: AiProviderPublic;
+  byteplus: AiProviderPublic;
   nudenet: AiProviderPublic;
   activityModels: AiActivityModels;
 };
@@ -404,6 +408,7 @@ type AiSettingsStored = {
   openrouter?: AiProviderStored;
   magnific?: AiProviderStored;
   kling?: AiProviderStored;
+  byteplus?: AiProviderStored;
   nudenet?: AiProviderStored;
   activityModels?: AiActivityModels;
 };
@@ -421,6 +426,7 @@ export const DEFAULT_AI_MODELS: Record<AiProvider, string> = {
   openrouter: "openai/gpt-4o",
   magnific: "seedream-v5-pro-edit",
   kling: "kling-v2-6-pro-motion-control",
+  byteplus: "dreamina-seedance-2-5-260628",
   nudenet: "nudenet-detector"
 };
 
@@ -443,6 +449,7 @@ export function getAiSettingsPublic(): AiSettingsPublic {
     openrouter: build("openrouter"),
     magnific: build("magnific"),
     kling: build("kling"),
+    byteplus: build("byteplus"),
     nudenet: build("nudenet"),
     activityModels: s.activityModels || {},
   };
@@ -533,6 +540,7 @@ export function updateAiSettings(patch: {
   openrouter?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   magnific?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   kling?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
+  byteplus?: { enabled?: boolean; apiKey?: string; model?: string; baseUrl?: string };
   nudenet?: { enabled?: boolean; apiKey?: string; baseUrl?: string; model?: string };
   /** Substitui o mapa inteiro de modelos por atividade, quando presente. */
   activityModels?: AiActivityModels;
@@ -545,6 +553,7 @@ export function updateAiSettings(patch: {
     "openrouter",
     "magnific",
     "kling",
+    "byteplus",
     "nudenet",
   ] as const) {
     const p = patch[provider];

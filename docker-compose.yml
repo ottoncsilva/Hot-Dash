@@ -25,6 +25,25 @@ services:
     volumes:
       - hotdash-data:/app/data
 
+  # --- Chip do Telegram (LTV por conta real) ------------------------------
+  # Só precisa se for usar o LTV do Telegram. Exige api_id/api_hash do
+  # my.telegram.org (ver telegram-mtproto-service/README.md). Depois de subir,
+  # informe a URL e o token em Configurações → Conexão com IA.
+  # telegram-chip:
+  #   build: ./telegram-mtproto-service
+  #   restart: unless-stopped
+  #   environment:
+  #     TELEGRAM_API_ID: "0000000"
+  #     TELEGRAM_API_HASH: "troque-pelo-seu"
+  #     CHIP_API_TOKEN: troque-por-um-token
+  #     WEBHOOK_URL: https://painel.seudominio.com/api/webhooks/telegram-chip
+  #   expose:
+  #     - "8100"
+  #   volumes:
+  #     # NÃO é opcional: sem o volume, todo deploy pede o código do Telegram
+  #     # de novo — e pedir código demais derruba o chip.
+  #     - telegram-chip-data:/data
+
   # --- OPCIONAL / legado: serviço NudeNet externo -------------------------
   # Descomente se preferir rodar a detecção fora do app (o embutido já cobre
   # o caso normal). Lembre de descomentar NUDENET_URL no app acima.
@@ -38,3 +57,4 @@ services:
 
 volumes:
   hotdash-data:
+  telegram-chip-data:

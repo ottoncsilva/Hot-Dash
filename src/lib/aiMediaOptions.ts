@@ -280,7 +280,7 @@ export const MODELOS_IMAGEM: readonly ModeloImagem[] = [
     id: "sd5-pro-bp",
     familia: "seedream-5-pro",
     provedor: "byteplus",
-    slug: "seedream-5-0-pro",
+    slug: "dola-seedream-5-0-pro-260628",
     nome: "Seedream 5.0 Pro",
     // Lá são 1K, 1.5K e 2K. O 1.5K custa o mesmo que o 1K e sai melhor —
     // é ele que o módulo manda quando se pede 1K.
@@ -288,8 +288,13 @@ export const MODELOS_IMAGEM: readonly ModeloImagem[] = [
     formatos: FORMATOS,
     // `sequential_image_generation: auto` faz várias numa chamada só.
     maxN: 4,
-    precoSaida: {},
-    precoReferencia: 0,
+    // Diferente do vídeo, a imagem da BytePlus tem preço por unidade, e o
+    // degrau é por PIXEL: até 2,61 milhões (1.5K ou menos) US$ 0,045; acima
+    // disso US$ 0,090. É a mesma tabela que a OpenRouter cobra revendendo.
+    precoSaida: { "1K": 0.045, "2K": 0.09 },
+    // A primeira referência é de graça; da segunda em diante, US$ 0,003. A
+    // conta aqui cobra todas — erra US$ 0,003 para cima, no máximo.
+    precoReferencia: 0.003,
     maxReferencias: 10,
     aceitaAuto: false,
   },
@@ -303,7 +308,9 @@ export const MODELOS_IMAGEM: readonly ModeloImagem[] = [
     resolucoes: ["2K", "4K"],
     formatos: FORMATOS,
     maxN: 4,
-    precoSaida: {},
+    // US$ 0,035 por imagem, sem degrau de pixel — e referência não custa
+    // nada. É a imagem mais barata do painel.
+    precoSaida: { "2K": 0.035, "4K": 0.035 },
     precoReferencia: 0,
     maxReferencias: 14,
     aceitaAuto: false,
@@ -341,6 +348,8 @@ export type ModeloVideoId =
   // Pela BytePlus (ByteDance oficial).
   | "seedance15-bp"
   | "seedance20-bp"
+  | "fast-bp"
+  | "mini-bp"
   | "seedance25-bp";
 
 /**
@@ -374,10 +383,9 @@ export type ModeloVideo = {
    * da família Seedance 2.0. Só importa para quem cobra por token, porque é a
    * área do quadro que vira preço.
    *
-   * O Seedance 2.5 é o caso: em 16:9 e 9:16 ele bate com a 2.0, mas em 1:1,
-   * 4:3 e 3:4 usa quadros bem maiores (640×640 no lugar de 480×480, por
-   * exemplo). Reaproveitar a tabela da 2.0 subestimaria o custo em quase 80%
-   * nesses três formatos — o contrário do que uma estimativa serve para fazer.
+   * A tabela padrão (VIDEO_TAMANHOS) é a da 2.5, que é a grade oficial da
+   * família. Quem foge dela declara aqui só as células que mudam — a 2.0 em
+   * 480p, e a 1.5 Pro, que tem grade própria.
    */
   tamanhos?: Record<string, Partial<Record<Formato, [number, number]>>>;
   /** O MESMO modelo por outra rota — ver `familia` em ModeloImagem. */
@@ -442,6 +450,60 @@ export type ModeloVideo = {
   exigemDuracaoMaxima?: readonly VideoResolucao[];
 };
 
+/**
+ * As dimensões EXATAS de cada par (resolução, formato) — a base do custo por
+ * token, que é `largura × altura × 24 × duração ÷ 1024`.
+ *
+ * Não dá para deduzir por regra de três: o modelo arredonda cada combinação
+ * para um tamanho fixo da lista. Esta é a grade publicada pela BytePlus
+ * ("The pixel dimensions of output videos for each model"), a mesma que a
+ * OpenRouter devolve em `supported_sizes` — e ela mantém a ÁREA constante
+ * dentro de cada degrau, em vez de fixar o lado menor.
+ *
+ * (A tabela anterior fixava o lado menor — 480×480 em 1:1, por exemplo — e
+ * subestimava o custo em até 78% fora do 16:9. Os números abaixo saem da
+ * documentação, e os quatro exemplos de preço da BytePlus batem no centavo.)
+ *
+ * Só serve à cobrança por token; o Veo cobra por segundo e não passa por aqui.
+ */
+const VIDEO_TAMANHOS: Record<VideoResolucao, Record<Formato, [number, number]>> = {
+  "480p": { "1:1": [640, 640], "3:4": [560, 752], "9:16": [480, 854], "4:3": [752, 560], "16:9": [854, 480] },
+  "720p": { "1:1": [960, 960], "3:4": [834, 1112], "9:16": [720, 1280], "4:3": [1112, 834], "16:9": [1280, 720] },
+  "1080p": {
+    "1:1": [1440, 1440],
+    "3:4": [1248, 1664],
+    "9:16": [1080, 1920],
+    "4:3": [1664, 1248],
+    "16:9": [1920, 1080],
+  },
+  "4K": {
+    "1:1": [2880, 2880],
+    "3:4": [2494, 3326],
+    "9:16": [2160, 3840],
+    "4:3": [3326, 2494],
+    "16:9": [3840, 2160],
+  },
+};
+
+type TabelaTamanhos = Record<string, Partial<Record<Formato, [number, number]>>>;
+
+/**
+ * O que a 2.0 (Pro, Fast e Mini) faz diferente da 2.5: em 480p 16:9 e 9:16 o
+ * quadro é um pouco maior. É pouco — 4,5% de custo —, mas é o que faz a conta
+ * bater com o exemplo de preço da BytePlus (50.220 tokens em 480p/5s, contra
+ * 48.037,5 da 2.5). Nos outros formatos e degraus as duas coincidem.
+ */
+const TAMANHOS_SEEDANCE_20: TabelaTamanhos = {
+  "480p": { "16:9": [864, 496], "9:16": [496, 864] },
+};
+
+/** A 1.5 Pro é de outra geração e tem grade própria em quase tudo. */
+const TAMANHOS_SEEDANCE_15: TabelaTamanhos = {
+  "480p": { "16:9": [864, 480], "9:16": [480, 864], "4:3": [736, 544], "3:4": [544, 736] },
+  "720p": { "16:9": [1248, 704], "9:16": [704, 1248], "4:3": [1120, 832], "3:4": [832, 1120] },
+  "1080p": { "16:9": [1920, 1088], "9:16": [1088, 1920] },
+};
+
 export const MODELOS_VIDEO: readonly ModeloVideo[] = [
   {
     id: "seedance",
@@ -457,6 +519,7 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
       tipo: "token",
       porToken: { "480p": 0.000007, "720p": 0.000007, "1080p": 0.0000077, "4K": 0.000004 },
     },
+    tamanhos: TAMANHOS_SEEDANCE_20,
     aceitaUltimoFrame: true,
     referencias: { max: 50, exclusivas: true },
   },
@@ -471,6 +534,7 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     duracoes: DURACOES_ATE_15,
     maxN: 1,
     preco: { tipo: "token", porToken: { "480p": 0.0000035, "720p": 0.0000035 } },
+    tamanhos: TAMANHOS_SEEDANCE_20,
     aceitaUltimoFrame: true,
     referencias: { max: 50, exclusivas: true },
   },
@@ -485,6 +549,7 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     duracoes: DURACOES_ATE_15,
     maxN: 1,
     preco: { tipo: "token", porToken: { "480p": 0.0000042, "720p": 0.0000042 } },
+    tamanhos: TAMANHOS_SEEDANCE_20,
     aceitaUltimoFrame: true,
     referencias: { max: 50, exclusivas: true },
   },
@@ -506,24 +571,8 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     // `video_tokens: 0.0000107`, o mesmo nas duas resoluções — a 2.0 cobra
     // 0,000007 em 480p/720p, então a 2.5 sai ~53% mais cara por token.
     preco: { tipo: "token", porToken: { "480p": 0.0000107, "720p": 0.0000107 } },
-    // `supported_sizes` da ficha. 16:9 e 9:16 coincidem com a 2.0; os outros
-    // três não, e é por isso que esta tabela existe.
-    tamanhos: {
-      "480p": {
-        "16:9": [854, 480],
-        "4:3": [752, 560],
-        "1:1": [640, 640],
-        "3:4": [560, 752],
-        "9:16": [480, 854],
-      },
-      "720p": {
-        "16:9": [1280, 720],
-        "4:3": [1112, 834],
-        "1:1": [960, 960],
-        "3:4": [834, 1112],
-        "9:16": [720, 1280],
-      },
-    },
+    // Sem `tamanhos`: os `supported_sizes` da ficha da 2.5 SÃO a tabela
+    // padrão (VIDEO_TAMANHOS). Quem desvia dela é a 2.0, logo acima.
     aceitaUltimoFrame: true,
     referencias: { max: 50, exclusivas: true },
   },
@@ -648,6 +697,19 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
   // referência com ROSTO HUMANO REAL vinda de fora. Só aceitam foto gerada
   // na própria ModelArk, mesma conta, sem edição posterior, dentro de 30
   // dias. A 1.5 Pro NÃO tem essa trava — por isso ela vem primeiro na lista.
+  //
+  // PREÇO: a BytePlus cobra por TOKEN, com a mesma fórmula da OpenRouter
+  // (largura × altura × 24 × duração ÷ 1024). A tarifa de cada modelo está
+  // nos "Price example" da própria plataforma, e cada linha abaixo foi
+  // conferida contra o exemplo publicado do modelo (480p/720p/1080p/4K em
+  // 16:9 e 5 segundos), batendo no centavo.
+  //
+  // Duas ressalvas que a estimativa não cobre:
+  //   · Vídeo de ENTRADA (referência em vídeo) soma a duração dele ao total
+  //     e encarece; o painel ainda não manda vídeo, então a conta é a do
+  //     "Exclude video input".
+  //   · A Mini está com promoção por tempo limitado. O valor abaixo é o de
+  //     tabela — a fatura sai igual ou menor, nunca maior.
   {
     id: "seedance15-bp",
     provedor: "byteplus",
@@ -657,10 +719,14 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     formatos: FORMATOS,
     duracoes: [4, 5, 6, 8, 10, 12],
     maxN: 1,
-    // O preço da BytePlus sai de token × consumo, e as tabelas ficam num
-    // calculador da própria plataforma, não numa lista publicada. O custo
-    // REAL vem em `usage.completion_tokens` depois da chamada.
-    preco: { tipo: "creditos" },
+    // US$ 2,50 por milhão de tokens COM áudio, que é como o painel gera.
+    // Sem áudio a BytePlus cobra cerca da metade — a estimativa fica alta,
+    // nunca baixa.
+    preco: {
+      tipo: "token",
+      porToken: { "480p": 0.0000025, "720p": 0.0000025, "1080p": 0.0000025, "4K": 0.0000025 },
+    },
+    tamanhos: TAMANHOS_SEEDANCE_15,
     aceitaUltimoFrame: true,
   },
   {
@@ -673,7 +739,49 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     formatos: FORMATOS,
     duracoes: DURACOES_ATE_15,
     maxN: 1,
-    preco: { tipo: "creditos" },
+    // US$ 7,0 / 7,0 / 7,7 / 4,0 por milhão — a MESMA tabela que a OpenRouter
+    // cobra por este modelo. Nos dois casos o 4K sai mais barato por token
+    // (e bem mais caro por vídeo, porque são 4x mais tokens).
+    preco: {
+      tipo: "token",
+      porToken: { "480p": 0.000007, "720p": 0.000007, "1080p": 0.0000077, "4K": 0.000004 },
+    },
+    tamanhos: TAMANHOS_SEEDANCE_20,
+    aceitaUltimoFrame: true,
+    referencias: { max: 9, exclusivas: false },
+    exigeFotoDaPlataforma: true,
+  },
+  {
+    id: "fast-bp",
+    familia: "seedance-2-fast",
+    provedor: "byteplus",
+    slug: "dreamina-seedance-2-0-fast-260128",
+    nome: "Seedance 2.0 Fast",
+    resolucoes: ["480p", "720p"],
+    formatos: FORMATOS,
+    duracoes: DURACOES_ATE_15,
+    maxN: 1,
+    // US$ 5,6 por milhão. Aqui a OpenRouter é MAIS BARATA (US$ 4,2) para o
+    // mesmo modelo — das poucas vezes em que o revendedor ganha da fonte.
+    preco: { tipo: "token", porToken: { "480p": 0.0000056, "720p": 0.0000056 } },
+    tamanhos: TAMANHOS_SEEDANCE_20,
+    aceitaUltimoFrame: true,
+    referencias: { max: 9, exclusivas: false },
+    exigeFotoDaPlataforma: true,
+  },
+  {
+    id: "mini-bp",
+    familia: "seedance-2-mini",
+    provedor: "byteplus",
+    slug: "dreamina-seedance-2-0-mini-260615",
+    nome: "Seedance 2.0 Mini",
+    resolucoes: ["480p", "720p"],
+    formatos: FORMATOS,
+    duracoes: DURACOES_ATE_15,
+    maxN: 1,
+    // US$ 3,5 por milhão, igual à OpenRouter. É o mais barato do painel.
+    preco: { tipo: "token", porToken: { "480p": 0.0000035, "720p": 0.0000035 } },
+    tamanhos: TAMANHOS_SEEDANCE_20,
     aceitaUltimoFrame: true,
     referencias: { max: 9, exclusivas: false },
     exigeFotoDaPlataforma: true,
@@ -684,11 +792,18 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     provedor: "byteplus",
     slug: "dreamina-seedance-2-5-260628",
     nome: "Seedance 2.5",
-    resolucoes: ["480p", "720p", "1080p", "4K"],
+    // Diferente da 2.5 pela OpenRouter, que para em 720p, aqui ela chega a
+    // 1080p. O 4K é que não existe em nenhuma das duas.
+    resolucoes: ["480p", "720p", "1080p"],
     formatos: FORMATOS,
     duracoes: DURACOES_LONGAS,
     maxN: 1,
-    preco: { tipo: "creditos" },
+    // US$ 10,7 por milhão em 480p e 720p (o mesmo da OpenRouter) e US$ 11,7
+    // em 1080p.
+    preco: {
+      tipo: "token",
+      porToken: { "480p": 0.0000107, "720p": 0.0000107, "1080p": 0.0000117 },
+    },
     aceitaUltimoFrame: true,
     referencias: { max: 30, exclusivas: false },
     exigeFotoDaPlataforma: true,
@@ -867,37 +982,6 @@ export function custoImagem(
   return porImagem * quantidadeValida(quantidade);
 }
 
-/**
- * As dimensões exatas que o Seedance produz para cada par (resolução,
- * formato). São os `supported_sizes` da ficha dele — não dá para deduzir por
- * regra de três, porque o modelo arredonda cada combinação para um tamanho
- * fixo da lista. Só serve à cobrança por token; o Veo cobra por segundo e
- * não passa por aqui.
- *
- * Conferido contra os preços por segundo que a OpenRouter publica:
- *   480p 9:16 → 480×854×24÷1024 = 9607,5 tokens/s × 0,000007 = US$ 0,0673/s
- *               (a ficha diz US$ 0,06726/s ✔)
- *   4K 16:9  → 3840×2160×24÷1024 = 194400 tokens/s × 0,000004 = US$ 0,7776/s
- *               (a ficha diz US$ 0,7776/s ✔)
- */
-const VIDEO_TAMANHOS: Record<VideoResolucao, Record<Formato, [number, number]>> = {
-  "480p": { "1:1": [480, 480], "3:4": [480, 640], "9:16": [480, 854], "4:3": [640, 480], "16:9": [854, 480] },
-  "720p": { "1:1": [720, 720], "3:4": [720, 960], "9:16": [720, 1280], "4:3": [960, 720], "16:9": [1280, 720] },
-  "1080p": {
-    "1:1": [1080, 1080],
-    "3:4": [1080, 1440],
-    "9:16": [1080, 1920],
-    "4:3": [1440, 1080],
-    "16:9": [1920, 1080],
-  },
-  "4K": {
-    "1:1": [2160, 2160],
-    "3:4": [2160, 2880],
-    "9:16": [2160, 3840],
-    "4:3": [2880, 2160],
-    "16:9": [3840, 2160],
-  },
-};
 
 /** O custo estimado, ou `null` quando o provedor não publica preço. */
 export function custoVideo(

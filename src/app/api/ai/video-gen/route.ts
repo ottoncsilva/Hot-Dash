@@ -44,6 +44,10 @@ export async function POST(req: NextRequest) {
     // cliente antigo que não mande o campo continua recebendo vídeo com voz,
     // que é o que a tela oferece hoje.
     const generateAudio = body.generateAudio !== false;
+    // Filtro de conteúdo. Ligado a menos que o cliente peça explicitamente para
+    // desligar — e o módulo ainda checa se o MODELO aceita o campo antes de
+    // mandá-lo, porque nem todos aceitam.
+    const filtroSeguranca = body.filtroSeguranca !== false;
 
     // O first frame chega OU já em base64 (upload direto do operador,
     // redimensionado no navegador) OU como o id de uma mídia da Galeria —
@@ -82,6 +86,7 @@ export async function POST(req: NextRequest) {
           resolution,
           aspectRatio,
           generateAudio,
+          filtroSeguranca,
           seed,
           modelo: modelo.id,
         });

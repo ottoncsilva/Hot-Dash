@@ -84,6 +84,14 @@ export async function submeterVideoMagnific(pedido: PedidoVideo): Promise<JobVid
     body.seed = Math.round(pedido.seed);
   }
 
+  // O filtro de conteúdo da Magnific. Só vai para quem tem o campo — o
+  // Seedance Mini não tem, e mandá-lo lá seria parâmetro inválido. Só é
+  // enviado quando DESLIGADO: ligado já é o padrão da API, e omitir mantém o
+  // pedido menor e mais fiel ao que a documentação descreve.
+  if (modelo.aceitaFiltroSeguranca && pedido.filtroSeguranca === false) {
+    body.enable_safety_checker = false;
+  }
+
   // O id já volta carimbado com o caminho — é o que permite a rota de
   // acompanhamento consultar sem saber de qual modelo se trata.
   const jobId = await submeterTarefaMagnific(caminho, body);

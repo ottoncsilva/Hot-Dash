@@ -156,6 +156,9 @@ export default function GeradorVideoPage() {
   const [aspectRatio, setAspectRatio] = useState<Formato>("9:16");
   // Áudio ligado por padrão: vídeo de caixinha sem voz não serve para nada.
   const [generateAudio, setGenerateAudio] = useState(true);
+  // Filtro de conteúdo do provedor. Começa LIGADO, que é o padrão da API —
+  // desligar é uma escolha consciente, não algo que acontece por descuido.
+  const [filtroSeguranca, setFiltroSeguranca] = useState(true);
   const [seed, setSeed] = useState("");
   const [avancadoAberto, setAvancadoAberto] = useState(false);
   const [enviando, setEnviando] = useState(false);
@@ -436,6 +439,7 @@ export default function GeradorVideoPage() {
         resolution,
         aspectRatio,
         generateAudio,
+        filtroSeguranca,
         seed: seedNum,
         firstFrameBase64: frameBase64 || undefined,
         firstFrameMediaId: frameGaleria[0],
@@ -824,6 +828,28 @@ export default function GeradorVideoPage() {
                   />
                   Gerar áudio junto com o vídeo
                 </label>
+              )}
+              {/* FILTRO DE CONTEÚDO.
+                  Só a Magnific expõe isto, e só em alguns modelos — o Seedance
+                  Mini não tem o campo, e a OpenRouter e o Google não têm nada
+                  parecido na API de vídeo. Mostrar o interruptor onde ele não
+                  faz nada seria mentir sobre o que o pedido leva. */}
+              {infoModelo.aceitaFiltroSeguranca && (
+                <div>
+                  <label className="flex items-center gap-2 text-sm text-zinc-300">
+                    <input
+                      type="checkbox"
+                      checked={filtroSeguranca}
+                      onChange={(e) => setFiltroSeguranca(e.target.checked)}
+                    />
+                    Filtro de conteúdo do provedor
+                  </label>
+                  <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                    Desligado, o {infoModelo.nome} deixa de aplicar o próprio filtro —
+                    mas a Magnific pode recusar a geração mesmo assim, pelas regras da
+                    conta dela.
+                  </p>
+                </div>
               )}
               <div className="max-w-[220px]">
                 <label className="eyebrow mb-1 block">Seed (opcional)</label>

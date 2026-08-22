@@ -340,6 +340,16 @@ export type ModeloVideo = {
   familia?: string;
   /** O Veo sempre gera áudio, e isso não muda o preço — a tela esconde o interruptor. */
   audioSempre?: boolean;
+  /**
+   * Se o modelo aceita `enable_safety_checker` — o filtro de conteúdo da
+   * Magnific, que vem LIGADO por padrão e pode ser desligado no pedido.
+   *
+   * É por modelo, não por provedor: na Magnific o Seedance Pro e o Fast têm o
+   * campo, o Mini NÃO tem, e mandá-lo para quem não aceita é parâmetro
+   * inválido. Fora da Magnific não existe em modelo nenhum — nem a OpenRouter
+   * nem o Google expõem algo assim na API de vídeo.
+   */
+  aceitaFiltroSeguranca?: boolean;
   /** Resoluções que obrigam a duração máxima (regra do Veo para 1080p e 4k). */
   exigemDuracaoMaxima?: readonly VideoResolucao[];
 };
@@ -471,6 +481,7 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     duracoes: DURACOES_ATE_15,
     maxN: 1,
     preco: { tipo: "creditos" },
+    aceitaFiltroSeguranca: true,
   },
   {
     id: "mini-mg",
@@ -495,6 +506,7 @@ export const MODELOS_VIDEO: readonly ModeloVideo[] = [
     duracoes: DURACOES_ATE_15,
     maxN: 1,
     preco: { tipo: "creditos" },
+    aceitaFiltroSeguranca: true,
   },
   {
     id: "veo-mg",

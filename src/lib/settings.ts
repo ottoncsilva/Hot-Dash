@@ -70,6 +70,46 @@ export function updateEvolutionSettings(patch: { url?: string; apiKey?: string }
   return getEvolutionSettingsPublic();
 }
 
+// ---- Chip do Telegram (microserviço MTProto) ----
+// O Telegram por CONTA REAL não cabe na Bot API nem nas rotas do Next: MTProto
+// exige conexão de vida longa. O serviço vive num container próprio (ver
+// telegram-mtproto-service/) e o painel fala com ele por HTTP, igual à
+// Evolution. Sem URL configurada, o LTV do Telegram fica desligado.
+export type TelegramChipSettingsPublic = { url?: string; hasToken: boolean };
+type TelegramChipSettingsStored = { url?: string; tokenEnc?: string };
+
+function rawTelegramChip(): TelegramChipSettingsStored {
+  return getJson<TelegramChipSettingsStored>("telegram_chip", {});
+}
+
+export function getTelegramChipSettingsPublic(): TelegramChipSettingsPublic {
+  const s = rawTelegramChip();
+  return { url: s.url, hasToken: Boolean(s.tokenEnc) };
+}
+
+export function getTelegramChipCredentials(): { url: string; token: string } | null {
+  const s = rawTelegramChip();
+  if (!s.url || !s.tokenEnc) return null;
+  try {
+    return { url: s.url, token: decryptSecret(s.tokenEnc) };
+  } catch {
+    return null;
+  }
+}
+
+export function updateTelegramChipSettings(patch: {
+  url?: string;
+  token?: string;
+}): TelegramChipSettingsPublic {
+  const s = rawTelegramChip();
+  if (patch.url !== undefined) s.url = patch.url.trim().replace(/\/+$/, "");
+  if (patch.token !== undefined) {
+    s.tokenEnc = patch.token ? encryptSecret(patch.token) : undefined;
+  }
+  setJson("telegram_chip", s);
+  return getTelegramChipSettingsPublic();
+}
+
 // ---- Menu ----
 export function getMenu(): MenuEntry[] {
   return normalizeMenu(getJson<MenuEntry[]>("menu", []));

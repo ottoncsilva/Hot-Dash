@@ -135,10 +135,43 @@ export async function processarWebhookSyncPay(
     registra(updated ? `cobrança atualizada · ${normalizeStatus(status)}` : `venda nova · ${normalizeStatus(status)}`);
 
     if (updated && updated.becamePaid) {
+      // VENDA DO LTV: a IA cobrou no meio da conversa e o conteúdo é entregue
+      // ali mesmo, pelo canal da conta. Uma transação é do LTV OU do bot de
+      // vendas, nunca dos dois — mas o push de venda no fim vale para as duas,
+      // então isto desvia do bloco do bot em vez de sair da função.
+      let ehVendaDeLtv = false;
+      try {
+        const { findOrderByTransaction, markOrderPaid, markOrderDelivered } = await import(
+          "@/lib/ltvDb"
+        );
+        const pedido = findOrderByTransaction(updated.transaction.id);
+        if (pedido) {
+          ehVendaDeLtv = true;
+          // markOrderPaid devolve false quando a venda JÁ estava paga: a
+          // SyncPay reenvia o mesmo webhook, e sem essa trava o cliente
+          // receberia o pacote de fotos duas vezes.
+          if (markOrderPaid(pedido.id)) {
+            registra("venda de LTV confirmada · entregando");
+            const { entregarPedido } = await import("@/lib/ltvAgent");
+            await entregarPedido(pedido.id);
+            markOrderDelivered(pedido.id);
+            registra("conteúdo do LTV entregue");
+          } else {
+            registra("venda de LTV já estava paga · nada a entregar");
+          }
+        }
+      } catch (e) {
+        // A entrega falhou, mas o pagamento é real e já está registrado. Um
+        // erro aqui não pode derrubar o webhook — a SyncPay reentregaria e a
+        // venda entraria de novo. Fica no log para reenviar na mão.
+        console.error("LTV: falha entregando a venda:", e);
+        registra("venda de LTV confirmada · ENTREGA FALHOU");
+      }
+
       // Verifica se existe uma inscrição do Telegram pendente para esta transação
       const { findSubscriptionByTransaction, saveSubscription, getBotConfig, getPlan, buildAccessMessage } =
         await import("@/lib/telegramDb");
-      const sub = findSubscriptionByTransaction(updated.transaction.id);
+      const sub = ehVendaDeLtv ? null : findSubscriptionByTransaction(updated.transaction.id);
 
       if (sub && sub.status === "pending") {
         const bot = getBotConfig(sub.botId);

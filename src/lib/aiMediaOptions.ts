@@ -107,7 +107,10 @@ export type ModeloImagemId =
   | "pro-mg"
   | "lite-mg"
   | "nb-pro-mg"
-  | "nb2-mg";
+  | "nb2-mg"
+  // Pela BytePlus (ByteDance oficial).
+  | "sd5-pro-bp"
+  | "sd5-lite-bp";
 
 export type ModeloImagem = {
   id: ModeloImagemId;
@@ -270,6 +273,42 @@ export const MODELOS_IMAGEM: readonly ModeloImagem[] = [
     precoReferencia: 0,
     aceitaAuto: false,
   },
+  // --- BytePlus: o Seedream OFICIAL. Além de ser a fonte, é ele que
+  // DESTRAVA a Seedance 2.0 e 2.5 de lá para retrato: aquelas recusam rosto
+  // humano vindo de fora, mas confiam no que a própria ModelArk gerou.
+  {
+    id: "sd5-pro-bp",
+    familia: "seedream-5-pro",
+    provedor: "byteplus",
+    slug: "seedream-5-0-pro",
+    nome: "Seedream 5.0 Pro",
+    // Lá são 1K, 1.5K e 2K. O 1.5K custa o mesmo que o 1K e sai melhor —
+    // é ele que o módulo manda quando se pede 1K.
+    resolucoes: ["1K", "2K"],
+    formatos: FORMATOS,
+    // `sequential_image_generation: auto` faz várias numa chamada só.
+    maxN: 4,
+    precoSaida: {},
+    precoReferencia: 0,
+    maxReferencias: 10,
+    aceitaAuto: false,
+  },
+  {
+    id: "sd5-lite-bp",
+    familia: "seedream-5-lite",
+    provedor: "byteplus",
+    slug: "seedream-5-0-lite-260128",
+    nome: "Seedream 5.0 Lite",
+    // Aqui a escala começa no 2K e vai ao 4K — não faz 1K.
+    resolucoes: ["2K", "4K"],
+    formatos: FORMATOS,
+    maxN: 4,
+    precoSaida: {},
+    precoReferencia: 0,
+    maxReferencias: 14,
+    aceitaAuto: false,
+  },
+
   {
     id: "nb2-mg",
     familia: "nano-banana-2",

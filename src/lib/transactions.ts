@@ -103,12 +103,17 @@ export function recordTransaction(input: {
   let fee: number | null = null;
   let split: number | null = null;
   let net = input.netAmountCents ?? null;
-  if (input.status === "paid") {
+  // A tabela de taxas é da SyncPay. Uma venda lançada na mão no LTV (o lead
+  // pagou direto na chave pix da modelo) não passou por gateway nenhum:
+  // descontar taxa dela faria o faturamento mostrar menos do que entrou.
+  if (input.status === "paid" && input.provider === "syncpay") {
     const tabela = syncPayFeeCents(input.amountCents);
     const desconto = net !== null && net < input.amountCents ? input.amountCents - net : tabela;
     fee = Math.min(tabela, desconto);
     split = Math.max(0, desconto - fee);
     if (net === null) net = input.amountCents - desconto;
+  } else if (input.status === "paid" && net === null) {
+    net = input.amountCents;
   }
   getDb()
     .prepare(

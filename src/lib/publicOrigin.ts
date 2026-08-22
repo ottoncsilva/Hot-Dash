@@ -103,6 +103,22 @@ function envOrigin(): string | null {
   return normalizeOrigin(raw);
 }
 
+/**
+ * A base pública para quem NÃO tem uma requisição em mãos — o agente de LTV
+ * responde a partir de um webhook, e o postback da SyncPay e o link da mídia
+ * que o chip vai baixar precisam de um endereço que a internet alcance.
+ * Sem `WEBHOOK_APP_URL` não há como adivinhar, então falha dizendo o que fazer.
+ */
+export function publicOriginSemRequest(): string {
+  const origin = envOrigin();
+  if (!origin) {
+    throw new Error(
+      "Endereço público do painel desconhecido. Defina WEBHOOK_APP_URL com o domínio do painel.",
+    );
+  }
+  return origin;
+}
+
 export type OriginSource = "env" | "proxy" | "host" | "request";
 
 /** A base pública escolhida e de onde ela veio (para a UI explicar o estado). */

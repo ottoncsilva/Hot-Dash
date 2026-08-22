@@ -197,7 +197,12 @@ export function createAccount(input: {
 
 export function updateAccount(
   id: string,
-  patch: Partial<Pick<LtvAccount, "label" | "externalRef" | "status" | "active">> & {
+  patch: {
+    label?: string;
+    /** `null` limpa: a instância foi derrubada e a conta fica "sem número". */
+    externalRef?: string | null;
+    status?: LtvAccount["status"];
+    active?: boolean;
     sessionEnc?: string | null;
   },
 ): void {

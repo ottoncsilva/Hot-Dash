@@ -67,6 +67,30 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    /** Mídia da Galeria como `data:` URL, na mesma renderização do first frame. */
+    async function daGaleria(id: unknown): Promise<string | undefined> {
+      if (typeof id !== "string" || !id.trim()) return undefined;
+      const row = getMediaRow(id.trim());
+      if (!row) return undefined;
+      const b64 = await renderVisionImageBase64(row.path);
+      return b64 ? `data:image/jpeg;base64,${b64}` : undefined;
+    }
+
+    // ÚLTIMO FRAME — o vídeo faz a transição do primeiro para este. Sem
+    // primeiro frame ele não significa nada, então só é considerado junto.
+    const lastFrame = firstFrame ? await daGaleria(body.lastFrameMediaId) : undefined;
+
+    // REFERÊNCIAS — guiam personagem e estilo sem fixar quadro. O teto é do
+    // modelo (`referencias.max` no catálogo) e quem corta é o módulo.
+    const referenciasIds = Array.isArray(body.referenciaMediaIds)
+      ? body.referenciaMediaIds.filter((x: unknown): x is string => typeof x === "string")
+      : [];
+    const referencias: string[] = [];
+    for (const id of referenciasIds) {
+      const url = await daGaleria(id);
+      if (url) referencias.push(url);
+    }
+
     // A Video API não tem `n`: quantidade vira N jobs. A faixa de resultados
     // já acompanha vários em paralelo. Um que falhe não descarta os aceitos.
     const jobs: { jobId: string; status: string }[] = [];
@@ -87,6 +111,8 @@ export async function POST(req: NextRequest) {
           aspectRatio,
           generateAudio,
           filtroSeguranca,
+          lastFrame,
+          referencias,
           seed,
           modelo: modelo.id,
         });

@@ -63,6 +63,14 @@ export async function submeterVideoMagnific(pedido: PedidoVideo): Promise<JobVid
     body.image = pedido.firstFrame;
   }
 
+  // Aqui os dois CONVIVEM: a documentação da Magnific diz que
+  // `reference_images` "can be combined with `image`/`image_end`". É o oposto
+  // da OpenRouter, e por isso não há escolha a fazer — vai tudo.
+  if (pedido.lastFrame && modelo.aceitaUltimoFrame) body.image_end = pedido.lastFrame;
+  if (pedido.referencias?.length && modelo.referencias) {
+    body.reference_images = pedido.referencias.slice(0, modelo.referencias.max);
+  }
+
   if (tipo === "seedance") {
     caminho = `${modelo.slug}-${sufixoSeedance(resolucao)}`;
     body.duration = duracao;

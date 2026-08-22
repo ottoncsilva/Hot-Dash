@@ -2,9 +2,10 @@
 // Os ícones são mapeados por `key` no componente de layout.
 
 export type NavKey =
-  | "whatsapp"
-  | "whatsapp_settings"
-  | "whatsapp_chat"
+  | "ltv"
+  | "ltv_chat"
+  | "ltv_whatsapp"
+  | "ltv_telegram"
   | "settings"
   | "dashboard"
   | "profiles"
@@ -35,9 +36,10 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   payments: { key: "payments", label: "Financeiro", href: "/dashboard/payments" },
   funil: { key: "funil", label: "Funil de Vendas", href: "/dashboard/funil" },
   telegram: { key: "telegram", label: "Telegram", href: "/dashboard/telegram" },
-  whatsapp: { key: "whatsapp", label: "WhatsApp", href: "/dashboard/whatsapp" },
-  whatsapp_settings: { key: "whatsapp_settings", label: "Configurações LTV", href: "/dashboard/whatsapp/settings" },
-  whatsapp_chat: { key: "whatsapp_chat", label: "Chat LTV", href: "/dashboard/whatsapp/chat" },
+  ltv: { key: "ltv", label: "LTV", href: "/dashboard/ltv/chat" },
+  ltv_chat: { key: "ltv_chat", label: "Chat ao vivo", href: "/dashboard/ltv/chat" },
+  ltv_whatsapp: { key: "ltv_whatsapp", label: "LTV WhatsApp", href: "/dashboard/ltv/whatsapp" },
+  ltv_telegram: { key: "ltv_telegram", label: "LTV Telegram", href: "/dashboard/ltv/telegram" },
   schedule: { key: "schedule", label: "Cronograma de postagens", href: "/dashboard/schedule" },
   settings: { key: "settings", label: "Configurações", href: "/dashboard/settings" },
 };
@@ -58,7 +60,7 @@ export const DEFAULT_MENU_ORDER: NavKey[] = [
   "payments",
   "funil",
   "telegram",
-  "whatsapp",
+  "ltv",
   "settings",
 ];
 
@@ -66,7 +68,7 @@ export type MenuEntry = { key: NavKey; hidden: boolean };
 
 /** Normaliza uma config de menu salva, garantindo que todos os itens existam. */
 // Chaves que NÃO aparecem como item de topo (são submenus derivados no layout).
-const SUBSECTION_KEYS = new Set<NavKey>(["whatsapp_settings", "whatsapp_chat"]);
+const SUBSECTION_KEYS = new Set<NavKey>(["ltv_chat", "ltv_whatsapp", "ltv_telegram"]);
 
 export function normalizeMenu(saved?: MenuEntry[]): MenuEntry[] {
   const result: MenuEntry[] = [];

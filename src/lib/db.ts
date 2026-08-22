@@ -599,6 +599,160 @@ function migrate(d: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_question_box_profile
       ON question_box_items(profile_id, kind, used, created_at DESC);
+
+    -- ===================================================================
+    -- LTV — a modelo conversando com o lead por conta REAL (WhatsApp pela
+    -- Evolution, Telegram por chip/MTProto). As tabelas são agnósticas de
+    -- canal de propósito: o motor é um só, o que muda é o adaptador de
+    -- envio. Substituem as whatsapp_* (migradas em migrarWhatsappParaLtv).
+    -- ===================================================================
+    CREATE TABLE IF NOT EXISTS ltv_accounts (
+      id            TEXT PRIMARY KEY,
+      profile_id    TEXT NOT NULL,
+      channel       TEXT NOT NULL,              -- 'whatsapp' | 'telegram'
+      label         TEXT NOT NULL,              -- "Número 1", "Chip"
+      external_ref  TEXT,                       -- instância Evolution / telefone do chip
+      session_enc   TEXT,                       -- sessão MTProto cifrada (só Telegram)
+      status        TEXT NOT NULL DEFAULT 'disconnected',
+      active        INTEGER NOT NULL DEFAULT 1,
+      created_at    INTEGER NOT NULL,
+      updated_at    INTEGER NOT NULL,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ltv_accounts_profile
+      ON ltv_accounts(profile_id, channel);
+
+    -- No WhatsApp a modelo tem VÁRIOS números; no Telegram é UM chip só. Quem
+    -- garante isso é o banco, não só a rota — um segundo chip para a mesma
+    -- modelo seria duas IAs falando pela mesma persona.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ltv_accounts_um_chip
+      ON ltv_accounts(profile_id) WHERE channel = 'telegram';
+
+    -- A instância da Evolution / o telefone do chip não pode estar em duas
+    -- contas ao mesmo tempo: o webhook não saberia para qual entregar.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ltv_accounts_ref
+      ON ltv_accounts(channel, external_ref) WHERE external_ref IS NOT NULL;
+
+    CREATE TABLE IF NOT EXISTS ltv_agent_settings (
+      account_id       TEXT PRIMARY KEY,
+      enabled          INTEGER NOT NULL DEFAULT 0,
+      approach         TEXT NOT NULL DEFAULT 'aquecer',  -- 'aquecer' | 'direto'
+      persona_name     TEXT,
+      tone_tags        TEXT,                             -- JSON: ["safada","dominadora"]
+      personality      TEXT,
+      mechanism        TEXT,
+      limits           TEXT,
+      rhythm           TEXT NOT NULL DEFAULT 'humano',   -- 'humano' | 'fixo'
+      delay_min_s      INTEGER NOT NULL DEFAULT 20,
+      delay_max_s      INTEGER NOT NULL DEFAULT 90,
+      daily_limit      INTEGER NOT NULL DEFAULT 80,
+      only_reply_first INTEGER NOT NULL DEFAULT 1,
+      FOREIGN KEY (account_id) REFERENCES ltv_accounts(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS ltv_products (
+      id            TEXT PRIMARY KEY,
+      account_id    TEXT NOT NULL,
+      name          TEXT NOT NULL,
+      price_cents   INTEGER NOT NULL,
+      description   TEXT,
+      delivery_kind TEXT NOT NULL DEFAULT 'media',  -- 'media' | 'videocall'
+      extra_message TEXT,
+      sort_order    INTEGER NOT NULL DEFAULT 0,
+      created_at    INTEGER NOT NULL,
+      FOREIGN KEY (account_id) REFERENCES ltv_accounts(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ltv_products_conta
+      ON ltv_products(account_id, sort_order);
+
+    -- A ordem importa: é a sequência em que o cliente recebe os arquivos
+    -- depois de pagar (a tela deixa arrastar e marcar o 1º).
+    CREATE TABLE IF NOT EXISTS ltv_product_media (
+      product_id TEXT NOT NULL,
+      media_id   TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (product_id, media_id),
+      FOREIGN KEY (product_id) REFERENCES ltv_products(id) ON DELETE CASCADE,
+      FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+    );
+
+    -- Áudio com a voz REAL da modelo. Tabela própria porque media.kind só
+    -- conhece 'image' e 'video' — e o que decide qual áudio mandar é o
+    -- CONTEXTO ("saudação", "provocação"), que a mídia comum não tem.
+    CREATE TABLE IF NOT EXISTS ltv_audios (
+      id         TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL,
+      filename   TEXT NOT NULL,
+      path       TEXT NOT NULL,
+      mime       TEXT,
+      size       INTEGER NOT NULL DEFAULT 0,
+      context    TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (account_id) REFERENCES ltv_accounts(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ltv_audios_conta ON ltv_audios(account_id);
+
+    CREATE TABLE IF NOT EXISTS ltv_chats (
+      id                  TEXT PRIMARY KEY,
+      account_id          TEXT NOT NULL,
+      peer_ref            TEXT NOT NULL,   -- remoteJid (WhatsApp) / user id (Telegram)
+      peer_name           TEXT,
+      state               TEXT NOT NULL DEFAULT 'active',  -- 'active' | 'paused'
+      spent_cents         INTEGER NOT NULL DEFAULT 0,
+      last_interaction_at INTEGER NOT NULL,
+      created_at          INTEGER NOT NULL,
+      FOREIGN KEY (account_id) REFERENCES ltv_accounts(id) ON DELETE CASCADE,
+      UNIQUE(account_id, peer_ref)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ltv_chats_conta
+      ON ltv_chats(account_id, last_interaction_at DESC);
+
+    CREATE TABLE IF NOT EXISTS ltv_messages (
+      id         TEXT PRIMARY KEY,
+      chat_id    TEXT NOT NULL,
+      role       TEXT NOT NULL,   -- 'user' | 'assistant'
+      content    TEXT NOT NULL,
+      type       TEXT NOT NULL DEFAULT 'text',
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (chat_id) REFERENCES ltv_chats(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ltv_messages_chat
+      ON ltv_messages(chat_id, created_at);
+
+    -- A costura da venda: o webhook da SyncPay acha o pedido pela transação e
+    -- entrega o conteúdo. A coluna source separa o que a IA cobrou do que foi
+    -- lançado na mão pelo "+ Venda" do Chat ao vivo.
+    CREATE TABLE IF NOT EXISTS ltv_orders (
+      id             TEXT PRIMARY KEY,
+      chat_id        TEXT NOT NULL,
+      product_id     TEXT,
+      transaction_id TEXT,
+      amount_cents   INTEGER NOT NULL,
+      status         TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'paid' | 'canceled'
+      source         TEXT NOT NULL DEFAULT 'ia',       -- 'ia' | 'manual'
+      delivered_at   INTEGER,
+      created_at     INTEGER NOT NULL,
+      FOREIGN KEY (chat_id) REFERENCES ltv_chats(id) ON DELETE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES ltv_products(id) ON DELETE SET NULL,
+      FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ltv_orders_tx ON ltv_orders(transaction_id);
+    CREATE INDEX IF NOT EXISTS idx_ltv_orders_chat ON ltv_orders(chat_id, status);
+
+    -- Contador do limite diário por conta (a proteção que segura o chip vivo).
+    CREATE TABLE IF NOT EXISTS ltv_daily_usage (
+      account_id TEXT NOT NULL,
+      dia        TEXT NOT NULL,   -- 'AAAA-MM-DD' no fuso do painel
+      sent       INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (account_id, dia),
+      FOREIGN KEY (account_id) REFERENCES ltv_accounts(id) ON DELETE CASCADE
+    );
   `);
 
   // Migrações incrementais (adiciona colunas que ainda não existem em bancos já criados).
@@ -880,10 +1034,78 @@ function migrate(d: Database.Database) {
   backfillConfigPorModelo(d);
   backfillTelegramUsers(d);
   backfillMediaPostLog(d);
+  migrarWhatsappParaLtv(d);
 
   d.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_media_public_token ON media(public_token) WHERE public_token IS NOT NULL;`,
   );
+}
+
+/**
+ * Leva o LTV do WhatsApp para as tabelas `ltv_*`, que valem para os dois
+ * canais. Roda uma vez só: a partir daí as `whatsapp_*` ficam paradas, e são
+ * elas que guardam a operação que já estava no ar — conversa, prompt e
+ * instância conectada. Perder isso seria a modelo "esquecendo" os leads.
+ *
+ * Cada modelo vira uma conta de WhatsApp rotulada "Número 1"; o multi-número
+ * nasce daí, adicionando linhas novas. Uma modelo que só tem conversa e nunca
+ * conectou instância também ganha a conta (sem `external_ref`) — é o "Número 1
+ * · sem número" da tela, e sem ela a conversa dela ficaria órfã.
+ */
+function migrarWhatsappParaLtv(d: Database.Database) {
+  const jaRodou = d
+    .prepare("SELECT value FROM settings WHERE key = 'ltv_migracao_whatsapp_v1'")
+    .get() as { value: string } | undefined;
+  if (jaRodou) return;
+
+  const agora = Date.now();
+
+  // 1) Contas: uma por modelo que tenha instância OU conversa OU configuração.
+  d.prepare(
+    `INSERT OR IGNORE INTO ltv_accounts
+       (id, profile_id, channel, label, external_ref, status, active, created_at, updated_at)
+     SELECT 'wa-' || p.id, p.id, 'whatsapp', 'Número 1',
+            i.instance_name, COALESCE(i.status, 'disconnected'), 1,
+            COALESCE(i.created_at, ?), ?
+       FROM profiles p
+       LEFT JOIN whatsapp_instances i ON i.profile_id = p.id
+      WHERE i.profile_id IS NOT NULL
+         OR EXISTS (SELECT 1 FROM whatsapp_chats c WHERE c.profile_id = p.id)
+         OR EXISTS (SELECT 1 FROM whatsapp_agent_settings a WHERE a.profile_id = p.id)`,
+  ).run(agora, agora);
+
+  // 2) Configuração do agente. O `prompt` cru vira a PERSONALIDADE — é o campo
+  //    que o motor novo usa como descrição livre da modelo. Os campos
+  //    estruturados (tom, mecanismo, limites) nascem vazios para a pessoa
+  //    preencher; o provedor de IA sai de cena porque o LTV roda em Grok.
+  d.prepare(
+    `INSERT OR IGNORE INTO ltv_agent_settings
+       (account_id, enabled, approach, personality)
+     SELECT 'wa-' || a.profile_id, 1, 'aquecer', a.prompt
+       FROM whatsapp_agent_settings a
+      WHERE EXISTS (SELECT 1 FROM ltv_accounts c WHERE c.id = 'wa-' || a.profile_id)`,
+  ).run();
+
+  // 3) Conversas e mensagens.
+  d.prepare(
+    `INSERT OR IGNORE INTO ltv_chats
+       (id, account_id, peer_ref, state, last_interaction_at, created_at)
+     SELECT c.id, 'wa-' || c.profile_id, c.remote_jid, c.state,
+            c.last_interaction_at, c.created_at
+       FROM whatsapp_chats c
+      WHERE EXISTS (SELECT 1 FROM ltv_accounts a WHERE a.id = 'wa-' || c.profile_id)`,
+  ).run();
+
+  d.prepare(
+    `INSERT OR IGNORE INTO ltv_messages (id, chat_id, role, content, type, created_at)
+     SELECT m.id, m.chat_id, m.role, m.content, COALESCE(m.type, 'text'), m.created_at
+       FROM whatsapp_messages m
+      WHERE EXISTS (SELECT 1 FROM ltv_chats c WHERE c.id = m.chat_id)`,
+  ).run();
+
+  d.prepare(
+    "INSERT OR REPLACE INTO settings (key, value) VALUES ('ltv_migracao_whatsapp_v1', ?)",
+  ).run(String(agora));
 }
 
 /**

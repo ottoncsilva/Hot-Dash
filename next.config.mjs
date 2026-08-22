@@ -9,6 +9,16 @@ const nextConfig = {
     serverComponentsExternalPackages: ["better-sqlite3", "onnxruntime-node", "sharp"],
     instrumentationHook: true,
   },
+  // O LTV do WhatsApp virou submenu de LTV. Quem tem o caminho antigo salvo
+  // (favorito, atalho na tela do celular, link colado numa conversa) não pode
+  // cair num 404 — o painel é usado do celular o dia inteiro.
+  async redirects() {
+    return [
+      { source: "/dashboard/whatsapp", destination: "/dashboard/ltv/whatsapp", permanent: false },
+      { source: "/dashboard/whatsapp/chat", destination: "/dashboard/ltv/chat", permanent: false },
+      { source: "/dashboard/whatsapp/settings", destination: "/dashboard/ltv/whatsapp", permanent: false },
+    ];
+  },
 };
 
 export default nextConfig;

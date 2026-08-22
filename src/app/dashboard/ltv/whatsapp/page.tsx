@@ -150,7 +150,7 @@ export default function WhatsAppVipPage() {
       <PageHeader
         title="WhatsApp"
         actions={
-          <Link href="/dashboard/whatsapp/chat" className="flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-white shadow-lg transition-colors hover:bg-emerald-400">
+          <Link href="/dashboard/ltv/chat" className="flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-white shadow-lg transition-colors hover:bg-emerald-400">
             <IconWhatsapp size={18} /> Abrir Chat ao Vivo
           </Link>
         }

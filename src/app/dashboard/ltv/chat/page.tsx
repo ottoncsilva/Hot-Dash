@@ -160,7 +160,7 @@ export default function LiveChatPage() {
               <IconArrowLeft size={16} />
             </button>
             <Link
-              href="/dashboard/whatsapp"
+              href="/dashboard/ltv/whatsapp"
               aria-label="Sair do Live Chat"
               className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/[0.03] text-zinc-400 transition-colors hover:bg-white/[0.08] hover:text-white md:flex"
             >
@@ -169,7 +169,7 @@ export default function LiveChatPage() {
           </>
         ) : (
           <Link
-            href="/dashboard/whatsapp"
+            href="/dashboard/ltv/whatsapp"
             aria-label="Sair do Live Chat"
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/[0.03] text-zinc-400 transition-colors hover:bg-white/[0.08] hover:text-white"
           >

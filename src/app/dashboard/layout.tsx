@@ -20,8 +20,6 @@ import {
   IconTelegram,
   IconSettings,
   IconLogout,
-  IconChevronDown,
-  IconChevronUp,
   IconWhatsapp,
   IconBot,
   IconSend,
@@ -34,7 +32,9 @@ import {
   IconPlay,
   IconSearch,
   IconFunnel,
+  IconFire,
 } from "@/components/icons";
+import NavGroup, { type NavSubItem } from "@/components/NavGroup";
 import CommandPalette from "@/components/CommandPalette";
 import PullToRefresh from "@/components/PullToRefresh";
 import MobileDrawer from "@/components/MobileDrawer";
@@ -55,9 +55,10 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   payments: IconPayments,
   funil: IconFunnel,
   telegram: IconTelegram,
-  whatsapp: IconWhatsapp,
-  whatsapp_settings: IconSettings,
-  whatsapp_chat: IconWhatsapp,
+  ltv: IconFire,
+  ltv_chat: IconBot,
+  ltv_whatsapp: IconWhatsapp,
+  ltv_telegram: IconSend,
   schedule: IconCalendar,
   settings: IconSettings,
 };
@@ -75,12 +76,16 @@ const SETTINGS_SUBSECTIONS: { label: string; anchor: string }[] = [
   { label: "Segurança", anchor: "seguranca" },
 ];
 
-const WHATSAPP_SUBSECTIONS: { label: string; href: string }[] = [
-  { label: "Configurações LTV", href: "/dashboard/whatsapp" },
-  { label: "Chat LTV", href: "/dashboard/whatsapp/chat" },
+// O LTV junta os dois canais: a conversa ao vivo (que serve WhatsApp e
+// Telegram) e a configuração de cada um. O menu "Telegram" ao lado continua
+// sendo outra coisa — o grupo VIP, que roda por bot.
+const LTV_SUBSECTIONS: NavSubItem[] = [
+  { label: "Chat ao vivo", href: "/dashboard/ltv/chat" },
+  { label: "LTV WhatsApp", href: "/dashboard/ltv/whatsapp" },
+  { label: "LTV Telegram", href: "/dashboard/ltv/telegram" },
 ];
 
-const TELEGRAM_SUBSECTIONS: { label: string; href: string }[] = [
+const TELEGRAM_SUBSECTIONS: NavSubItem[] = [
   { label: "Automação de postagens", href: "/dashboard/telegram" },
   { label: "Bot de vendas", href: "/dashboard/telegram/bot" },
   { label: "Mailing", href: "/dashboard/telegram/mailing" },
@@ -108,7 +113,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
     normalizeMenu(DEFAULT_MENU_ORDER.map((key) => ({ key, hidden: false })))
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [whatsappOpen, setWhatsappOpen] = useState(false);
+  const [ltvOpen, setLtvOpen] = useState(false);
   const [telegramOpen, setTelegramOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -131,7 +136,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (pathname?.startsWith("/dashboard/settings")) setSettingsOpen(true);
-    if (pathname?.startsWith("/dashboard/whatsapp")) setWhatsappOpen(true);
+    if (pathname?.startsWith("/dashboard/ltv")) setLtvOpen(true);
     if (pathname?.startsWith("/dashboard/telegram")) setTelegramOpen(true);
   }, [pathname]);
 
@@ -149,6 +154,88 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
 
   const visible = menu.filter((m) => !m.hidden);
 
+  // A sidebar do desktop e o menu do celular mostram a MESMA lista; o que muda
+  // é o espaçamento e o fechar o menu ao navegar. Antes era o mesmo JSX escrito
+  // duas vezes, e cada grupo com submenu dobrava de novo.
+  const renderNav = (compact: boolean, onNavigate?: () => void) =>
+    visible.map(({ key }) => {
+      const item = NAV_ITEMS[key];
+      const Icon = ICONS[key];
+      const icon = <Icon size={18} />;
+
+      if (key === "ltv") {
+        return (
+          <NavGroup
+            key={key}
+            label={item.label}
+            icon={icon}
+            items={LTV_SUBSECTIONS}
+            open={ltvOpen}
+            onToggle={() => setLtvOpen(!ltvOpen)}
+            active={pathname?.startsWith("/dashboard/ltv") ?? false}
+            pathname={pathname}
+            compact={compact}
+            onNavigate={onNavigate}
+          />
+        );
+      }
+
+      if (key === "telegram") {
+        return (
+          <NavGroup
+            key={key}
+            label={item.label}
+            icon={icon}
+            items={TELEGRAM_SUBSECTIONS}
+            open={telegramOpen}
+            onToggle={() => setTelegramOpen(!telegramOpen)}
+            active={pathname?.startsWith("/dashboard/telegram") ?? false}
+            pathname={pathname}
+            compact={compact}
+            onNavigate={onNavigate}
+          />
+        );
+      }
+
+      if (key === "settings") {
+        return (
+          <NavGroup
+            key={key}
+            label={item.label}
+            icon={icon}
+            items={SETTINGS_SUBSECTIONS.map((sub) => ({
+              label: sub.label,
+              href: `/dashboard/settings/${sub.anchor}`,
+            }))}
+            open={settingsOpen}
+            onToggle={() => setSettingsOpen(!settingsOpen)}
+            active={isActive(item.href)}
+            pathname={pathname}
+            compact={compact}
+            onNavigate={onNavigate}
+          />
+        );
+      }
+
+      return (
+        <Link
+          key={key}
+          href={item.href}
+          onClick={onNavigate}
+          className={`flex items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors ${
+            compact ? "py-2" : "py-2.5"
+          } ${
+            isActive(item.href)
+              ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]"
+              : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+          }`}
+        >
+          {icon}
+          {item.label}
+        </Link>
+      );
+    });
+
   return (
     <div className="flex min-h-dvh bg-ink-950 text-white">
       {/* Sidebar Desktop */}
@@ -165,134 +252,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
             aberta. Fica aqui, junto do Buscar, porque acompanha a navegação. */}
         <ProfilePicker id="modelo-desktop" />
         <nav className="mt-4 flex flex-col gap-1">
-          {visible.map(({ key }) => {
-            const item = NAV_ITEMS[key];
-            const Icon = ICONS[key];
-            const active = isActive(item.href);
-
-
-
-            if (key === "telegram") {
-              const isTelegramActive = pathname?.startsWith("/dashboard/telegram");
-              return (
-                <div key={key}>
-                  <button
-                    onClick={() => setTelegramOpen(!telegramOpen)}
-                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      isTelegramActive ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Icon size={18} />
-                      {item.label}
-                    </div>
-                    {telegramOpen ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-                  </button>
-                  {telegramOpen && (
-                    <div className="mt-1 flex flex-col border-l border-white/10 pl-4">
-                      {TELEGRAM_SUBSECTIONS.map((sub) => (
-                        <Link
-                          key={sub.href}
-                          href={sub.href}
-                          className={`px-3 py-1.5 text-xs transition-colors ${
-                            pathname === sub.href ? "text-white" : "text-zinc-500 hover:text-white"
-                          }`}
-                        >
-                          {sub.label}
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-
-            if (key === "whatsapp") {
-              const isWhatsappActive = pathname?.startsWith("/dashboard/whatsapp");
-              return (
-                <div key={key}>
-                  <button
-                    onClick={() => setWhatsappOpen(!whatsappOpen)}
-                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      isWhatsappActive ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Icon size={18} />
-                      {item.label}
-                    </div>
-                    {whatsappOpen ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-                  </button>
-                  {whatsappOpen && (
-                    <div className="mt-1 flex flex-col border-l border-white/10 pl-4">
-                      {WHATSAPP_SUBSECTIONS.map((sub) => (
-                        <Link
-                          key={sub.href}
-                          href={sub.href}
-                          className={`px-3 py-1.5 text-xs transition-colors ${
-                            pathname === sub.href
-                              ? "text-white"
-                              : "text-zinc-500 hover:text-white"
-                          }`}
-                        >
-                          {sub.label}
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-
-            if (key === "settings") {
-              return (
-                <div key={key}>
-                  <button
-                    onClick={() => setSettingsOpen(!settingsOpen)}
-                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      active ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Icon size={18} />
-                      {item.label}
-                    </div>
-                    {settingsOpen ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-                  </button>
-                  {settingsOpen && (
-                    <div className="mt-1 flex flex-col border-l border-white/10 pl-4">
-                      {SETTINGS_SUBSECTIONS.map((sub) => (
-                        <Link
-                          key={sub.anchor}
-                          href={`/dashboard/settings/${sub.anchor}`}
-                          className={`px-3 py-1.5 text-xs transition-colors ${
-                            pathname === `/dashboard/settings/${sub.anchor}`
-                              ? "text-white"
-                              : "text-zinc-500 hover:text-white"
-                          }`}
-                        >
-                          {sub.label}
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-
-            return (
-              <Link
-                key={key}
-                href={item.href}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  active ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-                }`}
-              >
-                <Icon size={18} />
-                {item.label}
-              </Link>
-            );
-          })}
+          {renderNav(true)}
         </nav>
         <div className="mt-auto">
           <UserBox email={user?.email ?? null} onSignOut={signOut} />
@@ -332,142 +292,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
           <ProfilePicker id="modelo-mobile" />
 
           <nav className="mt-6 flex flex-1 flex-col gap-1.5">
-            {visible.map(({ key }) => {
-              const item = NAV_ITEMS[key];
-              const Icon = ICONS[key];
-              const active = isActive(item.href);
-
-              const handleLinkClick = () => {
-                setMobileMenuOpen(false);
-              };
-
-
-
-              if (key === "telegram") {
-                const isTelegramActive = pathname?.startsWith("/dashboard/telegram");
-                return (
-                  <div key={key}>
-                    <button
-                      onClick={() => setTelegramOpen(!telegramOpen)}
-                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                        isTelegramActive ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Icon size={18} />
-                        {item.label}
-                      </div>
-                      {telegramOpen ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-                    </button>
-                    {telegramOpen && (
-                      <div className="mt-1 flex flex-col border-l border-white/10 pl-4">
-                        {TELEGRAM_SUBSECTIONS.map((sub) => (
-                          <Link
-                            key={sub.href}
-                            href={sub.href}
-                            onClick={handleLinkClick}
-                            className={`px-3 py-2 text-xs transition-colors ${
-                              pathname === sub.href ? "text-white" : "text-zinc-500 hover:text-white"
-                            }`}
-                          >
-                            {sub.label}
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              }
-
-              if (key === "whatsapp") {
-                const isWhatsappActive = pathname?.startsWith("/dashboard/whatsapp");
-                return (
-                  <div key={key}>
-                    <button
-                      onClick={() => setWhatsappOpen(!whatsappOpen)}
-                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                        isWhatsappActive ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Icon size={18} />
-                        {item.label}
-                      </div>
-                      {whatsappOpen ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-                    </button>
-                    {whatsappOpen && (
-                      <div className="mt-1 flex flex-col border-l border-white/10 pl-4">
-                        {WHATSAPP_SUBSECTIONS.map((sub) => (
-                          <Link
-                            key={sub.href}
-                            href={sub.href}
-                            onClick={handleLinkClick}
-                            className={`px-3 py-2 text-xs transition-colors ${
-                              pathname === sub.href
-                                ? "text-white"
-                                : "text-zinc-500 hover:text-white"
-                            }`}
-                          >
-                            {sub.label}
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              }
-
-              if (key === "settings") {
-                return (
-                  <div key={key}>
-                    <button
-                      onClick={() => setSettingsOpen(!settingsOpen)}
-                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                        active ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Icon size={18} />
-                        {item.label}
-                      </div>
-                      {settingsOpen ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-                    </button>
-                    {settingsOpen && (
-                      <div className="mt-1 flex flex-col border-l border-white/10 pl-4">
-                        {SETTINGS_SUBSECTIONS.map((sub) => (
-                          <Link
-                            key={sub.anchor}
-                            href={`/dashboard/settings/${sub.anchor}`}
-                            onClick={handleLinkClick}
-                            className={`px-3 py-2 text-xs transition-colors ${
-                              pathname === `/dashboard/settings/${sub.anchor}`
-                                ? "text-white"
-                                : "text-zinc-500 hover:text-white"
-                            }`}
-                          >
-                            {sub.label}
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              }
-
-              return (
-                <Link
-                  key={key}
-                  href={item.href}
-                  onClick={handleLinkClick}
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                    active ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#ffffff]" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-                  }`}
-                >
-                  <Icon size={18} />
-                  {item.label}
-                </Link>
-              );
-            })}
+            {renderNav(false, () => setMobileMenuOpen(false))}
           </nav>
           
           <div className="mt-auto">

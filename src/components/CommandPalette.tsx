@@ -10,8 +10,10 @@ import type { Profile } from "@/lib/types";
 
 type Item = { id: string; label: string; group: string; hint?: string; run: () => void };
 
+// As três telas de LTV entram soltas na paleta: quem busca "chat" ou
+// "telegram" quer cair direto nelas, não no grupo.
 const NAV_ORDER: NavKey[] = [
-  "dashboard", "profiles", "media", "censura", "firstframe", "caixinha", "imagegen", "videogen", "motion", "schedule", "payments", "telegram", "whatsapp", "settings",
+  "dashboard", "profiles", "media", "censura", "firstframe", "caixinha", "imagegen", "videogen", "motion", "schedule", "payments", "telegram", "ltv_chat", "ltv_whatsapp", "ltv_telegram", "settings",
 ];
 
 /**

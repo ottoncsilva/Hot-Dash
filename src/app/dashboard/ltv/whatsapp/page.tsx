@@ -1,306 +1,362 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
-import { IconWhatsapp, IconSettings, IconRefresh } from "@/components/icons";
-import { useProfile } from "@/context/ProfileContext";
-import { PrecisaDeModelo } from "@/components/ProfilePicker";
-import { apiGet, apiSend } from "@/lib/api";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { showToast } from "@/lib/toast";
-import { useConfirm } from "@/hooks/useConfirm";
 import PageHeader from "@/components/PageHeader";
+import Switch from "@/components/Switch";
+import LtvBlock from "@/components/ltv/LtvBlock";
+import OpcaoCartao from "@/components/ltv/OpcaoCartao";
+import ContaWhatsappBlock from "@/components/ltv/ContaWhatsappBlock";
+import PersonaBlock from "@/components/ltv/PersonaBlock";
+import ProdutosBlock, { type ProdutoEditavel } from "@/components/ltv/ProdutosBlock";
+import SegurancaBlock from "@/components/ltv/SegurancaBlock";
+import { PrecisaDeModelo } from "@/components/ProfilePicker";
+import { useProfile } from "@/context/ProfileContext";
+import { apiGet, apiSend } from "@/lib/api";
+import { showToast } from "@/lib/toast";
+import {
+  IconBot,
+  IconCheck,
+  IconFire,
+  IconPayments,
+  IconPlus,
+  IconProfiles,
+  IconSettings,
+  IconWhatsapp,
+} from "@/components/icons";
+import type {
+  LtvAccount,
+  LtvAgentSettings,
+  LtvAudio,
+  LtvProduct,
+  LtvResumo,
+} from "@/lib/ltvDb";
 
-type Profile = { id: string; name: string };
-type AgentSettings = { prompt: string; enable_media: boolean; enable_billing: boolean; ai_provider: string; pix_key: string };
+/**
+ * LTV no WhatsApp. Mesmos blocos da tela do Telegram de propósito: é o mesmo
+ * motor por trás, e duas telas diferentes para a mesma configuração fariam a
+ * pessoa reaprender tudo ao trocar de canal.
+ *
+ * A diferença é o MULTI-NÚMERO: aqui a modelo tem vários WhatsApps, cada um
+ * com a persona, os produtos e os leads dele. Trocar de número troca tudo o
+ * que está abaixo dos chips.
+ */
+export default function LtvWhatsappPage() {
+  const { profileId, profile } = useProfile();
+  const [carregando, setCarregando] = useState(true);
+  const [salvando, setSalvando] = useState(false);
+  const [contas, setContas] = useState<LtvAccount[]>([]);
+  const [contaId, setContaId] = useState<string | null>(null);
+  const [agente, setAgente] = useState<LtvAgentSettings | null>(null);
+  const [produtos, setProdutos] = useState<ProdutoEditavel[]>([]);
+  const [audios, setAudios] = useState<LtvAudio[]>([]);
+  const [resumo, setResumo] = useState<LtvResumo | null>(null);
 
-export default function WhatsAppVipPage() {
-  const { confirm, ConfirmDialog } = useConfirm();
-  // Modelo escolhida no menu — vale para o painel inteiro.
-  const { profileId: selectedProfileId, profile } = useProfile();
-  const [loading, setLoading] = useState(false);
-  const [savingAgent, setSavingAgent] = useState(false);
+  const conta = contas.find((c) => c.id === contaId) || null;
 
-  // Instance State
-  const [instanceStatus, setInstanceStatus] = useState<"connected" | "connecting" | "disconnected">("disconnected");
-  const [instanceName, setInstanceName] = useState<string | null>(null);
-  const [qrCode, setQrCode] = useState<string | null>(null);
-  const [connecting, setConnecting] = useState(false);
-
-  // Agent State
-  const [agent, setAgent] = useState<AgentSettings>({
-    prompt: "",
-    enable_media: true,
-    enable_billing: true,
-    ai_provider: "grok",
-    pix_key: "",
-  });
-
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  const loadInstance = async (profileId: string) => {
-    try {
-      const d = await apiGet<{ status: "connected" | "connecting" | "disconnected", instance: string | null }>(
-        `/api/whatsapp/instances?profileId=${profileId}`
-      );
-      setInstanceStatus(d.status);
-      setInstanceName(d.instance);
-      if (d.status === "connected") setQrCode(null);
-    } catch {}
-  };
-
-  const loadAgent = async (profileId: string) => {
-    try {
-      const d = await apiGet<{ settings: AgentSettings }>(`/api/whatsapp/agent?profileId=${profileId}`);
-      if (d.settings) setAgent(d.settings);
-    } catch {}
-  };
+  const carregarContas = useCallback(async (pid: string) => {
+    const d = await apiGet<{ accounts: LtvAccount[] }>(
+      `/api/ltv/accounts?profileId=${pid}&channel=whatsapp`,
+    );
+    setContas(d.accounts);
+    setContaId((atual) => (d.accounts.some((c) => c.id === atual) ? atual : d.accounts[0]?.id ?? null));
+    return d.accounts;
+  }, []);
 
   useEffect(() => {
-    if (!selectedProfileId) return;
-    setLoading(true);
-    setQrCode(null);
-    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    if (!profileId) return;
+    setCarregando(true);
+    carregarContas(profileId)
+      .catch((e) => showToast(e.message, "error"))
+      .finally(() => setCarregando(false));
+  }, [profileId, carregarContas]);
 
+  /* A configuração é por CONTA: trocar de número recarrega tudo. */
+  useEffect(() => {
+    if (!contaId) {
+      setAgente(null);
+      setProdutos([]);
+      setAudios([]);
+      setResumo(null);
+      return;
+    }
     Promise.all([
-      loadInstance(selectedProfileId),
-      loadAgent(selectedProfileId)
-    ]).finally(() => setLoading(false));
+      apiGet<{ agent: LtvAgentSettings }>(`/api/ltv/agent?accountId=${contaId}`),
+      apiGet<{ products: LtvProduct[] }>(`/api/ltv/products?accountId=${contaId}`),
+      apiGet<{ audios: LtvAudio[] }>(`/api/ltv/audios?accountId=${contaId}`),
+      apiGet<{ summary: LtvResumo }>(`/api/ltv/chats?accountId=${contaId}`),
+    ])
+      .then(([a, p, au, ch]) => {
+        setAgente(a.agent);
+        setProdutos(p.products.map((x) => ({ ...x })));
+        setAudios(au.audios);
+        setResumo(ch.summary);
+      })
+      .catch((e) => showToast(e.message, "error"));
+  }, [contaId]);
 
-  }, [selectedProfileId]);
+  function mudarAgente(patch: Partial<LtvAgentSettings>) {
+    setAgente((a) => (a ? { ...a, ...patch } : a));
+  }
 
-  // Polling para checar se conectou quando está exibindo QR code
-  useEffect(() => {
-    if (instanceStatus === "connecting" && qrCode) {
-      pollIntervalRef.current = setInterval(() => {
-        loadInstance(selectedProfileId);
-      }, 5000);
-    } else {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-    }
-    return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-    };
-  }, [instanceStatus, qrCode, selectedProfileId]);
-
-  const handleConnect = async () => {
-    setConnecting(true);
+  async function adicionarNumero() {
+    if (!profileId) return;
     try {
-      const d = await apiSend<{ status: string, qrcode: string | null }>(
-        "/api/whatsapp/instances",
-        "POST",
-        { action: "connect", profileId: selectedProfileId }
-      );
-      setInstanceStatus("connecting");
-      if (d.qrcode) {
-        setQrCode(d.qrcode);
-      } else {
-        setQrCode(null);
-        showToast("Nenhum QRCode retornado (a instância já pode estar conectada).", "warning");
-        loadInstance(selectedProfileId);
-      }
-    } catch (e: any) {
-      showToast("Erro ao conectar: " + e.message, "error");
-    } finally {
-      setConnecting(false);
-    }
-  };
-
-  const handleDisconnect = async () => {
-    if (!(await confirm("Tem certeza que deseja desconectar e excluir a instância desta modelo?"))) return;
-    try {
-      await apiSend("/api/whatsapp/instances", "POST", { action: "disconnect", profileId: selectedProfileId });
-      setInstanceStatus("disconnected");
-      setInstanceName(null);
-      setQrCode(null);
-    } catch (e: any) {
-      showToast("Erro ao desconectar: " + e.message, "error");
-    }
-  };
-
-  const saveAgent = async () => {
-    setSavingAgent(true);
-    try {
-      await apiSend("/api/whatsapp/agent", "PATCH", {
-        profileId: selectedProfileId,
-        ...agent
+      const d = await apiSend<{ account: LtvAccount }>("/api/ltv/accounts", "POST", {
+        profileId,
+        channel: "whatsapp",
       });
-      showToast("Configurações do Agente salvas com sucesso!", "success");
+      await carregarContas(profileId);
+      setContaId(d.account.id);
     } catch (e: any) {
-      showToast("Erro ao salvar: " + e.message, "error");
-    } finally {
-      setSavingAgent(false);
+      showToast(e.message, "error");
     }
-  };
+  }
 
-  // Conexão e agente são sempre de UMA modelo — com "Todas" no menu não há o
-  // que conectar nem configurar.
-  if (!selectedProfileId) {
+  async function salvar() {
+    if (!conta || !agente) return;
+    setSalvando(true);
+    try {
+      await apiSend("/api/ltv/agent", "PATCH", { ...agente, accountId: conta.id });
+      const d = await apiSend<{ products: LtvProduct[] }>("/api/ltv/products", "PUT", {
+        accountId: conta.id,
+        products: produtos.filter((p) => p.name.trim()),
+      });
+      setProdutos(d.products.map((p) => ({ ...p })));
+      showToast("Atendente salvo!", "success");
+    } catch (e: any) {
+      showToast(e.message, "error");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  if (!profileId) {
     return (
       <div className="page">
-        <PageHeader title="WhatsApp" />
+        <PageHeader title="LTV no WhatsApp" />
         <PrecisaDeModelo oQue="conectar o WhatsApp e configurar a IA" />
       </div>
     );
   }
 
+  const tomResumo = agente?.toneTags.join(" + ");
+
   return (
-    <div className="page text-white">
-      {/* A tela não tinha título nenhum: começava direto no botão do chat, e no
-          celular não dava para saber em que módulo se estava. */}
+    <div className="page pb-28">
       <PageHeader
-        title="WhatsApp"
-        actions={
-          <Link href="/dashboard/ltv/chat" className="flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-white shadow-lg transition-colors hover:bg-emerald-400">
-            <IconWhatsapp size={18} /> Abrir Chat ao Vivo
-          </Link>
+        eyebrow={profile?.name}
+        title={
+          <span className="flex items-center gap-2">
+            <IconWhatsapp size={22} /> LTV no WhatsApp
+          </span>
         }
+        description="Sua modelo conversa com os leads no WhatsApp e faz LTV automaticamente."
       />
-      <div className="mb-6" />
 
-      {/* A modelo vem do menu; aqui só se confirma QUAL está conectada — errar
-          de modelo aqui liga o WhatsApp errado ao bot. */}
-      <div className="mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 shadow-lg">
-        <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-emerald-400">
-          <IconWhatsapp size={16} /> WhatsApp VIP
-        </h2>
-        <p className="mt-0.5 font-display text-lg font-semibold text-white">{profile?.name}</p>
-        <p className="text-xs text-zinc-400">
-          Conexão e IA desta modelo. Troque no seletor do menu.
-        </p>
-      </div>
-
-      {loading ? (
-        <div className="flex h-32 items-center justify-center">
+      {carregando ? (
+        <div className="mt-8 flex justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
         </div>
       ) : (
-        <div className="grid gap-6 md:grid-cols-2">
-          
-          {/* Coluna 1: Conexão */}
-          <div className="flex flex-col gap-6">
-            <div className="panel rounded-xl p-5">
-              <div className="flex items-center gap-3 border-b border-white/[0.06] pb-4">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
-                  <IconWhatsapp size={20} />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-white">Evolution API</h3>
-                  <p className="text-xs text-zinc-500">Conexão do WhatsApp da Modelo</p>
-                </div>
-              </div>
-              
-              <div className="mt-4 flex flex-col items-center">
-                <div className="mb-4 flex items-center gap-2">
-                  Status: 
-                  {instanceStatus === "connected" && <span className="rounded-full bg-green-500/20 px-2.5 py-0.5 text-xs font-medium text-green-400 border border-green-500/30">Conectado</span>}
-                  {instanceStatus === "connecting" && <span className="rounded-full bg-yellow-500/20 px-2.5 py-0.5 text-xs font-medium text-yellow-400 border border-yellow-500/30">Aguardando QR Code</span>}
-                  {instanceStatus === "disconnected" && <span className="rounded-full bg-red-500/20 px-2.5 py-0.5 text-xs font-medium text-red-400 border border-red-500/30">Desconectado</span>}
-                </div>
-
-                {qrCode && instanceStatus === "connecting" && (
-                  <div className="mb-4 flex flex-col items-center gap-2">
-                    <div className="rounded-xl bg-white p-3 shadow-lg">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={qrCode.startsWith("data:") ? qrCode : `data:image/png;base64,${qrCode}`} alt="QR Code" className="w-52 h-52 object-cover" />
-                    </div>
-                    <p className="text-xs text-zinc-400 animate-pulse">Aguardando leitura do QR Code pelo celular...</p>
-                  </div>
-                )}
-
-                {instanceStatus === "disconnected" && (
-                  <button onClick={handleConnect} disabled={connecting} className="w-full rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-400 transition-colors disabled:opacity-50">
-                    {connecting ? "Gerando..." : "Gerar QR Code de Conexão"}
-                  </button>
-                )}
-
-                {instanceStatus === "connected" && (
-                  <button onClick={handleDisconnect} className="w-full rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-400 hover:bg-red-500/20 transition-colors">
-                    Desconectar WhatsApp
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Coluna 2: Agente Grok */}
-          <div className="flex flex-col gap-6">
-            <div className="panel rounded-xl p-5">
-              <div className="flex items-center gap-3 border-b border-white/[0.06] pb-4">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-800 text-zinc-300">
-                  <IconSettings size={20} />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-white">Agente de IA (Grok)</h3>
-                  <p className="text-xs text-zinc-500">Personalidade e permissões de Venda</p>
-                </div>
-              </div>
-              
-              <div className="mt-4">
-                <label className="mb-2 block text-sm font-medium text-zinc-300">
-                  Prompt da Persona (Ex: Lara Botelho)
-                </label>
-                <textarea
-                  className="w-full h-64 resize-none rounded-lg border border-white/[0.06] bg-ink-950 p-3 text-sm text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  placeholder="Você é Lara Botelho. Uma mulher comum de 35 anos... Sua missão é fazer o cliente assinar o Pix..."
-                  value={agent.prompt}
-                  onChange={(e) => setAgent({ ...agent, prompt: e.target.value })}
-                />
-                
-                <div className="mt-4 flex flex-col gap-3">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 accent-emerald-500"
-                      checked={agent.enable_media}
-                      onChange={(e) => setAgent({ ...agent, enable_media: e.target.checked })}
-                    />
-                    <span className="text-sm text-zinc-300">Permitir envio autônomo de Fotos/Vídeos</span>
-                  </label>
-                  
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 accent-emerald-500"
-                      checked={agent.enable_billing}
-                      onChange={(e) => setAgent({ ...agent, enable_billing: e.target.checked })}
-                    />
-                    <span className="text-sm text-zinc-300">Permitir cobrança via Pix Integrado</span>
-                  </label>
-                  
-                  {/* AI Provider Dropdown */}
-                  <label className="mt-4 block text-sm font-medium text-zinc-300">Modelo de IA</label>
-                  <select
-                    value={agent.ai_provider}
-                    onChange={(e) => setAgent({ ...agent, ai_provider: e.target.value })}
-                    className="w-full rounded-lg border border-emerald-500/50 bg-ink-850 px-4 py-2.5 text-base font-semibold text-white shadow-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  >
-                    <option value="gemini">Gemini</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="grok">Grok</option>
-                  </select>
-                  
-                  {/* PIX Key Input */}
-                  <label className="mt-4 block text-sm font-medium text-zinc-300">Chave PIX (telefone, CNPJ ou CPF)</label>
-                  <input
-                    type="text"
-                    placeholder="ex: +5511999999999"
-                    value={agent.pix_key}
-                    onChange={(e) => setAgent({ ...agent, pix_key: e.target.value })}
-                    className="w-full rounded-lg border border-emerald-500/50 bg-ink-850 px-4 py-2.5 text-base font-semibold text-white shadow-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        <div className="mt-6 flex flex-col gap-3">
+          {/* Cada número é uma operação separada: persona, produtos e leads
+              próprios. Os chips deixam isso explícito antes de qualquer campo. */}
+          <div className="flex flex-wrap gap-2">
+            {contas.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setContaId(c.id)}
+                className={`rounded-lg border px-4 py-2 text-left text-sm transition-colors [@media(pointer:coarse)]:min-h-[44px] ${
+                  contaId === c.id
+                    ? "border-emerald-500 bg-emerald-500/10"
+                    : "border-white/10 hover:bg-white/5"
+                }`}
+              >
+                <span className="flex items-center gap-2 font-semibold text-white">
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      c.status === "connected" ? "bg-emerald-400" : "bg-zinc-600"
+                    }`}
                   />
-                </div>
-
-                <button onClick={saveAgent} disabled={savingAgent} className="mt-6 w-full rounded-lg bg-white px-4 py-2 text-sm font-semibold text-ink-950 hover:bg-zinc-200 transition-colors disabled:opacity-50">
-                  {savingAgent ? "Salvando..." : "Salvar Configurações do Agente"}
-                </button>
-              </div>
-            </div>
+                  {c.label}
+                </span>
+                <span className="block font-mono text-xs text-zinc-500">
+                  {c.externalRef || "sem número"}
+                </span>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={adicionarNumero}
+              className="inline-flex items-center gap-2 rounded-lg border border-dashed border-white/20 px-4 py-2 text-sm text-zinc-300 transition-colors hover:bg-white/5 [@media(pointer:coarse)]:min-h-[44px]"
+            >
+              <IconPlus size={16} /> Adicionar outro WhatsApp
+            </button>
           </div>
 
+          {!conta ? (
+            <p className="mt-4 text-sm text-zinc-500">
+              Esta modelo ainda não tem um WhatsApp no LTV. Adicione o primeiro número acima.
+            </p>
+          ) : (
+            <>
+              {agente && (
+                <div className="panel flex items-start gap-3 rounded-xl p-4">
+                  <Switch
+                    checked={agente.enabled}
+                    onChange={(v) => mudarAgente({ enabled: v })}
+                    ariaLabel="Atendente ativo"
+                  />
+                  <div>
+                    <p className="font-semibold text-white">Atendente ativo</p>
+                    <p className="text-xs text-zinc-500">
+                      Respondendo os leads automaticamente no WhatsApp.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <LtvBlock
+                icon={<IconWhatsapp size={20} />}
+                title="WhatsApp da modelo"
+                summary={conta.externalRef || "Nenhum número conectado"}
+                defaultOpen={conta.status !== "connected"}
+                badge={
+                  <span
+                    className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+                      conta.status === "connected"
+                        ? "border-emerald-500/30 bg-emerald-500/20 text-emerald-400"
+                        : "border-white/10 bg-white/5 text-zinc-400"
+                    }`}
+                  >
+                    {conta.status === "connected" ? "Conectado" : "Off"}
+                  </span>
+                }
+              >
+                <ContaWhatsappBlock
+                  conta={conta}
+                  onConta={(c) => setContas((cs) => cs.map((x) => (x.id === c.id ? c : x)))}
+                  onRemovida={() => {
+                    setContaId(null);
+                    carregarContas(profileId);
+                  }}
+                />
+              </LtvBlock>
+
+              {agente && (
+                <>
+                  <LtvBlock
+                    icon={<IconFire size={20} />}
+                    title="Abordagem do lead"
+                    summary={
+                      agente.approach === "aquecer"
+                        ? "Aquecer — conversa longa (assinante)"
+                        : "Direto — tráfego pago, fecha em minutos"
+                    }
+                  >
+                    <p className="mb-3 text-sm text-zinc-500">
+                      Como a modelo aborda quem chega — escolha conforme a{" "}
+                      <strong className="text-zinc-300">origem</strong> do lead.
+                    </p>
+                    <div className="flex flex-col gap-3">
+                      <OpcaoCartao
+                        active={agente.approach === "aquecer"}
+                        onClick={() => mudarAgente({ approach: "aquecer" })}
+                        title="Aquecer"
+                      >
+                        Lead que já é assinante VIP. Conversa mais longa, sobe o tesão aos poucos
+                        e só fala preço quando ele pede. (padrão)
+                      </OpcaoCartao>
+                      <OpcaoCartao
+                        active={agente.approach === "direto"}
+                        onClick={() => mudarAgente({ approach: "direto" })}
+                        title="Direto · tráfego pago"
+                      >
+                        Lead FRIO de anúncio. Roteiro rápido: gancho + nome → amostra → menu de
+                        packs → PIX. Fecha em minutos.
+                      </OpcaoCartao>
+                    </div>
+                  </LtvBlock>
+
+                  <LtvBlock
+                    icon={<IconBot size={20} />}
+                    title="Persona da modelo"
+                    summary={
+                      [agente.personaName, tomResumo].filter(Boolean).join(" · ") ||
+                      "Não configurada"
+                    }
+                  >
+                    <PersonaBlock agente={agente} onChange={mudarAgente} />
+                  </LtvBlock>
+
+                  <LtvBlock
+                    icon={<IconPayments size={20} />}
+                    title="Recebimento e produtos (LTV)"
+                    summary={`${produtos.length} produto(s) · PIX pela SyncPay`}
+                  >
+                    <ProdutosBlock
+                      accountId={conta.id}
+                      profileId={profileId}
+                      produtos={produtos}
+                      onProdutos={setProdutos}
+                      audios={audios}
+                      onAudios={setAudios}
+                    />
+                  </LtvBlock>
+
+                  <LtvBlock
+                    icon={<IconProfiles size={20} />}
+                    title="Leads e conversas"
+                    summary={
+                      resumo
+                        ? `${resumo.leads} lead(s) · ${resumo.compradores} comprador(es) · ${(
+                            resumo.receitaCents / 100
+                          ).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`
+                        : "Sem leads ainda"
+                    }
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm text-zinc-400">
+                        Todos os leads deste número, quanto cada um já gastou e a conversa
+                        completa.
+                      </p>
+                      <Link
+                        href="/dashboard/ltv/chat?channel=whatsapp"
+                        className="rounded-lg border border-white/15 px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-white/5"
+                      >
+                        Abrir o Chat ao vivo
+                      </Link>
+                    </div>
+                  </LtvBlock>
+
+                  <LtvBlock
+                    icon={<IconSettings size={20} />}
+                    title="Inteligência e segurança"
+                    summary={`${
+                      agente.rhythm === "humano" ? "Ritmo humano" : "Rápido fixo"
+                    } · limite de ${agente.dailyLimit}/dia`}
+                  >
+                    <SegurancaBlock agente={agente} onChange={mudarAgente} />
+                  </LtvBlock>
+
+                  <div className="sticky bottom-4 z-10 mt-2">
+                    <button
+                      type="button"
+                      onClick={salvar}
+                      disabled={salvando}
+                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-3.5 text-base font-bold text-white shadow-lg transition-colors hover:bg-emerald-400 disabled:opacity-50"
+                    >
+                      <IconCheck size={18} /> {salvando ? "Salvando..." : "Salvar atendente"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </>
+          )}
         </div>
       )}
-      
-      {ConfirmDialog}
     </div>
   );
 }

@@ -34,7 +34,11 @@ export default function LtvBlock({
           {icon}
         </div>
         <div className="min-w-0 flex-1">
-          <h2 className="truncate font-semibold text-white">{title}</h2>
+          {/* O título QUEBRA em vez de truncar: no celular "Recebimento e
+              produtos (LTV)" virava "Recebimento e produtos (LT…", que não
+              diz o que o bloco faz. Quem trunca é só o resumo, que é
+              descartável. */}
+          <h2 className="font-semibold leading-tight text-white">{title}</h2>
           {!open && summary && (
             <p className="truncate text-xs text-zinc-500">{summary}</p>
           )}

@@ -1,380 +1,516 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
-import { IconArrowLeft, IconSend, IconBot, IconUser } from "@/components/icons";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import PageHeader from "@/components/PageHeader";
+import Switch from "@/components/Switch";
+import { PrecisaDeModelo } from "@/components/ProfilePicker";
+import { useProfile } from "@/context/ProfileContext";
 import { apiGet, apiSend } from "@/lib/api";
-import Link from "next/link";
 import { showToast } from "@/lib/toast";
+import { IconPlus, IconSend, IconWhatsapp } from "@/components/icons";
+import type { LtvAccount, LtvChannel, LtvLead, LtvMessage, LtvResumo } from "@/lib/ltvDb";
 
-type ChatPreview = {
-  id: string;
-  profile_id: string;
-  profile_name: string;
-  remote_jid: string;
-  state: "active" | "paused";
-  last_interaction_at: number;
-  last_message: string;
-};
+/**
+ * Painel LTV — todos os leads que a modelo atendeu, quanto cada um já gastou e
+ * a conversa completa, na mesma tela.
+ *
+ * Os leads são SEMPRE de uma conta só. No WhatsApp a modelo tem vários
+ * números, e cada um tem a conversa dele: misturar faria responder um lead
+ * achando que é de outro chip. No Telegram é um chip só, então não há chips de
+ * conta para escolher.
+ */
+const LIMITE_MENSAGEM = 900;
 
-type MediaItem = {
-  id: string;
-  kind: string;
-  url: string;
-};
+// useSearchParams exige limite de Suspense no App Router.
+export default function PainelLtvPage() {
+  return (
+    <Suspense fallback={<div className="page text-sm text-zinc-600">Carregando…</div>}>
+      <PainelLtv />
+    </Suspense>
+  );
+}
 
-type ChatMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  type: string;
-  created_at: number;
-};
+function PainelLtv() {
+  const { profileId, profile } = useProfile();
+  const params = useSearchParams();
+  const [canal, setCanal] = useState<LtvChannel>(
+    params.get("channel") === "telegram" ? "telegram" : "whatsapp",
+  );
+  const [contas, setContas] = useState<LtvAccount[]>([]);
+  const [contaId, setContaId] = useState<string | null>(null);
+  const [resumo, setResumo] = useState<LtvResumo | null>(null);
+  const [leads, setLeads] = useState<LtvLead[]>([]);
+  const [busca, setBusca] = useState("");
+  const [leadId, setLeadId] = useState<string | null>(null);
+  const [mensagens, setMensagens] = useState<LtvMessage[]>([]);
+  const [iaAtiva, setIaAtiva] = useState(true);
+  const [texto, setTexto] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [vendaAberta, setVendaAberta] = useState(false);
+  const fimDaConversa = useRef<HTMLDivElement>(null);
 
-export default function LiveChatPage() {
-  const [chats, setChats] = useState<ChatPreview[]>([]);
-  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [chatState, setChatState] = useState<"active" | "paused">("active");
-  const [inputMsg, setInputMsg] = useState("");
-  const [sending, setSending] = useState(false);
-  const [showMediaPicker, setShowMediaPicker] = useState(false);
-  const [mediaList, setMediaList] = useState<MediaItem[]>([]);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const contasDoCanal = contas.filter((c) => c.channel === canal);
+  const lead = leads.find((l) => l.id === leadId) || null;
 
-  // Load chat list
+  /* Contas da modelo — recarrega ao trocar de modelo ou de canal. */
   useEffect(() => {
-    fetchChats();
-    const interval = setInterval(fetchChats, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    if (!profileId) return;
+    apiGet<{ accounts: LtvAccount[] }>(`/api/ltv/accounts?profileId=${profileId}`)
+      .then((d) => setContas(d.accounts))
+      .catch((e) => showToast(e.message, "error"));
+  }, [profileId]);
 
-  const fetchChats = async () => {
-    try {
-      const d = await apiGet<{ chats: ChatPreview[] }>("/api/whatsapp/chats");
-      setChats(d.chats || []);
-    } catch {}
-  };
-
-  // Load selected chat messages
   useEffect(() => {
-    if (!selectedChatId) {
-      setMessages([]);
+    const doCanal = contas.filter((c) => c.channel === canal);
+    setContaId((atual) => (doCanal.some((c) => c.id === atual) ? atual : doCanal[0]?.id ?? null));
+  }, [contas, canal]);
+
+  const carregarLeads = useCallback(async () => {
+    if (!contaId) {
+      setLeads([]);
+      setResumo(null);
       return;
     }
-    fetchMessages();
-    const interval = setInterval(fetchMessages, 3000);
-    return () => clearInterval(interval);
-  }, [selectedChatId]);
-
-  const fetchMessages = async () => {
-    if (!selectedChatId) return;
     try {
-      const d = await apiGet<{ chat: any, messages: ChatMessage[] }>(`/api/whatsapp/chats/${selectedChatId}`);
-      setMessages(d.messages || []);
-      setChatState(d.chat.state);
-      if (d.chat.profile_id) {
-        apiGet<{ media: MediaItem[] }>(`/api/profiles/${d.chat.profile_id}/media`)
-          .then(res => setMediaList(res.media || []))
-          .catch(() => {});
-      }
-    } catch {}
-  };
+      const d = await apiGet<{ summary: LtvResumo; leads: LtvLead[] }>(
+        `/api/ltv/chats?accountId=${contaId}&q=${encodeURIComponent(busca)}`,
+      );
+      setResumo(d.summary);
+      setLeads(d.leads);
+    } catch {
+      /* uma falha de rede não pode limpar a lista que já está na tela */
+    }
+  }, [contaId, busca]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    carregarLeads();
+    const t = setInterval(carregarLeads, 8000);
+    return () => clearInterval(t);
+  }, [carregarLeads]);
 
-  const toggleAi = async () => {
-    if (!selectedChatId) return;
+  // Trocar de conta ou de canal fecha a conversa aberta: ela é de outra conta.
+  useEffect(() => {
+    setLeadId(null);
+    setMensagens([]);
+  }, [contaId]);
+
+  const carregarConversa = useCallback(async () => {
+    if (!leadId) return;
     try {
-      const action = chatState === "active" ? "paused" : "active";
-      // Optimistic update for UI feel
-      setChatState(action);
-      setChats(chats.map(c => c.id === selectedChatId ? { ...c, state: action } : c));
-      
-      const d = await apiSend<{ state: "active" | "paused" }>(`/api/whatsapp/chats/${selectedChatId}`, "POST", { action: "toggle_ai" });
-      setChatState(d.state);
-      setChats(chats.map(c => c.id === selectedChatId ? { ...c, state: d.state } : c));
+      const d = await apiGet<{ chat: { state: string }; messages: LtvMessage[] }>(
+        `/api/ltv/chats/${leadId}`,
+      );
+      setMensagens(d.messages);
+      setIaAtiva(d.chat.state === "active");
+    } catch {
+      /* idem */
+    }
+  }, [leadId]);
+
+  useEffect(() => {
+    if (!leadId) return;
+    carregarConversa();
+    const t = setInterval(carregarConversa, 4000);
+    return () => clearInterval(t);
+  }, [leadId, carregarConversa]);
+
+  useEffect(() => {
+    fimDaConversa.current?.scrollIntoView({ behavior: "smooth" });
+  }, [mensagens.length]);
+
+  async function enviar() {
+    const conteudo = texto.trim();
+    if (!conteudo || !leadId) return;
+    setEnviando(true);
+    try {
+      await apiSend(`/api/ltv/chats/${leadId}`, "POST", { action: "send", content: conteudo });
+      setTexto("");
+      // Responder pelo painel assume a conversa: o servidor pausa a IA, e a
+      // tela precisa mostrar isso sem esperar o próximo ciclo.
+      setIaAtiva(false);
+      await carregarConversa();
     } catch (e: any) {
       showToast(e.message, "error");
-    }
-  };
-
-  const sendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputMsg.trim() || !selectedChatId || sending) return;
-    
-    setSending(true);
-    const textToSend = inputMsg;
-    setInputMsg("");
-    
-    try {
-      await apiSend(`/api/whatsapp/chats/${selectedChatId}`, "POST", { action: "send_message", content: textToSend });
-      fetchMessages();
-      fetchChats();
-    } catch (e: any) {
-      showToast("Erro ao enviar: " + e.message, "error");
-      setInputMsg(textToSend); // restore on error
     } finally {
-      setSending(false);
+      setEnviando(false);
     }
-  };
+  }
 
-  const sendMedia = async (mediaId: string) => {
-    if (!selectedChatId || sending) return;
-    setSending(true);
-    setShowMediaPicker(false);
+  async function alternarIa(v: boolean) {
+    if (!leadId) return;
+    setIaAtiva(v);
     try {
-      await apiSend(`/api/whatsapp/chats/${selectedChatId}`, "POST", { action: "send_media", mediaId });
-      fetchMessages();
-      fetchChats();
+      await apiSend(`/api/ltv/chats/${leadId}`, "POST", { action: "toggle_ai" });
     } catch (e: any) {
-      showToast("Erro ao enviar mídia: " + e.message, "error");
-    } finally {
-      setSending(false);
+      setIaAtiva(!v);
+      showToast(e.message, "error");
     }
-  };
+  }
 
-  const selectedChat = chats.find(c => c.id === selectedChatId);
+  if (!profileId) {
+    return (
+      <div className="page">
+        <PageHeader title="Painel LTV" />
+        <PrecisaDeModelo oQue="ver os leads e as conversas" />
+      </div>
+    );
+  }
 
   return (
-    // `h-dvh` cortava a barra do topo: o <main> do painel já põe 3,5rem em cima
-    // e 2rem embaixo no celular (2,5rem de cada lado em telas grandes), então a
-    // tela inteira somava mais que a janela e a página rolava por baixo do
-    // cabeçalho. Aqui a altura desconta essa folga.
-    <div className="flex h-[calc(100dvh-5.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex-col overflow-hidden bg-ink-950 font-sans text-zinc-100 lg:h-[calc(100dvh-5rem)]">
-      {/* Barra superior. `pl-20` no celular porque o botão de menu do painel é
-          flutuante e cairia bem em cima do voltar; no desktop não existe. */}
-      <div className="z-10 flex items-center gap-3 border-b border-white/[0.04] bg-ink-900/80 py-3 pl-20 pr-4 shadow-sm backdrop-blur-md lg:gap-4 lg:px-6 lg:py-4">
-        {/* UM voltar só, e ele muda de destino conforme o que está na tela.
-            No celular com uma conversa aberta, ele devolve para a lista — que
-            é onde o dedo espera voltar; nos demais casos sai da tela. */}
-        {selectedChatId ? (
-          <>
-            <button
-              type="button"
-              onClick={() => setSelectedChatId(null)}
-              aria-label="Voltar para as conversas"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/[0.03] text-zinc-400 transition-colors hover:bg-white/[0.08] hover:text-white md:hidden"
-            >
-              <IconArrowLeft size={16} />
-            </button>
-            <Link
-              href="/dashboard/ltv/whatsapp"
-              aria-label="Sair do Live Chat"
-              className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/[0.03] text-zinc-400 transition-colors hover:bg-white/[0.08] hover:text-white md:flex"
-            >
-              <IconArrowLeft size={16} />
-            </Link>
-          </>
-        ) : (
-          <Link
-            href="/dashboard/ltv/whatsapp"
-            aria-label="Sair do Live Chat"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/[0.03] text-zinc-400 transition-colors hover:bg-white/[0.08] hover:text-white"
+    <div className="page">
+      <PageHeader
+        eyebrow={profile?.name}
+        title="Painel LTV"
+        description="Todos os leads que a sua modelo atendeu, quanto cada um já gastou e a conversa completa."
+      />
+
+      <div className="mt-4 flex gap-2">
+        {(["whatsapp", "telegram"] as LtvChannel[]).map((c) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => setCanal(c)}
+            className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold transition-colors [@media(pointer:coarse)]:min-h-[44px] ${
+              canal === c
+                ? "border-emerald-500 bg-emerald-500/10 text-emerald-400"
+                : "border-white/10 text-zinc-400 hover:bg-white/5"
+            }`}
           >
-            <IconArrowLeft size={16} />
-          </Link>
-        )}
-        <h1 className="truncate font-display text-lg font-medium tracking-tight lg:text-xl">Live Chat</h1>
+            {c === "whatsapp" ? <IconWhatsapp size={16} /> : <IconSend size={16} />}
+            {c === "whatsapp" ? "WhatsApp" : "Telegram"}
+          </button>
+        ))}
       </div>
 
-      {/* UMA COLUNA DE CADA VEZ NO CELULAR.
-          A tela era feita de duas colunas fixas — 320px travados para a lista
-          e o resto para a conversa. Num iPhone sobravam 68px para ler e
-          responder, com 14px ainda fora da tela: era a tela com mais motivo
-          para existir no celular (atender um lead) e a única que não existia
-          lá. Agora a lista ocupa a tela inteira, escolher uma conversa troca
-          para ela, e um voltar devolve à lista. De `md` para cima nada muda:
-          as duas colunas lado a lado, como sempre. */}
-      <div className="flex flex-1 overflow-hidden relative">
-        {/* Sidebar - Chats List */}
-        <div
-          className={`w-full min-w-0 flex-shrink-0 flex-col overflow-y-auto border-r border-white/[0.04] bg-ink-900 md:flex md:w-80 ${
-            selectedChatId ? "hidden" : "flex"
-          }`}
-        >
-          {chats.length === 0 ? (
-            <div className="p-8 text-center text-sm text-zinc-500 mt-10">Nenhum chat ativo no momento.</div>
-          ) : (
-            <div className="flex flex-col py-2">
-              {chats.map(chat => (
-                <button
-                  key={chat.id}
-                  onClick={() => setSelectedChatId(chat.id)}
-                  className={`group flex flex-col gap-1 px-5 py-4 text-left transition-all hover:bg-white/[0.02] ${selectedChatId === chat.id ? 'bg-white/[0.04] border-l-2 border-emerald-500' : 'border-l-2 border-transparent'}`}
-                >
-                  <div className="flex items-center justify-between w-full">
-                    <span className="font-medium text-[15px] text-zinc-200 truncate">
-                      +{chat.remote_jid.split('@')[0]}
-                    </span>
-                    {chat.state === 'active' ? (
-                      <span className="flex h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
-                    ) : (
-                      <span className="flex h-2 w-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]"></span>
-                    )}
-                  </div>
-                  <div className="text-xs text-zinc-500 truncate w-full group-hover:text-zinc-400 transition-colors">
-                    {chat.last_message || "Sem mensagens..."}
-                  </div>
-                  <div className="text-[10px] text-emerald-500/70 uppercase tracking-wider font-semibold mt-1.5 flex items-center gap-1.5">
-                    <IconBot size={10} /> {chat.profile_name}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
+      {/* Chips de número só no WhatsApp: no Telegram é um chip por modelo. */}
+      {canal === "whatsapp" && contasDoCanal.length > 1 && (
+        <div className="mt-4">
+          <p className="eyebrow">Escolha o número · cada um tem os leads só dele</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {contasDoCanal.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setContaId(c.id)}
+                className={`rounded-lg border px-4 py-2 text-left text-sm transition-colors [@media(pointer:coarse)]:min-h-[44px] ${
+                  contaId === c.id
+                    ? "border-emerald-500 bg-emerald-500/10"
+                    : "border-white/10 hover:bg-white/5"
+                }`}
+              >
+                <span className="flex items-center gap-2 font-semibold text-white">
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      c.status === "connected" ? "bg-emerald-400" : "bg-zinc-600"
+                    }`}
+                  />
+                  {c.label}
+                </span>
+                <span className="block font-mono text-xs text-zinc-500">
+                  {c.externalRef || "sem número"}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
+      )}
 
-        {/* Chat Window */}
-        <div
-          // `min-w-0`: item de flex não encolhe abaixo do próprio conteúdo por
-          // padrão, e a barra de digitação segurava o painel em 414px numa tela
-          // de 390 — o pai cortava o excedente e a conversa saía torta.
-          className={`relative min-w-0 flex-1 flex-col bg-ink-950 md:flex ${
-            selectedChatId ? "flex" : "hidden"
-          }`}
-        >
-          {/* Textura de fundo.
-              Era um PNG buscado em transparenttextures.com — dependência
-              externa num painel auto-hospedado, uma visita a terceiro a cada
-              abertura da tela, e a 2% de opacidade. Agora é gradiente,
-              nenhuma requisição. */}
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(255,255,255,0.035),transparent_55%),radial-gradient(circle_at_85%_100%,rgba(16,185,129,0.03),transparent_55%)]"></div>
-          
-          {!selectedChat ? (
-            <div className="flex flex-1 items-center justify-center flex-col gap-4 text-zinc-600">
-              <div className="h-16 w-16 rounded-2xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              </div>
-              <p className="text-sm tracking-wide">Selecione uma conversa ao lado.</p>
-            </div>
-          ) : (
-            <>
-              {/* Active Chat Header */}
-              <div className="flex items-center justify-between border-b border-white/[0.04] bg-ink-900/90 backdrop-blur-md px-4 py-4 shadow-sm z-10 md:px-6">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-zinc-700 to-zinc-900 border border-white/[0.1] text-zinc-300">
-                    <IconUser size={18} />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="truncate font-medium text-[15px] tracking-wide">+{selectedChat.remote_jid.split('@')[0]}</h2>
-                    <p className="truncate text-[11px] text-zinc-400 mt-0.5">IA assumindo como <span className="text-emerald-400 font-medium">{selectedChat.profile_name}</span></p>
-                  </div>
+      {!contaId ? (
+        <p className="mt-8 text-sm text-zinc-500">
+          Esta modelo ainda não tem uma conta de {canal === "whatsapp" ? "WhatsApp" : "Telegram"}{" "}
+          no LTV.
+        </p>
+      ) : (
+        <>
+          <div className="mt-4 grid grid-cols-3 gap-2 sm:gap-3">
+            <Cartao rotulo="Leads" valor={String(resumo?.leads ?? 0)} />
+            <Cartao rotulo="Compradores" valor={String(resumo?.compradores ?? 0)} destaque />
+            <Cartao
+              rotulo="Receita"
+              destaque
+              valor={((resumo?.receitaCents ?? 0) / 100).toLocaleString("pt-BR", {
+                style: "currency",
+                currency: "BRL",
+              })}
+            />
+          </div>
+
+          <input
+            className="input mt-3"
+            placeholder="Buscar lead..."
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+
+          <div className="mt-3 flex flex-col gap-2">
+            {leads.map((l) => (
+              <button
+                key={l.id}
+                type="button"
+                onClick={() => setLeadId(l.id === leadId ? null : l.id)}
+                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors ${
+                  leadId === l.id
+                    ? "border-emerald-500/50 bg-emerald-500/[0.07]"
+                    : "border-white/[0.06] bg-white/[0.02] hover:bg-white/5"
+                }`}
+              >
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/10 font-semibold uppercase text-zinc-300">
+                  {(l.peerName || l.peerRef).slice(0, 1)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="truncate font-semibold text-sky-400">
+                      {l.peerName || l.peerRef}
+                    </span>
+                    {l.spentCents > 0 && (
+                      <span className="rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-400">
+                        {(l.spentCents / 100).toLocaleString("pt-BR", {
+                          style: "currency",
+                          currency: "BRL",
+                        })}
+                      </span>
+                    )}
+                  </span>
+                  <span className="mt-0.5 block truncate text-sm text-zinc-500">
+                    {l.lastMessage || "sem mensagens"}
+                  </span>
+                </span>
+                <span className="shrink-0 font-mono text-[11px] text-zinc-600">
+                  {tempoRelativo(l.lastInteractionAt)}
+                </span>
+              </button>
+            ))}
+            {!leads.length && (
+              <p className="py-6 text-center text-sm text-zinc-600">
+                {busca ? "Nenhum lead com esse nome." : "Nenhum lead ainda."}
+              </p>
+            )}
+          </div>
+
+          {/* A conversa fica EMBAIXO da lista, na mesma tela: escolher o lead e
+              ler o que ele disse é o mesmo movimento. */}
+          {lead && (
+            <section className="panel mt-4 overflow-hidden rounded-xl">
+              <header className="flex items-center gap-3 border-b border-white/[0.06] p-4">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/10 font-semibold uppercase text-zinc-300">
+                  {(lead.peerName || lead.peerRef).slice(0, 1)}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-white">
+                    {lead.peerName || lead.peerRef}
+                  </p>
+                  <p className="font-mono text-xs text-zinc-500">
+                    {lead.spentCents > 0
+                      ? `já gastou ${(lead.spentCents / 100).toLocaleString("pt-BR", {
+                          style: "currency",
+                          currency: "BRL",
+                        })}`
+                      : "—"}
+                  </p>
                 </div>
-                
-                {/* Modern Toggle Switch */}
-                <button 
-                  onClick={toggleAi} 
-                  aria-label={chatState === 'active' ? "Desligar a IA nesta conversa" : "Religar a IA nesta conversa"}
-                  className={`relative flex h-8 w-14 shrink-0 items-center rounded-full p-1 transition-colors duration-300 ${chatState === 'active' ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                <button
+                  type="button"
+                  onClick={() => setVendaAberta((v) => !v)}
+                  className="flex shrink-0 items-center gap-1 rounded-lg border border-emerald-500/40 px-3 py-2 text-sm font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/10 [@media(pointer:coarse)]:min-h-[44px]"
                 >
-                  <div className={`h-6 w-6 rounded-full bg-white shadow-md transform transition-transform duration-300 flex items-center justify-center ${chatState === 'active' ? 'translate-x-6' : 'translate-x-0'}`}>
-                    {chatState === 'active' ? <IconBot size={12} className="text-emerald-500" /> : <IconUser size={12} className="text-zinc-500" />}
-                  </div>
+                  <IconPlus size={14} /> Venda
                 </button>
-              </div>
+              </header>
 
-              {/* Chat Bubbles Area */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-5 z-0 md:p-6 md:space-y-6 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
-                {messages.map(msg => {
-                  const isAssistant = msg.role === "assistant";
+              {vendaAberta && (
+                <FormularioVenda
+                  chatId={lead.id}
+                  onPronto={() => {
+                    setVendaAberta(false);
+                    carregarLeads();
+                  }}
+                />
+              )}
+
+              <div className="max-h-[60vh] overflow-y-auto p-4">
+                {mensagens.map((m, i) => {
+                  const anterior = mensagens[i - 1];
+                  const novoDia =
+                    !anterior ||
+                    new Date(anterior.createdAt).toDateString() !==
+                      new Date(m.createdAt).toDateString();
                   return (
-                    <div key={msg.id} className={`flex ${isAssistant ? 'justify-end' : 'justify-start'} group animate-in slide-in-from-bottom-2 duration-300`}>
-                      <div className={`relative max-w-[85%] px-4 py-3 text-[15px] sm:max-w-[75%] sm:px-5 sm:py-3.5 md:max-w-[65%] shadow-sm backdrop-blur-sm 
-                        ${isAssistant 
-                          ? 'bg-gradient-to-br from-emerald-600 to-emerald-700 text-white rounded-2xl rounded-tr-sm' 
-                          : 'bg-ink-850 text-zinc-200 border border-white/[0.04] rounded-2xl rounded-tl-sm'
+                    <div key={m.id}>
+                      {novoDia && (
+                        <p className="my-3 text-center">
+                          <span className="rounded-full bg-white/[0.06] px-3 py-1 text-[11px] text-zinc-400">
+                            {new Date(m.createdAt).toLocaleDateString("pt-BR")}
+                          </span>
+                        </p>
+                      )}
+                      <div
+                        className={`mb-2 flex ${
+                          m.role === "assistant" ? "justify-end" : "justify-start"
                         }`}
                       >
-                        {msg.type === "imagem" && (
-                          <div className="mb-2.5 flex items-center gap-2 w-fit rounded-md bg-black/20 px-3 py-1.5 backdrop-blur-md border border-white/10">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-100"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                            <span className="text-[11px] font-medium text-emerald-50 tracking-wide uppercase">Mídia Enviada</span>
-                          </div>
-                        )}
-                        <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>
+                        <div
+                          className={`max-w-[85%] rounded-2xl px-3 py-2 ${
+                            m.role === "assistant"
+                              ? "bg-emerald-700/60 text-white"
+                              : "bg-white/[0.07] text-zinc-100"
+                          }`}
+                        >
+                          <p className="whitespace-pre-wrap break-words text-sm">{m.content}</p>
+                          <p className="mt-0.5 text-right font-mono text-[10px] text-white/50">
+                            {new Date(m.createdAt).toLocaleTimeString("pt-BR", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   );
                 })}
-                <div ref={messagesEndRef} className="h-2" />
+                <div ref={fimDaConversa} />
               </div>
 
-              {/* Input Area */}
-              <div className="bg-ink-900 border-t border-white/[0.04] p-4 z-10">
-                <form onSubmit={sendMessage} className="relative page-narrow">
-                  <div className="flex items-center gap-3 rounded-full bg-ink-950 border border-white/[0.08] p-1.5 pl-4 focus-within:border-emerald-500/50 focus-within:bg-ink-900 transition-all shadow-inner">
-                    <button 
-                      type="button" 
-                      onClick={() => setShowMediaPicker(!showMediaPicker)}
-                      className="flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.03] text-zinc-400 hover:bg-white/[0.1] hover:text-white transition-colors shrink-0"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-                    </button>
-                    
-                    <input
-                      type="text"
-                      value={inputMsg}
-                      onChange={(e) => setInputMsg(e.target.value)}
-                      placeholder={chatState === 'active' ? "Escreva algo (a IA será ignorada neste envio)..." : "Digite sua mensagem..."}
-                      className="min-w-0 flex-1 bg-transparent px-2 py-2 text-[15px] text-white placeholder-zinc-600 focus:outline-none"
-                    />
-                    
-                    <button 
-                      type="submit" 
-                      disabled={sending || !inputMsg.trim()}
-                      className="flex h-11 w-11 items-center justify-center rounded-full bg-emerald-500 text-white hover:bg-emerald-400 hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 transition-all shrink-0 shadow-lg shadow-emerald-500/20"
-                    >
-                      <IconSend size={18} className="translate-x-[1px]" />
-                    </button>
-                  </div>
+              <footer className="border-t border-white/[0.06] p-4">
+                <div className="flex items-center gap-3">
+                  <Switch checked={iaAtiva} onChange={alternarIa} ariaLabel="Atendente respondendo" />
+                  <p className="text-sm">
+                    <span className={iaAtiva ? "font-semibold text-emerald-400" : "text-zinc-500"}>
+                      Atendente respondendo
+                    </span>
+                    <span className="text-zinc-500">
+                      {" "}
+                      — desliga sozinho quando você responder por aqui
+                    </span>
+                  </p>
+                </div>
 
-                  {/* Media Picker Popup */}
-                  {showMediaPicker && (
-                    <div className="absolute bottom-full left-0 mb-4 w-[min(320px,calc(100vw-2.5rem))] rounded-2xl border border-white/[0.08] bg-ink-900/95 backdrop-blur-xl shadow-2xl p-4 max-h-80 overflow-y-auto z-20 animate-in fade-in slide-in-from-bottom-4 duration-200">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Mídias do Perfil</span>
-                        <button type="button" onClick={() => setShowMediaPicker(false)} className="text-zinc-500 hover:text-white"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
-                      </div>
-                      
-                      <div className="grid grid-cols-3 gap-2">
-                        {mediaList.length === 0 ? (
-                          <div className="col-span-3 text-sm text-zinc-500 text-center py-6 bg-white/[0.02] rounded-xl border border-white/[0.02] border-dashed">
-                            O arquivo da modelo está vazio.
-                          </div>
-                        ) : (
-                          mediaList.map(m => (
-                            <button 
-                              key={m.id} 
-                              type="button" 
-                              onClick={() => sendMedia(m.id)}
-                              className="group aspect-square relative rounded-xl bg-ink-950 overflow-hidden border border-white/[0.04] hover:border-emerald-500 hover:shadow-[0_0_12px_rgba(16,185,129,0.3)] transition-all"
-                            >
-                              {m.kind === 'image' ? (
-                                <>
-                                  <img src={m.url} alt="" className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-300" />
-                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                    <IconSend size={16} className="text-white" />
-                                  </div>
-                                </>
-                              ) : (
-                                <div className="w-full h-full flex flex-col items-center justify-center text-zinc-500 group-hover:text-emerald-400 transition-colors">
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                                </div>
-                              )}
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </form>
-              </div>
-            </>
+                <div className="mt-3 flex gap-2">
+                  <textarea
+                    className="input min-h-[64px] flex-1 resize-y"
+                    placeholder="Escreva sua resposta..."
+                    maxLength={LIMITE_MENSAGEM}
+                    value={texto}
+                    onChange={(e) => setTexto(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        enviar();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={enviar}
+                    disabled={enviando || !texto.trim()}
+                    className="flex shrink-0 items-center gap-2 self-end rounded-lg bg-emerald-500 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-emerald-400 disabled:opacity-50"
+                  >
+                    <IconSend size={16} /> {enviando ? "..." : "Enviar"}
+                  </button>
+                </div>
+                <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                  Enter envia · Shift+Enter quebra linha · {LIMITE_MENSAGEM - texto.length}{" "}
+                  caracteres restantes
+                </p>
+              </footer>
+            </section>
           )}
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
+}
+
+function Cartao({
+  rotulo,
+  valor,
+  destaque,
+}: {
+  rotulo: string;
+  valor: string;
+  destaque?: boolean;
+}) {
+  return (
+    <div className="panel rounded-xl p-3 sm:p-4">
+      <p className="eyebrow truncate">{rotulo}</p>
+      <p
+        className={`mt-1 font-display text-lg font-semibold sm:text-2xl ${
+          destaque ? "text-emerald-400" : "text-white"
+        }`}
+      >
+        {valor}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Lançamento de uma venda que não entrou sozinha. Toda cobrança da IA passa
+ * pela SyncPay e se registra pelo webhook; isto é o conserto para o que ficou
+ * de fora — sem ele o total gasto do lead fica menor do que é, e é justamente
+ * esse número que decide quanto vale insistir com ele.
+ */
+function FormularioVenda({ chatId, onPronto }: { chatId: string; onPronto: () => void }) {
+  const [valor, setValor] = useState("");
+  const [descricao, setDescricao] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  async function salvar() {
+    const numero = Number(valor.replace(",", "."));
+    if (!Number.isFinite(numero) || numero <= 0) {
+      showToast("Informe um valor válido.", "error");
+      return;
+    }
+    setSalvando(true);
+    try {
+      await apiSend("/api/ltv/orders", "POST", { chatId, amount: numero, description: descricao });
+      showToast("Venda registrada.", "success");
+      onPronto();
+    } catch (e: any) {
+      showToast(e.message, "error");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-end gap-2 border-b border-white/[0.06] bg-white/[0.02] p-4">
+      <label className="block">
+        <span className="eyebrow mb-1 block">Valor</span>
+        <input
+          className="input w-28"
+          inputMode="decimal"
+          placeholder="49,90"
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+        />
+      </label>
+      <label className="block flex-1">
+        <span className="eyebrow mb-1 block">Descrição</span>
+        <input
+          className="input"
+          placeholder="O que ele comprou"
+          value={descricao}
+          onChange={(e) => setDescricao(e.target.value)}
+        />
+      </label>
+      <button
+        type="button"
+        onClick={salvar}
+        disabled={salvando}
+        className="rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-emerald-400 disabled:opacity-50"
+      >
+        {salvando ? "Salvando..." : "Registrar"}
+      </button>
+    </div>
+  );
+}
+
+function tempoRelativo(ts: number): string {
+  const min = Math.floor((Date.now() - ts) / 60000);
+  if (min < 1) return "agora";
+  if (min < 60) return `${min}min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
 }

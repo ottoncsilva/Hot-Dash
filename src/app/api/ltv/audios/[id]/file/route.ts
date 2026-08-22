@@ -14,15 +14,17 @@ export const dynamic = "force-dynamic";
  * compartilhado.
  */
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const audio = getAudio(params.id);
-  if (!audio) return NextResponse.json({ error: "Áudio não encontrado." }, { status: 404 });
-
+  // A credencial é conferida ANTES de olhar o banco: responder 404 primeiro
+  // deixaria qualquer um sondar ids de áudio sem estar logado.
   const logado = Boolean(verifySessionToken(req.cookies.get(SESSION_COOKIE)?.value));
   const creds = getTelegramChipCredentials();
-  const doChip = Boolean(creds) && req.headers.get("authorization") === `Bearer ${creds!.token}`;
+  const doChip = creds !== null && req.headers.get("authorization") === `Bearer ${creds.token}`;
   if (!logado && !doChip) {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   }
+
+  const audio = getAudio(params.id);
+  if (!audio) return NextResponse.json({ error: "Áudio não encontrado." }, { status: 404 });
 
   if (!(await fileExists(audio.path))) {
     return NextResponse.json({ error: "Arquivo não está mais no disco." }, { status: 404 });

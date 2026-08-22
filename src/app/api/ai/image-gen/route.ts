@@ -4,6 +4,7 @@ import { getMediaRow, renderVisionImageBase64 } from "@/lib/media";
 import { gerarImagemSeedream, ASPECT_RATIOS, MAX_REFERENCIAS, type AspectRatio } from "@/lib/imageGen";
 import { gerarImagemGoogle } from "@/lib/googleImageGen";
 import { gerarImagemMagnific } from "@/lib/magnificImageGen";
+import { gerarImagemByteplus } from "@/lib/byteplusImageGen";
 import {
   modeloImagem,
   resolucaoImagemValida,
@@ -108,7 +109,9 @@ export async function POST(req: NextRequest) {
             ? gerarImagemGoogle
             : modelo.provedor === "magnific"
               ? gerarImagemMagnific
-              : gerarImagemSeedream;
+              : modelo.provedor === "byteplus"
+                ? gerarImagemByteplus
+                : gerarImagemSeedream;
         const r = await gerar({
           prompt,
           referencias,

@@ -12,12 +12,14 @@
   "dependencies": {
     "@types/web-push": "^3.6.4",
     "better-sqlite3": "^11.8.1",
+    "big-integer": "^1.6.52",
     "next": "14.2.35",
     "onnxruntime-node": "^1.20.1",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "sharp": "^0.33.5",
+    "telegram": "^2.26.22",
     "uuid": "^10.0.0",
     "web-push": "^3.6.7"
   },

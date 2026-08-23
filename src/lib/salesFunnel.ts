@@ -62,6 +62,13 @@ export function salesFunnel(
     txClauses.push("profile_id = ?");
     txParams.push(profileId);
   }
+  // O PIX do LTV fica de fora: ele nasce de uma conversa no WhatsApp/Telegram,
+  // não de um /start no bot, então contá-lo aqui inflava o "PIX gerados" contra
+  // uma base de leads que nunca o incluiu — as duas taxas de conversão saíam
+  // menores do que a realidade. O LTV tem o funil dele (Funil de LTV).
+  // Cobrança antiga, de antes da coluna `origin`, tem NULL e continua contando
+  // como contava antes.
+  txClauses.push("COALESCE(origin, '') <> 'ltv'");
   const txWhere = txClauses.length ? `WHERE ${txClauses.join(" AND ")}` : "";
   const pixGenerated = (
     db.prepare(`SELECT COUNT(*) c FROM transactions ${txWhere}`).get(...txParams) as { c: number }
@@ -165,6 +172,9 @@ function metricas(
     txWhere.push("profile_id = ?");
     txParams.push(profileId);
   }
+  // Mesmo recorte de `salesFunnel`: o Funil de Vendas mede o bot, e o PIX do
+  // LTV é contado no Funil de LTV.
+  txWhere.push("COALESCE(origin, '') <> 'ltv'");
   const onde = txWhere.length ? `WHERE ${txWhere.join(" AND ")}` : "";
 
   const geral = db
@@ -299,6 +309,7 @@ export function trafficSources(
     txWhere.push("profile_id = ?");
     txParams.push(profileId);
   }
+  txWhere.push("COALESCE(origin, '') <> 'ltv'");
   const vendas = db
     .prepare(
       `SELECT COALESCE(source_code, '') code, COUNT(*) gerados,
@@ -431,7 +442,7 @@ export function tempoAteCompra(
     params.push(profileId);
   }
   const recorte = clauses.length ? clauses.join(" AND ") : "1 = 1";
-  const onde = `status = 'paid' AND paid_at IS NOT NULL AND ${recorte}`;
+  const onde = `status = 'paid' AND paid_at IS NOT NULL AND COALESCE(origin, '') <> 'ltv' AND ${recorte}`;
 
   const pagas = (
     db.prepare(`SELECT COUNT(*) c FROM transactions WHERE ${onde}`).get(...params) as { c: number }
@@ -499,6 +510,9 @@ export function valorMaisComprado(
     clauses.push("profile_id = ?");
     params.push(profileId);
   }
+  // Entra na lista de condições (em vez de ser grudada no WHERE) para a
+  // consulta continuar válida quando não há recorte de período nem de modelo.
+  clauses.push("COALESCE(origin, '') <> 'ltv'");
   const row = db
     .prepare(
       `SELECT amount_cents cents, COUNT(*) vezes

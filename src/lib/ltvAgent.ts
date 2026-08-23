@@ -1,6 +1,8 @@
 import "server-only";
 import { callAiRaw } from "./ai";
 import { getDb } from "./db";
+import { getAppTimeZone } from "./settings";
+import { partsInTimeZone } from "./timezone";
 import { getMediaRow, getOrCreatePublicToken } from "./media";
 import { publicOriginSemRequest } from "./publicOrigin";
 import { activeProvider } from "./payments";
@@ -10,6 +12,7 @@ import * as uazapi from "./uazapi";
 import * as chip from "./telegramChip";
 import { decryptSecret } from "./crypto";
 import {
+  comprasDoLead,
   contarEnvio,
   getAccountSession,
   createOrder,
@@ -170,20 +173,18 @@ function adaptadorTelegram(
       await chip.enviarTexto(conta.id, peerRef, t, acessoDoLead, { comoCodigo: true });
     },
     async midia(mediaId, legenda) {
-      const url = urlPublicaDaMidia(mediaId);
-      if (!url) throw new Error("Arquivo não encontrado na Galeria.");
       const row = getMediaRow(mediaId);
+      if (!row) throw new Error("Arquivo não encontrado na Galeria.");
       await chip.enviarMidia(conta.id, peerRef, {
-        mediaUrl: url,
-        mediaName: row?.filename,
+        filePath: row.path,
+        mediaName: row.filename,
         caption: legenda || undefined,
         accessHash: acessoDoLead,
       });
     },
     async audio(a) {
-      const url = `${publicOriginSemRequest()}/api/ltv/audios/${a.id}/file`;
       await chip.enviarMidia(conta.id, peerRef, {
-        mediaUrl: url,
+        filePath: a.path,
         mediaName: a.filename,
         voice: true,
         accessHash: acessoDoLead,
@@ -233,6 +234,7 @@ function montarPrompt(
   produtos: LtvProduct[],
   audios: LtvAudio[],
   amostras: string[],
+  compras: { nome: string; cents: number; quando: number }[] = [],
 ): string {
   const partes: string[] = [];
 
@@ -287,6 +289,24 @@ function montarPrompt(
     partes.push("VOCÊ AINDA NÃO TEM PRODUTO CADASTRADO: nunca fale de preço nem gere cobrança.");
   }
 
+  // O que ele já pagou. Sem isto a IA reoferece o pacote que o cara comprou na
+  // semana passada — a forma mais rápida de queimar um cliente bom — e perde a
+  // única deixa boa que existe para subir de degrau.
+  if (compras.length) {
+    const total = compras.reduce((soma, c) => soma + c.cents, 0);
+    partes.push(
+      "ELE JÁ COMPROU DE VOCÊ (nunca ofereça de novo o mesmo pacote; trate como cliente, não como lead novo):\n" +
+        compras
+          .map(
+            (c) =>
+              `- "${c.nome}" por R$ ${(c.cents / 100).toFixed(2)} em ` +
+              new Date(c.quando).toLocaleDateString("pt-BR"),
+          )
+          .join("\n") +
+        `\nTotal já gasto: R$ ${(total / 100).toFixed(2)}.`,
+    );
+  }
+
   partes.push(
     [
       "FORMATO OBRIGATÓRIO DA RESPOSTA — só JSON, nada fora dele:",
@@ -325,17 +345,64 @@ function montarPrompt(
 
 /* ------------------------------------------------------------------ ritmo */
 
+/** Sorteia um inteiro no intervalo, com as duas pontas incluídas. */
+function entre(min: number, max: number): number {
+  return Math.floor(min + Math.random() * (max - min + 1));
+}
+
 /**
- * Quanto tempo esperar antes de responder. O modo humano varia de verdade
- * dentro da janela; o fixo responde sempre perto do mínimo. Não é enfeite:
- * responder em 2 segundos, sempre, é o padrão que denuncia automação e derruba
- * a conta — no chip do Telegram principalmente.
+ * A que horas é agora, no fuso do painel.
+ *
+ * Precisa ser a hora de PAREDE do Brasil, não a do servidor: uma VPS em UTC
+ * acharia que é de manhã justamente quando é madrugada aqui, e a modelo
+ * responderia às 3 da manhã — que é exatamente o que este código evita.
  */
-function esperaMs(agente: LtvAgentSettings): number {
-  const min = agente.delayMinS * 1000;
-  const max = Math.max(min, agente.delayMaxS * 1000);
-  if (agente.rhythm === "fixo") return min;
-  return min + Math.random() * (max - min);
+function horaLocal(): number {
+  return partsInTimeZone(Date.now(), getAppTimeZone()).hour;
+}
+
+/** Depois disso ela dormiu; antes disso ainda não acordou. */
+const DORME_AS = 2;
+const ACORDA_ENTRE = [7, 8] as const;
+
+/**
+ * Quanto tempo esperar antes de responder.
+ *
+ * O modo HUMANO não tem janela em segundos, de propósito: pessoa de verdade
+ * não responde num intervalo fixo. Às vezes ela está com o celular na mão e
+ * responde em menos de um minuto; às vezes está fazendo outra coisa e some por
+ * meia hora. E de madrugada ela dorme — se a mensagem chega depois das 2h, a
+ * resposta só sai quando ela acordar, entre 7 e 8 da manhã.
+ *
+ * É essa irregularidade que faz a conta parecer gente. Um robô bem configurado
+ * responde sempre dentro da mesma faixa, e é isso que denuncia.
+ *
+ * O modo RÁPIDO FIXO é o oposto e existe para quem quer velocidade: aí sim
+ * valem os segundos configurados na tela.
+ */
+export function esperaMs(agente: LtvAgentSettings, agoraHora = horaLocal()): number {
+  if (agente.rhythm === "fixo") {
+    const min = Math.max(0, agente.delayMinS) * 1000;
+    const max = Math.max(min, agente.delayMaxS * 1000);
+    return entre(min, max);
+  }
+
+  // Madrugada: dorme até o começo da manhã. O alvo é sorteado dentro da
+  // janela de acordar para não sair uma enxurrada de respostas às 7h em ponto.
+  if (agoraHora >= DORME_AS && agoraHora < ACORDA_ENTRE[1]) {
+    const alvo = entre(ACORDA_ENTRE[0] * 60, ACORDA_ENTRE[1] * 60); // em minutos
+    const agoraMin = agoraHora * 60 + new Date().getMinutes();
+    const faltam = alvo - agoraMin;
+    if (faltam > 0) return faltam * 60 * 1000;
+  }
+
+  // Fora da madrugada: a maior parte das respostas é rápida, mas de vez em
+  // quando ela some. Os pesos é que criam a irregularidade — uma faixa única
+  // de 1 a 30 minutos daria uma média sempre igual, que é o que se quer evitar.
+  const sorte = Math.random();
+  if (sorte < 0.45) return entre(20, 90) * 1000; //   quase metade: quase na hora
+  if (sorte < 0.8) return entre(2, 8) * 60 * 1000; //  estava ocupada
+  return entre(12, 30) * 60 * 1000; //                 sumiu de vez
 }
 
 const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -451,6 +518,7 @@ async function cobrarPix(
     amountCents: cents,
     method: "pix",
     status: cobranca.status,
+    origin: "ltv",
   });
   createOrder({
     chatId: chat.id,
@@ -483,7 +551,10 @@ export async function responderLead(chatId: string): Promise<void> {
     // até religarem — duas vozes no mesmo chat é o pior resultado possível.
     if (chat.state === "paused") return;
 
-    const historico = listMessages(chat.id, 20);
+    // 200 mensagens, não 20. Guardamos 40 dias de conversa justamente para a
+    // IA poder puxar o que foi dito lá atrás; com uma janela de 20 ela
+    // esquecia o nome do lead entre uma visita e outra e recomeçava do zero.
+    const historico = listMessages(chat.id, 200);
     // "Só responder quem falar primeiro": sem nenhuma mensagem do lead, a
     // modelo não abre conversa. É a trava mais eficaz contra bloqueio.
     if (agente.onlyReplyFirst && !historico.some((m) => m.role === "user")) return;
@@ -496,9 +567,10 @@ export async function responderLead(chatId: string): Promise<void> {
     const produtos = listProducts(conta.id);
     const audios = listAudios(conta.id);
     const amostras = etiquetasDeAmostra(conta.profileId);
+    const compras = comprasDoLead(chat.id);
 
     const mensagens = [
-      { role: "system", content: montarPrompt(agente, produtos, audios, amostras) },
+      { role: "system", content: montarPrompt(agente, produtos, audios, amostras, compras) },
       ...historico.map((m) => ({ role: m.role, content: m.content })),
     ];
 

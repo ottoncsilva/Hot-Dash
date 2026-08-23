@@ -1011,6 +1011,13 @@ function migrate(d: Database.Database) {
   // é o que liga faturamento a origem de tráfego.
   ensureColumn(d, "telegram_leads", "source_code", "TEXT");
   ensureColumn(d, "transactions", "source_code", "TEXT");
+  // De ONDE veio a cobrança: 'bot' (bot de vendas do Telegram), 'ltv' (agente
+  // de LTV, no WhatsApp ou no chip do Telegram) ou 'painel' (lançada à mão).
+  // Existe para separar os dois funis: o Funil de Vendas mede o bot, e misturar
+  // o PIX do LTV nele estragava as duas taxas de conversão — o LTV soma PIX que
+  // nunca passou por um /start. Linha antiga fica NULL: não dá para adivinhar a
+  // origem, e o comportamento de antes (contar tudo) é o que ela preserva.
+  ensureColumn(d, "transactions", "origin", "TEXT");
   // Oferta do MAILING que originou a venda (nome/preço/duração ajustados só
   // para aquele disparo). Quando presente, manda na confirmação do pagamento
   // no lugar do plano original.
@@ -1056,6 +1063,7 @@ function migrate(d: Database.Database) {
   backfillTelegramUsers(d);
   backfillMediaPostLog(d);
   migrarWhatsappParaLtv(d);
+  marcarOrigemDasCobrancasDoLtv(d);
 
   d.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_media_public_token ON media(public_token) WHERE public_token IS NOT NULL;`,
@@ -1073,6 +1081,36 @@ function migrate(d: Database.Database) {
  * conectou instância também ganha a conta (sem `external_ref`) — é o "Número 1
  * · sem número" da tela, e sem ela a conversa dela ficaria órfã.
  */
+/**
+ * Carimba `origin = 'ltv'` nas cobranças que o agente de LTV já tinha criado
+ * antes de a coluna existir.
+ *
+ * Dá para descobrir com precisão quais são: toda cobrança do LTV nasce junto de
+ * um `ltv_orders`, que guarda o `transaction_id`. O resto (bot de vendas e
+ * lançamento manual no painel) fica NULL — não há como distinguir um do outro
+ * retroativamente, e NULL é justamente o que mantém essas linhas contando no
+ * Funil de Vendas como contavam antes.
+ *
+ * Roda uma vez só; depois disso quem grava a origem é o `recordTransaction`.
+ */
+function marcarOrigemDasCobrancasDoLtv(d: Database.Database) {
+  const MARCA = "ltv_origem_transacoes_v1";
+  const jaRodou = d.prepare("SELECT value FROM settings WHERE key = ?").get(MARCA);
+  if (jaRodou) return;
+
+  d.prepare(
+    `UPDATE transactions
+        SET origin = 'ltv'
+      WHERE origin IS NULL
+        AND id IN (SELECT transaction_id FROM ltv_orders WHERE transaction_id IS NOT NULL)`,
+  ).run();
+
+  d.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+    MARCA,
+    String(Date.now()),
+  );
+}
+
 function migrarWhatsappParaLtv(d: Database.Database) {
   const jaRodou = d
     .prepare("SELECT value FROM settings WHERE key = 'ltv_migracao_whatsapp_v1'")

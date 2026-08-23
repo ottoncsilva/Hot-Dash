@@ -95,6 +95,13 @@ export function recordTransaction(input: {
   status: string;
   /** Código do deep-link que trouxe o lead (origem do tráfego). */
   sourceCode?: string;
+  /**
+   * Qual parte do painel gerou esta cobrança: 'bot' (bot de vendas do
+   * Telegram), 'ltv' (agente de LTV) ou 'painel' (lançada à mão). É o que
+   * separa o Funil de Vendas do Funil de LTV — sem isso os dois mediam a mesma
+   * pilha de transações e nenhuma das taxas de conversão fazia sentido.
+   */
+  origin?: "bot" | "ltv" | "painel";
 }): Transaction {
   const now = Date.now();
   const id = randomUUID();
@@ -120,8 +127,8 @@ export function recordTransaction(input: {
       `INSERT INTO transactions
         (id, provider, provider_ref, profile_id, description, customer,
          amount_cents, net_amount_cents, fee_cents, split_cents, paid_at,
-         currency, method, status, source_code, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         currency, method, status, source_code, origin, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -139,6 +146,7 @@ export function recordTransaction(input: {
       input.method || null,
       input.status,
       input.sourceCode || null,
+      input.origin || null,
       now,
       now,
     );

@@ -60,6 +60,7 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   ltv_chat: IconBot,
   ltv_whatsapp: IconWhatsapp,
   ltv_telegram: IconSend,
+  ltv_funil: IconFunnel,
   schedule: IconCalendar,
   settings: IconSettings,
 };
@@ -94,6 +95,7 @@ const LTV_SUBSECTIONS: NavSubItem[] = [
   { label: "Chat ao vivo", href: "/dashboard/ltv/chat" },
   { label: "LTV WhatsApp", href: "/dashboard/ltv/whatsapp" },
   { label: "LTV Telegram", href: "/dashboard/ltv/telegram" },
+  { label: "Funil de LTV", href: "/dashboard/ltv/funil" },
 ];
 
 const TELEGRAM_SUBSECTIONS: NavSubItem[] = [

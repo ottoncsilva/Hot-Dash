@@ -102,10 +102,12 @@ export default function ChipTelegramBlock({
   if (!chipConfigurado) {
     return (
       <p className="text-sm leading-relaxed text-zinc-400">
-        O serviço do chip não está configurado. Informe a URL e o token em{" "}
-        <strong className="text-zinc-200">Configurações → Conexões do LTV</strong>. O Telegram por
-        conta real precisa do container próprio — ver{" "}
-        <code className="font-mono text-xs">telegram-mtproto-service/</code>.
+        Falta a credencial de aplicativo do Telegram. Informe o{" "}
+        <strong className="text-zinc-200">api_id</strong> e o{" "}
+        <strong className="text-zinc-200">api_hash</strong> em{" "}
+        <strong className="text-zinc-200">Configurações → Conexões do LTV</strong>. São gratuitos e
+        saem em <span className="font-mono text-xs">my.telegram.org</span>. Não há serviço para
+        subir: o chip roda dentro do próprio painel.
       </p>
     );
   }

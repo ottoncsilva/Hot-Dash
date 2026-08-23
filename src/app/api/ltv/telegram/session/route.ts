@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
-import { confirmarCodigo, pedirCodigo, statusChip } from "@/lib/telegramChip";
+import { SenhaNecessaria, confirmarCodigo, pedirCodigo, statusChip } from "@/lib/telegramChip";
 import { createAccount, getAccount, listAccounts, updateAccount } from "@/lib/ltvDb";
 
 export const runtime = "nodejs";
@@ -42,10 +42,10 @@ export async function POST(req: NextRequest) {
       try {
         const chip = await confirmarCodigo(conta.id, code, body.password || undefined);
         return NextResponse.json({ status: "connected", chip });
-      } catch (e: any) {
+      } catch (e) {
         // A conta tem verificação em duas etapas: a tela precisa pedir a senha
         // em vez de acusar código errado.
-        if (e?.status === 409 || e?.payload?.error === "password_needed") {
+        if (e instanceof SenhaNecessaria) {
           return NextResponse.json({ status: "password_needed" });
         }
         throw e;

@@ -80,18 +80,45 @@ export function updateUazapiSettings(patch: {
   return getUazapiSettingsPublic();
 }
 
-// ---- Chip do Telegram (microserviço MTProto) ----
-// NÃO é configurável na tela de propósito: o serviço sobe no mesmo
-// docker-compose do painel, então o endereço é sempre o mesmo e o segredo é
-// compartilhado pelas duas variáveis de ambiente. Pedir isso ao usuário seria
-// pedir para ele digitar o que o compose já sabe.
-const CHIP_URL_PADRAO = "http://telegram-chip:8100";
+// ---- Telegram por conta real (chip) ----
+// O chip roda DENTRO do painel, então não há endereço nem segredo de serviço
+// para configurar. O que sobra é a única coisa que o Telegram exige e ninguém
+// pode adivinhar: as credenciais de aplicativo do MTProto, que saem de graça
+// em my.telegram.org. São por conta de desenvolvedor, não por chip — um par
+// serve para todas as modelos.
+export type TelegramAppSettingsPublic = { apiId?: number; hasApiHash: boolean };
+type TelegramAppStored = { apiId?: number; apiHashEnc?: string };
 
-export function getTelegramChipCredentials(): { url: string; token: string } | null {
-  const token = (process.env.CHIP_API_TOKEN || "").trim();
-  if (!token) return null;
-  const url = (process.env.TELEGRAM_CHIP_URL || CHIP_URL_PADRAO).trim().replace(/\/+$/, "");
-  return { url, token };
+function rawTelegramApp(): TelegramAppStored {
+  return getJson<TelegramAppStored>("telegram_app", {});
+}
+
+export function getTelegramAppSettingsPublic(): TelegramAppSettingsPublic {
+  const s = rawTelegramApp();
+  return { apiId: s.apiId, hasApiHash: Boolean(s.apiHashEnc) };
+}
+
+export function getTelegramAppCredentials(): { apiId: number; apiHash: string } | null {
+  const s = rawTelegramApp();
+  if (!s.apiId || !s.apiHashEnc) return null;
+  try {
+    return { apiId: s.apiId, apiHash: decryptSecret(s.apiHashEnc) };
+  } catch {
+    return null;
+  }
+}
+
+export function updateTelegramAppSettings(patch: {
+  apiId?: number;
+  apiHash?: string;
+}): TelegramAppSettingsPublic {
+  const s = rawTelegramApp();
+  if (patch.apiId !== undefined) s.apiId = Number(patch.apiId) || undefined;
+  if (patch.apiHash !== undefined) {
+    s.apiHashEnc = patch.apiHash ? encryptSecret(patch.apiHash) : undefined;
+  }
+  setJson("telegram_app", s);
+  return getTelegramAppSettingsPublic();
 }
 
 // ---- Menu ----

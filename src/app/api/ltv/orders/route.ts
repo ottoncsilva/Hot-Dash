@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
       amountCents,
       method: "pix",
       status: "paid",
+      origin: "ltv",
     });
 
 

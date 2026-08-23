@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
 import { BackToSettings } from "../_shared";
-import type { UazapiSettingsPublic } from "@/lib/settings";
+import type { TelegramAppSettingsPublic, UazapiSettingsPublic } from "@/lib/settings";
 import { showToast } from "@/lib/toast";
 
 /**
@@ -21,14 +21,21 @@ export default function ConexoesLtvPage() {
   const [cfg, setCfg] = useState<UazapiSettingsPublic | null>(null);
   const [url, setUrl] = useState("");
   const [adminToken, setAdminToken] = useState("");
+  const [tg, setTg] = useState<TelegramAppSettingsPublic | null>(null);
+  const [apiId, setApiId] = useState("");
+  const [apiHash, setApiHash] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    apiGet<{ settings: UazapiSettingsPublic }>("/api/settings/whatsapp")
+    apiGet<{ settings: UazapiSettingsPublic; telegram: TelegramAppSettingsPublic }>(
+      "/api/settings/whatsapp",
+    )
       .then((d) => {
         setCfg(d.settings);
         setUrl(d.settings.url || "");
+        setTg(d.telegram);
+        setApiId(d.telegram?.apiId ? String(d.telegram.apiId) : "");
       })
       .catch(() => {});
   }, []);
@@ -37,13 +44,19 @@ export default function ConexoesLtvPage() {
     setSaving(true);
     setSaved(false);
     try {
-      const { settings } = await apiSend<{ settings: UazapiSettingsPublic }>(
-        "/api/settings/whatsapp",
-        "PATCH",
-        { url: url || undefined, ...(adminToken ? { adminToken } : {}) },
-      );
-      setCfg(settings);
+      const r = await apiSend<{
+        settings: UazapiSettingsPublic;
+        telegram: TelegramAppSettingsPublic;
+      }>("/api/settings/whatsapp", "PATCH", {
+        url: url || undefined,
+        ...(adminToken ? { adminToken } : {}),
+        ...(apiId ? { apiId: Number(apiId) } : {}),
+        ...(apiHash ? { apiHash } : {}),
+      });
+      setCfg(r.settings);
+      setTg(r.telegram);
       setAdminToken("");
+      setApiHash("");
       setSaved(true);
       showToast("Salvo!");
     } finally {
@@ -96,10 +109,47 @@ export default function ConexoesLtvPage() {
         </div>
       </div>
 
-      <p className="mt-3 text-xs leading-relaxed text-zinc-600">
-        O Telegram não aparece aqui: o serviço do chip sobe junto do painel e se acha sozinho pelo
-        ambiente. Nada para configurar.
+      <h2 className="eyebrow mt-8">Telegram · conta real (chip)</h2>
+      <p className="mt-1 text-sm leading-relaxed text-zinc-500">
+        O chip roda dentro do próprio painel — não há serviço para subir nem endereço para
+        configurar. O que o Telegram exige, e ninguém pode adivinhar, é uma credencial de
+        aplicativo: pegue de graça em{" "}
+        <a
+          href="https://my.telegram.org"
+          target="_blank"
+          rel="noreferrer"
+          className="text-emerald-400 underline"
+        >
+          my.telegram.org
+        </a>{" "}
+        → API development tools. É por conta de desenvolvedor, não por chip: um par serve para
+        todas as modelos.
       </p>
+
+      <div className="mt-3 card p-4">
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="eyebrow mb-1.5 block">api_id</label>
+            <input
+              className="input font-mono"
+              inputMode="numeric"
+              placeholder="1234567"
+              value={apiId}
+              onChange={(e) => setApiId(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="eyebrow mb-1.5 block">api_hash</label>
+            <input
+              className="input font-mono"
+              type="password"
+              placeholder={tg?.hasApiHash ? "•••••••• (em branco = manter)" : "Cole o api_hash aqui"}
+              value={apiHash}
+              onChange={(e) => setApiHash(e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
 
       <div className="mt-4 flex items-center gap-3">
         <button onClick={save} disabled={saving} className="btn-primary">

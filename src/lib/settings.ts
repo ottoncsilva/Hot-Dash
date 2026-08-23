@@ -34,80 +34,64 @@ function setJson(key: string, value: unknown): void {
     .run(key, JSON.stringify(value));
 }
 
-// ---- Evolution API (WhatsApp) ----
-export type EvolutionSettingsPublic = { url?: string; hasKey: boolean };
-type EvolutionSettingsStored = { url?: string; apiKeyEnc?: string };
+// ---- uazapi (WhatsApp) ----
+// Uma conta da uazapi tem um SERVIDOR (https://seunome.uazapi.com) e um
+// admintoken. O admintoken cria instâncias; cada instância nasce com um token
+// próprio, que é o que autentica todo o resto e fica cifrado junto da conta
+// (ver ltv_accounts.session_enc).
+export type UazapiSettingsPublic = { url?: string; hasAdminToken: boolean };
+type UazapiSettingsStored = { url?: string; adminTokenEnc?: string };
 
-function rawEvolution(): EvolutionSettingsStored {
-  return getJson<EvolutionSettingsStored>("evolution", {});
+function rawUazapi(): UazapiSettingsStored {
+  return getJson<UazapiSettingsStored>("uazapi", {});
 }
 
-export function getEvolutionSettingsPublic(): EvolutionSettingsPublic {
-  const s = rawEvolution();
-  return {
-    url: s.url,
-    hasKey: Boolean(s.apiKeyEnc),
-  };
+export function getUazapiSettingsPublic(): UazapiSettingsPublic {
+  const s = rawUazapi();
+  return { url: s.url, hasAdminToken: Boolean(s.adminTokenEnc) };
 }
 
-export function getEvolutionCredentials(): { url: string; apiKey: string } | null {
-  const s = rawEvolution();
-  if (!s.url || !s.apiKeyEnc) return null;
+/** Só a base do servidor — o token de cada instância vem da conta. */
+export function getUazapiBaseUrl(): string | null {
+  return rawUazapi().url || null;
+}
+
+/** O admintoken só serve para criar e apagar instâncias. */
+export function getUazapiAdminToken(): string | null {
+  const s = rawUazapi();
+  if (!s.adminTokenEnc) return null;
   try {
-    return { url: s.url, apiKey: decryptSecret(s.apiKeyEnc) };
+    return decryptSecret(s.adminTokenEnc);
   } catch {
     return null;
   }
 }
 
-export function updateEvolutionSettings(patch: { url?: string; apiKey?: string }): EvolutionSettingsPublic {
-  const s = rawEvolution();
+export function updateUazapiSettings(patch: {
+  url?: string;
+  adminToken?: string;
+}): UazapiSettingsPublic {
+  const s = rawUazapi();
   if (patch.url !== undefined) s.url = patch.url.trim().replace(/\/+$/, "");
-  if (patch.apiKey !== undefined) {
-    s.apiKeyEnc = patch.apiKey ? encryptSecret(patch.apiKey) : undefined;
+  if (patch.adminToken !== undefined) {
+    s.adminTokenEnc = patch.adminToken ? encryptSecret(patch.adminToken) : undefined;
   }
-  setJson("evolution", s);
-  return getEvolutionSettingsPublic();
+  setJson("uazapi", s);
+  return getUazapiSettingsPublic();
 }
 
 // ---- Chip do Telegram (microserviço MTProto) ----
-// O Telegram por CONTA REAL não cabe na Bot API nem nas rotas do Next: MTProto
-// exige conexão de vida longa. O serviço vive num container próprio (ver
-// telegram-mtproto-service/) e o painel fala com ele por HTTP, igual à
-// Evolution. Sem URL configurada, o LTV do Telegram fica desligado.
-export type TelegramChipSettingsPublic = { url?: string; hasToken: boolean };
-type TelegramChipSettingsStored = { url?: string; tokenEnc?: string };
-
-function rawTelegramChip(): TelegramChipSettingsStored {
-  return getJson<TelegramChipSettingsStored>("telegram_chip", {});
-}
-
-export function getTelegramChipSettingsPublic(): TelegramChipSettingsPublic {
-  const s = rawTelegramChip();
-  return { url: s.url, hasToken: Boolean(s.tokenEnc) };
-}
+// NÃO é configurável na tela de propósito: o serviço sobe no mesmo
+// docker-compose do painel, então o endereço é sempre o mesmo e o segredo é
+// compartilhado pelas duas variáveis de ambiente. Pedir isso ao usuário seria
+// pedir para ele digitar o que o compose já sabe.
+const CHIP_URL_PADRAO = "http://telegram-chip:8100";
 
 export function getTelegramChipCredentials(): { url: string; token: string } | null {
-  const s = rawTelegramChip();
-  if (!s.url || !s.tokenEnc) return null;
-  try {
-    return { url: s.url, token: decryptSecret(s.tokenEnc) };
-  } catch {
-    return null;
-  }
-}
-
-export function updateTelegramChipSettings(patch: {
-  url?: string;
-  token?: string;
-}): TelegramChipSettingsPublic {
-  const s = rawTelegramChip();
-  if (patch.url !== undefined) s.url = patch.url.trim().replace(/\/+$/, "");
-  if (patch.token !== undefined) {
-    s.tokenEnc = patch.token ? encryptSecret(patch.token) : undefined;
-  }
-  setJson("telegram_chip", s);
-  return getTelegramChipSettingsPublic();
+  const token = (process.env.CHIP_API_TOKEN || "").trim();
+  if (!token) return null;
+  const url = (process.env.TELEGRAM_CHIP_URL || CHIP_URL_PADRAO).trim().replace(/\/+$/, "");
+  return { url, token };
 }
 
 // ---- Menu ----

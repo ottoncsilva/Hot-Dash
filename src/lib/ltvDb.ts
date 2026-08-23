@@ -21,6 +21,8 @@ export type LtvAccount = {
   channel: LtvChannel;
   label: string;
   externalRef?: string;
+  /** Id da instância no provedor (uazapi) — como o webhook acha a conta. */
+  providerRef?: string;
   status: "connected" | "connecting" | "disconnected";
   active: boolean;
   createdAt: number;
@@ -117,6 +119,7 @@ function mapAccount(r: any): LtvAccount {
     channel: r.channel,
     label: r.label,
     externalRef: r.external_ref || undefined,
+    providerRef: r.provider_ref || undefined,
     status: r.status,
     active: Boolean(r.active),
     createdAt: r.created_at,
@@ -144,10 +147,19 @@ export function getAccount(id: string): LtvAccount | null {
   return r ? mapAccount(r) : null;
 }
 
-export function findAccountByRef(channel: LtvChannel, externalRef: string): LtvAccount | null {
+/**
+ * Acha a conta pelo que o provedor manda no webhook. Tenta o id da instância
+ * primeiro e o telefone depois, porque o payload varia conforme o evento e o
+ * telefone só existe depois que a conta conecta.
+ */
+export function findAccountByRef(channel: LtvChannel, ref: string): LtvAccount | null {
   const r = getDb()
-    .prepare(`SELECT * FROM ltv_accounts WHERE channel = ? AND external_ref = ?`)
-    .get(channel, externalRef) as any;
+    .prepare(
+      `SELECT * FROM ltv_accounts
+        WHERE channel = ? AND (provider_ref = ? OR external_ref = ?)
+        LIMIT 1`,
+    )
+    .get(channel, ref, ref) as any;
   return r ? mapAccount(r) : null;
 }
 
@@ -212,6 +224,7 @@ export function updateAccount(
     label?: string;
     /** `null` limpa: a instância foi derrubada e a conta fica "sem número". */
     externalRef?: string | null;
+    providerRef?: string | null;
     status?: LtvAccount["status"];
     active?: boolean;
     sessionEnc?: string | null;
@@ -225,6 +238,7 @@ export function updateAccount(
   };
   if (patch.label !== undefined) set("label", patch.label);
   if (patch.externalRef !== undefined) set("external_ref", patch.externalRef ?? null);
+  if (patch.providerRef !== undefined) set("provider_ref", patch.providerRef ?? null);
   if (patch.status !== undefined) set("status", patch.status);
   if (patch.active !== undefined) set("active", patch.active ? 1 : 0);
   if (patch.sessionEnc !== undefined) set("session_enc", patch.sessionEnc);

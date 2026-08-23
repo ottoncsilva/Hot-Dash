@@ -8,10 +8,14 @@ import { useConfirm } from "@/hooks/useConfirm";
 import type { LtvAccount } from "@/lib/ltvDb";
 
 /**
- * Conexão de UM número de WhatsApp, por QR (como no WhatsApp Web).
+ * Conexão de UM número de WhatsApp pela uazapi.
  *
- * Cada número é uma instância própria da Evolution — é isso que permite a
- * mesma modelo ter Número 1 e Número 2 sem um QR derrubar o outro.
+ * Dois caminhos, e o de código costuma ser o melhor: quem está com o celular
+ * na mão digita 8 caracteres, enquanto o QR exige uma segunda tela para
+ * apontar a câmera.
+ *
+ * Cada número é uma instância própria — é isso que permite a mesma modelo ter
+ * Número 1 e Número 2 sem um derrubar o outro.
  */
 export default function ContaWhatsappBlock({
   conta,
@@ -24,20 +28,27 @@ export default function ContaWhatsappBlock({
 }) {
   const { confirm, ConfirmDialog } = useConfirm();
   const [qr, setQr] = useState<string | null>(null);
+  const [paircode, setPaircode] = useState<string | null>(null);
+  const [phone, setPhone] = useState("");
   const [ocupado, setOcupado] = useState(false);
 
-  async function conectar() {
+  async function conectar(comTelefone: boolean) {
     setOcupado(true);
+    setQr(null);
+    setPaircode(null);
     try {
-      const d = await apiSend<{ qrcode: string | null }>("/api/ltv/accounts", "PATCH", {
-        accountId: conta.id,
-        action: "connect",
-      });
-      if (d.qrcode) {
-        setQr(d.qrcode);
-      } else {
-        showToast("Nenhum QR devolvido — o número já pode estar conectado.", "warning");
-      }
+      const d = await apiSend<{ qrcode: string | null; paircode: string | null }>(
+        "/api/ltv/accounts",
+        "PATCH",
+        {
+          accountId: conta.id,
+          action: "connect",
+          ...(comTelefone ? { phone } : {}),
+        },
+      );
+      if (d.paircode) setPaircode(d.paircode);
+      else if (d.qrcode) setQr(d.qrcode);
+      else showToast("Nada devolvido — o número já pode estar conectado.", "warning");
     } catch (e: any) {
       showToast(e.message, "error");
     } finally {
@@ -56,6 +67,7 @@ export default function ContaWhatsappBlock({
         action: "disconnect",
       });
       setQr(null);
+      setPaircode(null);
       onConta(d.account);
     } catch (e: any) {
       showToast(e.message, "error");
@@ -85,8 +97,8 @@ export default function ContaWhatsappBlock({
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm leading-relaxed text-zinc-400">
-        Escaneie o QR (como no WhatsApp Web). O lead que comprar o VIP recebe este contato e cai
-        aqui.
+        Conecte o WhatsApp da modelo. Pelo código é mais fácil: você digita ele no próprio
+        aparelho, sem precisar de outra tela para apontar a câmera.
       </p>
 
       {conta.status === "connected" ? (
@@ -109,6 +121,18 @@ export default function ContaWhatsappBlock({
         </div>
       ) : (
         <>
+          {paircode && (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 text-center">
+              <p className="eyebrow">Digite este código no WhatsApp da modelo</p>
+              <p className="mt-2 select-all font-mono text-3xl font-bold tracking-[0.3em] text-emerald-400">
+                {paircode}
+              </p>
+              <p className="mt-2 text-xs text-zinc-400">
+                No celular: Aparelhos conectados → Conectar aparelho → Conectar com número.
+              </p>
+            </div>
+          )}
+
           {qr && (
             <div className="flex flex-col items-center gap-2">
               <div className="rounded-xl bg-white p-3 shadow-lg">
@@ -124,15 +148,34 @@ export default function ContaWhatsappBlock({
               </p>
             </div>
           )}
-          <button
-            type="button"
-            onClick={conectar}
-            disabled={ocupado}
-            className="inline-flex w-fit items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-emerald-400 disabled:opacity-50 [@media(pointer:coarse)]:min-h-[44px]"
-          >
-            <IconWhatsapp size={16} />
-            {ocupado ? "Gerando..." : qr ? "Gerar outro QR" : "Conectar WhatsApp"}
-          </button>
+
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="block">
+              <span className="eyebrow mb-1 block">Telefone da modelo (com DDI)</span>
+              <input
+                className="input w-52 font-mono"
+                placeholder="5511965665065"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => conectar(true)}
+              disabled={ocupado || phone.replace(/\D/g, "").length < 10}
+              className="rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-emerald-400 disabled:opacity-50 [@media(pointer:coarse)]:min-h-[44px]"
+            >
+              {ocupado ? "Gerando..." : "Gerar código"}
+            </button>
+            <button
+              type="button"
+              onClick={() => conectar(false)}
+              disabled={ocupado}
+              className="inline-flex items-center gap-2 rounded-lg border border-white/15 px-4 py-2.5 text-sm text-zinc-300 transition-colors hover:bg-white/5 disabled:opacity-50 [@media(pointer:coarse)]:min-h-[44px]"
+            >
+              <IconWhatsapp size={16} /> Usar QR Code
+            </button>
+          </div>
         </>
       )}
 

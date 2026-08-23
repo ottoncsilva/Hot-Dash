@@ -7,7 +7,13 @@
  * no ponto que dispara — a preferência passa a valer sozinha.
  */
 
-export type PushEventType = "sale" | "pix" | "scheduleReminder" | "telegramPost" | "mailing";
+export type PushEventType =
+  | "sale"
+  | "pix"
+  | "scheduleReminder"
+  | "telegramPost"
+  | "mailing"
+  | "whatsappDown";
 
 export type PushEventDef = {
   id: PushEventType;
@@ -18,6 +24,13 @@ export type PushEventDef = {
 };
 
 export const PUSH_EVENTS: PushEventDef[] = [
+  {
+    id: "whatsappDown",
+    label: "WhatsApp caiu",
+    description:
+      "O número de uma modelo desconectou. Enquanto estiver fora, nenhum lead é respondido — por isso nasce ligado.",
+    defaultOn: true,
+  },
   {
     id: "sale",
     label: "Vendas",

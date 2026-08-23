@@ -1,23 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
 import { getDb } from "@/lib/db";
-import {
-  connectEvolutionInstance,
-  createEvolutionInstance,
-  getStateEvolutionInstance,
-  logoutEvolutionInstance,
-  setEvolutionWebhook,
-} from "@/lib/evolution";
+import { encryptSecret } from "@/lib/crypto";
+import * as uazapi from "@/lib/uazapi";
 import { publicOrigin } from "@/lib/publicOrigin";
 import { desconectarChip, isChipConfigurado, statusChip } from "@/lib/telegramChip";
 import {
   createAccount,
   deleteAccount,
   getAccount,
+  getAccountSession,
   listAccounts,
   updateAccount,
+  type LtvAccount,
   type LtvChannel,
 } from "@/lib/ltvDb";
+import { decryptSecret } from "@/lib/crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,12 +42,23 @@ export async function GET(req: NextRequest) {
     // sabe a verdade é o provedor, então confere ao abrir a tela.
     const atualizadas = await Promise.all(
       contas.map(async (c) => {
-        if (c.channel === "whatsapp" && c.externalRef) {
-          const state = await getStateEvolutionInstance(c.externalRef);
-          const conectada = state?.instance?.state === "open";
-          const status = conectada ? ("connected" as const) : ("disconnected" as const);
-          if (status !== c.status) updateAccount(c.id, { status });
-          return { ...c, status };
+        if (c.channel === "whatsapp") {
+          const token = tokenDe(c);
+          if (!token) return c;
+          try {
+            const inst = await uazapi.statusInstancia(token);
+            // "connected" é o único estado em que dá para responder lead;
+            // hibernated e connecting viram desconectado para a tela não
+            // prometer o que não entrega.
+            const status = inst.status === "connected" ? ("connected" as const) : ("disconnected" as const);
+            if (status !== c.status || (inst.owner && inst.owner !== c.externalRef)) {
+              updateAccount(c.id, { status, externalRef: inst.owner || c.externalRef });
+            }
+            return { ...c, status, externalRef: inst.owner || c.externalRef };
+          } catch {
+            // Servidor fora do ar não é motivo para mentir na tela.
+            return c;
+          }
         }
         if (c.channel === "telegram" && isChipConfigurado()) {
           const s = await statusChip(c.id);
@@ -59,7 +68,11 @@ export async function GET(req: NextRequest) {
       }),
     );
 
-    return NextResponse.json({ accounts: atualizadas, chipConfigurado: isChipConfigurado() });
+    return NextResponse.json({
+      accounts: atualizadas,
+      chipConfigurado: isChipConfigurado(),
+      uazapiConfigurada: uazapi.isUazapiConfigurada(),
+    });
   } catch (err) {
     return errorResponse(err);
   }
@@ -101,14 +114,12 @@ export async function PATCH(req: NextRequest) {
       if (conta.channel !== "whatsapp") {
         throw new ApiError(400, "O chip do Telegram conecta por telefone e código.");
       }
-      const webhookUrl = `${publicOrigin(req)}/api/webhooks/evolution`;
-      let instanceName = conta.externalRef;
-      let qrcode: string | null = null;
 
-      if (!instanceName) {
-        // O nome precisa ser único por CONTA, não por modelo: a mesma modelo
-        // pode ter Número 1 e Número 2, e um nome só faria o segundo QR
-        // derrubar o primeiro.
+      // A instância é criada UMA vez e o token dela fica cifrado na conta. Se
+      // já existe, reconectar reaproveita o mesmo token — criar outra
+      // instância a cada QR estouraria o limite de dispositivos do plano.
+      let token = tokenDe(conta);
+      if (!token) {
         const perfil = getDb()
           .prepare(`SELECT name FROM profiles WHERE id = ?`)
           .get(conta.profileId) as { name?: string } | undefined;
@@ -116,31 +127,51 @@ export async function PATCH(req: NextRequest) {
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/^-+|-+$/g, "");
-        instanceName = `hotdash_${slug}_${conta.id.slice(0, 8)}`;
-        const res = await createEvolutionInstance(instanceName);
-        qrcode = res?.qrcode?.base64 || res?.base64 || null;
-        await setEvolutionWebhook(instanceName, webhookUrl);
-        updateAccount(conta.id, { externalRef: instanceName, status: "connecting" });
-      } else {
-        const res = await connectEvolutionInstance(instanceName);
-        qrcode = res?.qrcode?.base64 || res?.base64 || res?.qrcode || null;
-        await setEvolutionWebhook(instanceName, webhookUrl);
-        updateAccount(conta.id, { status: "connecting" });
+        const inst = await uazapi.criarInstancia(`hotdash_${slug}_${conta.id.slice(0, 8)}`);
+        token = inst.token;
+        // O id da instância é o que o webhook usa para achar esta conta.
+        updateAccount(conta.id, {
+          sessionEnc: encryptSecret(token),
+          providerRef: inst.id,
+          status: "connecting",
+        });
       }
-      return NextResponse.json({ status: "connecting", qrcode });
+
+      // O webhook é registrado a cada conexão, não só na criação: se o
+      // endereço público do painel mudar, reconectar conserta sozinho.
+      await uazapi.registrarWebhook(token, `${publicOrigin(req)}/api/webhooks/uazapi`);
+
+      // Com telefone vem código de pareamento (digitar no aparelho), sem
+      // telefone vem QR. Pareamento é mais fácil para quem só tem o celular.
+      const phone = typeof body.phone === "string" ? body.phone.replace(/\D/g, "") : "";
+      const inst = await uazapi.conectarInstancia(token, phone || undefined);
+      updateAccount(conta.id, {
+        status: "connecting",
+        externalRef: phone || conta.externalRef,
+      });
+      return NextResponse.json({
+        status: "connecting",
+        qrcode: inst.qrcode || null,
+        paircode: inst.paircode || null,
+      });
     }
 
     if (body.action === "disconnect") {
       if (conta.channel === "telegram") {
         await desconectarChip(conta.id);
-      } else if (conta.externalRef) {
-        try {
-          await logoutEvolutionInstance(conta.externalRef);
-        } catch {
-          // A instância pode já não existir na Evolution. O painel precisa
-          // sair do "conectado" de qualquer jeito.
+      } else {
+        const token = tokenDe(conta);
+        if (token) {
+          try {
+            await uazapi.desconectarInstancia(token);
+          } catch {
+            // A instância pode nem existir mais lá. O painel precisa sair do
+            // "conectado" de qualquer jeito, senão a tela mente.
+          }
         }
-        updateAccount(conta.id, { externalRef: null, status: "disconnected" });
+        // O token SOBREVIVE ao desconectar: é a mesma instância, só sem
+        // sessão. Apagá-lo forçaria criar outra e queimaria uma vaga do plano.
+        updateAccount(conta.id, { status: "disconnected" });
       }
       return NextResponse.json({ account: getAccount(conta.id) });
     }
@@ -158,17 +189,31 @@ export async function DELETE(req: NextRequest) {
     const conta = getAccount(accountId);
     if (!conta) throw new ApiError(404, "Conta não encontrada.");
 
-    // Apagar a conta leva junto conversa, produto e venda (ON DELETE CASCADE).
-    // Encerrar a sessão antes evita deixar o chip logado num serviço que já
-    // não tem mais dono no painel.
+    // Apagar a conta leva junto conversa, produtos e vendas (ON DELETE
+    // CASCADE). Encerrar antes evita deixar instância órfã ocupando vaga do
+    // plano da uazapi, ou o chip logado num serviço que já não tem dono aqui.
     if (conta.channel === "telegram") {
       await desconectarChip(conta.id).catch(() => {});
-    } else if (conta.externalRef) {
-      await logoutEvolutionInstance(conta.externalRef).catch(() => {});
+    } else {
+      const token = tokenDe(conta);
+      if (token) await uazapi.apagarInstancia(token).catch(() => {});
     }
     deleteAccount(conta.id);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorResponse(err);
+  }
+}
+
+/** Token da instância na uazapi, decifrado. `null` = número nunca conectado. */
+function tokenDe(conta: LtvAccount): string | null {
+  const enc = getAccountSession(conta.id);
+  if (!enc) return null;
+  try {
+    return decryptSecret(enc);
+  } catch {
+    // Chave-mestra trocada: o token virou lixo e a instância precisa nascer
+    // de novo. Melhor isso do que mandar credencial ilegível.
+    return null;
   }
 }

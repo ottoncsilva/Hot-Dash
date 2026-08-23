@@ -1,6 +1,4 @@
 import "server-only";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { callAiRaw } from "./ai";
 import { getDb } from "./db";
 import { getMediaRow, getOrCreatePublicToken } from "./media";
@@ -8,10 +6,12 @@ import { publicOriginSemRequest } from "./publicOrigin";
 import { activeProvider } from "./payments";
 import { recordTransaction } from "./transactions";
 import { ensureSyncpayWebhookShortToken } from "./settings";
-import { sendEvolutionMedia, sendEvolutionText } from "./evolution";
+import * as uazapi from "./uazapi";
 import * as chip from "./telegramChip";
+import { decryptSecret } from "./crypto";
 import {
   contarEnvio,
+  getAccountSession,
   createOrder,
   getAccount,
   getAgent,
@@ -61,41 +61,98 @@ type Adaptador = {
   digitando(): Promise<void>;
 };
 
-function baseDeMidia(): string {
-  return resolve(process.env.MEDIA_STORAGE_DIR || "/app/data");
+/**
+ * O token da instância na uazapi, decifrado. Fica na mesma coluna que guarda a
+ * sessão do chip do Telegram: os dois são a credencial da conta, e o canal diz
+ * qual é qual.
+ */
+function tokenDaConta(conta: LtvAccount): string {
+  const enc = getAccountSession(conta.id);
+  if (!enc) {
+    throw new Error("Este número não está conectado à uazapi. Reconecte na tela do LTV.");
+  }
+  return decryptSecret(enc);
 }
 
-/** Link público e opaco do arquivo — é como o chip do Telegram o baixa. */
+/** Link público e opaco do arquivo — é como o WhatsApp e o chip o baixam. */
 function urlPublicaDaMidia(mediaId: string): string | null {
   const token = getOrCreatePublicToken(mediaId);
   if (!token) return null;
   return `${publicOriginSemRequest()}/api/public/media/${token}`;
 }
 
+/**
+ * Quanto tempo a modelo fica "digitando..." antes da mensagem cair.
+ *
+ * Sai de graça: a uazapi mostra a presença durante o `delay` do próprio envio,
+ * então não há uma chamada separada que poderia ficar pendurada se o envio
+ * falhasse no meio.
+ *
+ * O tempo é PROPORCIONAL ao tamanho, porque é isso que denuncia ou disfarça:
+ * um textão que aparece instantaneamente não foi digitado por ninguém. ~55ms
+ * por caractere é a velocidade de quem digita rápido no celular. O teto de 10
+ * segundos existe porque acima disso o lead acha que travou e sai da conversa
+ * — a espera longa de verdade é o ritmo humano, que acontece ANTES, em
+ * silêncio.
+ */
+const MS_POR_CARACTERE = 55;
+const DIGITANDO_MIN_MS = 800;
+const DIGITANDO_MAX_MS = 10_000;
+
+export function tempoDigitando(texto: string): number {
+  const bruto = (texto || "").length * MS_POR_CARACTERE;
+  return Math.round(Math.min(DIGITANDO_MAX_MS, Math.max(DIGITANDO_MIN_MS, bruto)));
+}
+
 function adaptadorWhatsapp(conta: LtvAccount, peerRef: string): Adaptador {
-  const instancia = conta.externalRef;
-  if (!instancia) throw new Error("Esta conta de WhatsApp não tem instância conectada.");
+  const token = tokenDaConta(conta);
   return {
     async texto(t) {
-      await sendEvolutionText(instancia, peerRef, t);
+      await uazapi.enviarTexto(token, peerRef, t, { delay: tempoDigitando(t) });
     },
     async codigo(t) {
-      // O WhatsApp não tem toque-para-copiar; mandar cercado por crases só
-      // sujaria o código que o lead vai colar no banco.
-      await sendEvolutionText(instancia, peerRef, t);
+      // Botão nativo que copia com um toque. Não é o /send/pix-button: aquele
+      // recebe uma CHAVE pix e o dinheiro cairia fora da SyncPay, sem
+      // conciliação e sem entrega automática.
+      await uazapi.enviarBotaoCopiar(
+        token,
+        peerRef,
+        {
+          text: "É só tocar no botão que o código copia sozinho 😘",
+          rotulo: "Copiar código PIX",
+          codigo: t,
+          footerText: "Assim que cair eu te mando na hora",
+        },
+        { delay: DIGITANDO_MIN_MS },
+      );
     },
     async midia(mediaId, legenda) {
+      const url = urlPublicaDaMidia(mediaId);
+      if (!url) throw new Error("Arquivo não encontrado na Galeria.");
       const row = getMediaRow(mediaId);
-      if (!row) throw new Error("Arquivo não encontrado na Galeria.");
-      const base64 = readFileSync(resolve(baseDeMidia(), row.path)).toString("base64");
-      await sendEvolutionMedia(instancia, peerRef, base64, row.mime || "image/jpeg", legenda);
+      await uazapi.enviarMidia(
+        token,
+        peerRef,
+        {
+          type: row?.kind === "video" ? "video" : "image",
+          file: url,
+          text: legenda || undefined,
+        },
+        { delay: tempoDigitando(legenda) },
+      );
     },
     async audio(a) {
-      const base64 = readFileSync(resolve(baseDeMidia(), a.path)).toString("base64");
-      await sendEvolutionMedia(instancia, peerRef, base64, a.mime || "audio/ogg", "");
+      // `ptt` é a mensagem de voz de verdade, com a onda e o play — durante o
+      // delay o WhatsApp mostra "Gravando áudio...".
+      await uazapi.enviarMidia(
+        token,
+        peerRef,
+        { type: "ptt", file: `${publicOriginSemRequest()}/api/ltv/audios/${a.id}/file` },
+        { delay: 3000 },
+      );
     },
     async digitando() {
-      // A Evolution já manda "composing" junto do texto (ver sendEvolutionText).
+      // Nada a fazer: a presença acompanha o `delay` de cada envio.
     },
   };
 }
@@ -572,6 +629,43 @@ export async function enviarPeloPainel(
 }
 
 /**
+ * Marca o lead como PAGO com uma etiqueta no próprio WhatsApp.
+ *
+ * Serve para quem abre o WhatsApp no celular e precisa saber, de bate-pronto,
+ * quem já comprou — sem abrir o painel. A etiqueta é criada na instância na
+ * primeira venda e reaproveitada depois.
+ *
+ * Nunca lança: a venda já está paga e o conteúdo já foi entregue; falhar em
+ * colorir uma conversa não pode derrubar nada disso.
+ */
+const ETIQUETA_PAGO = "Pago";
+
+export async function etiquetarComoPago(conta: LtvAccount, peerRef: string): Promise<void> {
+  if (conta.channel !== "whatsapp") return;
+  try {
+    const token = tokenDaConta(conta);
+    const existentes = await uazapi.listarEtiquetas(token);
+    const achar = (lista: uazapi.UazapiLabel[]) =>
+      lista.find((l) => (l.name || "").trim().toLowerCase() === ETIQUETA_PAGO.toLowerCase());
+
+    let etiqueta = achar(existentes);
+    if (!etiqueta) {
+      await uazapi.criarEtiqueta(token, ETIQUETA_PAGO);
+      // O id definitivo só aparece relendo — a criação não o devolve.
+      etiqueta = achar(await uazapi.listarEtiquetas(token));
+    }
+    const id = etiqueta?.labelid || etiqueta?.id;
+    if (!id) {
+      console.error('LTV: não consegui descobrir o id da etiqueta "Pago".');
+      return;
+    }
+    await uazapi.marcarChatComEtiqueta(token, peerRef, String(id));
+  } catch (e) {
+    console.error("LTV: falha etiquetando o lead como pago:", e);
+  }
+}
+
+/**
  * Entrega o produto quando o PIX cai. Chamado pelo webhook da SyncPay.
  * Manda os arquivos na ORDEM cadastrada — a sequência é escolhida na tela e é
  * parte do que foi vendido.
@@ -589,6 +683,8 @@ export async function entregarPedido(orderId: string): Promise<void> {
   const produto = pedido.product_id
     ? listProducts(conta.id).find((p) => p.id === pedido.product_id)
     : undefined;
+
+  await etiquetarComoPago(conta, chat.peerRef);
 
   if (!produto) {
     await adaptador.texto("Pagamento confirmado, amor! Já te mando aqui 😘");

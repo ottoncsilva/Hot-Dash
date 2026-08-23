@@ -611,8 +611,14 @@ function migrate(d: Database.Database) {
       profile_id    TEXT NOT NULL,
       channel       TEXT NOT NULL,              -- 'whatsapp' | 'telegram'
       label         TEXT NOT NULL,              -- "Número 1", "Chip"
-      external_ref  TEXT,                       -- instância Evolution / telefone do chip
-      session_enc   TEXT,                       -- sessão MTProto cifrada (só Telegram)
+      external_ref  TEXT,                       -- telefone conectado (WhatsApp e Telegram)
+      -- Id da instância no provedor (uazapi). É por ele que o webhook descobre
+      -- de qual conta é o evento; o telefone só aparece depois que conecta,
+      -- então não serve como chave.
+      provider_ref  TEXT,
+      -- Credencial cifrada da conta: a sessão MTProto no Telegram, o token da
+      -- instância no WhatsApp. O canal diz qual é qual.
+      session_enc   TEXT,
       status        TEXT NOT NULL DEFAULT 'disconnected',
       active        INTEGER NOT NULL DEFAULT 1,
       created_at    INTEGER NOT NULL,
@@ -1041,6 +1047,7 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "ltv_agent_settings", "max_discount_pct", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(d, "ltv_orders", "list_price_cents", "INTEGER");
   ensureColumn(d, "ltv_chats", "peer_access_hash", "TEXT");
+  ensureColumn(d, "ltv_accounts", "provider_ref", "TEXT");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);

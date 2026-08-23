@@ -33,8 +33,10 @@ todas as modelos.
 docker compose up -d telegram-chip
 ```
 
-Depois informe a URL e o token em **Configurações → Conexão com IA → Chip do
-Telegram**. Com a URL em branco, o LTV do Telegram fica desligado.
+Não há nada para configurar na tela do painel. Ele acha o serviço sozinho pelo
+nome do container (`http://telegram-chip:8100`); a única coisa que precisa
+bater é o `CHIP_API_TOKEN`, que deve ter o **mesmo valor** no painel e aqui.
+Sem esse segredo dos dois lados, o LTV do Telegram fica desligado.
 
 ## O volume não é opcional
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ApiError, errorResponse, requireUser } from "@/lib/apiAuth";
 import { createOrder, getAccount, getChat } from "@/lib/ltvDb";
+import { etiquetarComoPago } from "@/lib/ltvAgent";
 import { recordTransaction } from "@/lib/transactions";
 
 export const runtime = "nodejs";
@@ -47,6 +48,11 @@ export async function POST(req: NextRequest) {
       source: "manual",
       status: "paid",
     });
+
+    // Venda lançada na mão também é venda: o lead precisa aparecer como pago
+    // no WhatsApp da modelo igual a quem pagou pelo PIX automático.
+    if (conta) await etiquetarComoPago(conta, chat.peerRef);
+
     return NextResponse.json({ order: pedido });
   } catch (err) {
     return errorResponse(err);

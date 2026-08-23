@@ -236,7 +236,11 @@ export default function LtvTelegramPage() {
               <LtvBlock
                 icon={<IconPayments size={20} />}
                 title="Recebimento e produtos (LTV)"
-                summary={`${produtos.length} produto(s) · PIX pela SyncPay`}
+                summary={`${produtos.length} produto(s) · PIX pela SyncPay · ${
+                      agente.maxDiscountPct > 0
+                        ? `desconto até ${agente.maxDiscountPct}%`
+                        : "sem desconto"
+                    }`}
               >
                 <ProdutosBlock
                   accountId={conta.id}

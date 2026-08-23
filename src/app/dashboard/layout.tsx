@@ -55,6 +55,7 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   payments: IconPayments,
   funil: IconFunnel,
   telegram: IconTelegram,
+  geracao: IconSparkle,
   ltv: IconFire,
   ltv_chat: IconBot,
   ltv_whatsapp: IconWhatsapp,
@@ -79,6 +80,16 @@ const SETTINGS_SUBSECTIONS: { label: string; anchor: string }[] = [
 // O LTV junta os dois canais: a conversa ao vivo (que serve WhatsApp e
 // Telegram) e a configuração de cada um. O menu "Telegram" ao lado continua
 // sendo outra coisa — o grupo VIP, que roda por bot.
+// Só agrupa: cada tela continua no caminho de sempre, nada foi movido.
+const GERACAO_SUBSECTIONS: NavSubItem[] = [
+  { label: "Censura com IA", href: "/dashboard/censura" },
+  { label: "First Frame", href: "/dashboard/first-frame" },
+  { label: "Caixinha de perguntas", href: "/dashboard/caixinha" },
+  { label: "Gerador de Imagem", href: "/dashboard/gerador-imagem" },
+  { label: "Gerador de Vídeo", href: "/dashboard/gerador-video" },
+  { label: "Motion Control", href: "/dashboard/motion-control" },
+];
+
 const LTV_SUBSECTIONS: NavSubItem[] = [
   { label: "Chat ao vivo", href: "/dashboard/ltv/chat" },
   { label: "LTV WhatsApp", href: "/dashboard/ltv/whatsapp" },
@@ -113,6 +124,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
     normalizeMenu(DEFAULT_MENU_ORDER.map((key) => ({ key, hidden: false })))
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [geracaoOpen, setGeracaoOpen] = useState(false);
   const [ltvOpen, setLtvOpen] = useState(false);
   const [telegramOpen, setTelegramOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -136,6 +148,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (pathname?.startsWith("/dashboard/settings")) setSettingsOpen(true);
+    if (GERACAO_SUBSECTIONS.some((s) => pathname === s.href)) setGeracaoOpen(true);
     if (pathname?.startsWith("/dashboard/ltv")) setLtvOpen(true);
     if (pathname?.startsWith("/dashboard/telegram")) setTelegramOpen(true);
   }, [pathname]);
@@ -162,6 +175,23 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
       const item = NAV_ITEMS[key];
       const Icon = ICONS[key];
       const icon = <Icon size={18} />;
+
+      if (key === "geracao") {
+        return (
+          <NavGroup
+            key={key}
+            label={item.label}
+            icon={icon}
+            items={GERACAO_SUBSECTIONS}
+            open={geracaoOpen}
+            onToggle={() => setGeracaoOpen(!geracaoOpen)}
+            active={GERACAO_SUBSECTIONS.some((s) => pathname === s.href)}
+            pathname={pathname}
+            compact={compact}
+            onNavigate={onNavigate}
+          />
+        );
+      }
 
       if (key === "ltv") {
         return (

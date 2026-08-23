@@ -2,6 +2,7 @@
 // Os ícones são mapeados por `key` no componente de layout.
 
 export type NavKey =
+  | "geracao"
   | "ltv"
   | "ltv_chat"
   | "ltv_whatsapp"
@@ -36,6 +37,9 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   payments: { key: "payments", label: "Financeiro", href: "/dashboard/payments" },
   funil: { key: "funil", label: "Funil de Vendas", href: "/dashboard/funil" },
   telegram: { key: "telegram", label: "Telegram", href: "/dashboard/telegram" },
+  // O grupo aponta para o primeiro filho: clicar no cabeçalho abre o submenu,
+  // mas o href ainda precisa levar a algum lugar real.
+  geracao: { key: "geracao", label: "Geração de Conteúdo", href: "/dashboard/censura" },
   ltv: { key: "ltv", label: "LTV", href: "/dashboard/ltv/chat" },
   ltv_chat: { key: "ltv_chat", label: "Chat ao vivo", href: "/dashboard/ltv/chat" },
   ltv_whatsapp: { key: "ltv_whatsapp", label: "LTV WhatsApp", href: "/dashboard/ltv/whatsapp" },
@@ -44,18 +48,13 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   settings: { key: "settings", label: "Configurações", href: "/dashboard/settings" },
 };
 
-// "Galeria" e "Censura com IA" são itens de topo independentes — não existe
-// mais um menu "Mídia" agrupando os dois.
+// As seis ferramentas de criar conteúdo vivem dentro de "Geração de Conteúdo":
+// soltas no topo, elas sozinhas ocupavam metade do menu.
 export const DEFAULT_MENU_ORDER: NavKey[] = [
   "dashboard",
   "profiles",
   "media",
-  "censura",
-  "firstframe",
-  "caixinha",
-  "imagegen",
-  "videogen",
-  "motion",
+  "geracao",
   "schedule",
   "payments",
   "funil",
@@ -68,7 +67,19 @@ export type MenuEntry = { key: NavKey; hidden: boolean };
 
 /** Normaliza uma config de menu salva, garantindo que todos os itens existam. */
 // Chaves que NÃO aparecem como item de topo (são submenus derivados no layout).
-const SUBSECTION_KEYS = new Set<NavKey>(["ltv_chat", "ltv_whatsapp", "ltv_telegram"]);
+const SUBSECTION_KEYS = new Set<NavKey>([
+  "ltv_chat",
+  "ltv_whatsapp",
+  "ltv_telegram",
+  // Quem tinha uma destas escondida perde a preferência: o grupo é um item só,
+  // e agora se esconde (ou reordena) inteiro.
+  "censura",
+  "firstframe",
+  "caixinha",
+  "imagegen",
+  "videogen",
+  "motion",
+]);
 
 export function normalizeMenu(saved?: MenuEntry[]): MenuEntry[] {
   const result: MenuEntry[] = [];

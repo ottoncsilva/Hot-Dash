@@ -38,10 +38,15 @@ export default function NavGroup({
 }) {
   return (
     <div>
+      {/* A estrutura copia a do item simples do menu — ícone, rótulo, na mesma
+          ordem e com o mesmo gap — mais a seta no fim. O `text-left` não é
+          detalhe: <button> vem com text-align:center do navegador, e era isso
+          que jogava os rótulos com submenu para o meio enquanto os itens
+          simples, que são <a>, ficavam à esquerda. */}
       <button
         onClick={onToggle}
         aria-expanded={open}
-        className={`flex w-full items-center justify-between rounded-lg px-3 text-sm font-medium transition-colors ${
+        className={`flex w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium transition-colors ${
           compact ? "py-2" : "py-2.5"
         } ${
           active
@@ -49,11 +54,11 @@ export default function NavGroup({
             : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
         }`}
       >
-        <div className="flex items-center gap-3">
-          {icon}
-          {label}
-        </div>
-        {open ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+        <span className="shrink-0">{icon}</span>
+        <span className="min-w-0 flex-1">{label}</span>
+        <span className="shrink-0">
+          {open ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+        </span>
       </button>
       {open && (
         <div className="mt-1 flex flex-col border-l border-white/10 pl-4">

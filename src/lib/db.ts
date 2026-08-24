@@ -1074,6 +1074,7 @@ function migrate(d: Database.Database) {
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);
   backfillMensagensPadrao(d);
+  backfillRenewalFunnel(d);
   backfillConfigPorModelo(d);
   backfillTelegramUsers(d);
   backfillMediaPostLog(d);
@@ -1316,6 +1317,67 @@ function backfillMensagensPadrao(d: Database.Database) {
     `UPDATE telegram_bots SET success_button_text = ?
       WHERE success_button_text IS NULL OR TRIM(success_button_text) = ''`,
   ).run(BOTAO);
+}
+
+/**
+ * ALERTA DE RENOVAÇÃO — pré-carrega a sequência padrão (1 dia, 18h, 12h, 6h,
+ * 1h, 20min e 5min antes de vencer, desconto subindo de 0% a 50%) em toda
+ * modelo que já existia antes deste funil nascer, e já liga o alerta.
+ *
+ * Duplicado de `RENEWAL_DEFAULT_STEPS` (lib/telegramDb.ts) em vez de
+ * importado de lá: telegramDb.ts importa `getDb` DESTE arquivo, e o import
+ * inverso criaria um ciclo — mesmo motivo pelo qual `backfillMensagensPadrao`
+ * acima duplica `MESSAGE_DEFAULTS` em vez de importar.
+ *
+ * Sem marca de "já rodei" em `settings`: só entra em quem está com o campo
+ * VAZIO, e depois da primeira vez ninguém mais fica vazio (bot novo já nasce
+ * com a sequência, ver `save-credentials` em app/api/telegram/route.ts) — não
+ * faz mal rodar nas inicializações seguintes, mesmo espírito do botão de
+ * acesso logo acima.
+ */
+function backfillRenewalFunnel(d: Database.Database) {
+  const PASSOS = JSON.stringify([
+    {
+      delayMinutes: 1440,
+      discountPercent: 0,
+      text: "Oi {nome} 😘 Passando pra avisar que seu VIP vence AMANHÃ. Não queria te perder logo agora que a gente tava se conhecendo... dá uma olhada nos planos e renova pra continuar aqui comigo 💕",
+    },
+    {
+      delayMinutes: 1080,
+      discountPercent: 0,
+      text: "{nome}, faltam só 18 horinhas pro seu acesso vencer 👀 Ainda dá tempo de renovar tranquilo, sem correria. Não some não 🥺",
+    },
+    {
+      delayMinutes: 720,
+      discountPercent: 20,
+      text: "Amor, seu VIP vence em 12 horas! 🔥 Separei 20% de desconto só pra você renovar agora e continuar vendo tudo que eu posto. Corre que é por tempo limitado 😈",
+    },
+    {
+      delayMinutes: 360,
+      discountPercent: 30,
+      text: "{nome}, faltam só 6 horas e seu acesso cai fora 😱 Consegui liberar 30% de desconto pra você não perder — não vou fazer isso sempre viu, aproveita agora",
+    },
+    {
+      delayMinutes: 60,
+      discountPercent: 30,
+      text: "ÚLTIMA HORA, {nome}! ⏰ Em breve você perde o acesso a tudo que eu posto aqui. Ainda dá tempo de renovar com 30% off, não deixa acabar assim 🥵",
+    },
+    {
+      delayMinutes: 20,
+      discountPercent: 40,
+      text: "{nome}, faltam só 20 minutinhos e seu VIP vence 😰 Subi o desconto pra 40% AGORA, é a sua última chance antes de sair do grupo. Corre comigo 🔥",
+    },
+    {
+      delayMinutes: 5,
+      discountPercent: 50,
+      text: "ÚLTIMOS 5 MINUTOS!!! 🚨 {nome}, não perde tudo por bobeira — renova AGORA com 50% de desconto, o maior que eu dou. Depois que vencer não tem mais volta 💔",
+    },
+  ]);
+
+  d.prepare(
+    `UPDATE telegram_bots SET renewal_funnel = ?, renewal_enabled = 1
+      WHERE renewal_funnel IS NULL OR TRIM(renewal_funnel) = ''`,
+  ).run(PASSOS);
 }
 
 /**

@@ -22,6 +22,7 @@ import {
   buildAccessMessage,
   PIX_DEFAULTS,
   MESSAGE_DEFAULTS,
+  RENEWAL_DEFAULT_STEPS,
 } from "@/lib/telegramDb";
 import {
   setTelegramWebhook,
@@ -257,7 +258,12 @@ export async function POST(req: NextRequest) {
           downsellEnabled: true,
           pixDownsellEnabled: true,
           upsellEnabled: true,
+          // Alerta de Renovação já nasce ATIVO e com a sequência padrão
+          // pronta (1 dia, 18h, 12h, 6h, 1h, 20min e 5min antes de vencer,
+          // desconto subindo aos poucos) — a modelo edita por cima se quiser,
+          // mas nunca começa sem nada configurado.
           renewalEnabled: true,
+          renewalFunnel: JSON.stringify(RENEWAL_DEFAULT_STEPS),
         }),
         id: botId,
         profileId,

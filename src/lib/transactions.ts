@@ -807,8 +807,8 @@ export function revenueSeriesForDays(days: number, profileId?: string): { day: s
  *
  * A granularidade acompanha o período escolhido em vez de sempre ser diária:
  *  - um dia só (Hoje, Ontem, ou uma única data no seletor) → por HORA;
- *  - "Esta semana" → segunda a domingo inteiros (7 pontos, dias futuros com zero);
- *  - "Este mês" → dia 1 ao último dia do mês (idem);
+ *  - "Esta semana" → segunda a hoje (dias futuros da semana ficam de fora);
+ *  - "Este mês" → dia 1 até hoje (idem — sem completar o resto do mês);
  *  - "Máximo" (sem início) → últimos 30 dias, como antes;
  *  - qualquer outro intervalo (últimos 7/30 dias, datas escolhidas à mão) →
  *    exatamente os dias do intervalo, sem completar para trás.
@@ -875,8 +875,16 @@ function seriesBetween(
 ): { day: string; cents: number }[] {
   const db = getDb();
   const tz = getAppTimeZone();
+  // DIAS FUTUROS NÃO ENTRAM. "Este mês" e "Esta semana" iam até o fim do
+  // período com zero nos dias que ainda nem chegaram — parecia faturamento
+  // que caiu a zero, quando na verdade o dia simplesmente não aconteceu
+  // ainda, e ainda achatava a média do card. O corte é em HOJE, no fuso da
+  // operação — o mesmo que decide onde cada dia começa e termina acima.
+  const hoje = startOfDayInTimeZone(Date.now(), tz);
+  const diasAteHoje = Math.round((hoje - primeiroDia) / 86_400_000) + 1;
+  const diasReais = Math.min(dias, Math.max(0, diasAteHoje));
   const out: { day: string; cents: number }[] = [];
-  for (let i = 0; i < dias; i++) {
+  for (let i = 0; i < diasReais; i++) {
     const dayStart = addDaysInTimeZone(primeiroDia, i, tz);
     const dayEnd = addDaysInTimeZone(dayStart, 1, tz);
     const params: (string | number)[] = [dayStart, dayEnd];

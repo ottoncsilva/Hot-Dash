@@ -271,7 +271,20 @@ export default function MediaPicker({
                   </FilterDropdown>
                 </div>
               )}
-              <div className="grid max-h-64 grid-cols-5 gap-1.5 overflow-y-auto sm:grid-cols-8">
+              {/* `auto-fill`/`minmax`, não `grid-cols-N` fixo por breakpoint:
+                  `sm:`/`md:` olham a largura da JANELA, não a do painel onde
+                  este componente está encaixado. Numa tela de aparelho largo
+                  (iPad, ou até celular) o breakpoint achava que havia espaço
+                  de sobra e pulava para 8 colunas mesmo quando o cartão em
+                  volta era estreito (ex.: ao lado do preview do bot, dentro
+                  de um formulário de produto) — as miniaturas encavalavam,
+                  pequenas e espremidas. Com `auto-fill`, cada coluna nunca
+                  fica menor que `minmax`, e a grade decide sozinha quantas
+                  cabem na largura REAL do card, não na da tela. */}
+              <div
+                className="grid max-h-64 gap-1.5 overflow-y-auto"
+                style={{ gridTemplateColumns: "repeat(auto-fill, minmax(4.25rem, 1fr))" }}
+              >
                 {/* PRIMEIRO item: o aparelho. Fica na grade, e não num botão à
                     parte, porque a pergunta é a mesma das outras casinhas. */}
                 {onArquivo && (

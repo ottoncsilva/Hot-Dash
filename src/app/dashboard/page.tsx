@@ -674,10 +674,35 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
   // Ponto sob o cursor/dedo. Fica antes do early-return porque hook não pode
   // ficar depois de um return condicional.
   const [active, setActive] = useState<number | null>(null);
+
+  // LARGURA REAL do card, medida fora da faixa rolável (que é quem tem a
+  // largura "de mentira" — ela estica para caber o conteúdo). Sem isto o
+  // viewBox usava um valor fixo (600) que quase nunca batia com o que o SVG
+  // de fato ocupava na tela — um período curto num card largo, ou muitos
+  // dias na faixa rolável, esticava só o eixo X (`preserveAspectRatio="none"`
+  // exige os dois batendo) e os pontos saíam ovais em vez de redondos.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [larguraCard, setLarguraCard] = useState(0);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const medir = () => setLarguraCard(el.clientWidth);
+    medir();
+    const ro = new ResizeObserver(medir);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   if (series.length === 0) {
     return <div className="grid h-40 place-items-center text-xs text-zinc-600">sem dados no período</div>;
   }
-  const W = 600;
+  // Mesma conta do `minWidth` que a faixa rolável já aplicava: nunca mais
+  // estreito que 38px por dia (senão os rótulos colam uns nos outros), e
+  // nunca mais estreito que o card (período curto continua preenchendo o
+  // card como sempre preencheu). É exatamente a largura que o navegador vai
+  // desenhar — por isso o viewBox pode copiá-la e não há mais o que esticar.
+  const larguraMinima = Math.max(280, series.length * 38);
+  const W = Math.max(larguraMinima, larguraCard);
   const H = 160;
   const PAD = 8;
   const max = Math.max(1, ...series.map((s) => s.cents));
@@ -692,7 +717,7 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
   const total = series.reduce((n, s) => n + s.cents, 0);
 
   return (
-    <div>
+    <div ref={wrapRef}>
       <div className="flex items-center justify-between">
         <span className="text-xs text-zinc-500">
           {series[0].day} – {series[series.length - 1].day}
@@ -704,7 +729,7 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
           A faixa põe o degradê nas pontas: rolar já rolava, mas nada dizia que
           havia mais dias fora da tela. */}
       <FaixaRolavel className="mt-2" ariaLabel="Faturamento por dia">
-      <div style={{ minWidth: `${Math.max(280, series.length * 38)}px` }}>
+      <div style={{ minWidth: `${W}px` }}>
       {/* `relative` para ancorar a camada de interação e o balão do valor. */}
       <div className="relative" onMouseLeave={() => setActive(null)}>
       <svg viewBox={`0 0 ${W} ${H}`} className="h-40 w-full" preserveAspectRatio="none">

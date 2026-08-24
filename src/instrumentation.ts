@@ -24,6 +24,14 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     // Importamos dinamicamente para evitar carregar módulos de servidor no build global.
     const { processReminders } = await import("@/lib/cronTasks");
+    // O chip do Telegram vive NESTE processo: religa as sessões que já
+    // estavam conectadas, senão todo deploy deixaria os leads no vácuo.
+    try {
+      const { religarChips } = await import("@/lib/telegramChip");
+      await religarChips();
+    } catch (err) {
+      console.error("[hotdash] Erro religando os chips do Telegram:", err);
+    }
     const {
       runTelegramAutopost,
       runTelegramFunnels,
@@ -34,6 +42,11 @@ export async function register() {
     // Monitor dos grupos: consulta a API do Telegram e por isso funciona com a
     // operação do bot desligada, quando nenhum update chega pelo webhook.
     const { runTelegramGroupMonitor } = await import("@/lib/telegramMonitor");
+    // Vigia do webhook: sem ele, um registro perdido derruba o bot de vendas em
+    // silêncio — nada de /start, nada de aprovar entrada nas Prévias.
+    const { runTelegramWebhookWatch } = await import("@/lib/telegramWebhookWatch");
+    // Faxina da memória do LTV: guarda 40 dias por lead e apaga o resto.
+    const { runLtvRetencao } = await import("@/lib/ltvRetencao");
     // Geração do Método MK (Prévias e VIP), em lotes: a rota só enfileira (a
     // copy de um dia inteiro não cabe no maxDuration de uma requisição). Os dois
     // dividem UMA fila e um lote por tick — ver generationJobs.ts.
@@ -86,6 +99,19 @@ export async function register() {
           await runTelegramGroupMonitor();
         } catch (err) {
           console.error("[hotdash] Erro no cron (monitor de grupos):", err);
+        }
+        try {
+          await runTelegramWebhookWatch();
+        } catch (err) {
+          console.error("[hotdash] Erro no cron (vigia do webhook):", err);
+        }
+        try {
+          const apagadas = runLtvRetencao();
+          if (apagadas > 0) {
+            console.log(`[hotdash] memória do LTV: ${apagadas} mensagem(ns) antiga(s) apagada(s).`);
+          }
+        } catch (err) {
+          console.error("[hotdash] Erro no cron (memória do LTV):", err);
         }
       } finally {
         running = false;

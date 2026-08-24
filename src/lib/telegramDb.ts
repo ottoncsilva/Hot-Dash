@@ -463,7 +463,11 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.buttonStyles ? JSON.stringify(sanitizeButtonStyles(config.buttonStyles)) : null,
     now
   );
-  return getBotConfig(id)!;
+  // Lê PELO PERFIL, não pelo `id` que acabou de ser passado. O INSERT resolve
+  // conflito por `profile_id`, então quando já existe um bot para o modelo a
+  // linha atualizada MANTÉM o id antigo — buscar pelo id novo devolveria null,
+  // e o `!` transformaria isso num erro obscuro lá na frente.
+  return getBotConfigByProfile(config.profileId)!;
 }
 
 export function deleteBotConfig(profileId: string): void {

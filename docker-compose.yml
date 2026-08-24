@@ -17,12 +17,6 @@ services:
     env_file:
       - .env
     # environment:
-    #   # LTV do Telegram: o painel acha o serviço do chip sozinho pelo nome do
-    #   # container; só o segredo precisa ser o MESMO nos dois lados. Não há o
-    #   # que configurar na tela — é de propósito.
-    #   CHIP_API_TOKEN: troque-por-um-token
-    #   # Só se o serviço do chip rodar fora deste compose:
-    #   TELEGRAM_CHIP_URL: http://telegram-chip:8100
     #   # Só se for usar o serviço NudeNet externo (opcional; veja abaixo).
     #   NUDENET_URL: http://nudenet:8000
     #   NUDENET_API_KEY: troque-por-um-token
@@ -30,26 +24,6 @@ services:
       - "3000:3000"
     volumes:
       - hotdash-data:/app/data
-
-  # --- Chip do Telegram (LTV por conta real) ------------------------------
-  # Só precisa se for usar o LTV do Telegram. Exige api_id/api_hash do
-  # my.telegram.org (ver telegram-mtproto-service/README.md). Depois de subir,
-  # informe a URL e o token em Configurações → Conexão com IA.
-  # telegram-chip:
-  #   build: ./telegram-mtproto-service
-  #   restart: unless-stopped
-  #   environment:
-  #     TELEGRAM_API_ID: "0000000"
-  #     TELEGRAM_API_HASH: "troque-pelo-seu"
-  #     # O MESMO valor do CHIP_API_TOKEN do app acima.
-  #     CHIP_API_TOKEN: troque-por-um-token
-  #     WEBHOOK_URL: https://painel.seudominio.com/api/webhooks/telegram-chip
-  #   expose:
-  #     - "8100"
-  #   volumes:
-  #     # NÃO é opcional: sem o volume, todo deploy pede o código do Telegram
-  #     # de novo — e pedir código demais derruba o chip.
-  #     - telegram-chip-data:/data
 
   # --- OPCIONAL / legado: serviço NudeNet externo -------------------------
   # Descomente se preferir rodar a detecção fora do app (o embutido já cobre
@@ -64,4 +38,3 @@ services:
 
 volumes:
   hotdash-data:
-  telegram-chip-data:

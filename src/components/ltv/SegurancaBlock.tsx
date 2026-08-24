@@ -34,8 +34,9 @@ export default function SegurancaBlock({
             onClick={() => onChange({ rhythm: "humano" })}
             title="Humano (recomendado)"
           >
-            Varia de verdade dentro da janela abaixo: às vezes na hora, às vezes daqui a
-            alguns minutos.
+            Sem janela em segundos: às vezes responde em meio minuto, às vezes deixa o lead
+            20 ou 30 minutos esperando. Depois das 2h da manhã ela dorme e só responde às
+            7h ou 8h do dia seguinte.
           </OpcaoCartao>
           <OpcaoCartao
             active={agente.rhythm === "fixo"}
@@ -47,25 +48,30 @@ export default function SegurancaBlock({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-300">
-        <span>entre</span>
-        <input
-          type="number"
-          min={0}
-          className="input w-24"
-          value={agente.delayMinS}
-          onChange={(e) => onChange({ delayMinS: Number(e.target.value) })}
-        />
-        <span>e</span>
-        <input
-          type="number"
-          min={0}
-          className="input w-24"
-          value={agente.delayMaxS}
-          onChange={(e) => onChange({ delayMaxS: Number(e.target.value) })}
-        />
-        <span>segundos</span>
-      </div>
+      {/* A janela em segundos só faz sentido no ritmo fixo. No humano o atraso é
+          sorteado numa escala de minutos (e some na madrugada), então mostrar
+          dois campos de segundos que não valem nada só confundiria. */}
+      {agente.rhythm === "fixo" && (
+        <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-300">
+          <span>entre</span>
+          <input
+            type="number"
+            min={0}
+            className="input w-24"
+            value={agente.delayMinS}
+            onChange={(e) => onChange({ delayMinS: Number(e.target.value) })}
+          />
+          <span>e</span>
+          <input
+            type="number"
+            min={0}
+            className="input w-24"
+            value={agente.delayMaxS}
+            onChange={(e) => onChange({ delayMaxS: Number(e.target.value) })}
+          />
+          <span>segundos</span>
+        </div>
+      )}
 
       <label className="block">
         <span className="eyebrow mb-1.5 block">Limite diário de mensagens por conta</span>

@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
       amountCents,
       method: "pix",
       status: result.status,
+      origin: "painel",
     });
 
     // Alerta de PIX GERADO (aguardando pagamento). Não pode derrubar a cobrança

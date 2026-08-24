@@ -32,6 +32,8 @@ import {
   getTelegramChat,
   getTelegramChatMember,
   telegramWebhookSecret,
+  normalizarBotToken,
+  diagnosticoDoToken,
   createTelegramInviteLink,
   sendTelegramMessage,
   banTelegramMember,
@@ -113,7 +115,9 @@ async function registerBotWebhook(
     return {
       ok: false,
       url,
-      message: e instanceof Error ? e.message : "Falha ao registrar webhook.",
+      message:
+        diagnosticoDoToken(e) ||
+        (e instanceof Error ? e.message : "Falha ao registrar webhook."),
     };
   }
 }
@@ -198,11 +202,43 @@ export async function POST(req: NextRequest) {
       // O token não volta mais para o navegador, então a tela manda o campo
       // VAZIO quando o operador não quer trocá-lo — nesse caso o que já está
       // salvo é mantido. Só é obrigatório quando ainda não há token nenhum.
-      const token = String(botToken || "").trim() || existing?.botToken || "";
+      const colado = String(botToken || "").trim();
+      let token = existing?.botToken || "";
+      if (colado) {
+        // NUNCA gravar cru o que foi colado. Um token torto (a frase inteira do
+        // BotFather, uma quebra de linha no meio, um pedaço faltando) era aceito
+        // sem checagem e derrubava o bot em silêncio: o Telegram passava a
+        // responder 404 "Not Found" em TODA chamada, então nada de /start, nada
+        // de aprovar entrada nas Prévias, e a tela mostrava só o eco cru.
+        token = normalizarBotToken(colado);
+        if (!token) {
+          throw new ApiError(
+            400,
+            "Esse token não tem o formato de um token de bot do Telegram (algo como " +
+              "8123456789:AAE...). Copie de novo no BotFather: /mybots → escolha o bot → " +
+              "API Token.",
+          );
+        }
+      }
       if (!profileId || !token || !idVip || !idAquecimento) {
         throw new ApiError(400, "Preencha o Token do Bot e os IDs dos grupos VIP e Prévias.");
       }
       const botId = existing?.id || randomUUID();
+
+      // Confere o token COM O TELEGRAM antes de gravar. É o que impede que um
+      // token recusado tome o lugar de um que funciona: se a resposta for uma
+      // recusa (401/404), nada é salvo e o operador lê o motivo. Uma falha de
+      // rede, ao contrário, não bloqueia — não dá para exigir que o Telegram
+      // esteja de pé para o operador salvar o cadastro da modelo.
+      let usernameDoToken: string | undefined;
+      if (colado) {
+        try {
+          usernameDoToken = (await getTelegramMe(token)).username;
+        } catch (e) {
+          const motivo = diagnosticoDoToken(e);
+          if (motivo) throw new ApiError(400, motivo);
+        }
+      }
 
       // Espalha o que já existe e sobrescreve só as credenciais: um campo novo
       // na configuração não precisa ser lembrado aqui para deixar de ser
@@ -225,6 +261,7 @@ export async function POST(req: NextRequest) {
         id: botId,
         profileId,
         botToken: token,
+        botUsername: usernameDoToken || existing?.botUsername,
         idVip: String(idVip).trim(),
         idAquecimento: String(idAquecimento).trim(),
       });
@@ -550,9 +587,13 @@ export async function POST(req: NextRequest) {
           originProblem: problem,
         });
       } catch (e) {
+        // Recusa do token tem remédio conhecido — diz qual, em vez de repassar
+        // o "Not Found" cru do Telegram, que não significa nada para quem opera.
+        const motivo = diagnosticoDoToken(e);
         return NextResponse.json({
           ok: false,
-          message: e instanceof Error ? e.message : "Falha ao consultar.",
+          tokenRecusado: Boolean(motivo),
+          message: motivo || (e instanceof Error ? e.message : "Falha ao consultar."),
           expectedUrl,
           originSource,
           originProblem: problem,

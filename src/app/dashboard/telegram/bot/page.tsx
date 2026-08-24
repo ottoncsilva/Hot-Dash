@@ -471,7 +471,9 @@ const money = (cents: number) =>
 function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot; onSaved: () => void }) {
   const [busy, setBusy] = useState(false);
   const [toggling, setToggling] = useState(false);
-  const [status, setStatus] = useState<{ matches?: boolean; url?: string; error?: string } | null>(null);
+  const [status, setStatus] = useState<
+    { matches?: boolean; url?: string; error?: string; tokenRecusado?: boolean } | null
+  >(null);
   // Endereço público que este app usaria para receber os updates. Vale a
   // consulta MESMO COM A OPERAÇÃO DESLIGADA: é o que deixa o operador ver que
   // a base está errada antes de tentar ligar e tomar o erro cru do Telegram.
@@ -511,13 +513,15 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
 
   const checkStatus = useCallback(async () => {
     try {
-      const r = await apiSend<{ ok: boolean; info?: { url?: string; last_error_message?: string }; matches?: boolean; message?: string }>(
-        "/api/telegram",
-        "POST",
-        { action: "webhook-status", profileId },
-      );
+      const r = await apiSend<{
+        ok: boolean;
+        info?: { url?: string; last_error_message?: string };
+        matches?: boolean;
+        message?: string;
+        tokenRecusado?: boolean;
+      }>("/api/telegram", "POST", { action: "webhook-status", profileId });
       if (r.ok) setStatus({ matches: r.matches, url: r.info?.url, error: r.info?.last_error_message });
-      else setStatus({ error: r.message });
+      else setStatus({ error: r.message, tokenRecusado: r.tokenRecusado });
     } catch (e) {
       setStatus({ error: e instanceof Error ? e.message : "falha" });
     }
@@ -663,10 +667,22 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
       {active && (
         <div className="mt-3 flex items-center gap-2">
           <span
-            className={`chip ${status?.matches ? "text-emerald-400" : "text-amber-400"}`}
+            className={`chip ${
+              status?.tokenRecusado
+                ? "text-rose-400"
+                : status?.matches
+                  ? "text-emerald-400"
+                  : "text-amber-400"
+            }`}
             title={status?.error || status?.url || ""}
           >
-            {status == null ? "verificando…" : status.matches ? "webhook ativo" : "webhook pendente"}
+            {status == null
+              ? "verificando…"
+              : status.tokenRecusado
+                ? "token recusado"
+                : status.matches
+                  ? "webhook ativo"
+                  : "webhook pendente"}
           </span>
           <button onClick={register} disabled={busy} className="btn-ghost px-2.5 py-1.5 text-xs">
             <IconRefresh size={14} /> {busy ? "Reenviando..." : "Reenviar webhook"}
@@ -674,7 +690,10 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
         </div>
       )}
       {active && status?.error && (
-        <p className="mt-2 text-xs text-amber-400">Último erro do Telegram: {status.error}</p>
+        <p className={`mt-2 text-xs ${status.tokenRecusado ? "text-rose-400" : "text-amber-400"}`}>
+          {status.tokenRecusado ? "O bot está parado. " : "Último erro do Telegram: "}
+          {status.error}
+        </p>
       )}
     </div>
   );

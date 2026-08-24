@@ -96,6 +96,15 @@ export type LtvMessage = {
   createdAt: number;
 };
 
+/**
+ * O que a modelo NUNCA faz. Nasce preenchido porque é a parte que mais custa
+ * caro esquecer: sem limite escrito, a IA marca encontro, promete o que não
+ * existe e conta que é uma IA quando o lead pergunta.
+ */
+export const LIMITES_PADRAO =
+  "não marca encontro presencial, não promete o que não pode ou não vai conseguir entregar, " +
+  "não fala que é IA, não fala sobre sistema ou plataforma. tem que parecer uma mulher real.";
+
 const AGENT_PADRAO: Omit<LtvAgentSettings, "accountId"> = {
   enabled: false,
   approach: "aquecer",
@@ -111,6 +120,30 @@ const AGENT_PADRAO: Omit<LtvAgentSettings, "accountId"> = {
   onlyReplyFirst: true,
   maxDiscountPct: 0,
 };
+
+/**
+ * Primeira abertura da tela: a persona nasce com o que já foi escrito no
+ * cadastro da modelo, em vez de três caixas vazias. É o mesmo texto que
+ * alimenta o resto do painel, então a modelo já chega coerente — e a pessoa
+ * edita por cima do que quiser.
+ */
+function semearPeloCadastro(accountId: string): Partial<LtvAgentSettings> {
+  const r = getDb()
+    .prepare(
+      `SELECT p.name, p.bio_physical, p.bio_unique
+         FROM ltv_accounts c JOIN profiles p ON p.id = c.profile_id
+        WHERE c.id = ?`,
+    )
+    .get(accountId) as
+    | { name?: string; bio_physical?: string; bio_unique?: string }
+    | undefined;
+  return {
+    personaName: r?.name || "",
+    personality: r?.bio_physical || "",
+    mechanism: r?.bio_unique || "",
+    limits: LIMITES_PADRAO,
+  };
+}
 
 function mapAccount(r: any): LtvAccount {
   return {
@@ -267,7 +300,7 @@ export function getAgent(accountId: string): LtvAgentSettings {
   const r = getDb()
     .prepare(`SELECT * FROM ltv_agent_settings WHERE account_id = ?`)
     .get(accountId) as any;
-  if (!r) return { accountId, ...AGENT_PADRAO };
+  if (!r) return { accountId, ...AGENT_PADRAO, ...semearPeloCadastro(accountId) };
   let toneTags: string[] = [];
   try {
     const parsed = JSON.parse(r.tone_tags || "[]");
@@ -631,6 +664,50 @@ export function listMessages(chatId: string, limite = 200): LtvMessage[] {
       createdAt: r.created_at,
     }))
     .reverse();
+}
+
+/**
+ * Por quantos dias a conversa de cada lead fica guardada.
+ *
+ * Não é só espaço em disco: é o que a modelo (e a IA) conseguem lembrar do
+ * lead quando ele volta semanas depois. Quarenta dias cobrem o ciclo inteiro de
+ * um lead que some e reaparece, e mantêm o banco num tamanho que o SQLite lê
+ * rápido.
+ */
+export const DIAS_DE_MEMORIA = 40;
+
+/**
+ * Apaga a conversa que passou de {@link DIAS_DE_MEMORIA}, de vez.
+ *
+ * Apaga MENSAGEM, não conversa: o `ltv_chats` fica, com o quanto o lead já
+ * gastou e a etiqueta dele. Perder a linha do chat perderia também o histórico
+ * de compra que alimenta o Funil de LTV — e o pedido era esquecer o que foi
+ * conversado, não que o cliente existiu.
+ *
+ * Devolve quantas mensagens saíram.
+ */
+export function limparMensagensAntigas(dias = DIAS_DE_MEMORIA): number {
+  const corte = Date.now() - dias * 24 * 60 * 60 * 1000;
+  const r = getDb().prepare("DELETE FROM ltv_messages WHERE created_at < ?").run(corte);
+  return r.changes;
+}
+
+/**
+ * O que este lead JÁ COMPROU — nome do produto, valor e quando.
+ *
+ * Vai no prompt junto do histórico. Sem isso a IA reoferece o pacote que o cara
+ * pagou semana passada, que é a forma mais rápida de queimar um cliente bom.
+ */
+export function comprasDoLead(chatId: string): { nome: string; cents: number; quando: number }[] {
+  return getDb()
+    .prepare(
+      `SELECT COALESCE(p.name, 'pacote') nome, o.amount_cents cents, o.created_at quando
+         FROM ltv_orders o
+         LEFT JOIN ltv_products p ON p.id = o.product_id
+        WHERE o.chat_id = ? AND o.status = 'paid'
+        ORDER BY o.created_at`,
+    )
+    .all(chatId) as { nome: string; cents: number; quando: number }[];
 }
 
 export type LtvLead = LtvChat & { lastMessage: string; accountLabel: string };

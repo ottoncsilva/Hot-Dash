@@ -7,6 +7,7 @@ export type NavKey =
   | "ltv_chat"
   | "ltv_whatsapp"
   | "ltv_telegram"
+  | "ltv_funil"
   | "settings"
   | "dashboard"
   | "profiles"
@@ -44,6 +45,7 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   ltv_chat: { key: "ltv_chat", label: "Chat ao vivo", href: "/dashboard/ltv/chat" },
   ltv_whatsapp: { key: "ltv_whatsapp", label: "LTV WhatsApp", href: "/dashboard/ltv/whatsapp" },
   ltv_telegram: { key: "ltv_telegram", label: "LTV Telegram", href: "/dashboard/ltv/telegram" },
+  ltv_funil: { key: "ltv_funil", label: "Funil de LTV", href: "/dashboard/ltv/funil" },
   schedule: { key: "schedule", label: "Cronograma de postagens", href: "/dashboard/schedule" },
   settings: { key: "settings", label: "Configurações", href: "/dashboard/settings" },
 };
@@ -71,6 +73,7 @@ const SUBSECTION_KEYS = new Set<NavKey>([
   "ltv_chat",
   "ltv_whatsapp",
   "ltv_telegram",
+  "ltv_funil",
   // Quem tinha uma destas escondida perde a preferência: o grupo é um item só,
   // e agora se esconde (ou reordena) inteiro.
   "censura",

@@ -506,6 +506,7 @@ export async function POST(
           amountCents,
           status: "pending",
           sourceCode: lead?.sourceCode,
+          origin: "bot",
         });
 
         // Alerta de PIX GERADO pelo bot de vendas (lead pediu o pagamento).

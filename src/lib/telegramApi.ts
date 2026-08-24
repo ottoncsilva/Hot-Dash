@@ -13,6 +13,78 @@ export function telegramWebhookSecret(botId: string): string {
   return createHmac("sha256", key).update(`tg-webhook:${botId}`).digest("hex");
 }
 
+/**
+ * Erro vindo da API do Telegram, com o código HTTP preservado.
+ *
+ * O código importa porque distingue dois problemas com remédios diferentes, e
+ * a mensagem crua do Telegram ("Not Found", "Unauthorized") não distingue nada
+ * para quem opera o painel:
+ *   • 404 "Not Found"    → o TOKEN não tem o formato `<números>:<chave>` (foi
+ *     colado torto, veio junto com o texto do BotFather, ou está vazio). O
+ *     caminho `/bot<token>/<método>` nem chega a ser reconhecido como de um bot.
+ *   • 401 "Unauthorized" → o token está bem formado, mas foi revogado ou é de
+ *     outro bot.
+ * Foi verificado contra a api.telegram.org antes de virar código.
+ */
+export class TelegramApiError extends Error {
+  readonly status: number;
+  readonly description: string;
+  constructor(status: number, description: string) {
+    super(`Telegram API: ${description}`);
+    this.name = "TelegramApiError";
+    this.status = status;
+    this.description = description;
+  }
+}
+
+/**
+ * Traduz uma falha de chamada ao Telegram para uma frase que diz o que fazer.
+ * Devolve `null` quando o erro não é do Telegram (rede, timeout) — nesse caso
+ * quem chama deve tratar como indisponibilidade, não como token ruim.
+ */
+export function diagnosticoDoToken(err: unknown): string | null {
+  if (!(err instanceof TelegramApiError)) return null;
+  if (err.status === 404) {
+    return (
+      "O Telegram não reconheceu o token do bot (404 Not Found), o que quer dizer que ele " +
+      "está com o formato errado — deve ser algo como 8123456789:AAE... . Provavelmente veio " +
+      "colado junto com o texto do BotFather ou faltou um pedaço. Abra o cadastro da modelo e " +
+      "cole o token de novo (BotFather → /mybots → API Token)."
+    );
+  }
+  if (err.status === 401) {
+    return (
+      "O Telegram recusou o token do bot (401 Unauthorized): ele foi revogado ou é de outro " +
+      "bot. Gere um novo no BotFather (/mybots → API Token → Revoke) e cole no cadastro da modelo."
+    );
+  }
+  return null;
+}
+
+/**
+ * Extrai o token de bot de dentro do que foi colado.
+ *
+ * O painel aceitava qualquer string não vazia como token, e um token torto
+ * derrubava o bot inteiro em silêncio: nada de /start, nada de aprovação de
+ * entrada, e na tela só o eco cru "Telegram API: Not Found". Erros comuns que
+ * isto conserta: colar a frase inteira do BotFather ("Use this token to access
+ * the HTTP API: 8123...:AAE..."), colar com quebra de linha no meio, com o
+ * prefixo `bot`, entre aspas, ou com espaço/caractere invisível grudado.
+ *
+ * Devolve "" quando não há nada com cara de token no meio — e aí quem chama
+ * recusa o salvamento em vez de gravar lixo.
+ */
+export function normalizarBotToken(bruto: unknown): string {
+  const texto = String(bruto ?? "")
+    // Invisíveis que o `trim()` não pega (zero-width, BOM) e que passam
+    // despercebidos num copiar-e-colar.
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim();
+  if (!texto) return "";
+  const m = texto.match(/(\d{5,}):([A-Za-z0-9_-]{20,})/);
+  return m ? `${m[1]}:${m[2]}` : "";
+}
+
 async function telegramFetch(botToken: string, method: string, body: unknown) {
   const res = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
     method: "POST",
@@ -21,7 +93,7 @@ async function telegramFetch(botToken: string, method: string, body: unknown) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(`Telegram API: ${data.description || `Erro HTTP ${res.status}`}`);
+    throw new TelegramApiError(res.status, data.description || `Erro HTTP ${res.status}`);
   }
   return data.result;
 }
@@ -80,7 +152,7 @@ async function telegramFormFetch(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(`Telegram API: ${data.description || `Erro HTTP ${res.status}`}`);
+    throw new TelegramApiError(res.status, data.description || `Erro HTTP ${res.status}`);
   }
   return data.result;
 }
@@ -328,7 +400,7 @@ export async function sendTelegramMediaGroup(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(`Telegram API: ${data.description || `Erro HTTP ${res.status}`}`);
+    throw new TelegramApiError(res.status, data.description || `Erro HTTP ${res.status}`);
   }
   return data.result;
 }
@@ -396,7 +468,7 @@ export async function sendTelegramPhotoBuffer(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(`Telegram API: ${data.description || `Erro HTTP ${res.status}`}`);
+    throw new TelegramApiError(res.status, data.description || `Erro HTTP ${res.status}`);
   }
   return data.result;
 }

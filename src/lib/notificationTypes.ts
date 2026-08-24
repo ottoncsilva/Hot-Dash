@@ -13,7 +13,8 @@ export type PushEventType =
   | "scheduleReminder"
   | "telegramPost"
   | "mailing"
-  | "whatsappDown";
+  | "whatsappDown"
+  | "telegramBotDown";
 
 export type PushEventDef = {
   id: PushEventType;
@@ -24,6 +25,13 @@ export type PushEventDef = {
 };
 
 export const PUSH_EVENTS: PushEventDef[] = [
+  {
+    id: "telegramBotDown",
+    label: "Bot do Telegram fora do ar",
+    description:
+      "O Telegram recusou o token do bot de vendas. Enquanto isso, ninguém recebe o /start nem é aprovado nas Prévias — por isso nasce ligado.",
+    defaultOn: true,
+  },
   {
     id: "whatsappDown",
     label: "WhatsApp caiu",

@@ -6,6 +6,10 @@ import { PrecisaDeModelo } from "@/components/ProfilePicker";
 import { apiGet, apiSend } from "@/lib/api";
 import { showToast } from "@/lib/toast";
 import { useConfirm } from "@/hooks/useConfirm";
+
+/** Assinatura do `confirm()` do useConfirm — passada adiante para quem
+ *  precisa confirmar antes de uma ação destrutiva (ex.: "Puxar padrão"). */
+type ConfirmFn = ReturnType<typeof useConfirm>["confirm"];
 import Switch from "@/components/Switch";
 import {
   IconTelegram,
@@ -190,6 +194,9 @@ export default function BotVendasPage() {
   const [buttons, setButtons] = useState<CustomButton[]>([]);
   const [subs, setSubs] = useState<Sub[]>([]);
   const [pixDefaults, setPixDefaults] = useState<PixDefaults | null>(null);
+  // Passos-modelo do "Puxar padrão" no Alerta de Renovação. Os três gatilhos
+  // de Recuperação ainda não têm o deles — nascem vazios até serem definidos.
+  const [renewalDefaults, setRenewalDefaults] = useState<FunnelStep[]>([]);
   const [tab, setTab] = useState<TabKey>("config");
 
   // A mensagem de boas-vindas e as etiquetas vivem AQUI, e não dentro da linha
@@ -241,6 +248,7 @@ export default function BotVendasPage() {
         customButtons: CustomButton[];
         subscriptions: Sub[];
         pixDefaults: PixDefaults;
+        renewalDefaults: FunnelStep[];
         buttonRoles: ButtonRoleInfo[];
       }>(`/api/telegram?profileId=${profileId}`);
       setBot(d.bot);
@@ -248,6 +256,7 @@ export default function BotVendasPage() {
       setButtons(d.customButtons || []);
       setSubs(d.subscriptions || []);
       setPixDefaults(d.pixDefaults || null);
+      setRenewalDefaults(d.renewalDefaults || []);
       setWelcome(d.bot?.welcomeMessage || "");
       setWelcomeIds(d.bot?.welcomeMediaIds || []);
       setWelcomeMode(d.bot?.welcomeMediaMode || "album");
@@ -456,10 +465,17 @@ export default function BotVendasPage() {
               )}
               {tab === "planos" && <PlansCard profileId={profileId} plans={plans} onSaved={load} />}
               {tab === "recuperacao" && (
-                <FunnelCard profileId={profileId} bot={bot} planos={plans} onSaved={load} />
+                <FunnelCard profileId={profileId} bot={bot} planos={plans} onSaved={load} confirm={confirm} />
               )}
               {tab === "renovacao" && (
-                <RenewalCard profileId={profileId} bot={bot} planos={plans} onSaved={load} />
+                <RenewalCard
+                  profileId={profileId}
+                  bot={bot}
+                  planos={plans}
+                  onSaved={load}
+                  confirm={confirm}
+                  padrao={renewalDefaults}
+                />
               )}
               {tab === "aprovacao" && (
                 <ApprovalCard
@@ -1821,12 +1837,14 @@ function FunnelCard({
   bot,
   planos,
   onSaved,
+  confirm,
 }: {
   profileId: string;
   bot: Bot;
   /** Os planos ativos, para cada passo mostrar o preço já com o desconto. */
   planos: Plan[];
   onSaved: () => void;
+  confirm: ConfirmFn;
 }) {
   const [downsell, setDownsell] = useState<FunnelStep[]>(parseFunnel(bot.downsellFunnel));
   const [pixDownsell, setPixDownsell] = useState<FunnelStep[]>(parseFunnel(bot.pixDownsellFunnel));
@@ -1835,6 +1853,10 @@ function FunnelCard({
   const [onPix, setOnPix] = useState(bot.pixDownsellEnabled !== false);
   const [onUpsell, setOnUpsell] = useState(bot.upsellEnabled !== false);
   const [busy, setBusy] = useState(false);
+  // Sub-aba: em vez dos três gatilhos empilhados em cartões retráteis, uma
+  // fileira igual à das abas principais decide qual sequência aparece embaixo
+  // — o LED avisa o estado sem precisar abrir nada.
+  const [subTab, setSubTab] = useState<"geral" | "pix" | "upsell">("geral");
 
   async function save() {
     setBusy(true);
@@ -1858,6 +1880,59 @@ function FunnelCard({
     }
   }
 
+  // Os três gatilhos, cada um com o que muda entre eles — a sub-aba lê daqui,
+  // então adicionar um quarto gatilho um dia é só entrar nesta lista.
+  // `padrao` de cada gatilho ainda NASCE VAZIO: os modelos-padrão de
+  // downsell/PIX/upsell serão definidos numa próxima leva (o do Alerta de
+  // Renovação já existe — ver RenewalCard). O botão "Puxar padrão" já mora
+  // aqui, só desligado até esse conteúdo chegar.
+  const grupos: {
+    key: "geral" | "pix" | "upsell";
+    titulo: string;
+    resumo: string;
+    aviso: string;
+    ativo: boolean;
+    setAtivo: (v: boolean) => void;
+    steps: FunnelStep[];
+    setSteps: (s: FunnelStep[]) => void;
+    padrao: FunnelStep[];
+  }[] = [
+    {
+      key: "geral",
+      titulo: "Downsell geral",
+      resumo: "Quem deu /start e ainda não comprou",
+      aviso: "Começa a contar do último contato do lead com o bot. Para de vez quando o pagamento é confirmado.",
+      ativo: onDownsell,
+      setAtivo: setOnDownsell,
+      steps: downsell,
+      setSteps: setDownsell,
+      padrao: [],
+    },
+    {
+      key: "pix",
+      titulo: "Downsell de PIX gerado",
+      resumo: "Quem chegou a gerar o PIX e não pagou",
+      aviso: "Público diferente do geral: essa pessoa já escolheu o plano e viu a tela de pagamento — falta menos, então costuma valer outra conversa e outro desconto. Conta a partir da criação da cobrança e para quando ela é paga.",
+      ativo: onPix,
+      setAtivo: setOnPix,
+      steps: pixDownsell,
+      setSteps: setPixDownsell,
+      padrao: [],
+    },
+    {
+      key: "upsell",
+      titulo: "Upsell",
+      resumo: "Pós-venda para quem já é assinante",
+      aviso: "Conta a partir da confirmação do pagamento. Serve para oferecer o plano maior, um pacote ou a renovação.",
+      ativo: onUpsell,
+      setAtivo: setOnUpsell,
+      steps: upsell,
+      setSteps: setUpsell,
+      padrao: [],
+    },
+  ];
+  const atual = grupos.find((g) => g.key === subTab) || grupos[0];
+
   return (
     <div className="space-y-3">
       <div className="card p-4">
@@ -1869,41 +1944,72 @@ function FunnelCard({
         </p>
       </div>
 
-      <FunilRetratil
-        titulo="Downsell geral"
-        resumo="Quem deu /start e ainda não comprou"
-        aviso="Começa a contar do último contato do lead com o bot. Para de vez quando o pagamento é confirmado."
-        ativo={onDownsell}
-        setAtivo={setOnDownsell}
-        steps={downsell}
-        setSteps={setDownsell}
-        profileId={profileId}
-        planos={planos}
-      />
+      {/* Mesma barra das abas principais, com um LED avisando o estado de
+          cada gatilho sem precisar abrir nada. */}
+      <div className="flex flex-wrap gap-1.5">
+        {grupos.map((g) => (
+          <button
+            key={g.key}
+            type="button"
+            onClick={() => setSubTab(g.key)}
+            className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ${
+              subTab === g.key
+                ? "bg-white/10 font-semibold text-white"
+                : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+            }`}
+          >
+            <span
+              className={`h-2 w-2 shrink-0 rounded-full ${g.ativo ? "bg-emerald-400" : "bg-zinc-600"}`}
+              aria-hidden
+            />
+            {g.titulo}
+          </button>
+        ))}
+      </div>
 
-      <FunilRetratil
-        titulo="Downsell de PIX gerado"
-        resumo="Quem chegou a gerar o PIX e não pagou"
-        aviso="Público diferente do geral: essa pessoa já escolheu o plano e viu a tela de pagamento — falta menos, então costuma valer outra conversa e outro desconto. Conta a partir da criação da cobrança e para quando ela é paga."
-        ativo={onPix}
-        setAtivo={setOnPix}
-        steps={pixDownsell}
-        setSteps={setPixDownsell}
-        profileId={profileId}
-        planos={planos}
-      />
-
-      <FunilRetratil
-        titulo="Upsell"
-        resumo="Pós-venda para quem já é assinante"
-        aviso="Conta a partir da confirmação do pagamento. Serve para oferecer o plano maior, um pacote ou a renovação."
-        ativo={onUpsell}
-        setAtivo={setOnUpsell}
-        steps={upsell}
-        setSteps={setUpsell}
-        profileId={profileId}
-        planos={planos}
-      />
+      <div className="card p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white">{atual.titulo}</p>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {atual.resumo} · {atual.steps.length} mensagem(ns)
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              type="button"
+              disabled={atual.padrao.length === 0}
+              title={
+                atual.padrao.length === 0
+                  ? "Ainda sem modelo pronto para este gatilho."
+                  : "Substitui as mensagens atuais pelo modelo pronto."
+              }
+              onClick={async () => {
+                const ok = await confirm({
+                  title: "Puxar padrão?",
+                  message: `Isso substitui ${atual.steps.length ? `as ${atual.steps.length} mensagem(ns) atuais` : "a lista vazia atual"} de "${atual.titulo}" pelo modelo pronto. Só vale depois de "Salvar funis".`,
+                  confirmLabel: "Puxar padrão",
+                });
+                if (ok) atual.setSteps(atual.padrao.map((s) => ({ ...s })));
+              }}
+              className="btn-ghost text-xs"
+            >
+              Puxar padrão
+            </button>
+            <Switch checked={atual.ativo} onChange={atual.setAtivo} ariaLabel={`Ativar ${atual.titulo}`} />
+          </div>
+        </div>
+        <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-2.5 text-[11px] leading-relaxed text-amber-200/90">
+          {atual.aviso}
+        </p>
+        <FunnelEditor
+          title=""
+          profileId={profileId}
+          steps={atual.steps}
+          setSteps={atual.setSteps}
+          planos={planos}
+        />
+      </div>
 
       <button onClick={save} disabled={busy} className="btn-primary mt-4">
         {busy ? "Salvando..." : "Salvar funis"}
@@ -1925,11 +2031,16 @@ function RenewalCard({
   bot,
   planos,
   onSaved,
+  confirm,
+  padrao,
 }: {
   profileId: string;
   bot: Bot;
   planos: Plan[];
   onSaved: () => void;
+  confirm: ConfirmFn;
+  /** Modelo pronto do botão "Puxar padrão". */
+  padrao: FunnelStep[];
 }) {
   const [steps, setSteps] = useState<FunnelStep[]>(parseFunnel(bot.renewalFunnel));
   const [ativo, setAtivo] = useState(bot.renewalEnabled !== false);
@@ -1976,6 +2087,8 @@ function RenewalCard({
         profileId={profileId}
         planos={planos}
         modoRenovacao
+        padrao={padrao}
+        confirm={confirm}
       />
 
       <button onClick={save} disabled={busy} className="btn-primary mt-4">
@@ -3311,6 +3424,8 @@ function FunilRetratil({
   profileId,
   planos,
   modoRenovacao,
+  padrao,
+  confirm,
 }: {
   titulo: string;
   resumo: string;
@@ -3325,6 +3440,9 @@ function FunilRetratil({
    *  evento — troca o rótulo do tempo e esconde loop/destinatários, que não
    *  fazem sentido nesse funil. */
   modoRenovacao?: boolean;
+  /** Modelo pronto do botão "Puxar padrão" — vazio some com ele. */
+  padrao?: FunnelStep[];
+  confirm?: ConfirmFn;
 }) {
   // O Alerta de Renovação é o conteúdo INTEIRO da própria aba — sem outros
   // dois funis ao lado como na Recuperação —, então já abre sozinho em vez de
@@ -3351,6 +3469,28 @@ function FunilRetratil({
             {resumo} · {steps.length} mensagem(ns)
           </p>
         </button>
+        {confirm && (
+          <button
+            type="button"
+            disabled={!padrao || padrao.length === 0}
+            title={
+              !padrao || padrao.length === 0
+                ? "Ainda sem modelo pronto para este gatilho."
+                : "Substitui as mensagens atuais pelo modelo pronto."
+            }
+            onClick={async () => {
+              const ok = await confirm({
+                title: "Puxar padrão?",
+                message: `Isso substitui ${steps.length ? `as ${steps.length} mensagem(ns) atuais` : "a lista vazia atual"} de "${titulo}" pelo modelo pronto. Só vale depois de salvar.`,
+                confirmLabel: "Puxar padrão",
+              });
+              if (ok && padrao) setSteps(padrao.map((s) => ({ ...s })));
+            }}
+            className="btn-ghost shrink-0 text-xs"
+          >
+            Puxar padrão
+          </button>
+        )}
         <Switch checked={ativo} onChange={setAtivo} ariaLabel={`Ativar ${titulo}`} />
         <button
           type="button"

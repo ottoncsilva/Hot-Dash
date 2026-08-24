@@ -177,6 +177,11 @@ export async function GET(req: NextRequest) {
       subscriptions,
       metrics,
       pixDefaults: PIX_DEFAULTS,
+      // Passos-modelo do Alerta de Renovação, para o botão "Puxar padrão" —
+      // mesmo conteúdo que já vem pré-carregado em bot novo (ver POST
+      // save-credentials), só que aqui para reaplicar em quem já apagou ou
+      // editou o próprio.
+      renewalDefaults: RENEWAL_DEFAULT_STEPS,
       // Os papéis de botão são fixos do produto (não do modelo) — a tela
       // precisa deles para desenhar a lista de cores.
       buttonRoles: BUTTON_ROLES,

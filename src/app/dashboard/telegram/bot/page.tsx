@@ -27,6 +27,7 @@ import PageHeader from "@/components/PageHeader";
 import SectionRow, { resumo } from "@/components/telegram/bot/SectionRow";
 import VarChips from "@/components/telegram/bot/VarChips";
 import BotPreview, {
+  FunnelPreview,
   SequencePreview,
   type PreviewStyle,
 } from "@/components/telegram/bot/BotPreview";
@@ -198,6 +199,20 @@ export default function BotVendasPage() {
   const [efeitoWelcome, setEfeitoWelcome] = useState("");
   const [efeitoPix, setEfeitoPix] = useState("");
   const [efeitoSuccess, setEfeitoSuccess] = useState("");
+
+  // TELA DO PIX e MENSAGEM DE APROVAÇÃO — mesmo motivo das boas-vindas: o
+  // preview do funil (aba "config") é irmão das linhas que editam cada uma,
+  // não filho, e precisa acompanhar a digitação das três juntas.
+  const [pixGerando, setPixGerando] = useState("");
+  const [pixLegenda, setPixLegenda] = useState("");
+  const [pixProva, setPixProva] = useState(false);
+  const [pixProvaTexto, setPixProvaTexto] = useState("");
+  const [pixBtnCheck, setPixBtnCheck] = useState("");
+  const [pixBtnQr, setPixBtnQr] = useState("");
+  const [pixBtnCopy, setPixBtnCopy] = useState("");
+  const [pixAudio, setPixAudio] = useState("");
+  const [sucessoTexto, setSucessoTexto] = useState("");
+  const [sucessoBotao, setSucessoBotao] = useState("");
   // Os papéis de botão são fixos do produto; as CORES vêm do bot da modelo.
   const [buttonRoles, setButtonRoles] = useState<ButtonRoleInfo[]>([]);
 
@@ -236,6 +251,16 @@ export default function BotVendasPage() {
       setEfeitoWelcome(d.bot?.effectWelcome || "");
       setEfeitoPix(d.bot?.effectPix || "");
       setEfeitoSuccess(d.bot?.effectSuccess || "");
+      setPixGerando(d.bot?.pixGeneratingMessage || "");
+      setPixLegenda(d.bot?.pixCaption || "");
+      setPixProva(Boolean(d.bot?.pixSocialProof));
+      setPixProvaTexto(d.bot?.pixSocialProofText || "");
+      setPixBtnCheck(d.bot?.pixBtnCheck || "");
+      setPixBtnQr(d.bot?.pixBtnQr || "");
+      setPixBtnCopy(d.bot?.pixBtnCopy || "");
+      setPixAudio(d.bot?.pixAudioUrl || "");
+      setSucessoTexto(d.bot?.successMessage || "");
+      setSucessoBotao(d.bot?.successButtonText || "");
       setButtonRoles(d.buttonRoles || []);
       setAprVip(d.bot?.vipApprovalMode || "subscribers");
       setAprPrevias(d.bot?.previasApprovalMode || "all");
@@ -267,6 +292,25 @@ export default function BotVendasPage() {
     ...(bot?.supportUsername
       ? [{ text: "💬 Suporte / Dúvidas", kind: "support" as const, style: corDo(bot?.buttonStyles?.redirect) }]
       : []),
+  ];
+
+  // Plano de EXEMPLO para o funil (o primeiro ativo) — é o que substitui
+  // {plano} e {valor} na legenda do PIX, igual ao webhook faz de verdade.
+  const planoExemplo = plans.find((p) => p.active !== false);
+  const planoNome = planoExemplo?.name || "Plano";
+  const planoValor = ((planoExemplo?.priceCents ?? 2990) / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+  // Os três botões da tela do PIX, com o texto real (ou o padrão) e a cor do
+  // papel — a mesma regra dos botões do /start.
+  const pixButtons = [
+    { text: pixBtnCheck.trim() || pixDefaults?.btnCheck || "Verificar Status do Pagamento", kind: "custom" as const, style: corDo(bot?.buttonStyles?.pixCheck) },
+    { text: pixBtnQr.trim() || pixDefaults?.btnQr || "Mostrar QR Code", kind: "custom" as const, style: corDo(bot?.buttonStyles?.pixQr) },
+    { text: pixBtnCopy.trim() || pixDefaults?.btnCopy || "Copiar Chave Pix", kind: "custom" as const, style: corDo(bot?.buttonStyles?.pixCopy) },
+  ];
+  const successButtons = [
+    { text: sucessoBotao.trim() || "🔒 Acessar Conteúdo", kind: "custom" as const, style: corDo(bot?.buttonStyles?.access) },
   ];
 
   useEffect(() => {
@@ -352,8 +396,41 @@ export default function BotVendasPage() {
                     setEfeito={setEfeitoWelcome}
                     onSaved={load}
                   />
-                  <SuccessRow profileId={profileId} bot={bot} onSaved={load} />
-                  <PixRow profileId={profileId} bot={bot} pixDefaults={pixDefaults} onSaved={load} />
+                  <SuccessRow
+                    profileId={profileId}
+                    bot={bot}
+                    texto={sucessoTexto}
+                    setTexto={setSucessoTexto}
+                    botao={sucessoBotao}
+                    setBotao={setSucessoBotao}
+                    efeito={efeitoSuccess}
+                    setEfeito={setEfeitoSuccess}
+                    onSaved={load}
+                  />
+                  <PixRow
+                    profileId={profileId}
+                    bot={bot}
+                    pixDefaults={pixDefaults}
+                    gerando={pixGerando}
+                    setGerando={setPixGerando}
+                    legenda={pixLegenda}
+                    setLegenda={setPixLegenda}
+                    prova={pixProva}
+                    setProva={setPixProva}
+                    provaTexto={pixProvaTexto}
+                    setProvaTexto={setPixProvaTexto}
+                    audio={pixAudio}
+                    setAudio={setPixAudio}
+                    btnCheck={pixBtnCheck}
+                    setBtnCheck={setPixBtnCheck}
+                    btnQr={pixBtnQr}
+                    setBtnQr={setPixBtnQr}
+                    btnCopy={pixBtnCopy}
+                    setBtnCopy={setPixBtnCopy}
+                    efeito={efeitoPix}
+                    setEfeito={setEfeitoPix}
+                    onSaved={load}
+                  />
                   <ExtrasRow profileId={profileId} bot={bot} onSaved={load} />
                   <ButtonsCard profileId={profileId} buttons={buttons} onSaved={load} />
                   {/* Estas duas valem para TODAS as modelos, e mesmo assim
@@ -432,6 +509,30 @@ export default function BotVendasPage() {
                       ))}
                     </div>
                   }
+                />
+              ) : tab === "config" ? (
+                // O funil inteiro: /start → escolhe o plano → tela do PIX →
+                // pagamento confirmado. É nesta aba que as três mensagens são
+                // editadas, então é aqui que faz sentido ler a conversa corrida.
+                <FunnelPreview
+                  botUsername={bot.botUsername}
+                  welcomeMessage={welcome}
+                  welcomeMediaIds={welcomeIds}
+                  welcomeMediaMode={welcomeMode}
+                  effectWelcome={efeitoWelcome}
+                  buttons={previewButtons}
+                  planoNome={planoNome}
+                  planoValor={planoValor}
+                  pixGeneratingMessage={pixGerando}
+                  pixCaption={pixLegenda}
+                  pixSocialProof={pixProva}
+                  pixSocialProofText={pixProvaTexto}
+                  pixButtons={pixButtons}
+                  pixAudioUrl={pixAudio}
+                  effectPix={efeitoPix}
+                  successMessage={sucessoTexto}
+                  successButtons={successButtons}
+                  effectSuccess={efeitoSuccess}
                 />
               ) : (
                 <BotPreview
@@ -857,10 +958,27 @@ function WelcomeRow({
   );
 }
 
-function SuccessRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; onSaved: () => void }) {
-  const [texto, setTexto] = useState(bot.successMessage || "");
-  const [botao, setBotao] = useState(bot.successButtonText || "");
-  const [efeito, setEfeito] = useState(bot.effectSuccess || "");
+function SuccessRow({
+  profileId,
+  bot,
+  texto,
+  setTexto,
+  botao,
+  setBotao,
+  efeito,
+  setEfeito,
+  onSaved,
+}: {
+  profileId: string;
+  bot: Bot;
+  texto: string;
+  setTexto: (v: string) => void;
+  botao: string;
+  setBotao: (v: string) => void;
+  efeito: string;
+  setEfeito: (v: string) => void;
+  onSaved: () => void;
+}) {
   const [busy, setBusy] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -942,23 +1060,53 @@ function PixRow({
   profileId,
   bot,
   pixDefaults,
+  gerando,
+  setGerando,
+  legenda,
+  setLegenda,
+  prova,
+  setProva,
+  provaTexto,
+  setProvaTexto,
+  audio,
+  setAudio,
+  btnCheck,
+  setBtnCheck,
+  btnQr,
+  setBtnQr,
+  btnCopy,
+  setBtnCopy,
+  efeito,
+  setEfeito,
   onSaved,
 }: {
   profileId: string;
   bot: Bot;
   pixDefaults: PixDefaults | null;
+  gerando: string;
+  setGerando: (v: string) => void;
+  legenda: string;
+  setLegenda: (v: string) => void;
+  prova: boolean;
+  setProva: (v: boolean) => void;
+  provaTexto: string;
+  setProvaTexto: (v: string) => void;
+  audio: string;
+  setAudio: (v: string) => void;
+  btnCheck: string;
+  setBtnCheck: (v: string) => void;
+  btnQr: string;
+  setBtnQr: (v: string) => void;
+  btnCopy: string;
+  setBtnCopy: (v: string) => void;
+  efeito: string;
+  setEfeito: (v: string) => void;
   onSaved: () => void;
 }) {
-  const [gerando, setGerando] = useState(bot.pixGeneratingMessage || "");
-  const [legenda, setLegenda] = useState(bot.pixCaption || "");
-  const [prova, setProva] = useState(Boolean(bot.pixSocialProof));
-  const [provaTexto, setProvaTexto] = useState(bot.pixSocialProofText || "");
-  const [audio, setAudio] = useState(bot.pixAudioUrl || "");
-  const [btnCheck, setBtnCheck] = useState(bot.pixBtnCheck || "");
-  const [btnQr, setBtnQr] = useState(bot.pixBtnQr || "");
-  const [btnCopy, setBtnCopy] = useState(bot.pixBtnCopy || "");
+  // A resposta de "ainda não pago" não entra no preview do funil (só aparece
+  // se o cliente tocar em "Verificar Status" antes de pagar), então continua
+  // local — não precisa subir para o irmão do formulário.
   const [naoPago, setNaoPago] = useState(bot.pixNotPaidMessage || "");
-  const [efeito, setEfeito] = useState(bot.effectPix || "");
   const [busy, setBusy] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const provaRef = useRef<HTMLTextAreaElement>(null);

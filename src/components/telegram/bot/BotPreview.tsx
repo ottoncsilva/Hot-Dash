@@ -126,6 +126,177 @@ export default function BotPreview({
   );
 }
 
+/** Textos padrão da tela de pagamento — espelham `PIX_DEFAULTS` de
+ *  `lib/telegramDb.ts`. Duplicados aqui (e não importados) porque aquele
+ *  módulo puxa `getDb()`: importar de um componente client vazaria acesso a
+ *  banco para o bundle do navegador. O painel já mantém os dois em sincronia
+ *  via `pixDefaults` (vindo da API) — isto aqui é só o fallback ÚLTIMO, para
+ *  quando nem a API respondeu ainda. */
+const PIX_PADRAO_PREVIEW = {
+  generatingMessage: "⏳ Gerando cobrança PIX...",
+  socialProofText: "🔥 {vendas_hoje} pessoa(s) garantiram o acesso hoje.",
+  btnCheck: "Verificar Status do Pagamento",
+  btnQr: "Mostrar QR Code",
+  btnCopy: "Copiar Chave Pix",
+};
+
+/** Código de exemplo — só para o preview ter algo para substituir {pix_code}. */
+const PIX_CODIGO_EXEMPLO = "00020126580014BR.GOV.BCB.PIX...(código de exemplo)...6304EXPL";
+
+/**
+ * PREVIEW DO FUNIL INTEIRO: /start → lead escolhe um plano → tela do PIX →
+ * pagamento confirmado. As outras telas do preview mostram UMA mensagem; esta
+ * existe porque PIX e "pagamento aprovado" só fazem sentido lidos em SEQUÊNCIA
+ * — a legenda do PIX cita o plano e o valor, e é o "antes/depois" que mostra
+ * se a promessa de uma mensagem bate com a entrega da outra.
+ */
+export function FunnelPreview({
+  botUsername,
+  welcomeMessage,
+  welcomeMediaIds,
+  welcomeMediaMode,
+  effectWelcome,
+  buttons,
+  planoNome,
+  planoValor,
+  pixGeneratingMessage,
+  pixCaption,
+  pixSocialProof,
+  pixSocialProofText,
+  pixButtons,
+  pixAudioUrl,
+  effectPix,
+  successMessage,
+  successButtons,
+  effectSuccess,
+}: {
+  botUsername?: string;
+  welcomeMessage: string;
+  welcomeMediaIds?: string[];
+  welcomeMediaMode?: "album" | "separate";
+  effectWelcome?: string;
+  buttons: Btn[];
+  /** Nome e valor do plano de exemplo — o primeiro ativo, para substituir
+   *  {plano} e {valor} na legenda do PIX. */
+  planoNome: string;
+  planoValor: string;
+  pixGeneratingMessage: string;
+  pixCaption: string;
+  pixSocialProof: boolean;
+  pixSocialProofText: string;
+  pixButtons: Btn[];
+  pixAudioUrl?: string;
+  effectPix?: string;
+  successMessage: string;
+  successButtons: Btn[];
+  effectSuccess?: string;
+}) {
+  const welcomeIds = welcomeMediaIds || [];
+  const { conversaRef, passaDaTela, medir, cortados, marcarCorte } = useMedidas([
+    welcomeMessage,
+    welcomeIds.join(","),
+    welcomeMediaMode,
+    buttons.length,
+    pixGeneratingMessage,
+    pixCaption,
+    pixSocialProof,
+    pixSocialProofText,
+    JSON.stringify(pixButtons),
+    Boolean(pixAudioUrl),
+    successMessage,
+    JSON.stringify(successButtons),
+  ]);
+
+  // Mesma montagem do webhook (ver app/api/webhooks/telegram/[botId]/route.ts):
+  // {plano}/{valor} primeiro, depois {pix_code} (ou o código no fim, se o
+  // operador apagou o marcador), e a prova social prefixada por último.
+  let legenda = pixCaption.trim();
+  if (legenda) {
+    legenda = legenda.replace(/{plano}/gi, planoNome).replace(/{valor}/gi, planoValor);
+    legenda = /{pix_code}/i.test(legenda)
+      ? legenda.replace(/{pix_code}/gi, PIX_CODIGO_EXEMPLO)
+      : `${legenda}\n\n${PIX_CODIGO_EXEMPLO}`;
+  }
+  if (pixSocialProof) {
+    const linha = (pixSocialProofText.trim() || PIX_PADRAO_PREVIEW.socialProofText)
+      .replace(/{vendas_hoje}/gi, "3")
+      .replace(/{assinantes}/gi, "128");
+    legenda = legenda ? `${linha}\n\n${legenda}` : linha;
+  }
+
+  return (
+    <Celular
+      titulo={botUsername ? `@${botUsername}` : "seu bot"}
+      inicial={(botUsername || "b").charAt(0).toUpperCase()}
+      rodape={
+        passaDaTela
+          ? "O funil passa de uma tela — cada mensagem chega no seu momento, isto é só a leitura corrida."
+          : "O funil inteiro cabe numa tela."
+      }
+      rodapeAlerta={passaDaTela}
+      aviso={avisoDeCorte(cortados)}
+    >
+      <div ref={conversaRef} className="h-full overflow-y-auto px-3 py-3" onLoad={medir}>
+        <p className="mx-auto mb-2 w-fit rounded-full bg-white/10 px-2 py-0.5 text-[12px] text-zinc-300">
+          /start
+        </p>
+
+        <PreviewBalao
+          mediaIds={welcomeIds}
+          mode={welcomeMediaMode}
+          text={welcomeMessage}
+          buttons={buttons}
+          effect={effectWelcome}
+          vazio="(mensagem de boas-vindas vazia)"
+          onMedia={medir}
+          onCortado={marcarCorte}
+        />
+
+        <Momento label={`Lead toca em "${planoNome}"`} />
+
+        {pixGeneratingMessage.trim() && (
+          <PreviewBalao
+            mediaIds={[]}
+            text={pixGeneratingMessage}
+            buttons={[]}
+            vazio=""
+            onMedia={medir}
+            onCortado={marcarCorte}
+          />
+        )}
+
+        <PreviewBalao
+          mediaIds={[]}
+          text={legenda}
+          buttons={pixButtons}
+          effect={effectPix}
+          vazio="(sem legenda do PIX)"
+          onMedia={medir}
+          onCortado={marcarCorte}
+        />
+
+        {pixAudioUrl?.trim() && (
+          <div className="mt-1.5 flex w-fit items-center gap-1.5 rounded-2xl rounded-tl-md bg-[#182533] px-3 py-2 text-[13px] text-zinc-300">
+            🎤 <span>Áudio</span>
+          </div>
+        )}
+
+        <Momento label="Pagamento confirmado" />
+
+        <PreviewBalao
+          mediaIds={[]}
+          text={successMessage}
+          buttons={successButtons}
+          effect={effectSuccess}
+          vazio="(mensagem vazia)"
+          onMedia={medir}
+          onCortado={marcarCorte}
+        />
+      </div>
+    </Celular>
+  );
+}
+
 /**
  * PREVIEW DA SEQUÊNCIA de boas-vindas da Aprovação Automática.
  *

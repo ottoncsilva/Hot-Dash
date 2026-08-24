@@ -402,11 +402,13 @@ export function esperaMs(agente: LtvAgentSettings, agoraHora = horaLocal()): num
 
   // Fora da madrugada: a maior parte das respostas é rápida, mas de vez em
   // quando ela some. Os pesos é que criam a irregularidade — uma faixa única
-  // de 1 a 30 minutos daria uma média sempre igual, que é o que se quer evitar.
+  // daria uma média sempre igual, que é o que se quer evitar. O "sumiu de
+  // vez" é RARO (10%) e tem teto de 20 min — 30 min estava deixando o lead
+  // esfriar e acontecendo com frequência maior do que a de alguém ocupado.
   const sorte = Math.random();
-  if (sorte < 0.45) return entre(20, 90) * 1000; //   quase metade: quase na hora
-  if (sorte < 0.8) return entre(2, 8) * 60 * 1000; //  estava ocupada
-  return entre(12, 30) * 60 * 1000; //                 sumiu de vez
+  if (sorte < 0.55) return entre(20, 90) * 1000; //    mais da metade: quase na hora
+  if (sorte < 0.9) return entre(2, 8) * 60 * 1000; //  estava ocupada
+  return entre(10, 20) * 60 * 1000; //                 sumiu de vez — raro, e no máximo 20 min
 }
 
 const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -536,7 +538,7 @@ async function cobrarPix(
  *    chamada por cima; só marca que há novidade, e o buffer dispara de novo
  *    assim que a resposta em andamento terminar. Nunca duas em paralelo.
  */
-const JANELA_BUFFER_MS = 10_000;
+const JANELA_BUFFER_MS = 15_000;
 
 type BufferChat = {
   timer: ReturnType<typeof setTimeout> | null;

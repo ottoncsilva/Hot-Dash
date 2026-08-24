@@ -1882,10 +1882,11 @@ function FunnelCard({
 
   // Os três gatilhos, cada um com o que muda entre eles — a sub-aba lê daqui,
   // então adicionar um quarto gatilho um dia é só entrar nesta lista.
-  // `padrao` de cada gatilho ainda NASCE VAZIO: os modelos-padrão de
-  // downsell/PIX/upsell serão definidos numa próxima leva (o do Alerta de
-  // Renovação já existe — ver RenewalCard). O botão "Puxar padrão" já mora
-  // aqui, só desligado até esse conteúdo chegar.
+  // `padrao` do Downsell geral e do de PIX puxa de `DOWNSELL_GERAL_PADRAO`/
+  // `PIX_DOWNSELL_PADRAO` (chega a 50% em 24h, depois alterna hora a hora —
+  // ver o comentário de cada constante). Upsell ainda NASCE VAZIO: fica pra
+  // uma próxima leva, como combinado. O botão "Puxar padrão" é sempre
+  // OPT-IN — nunca substitui sozinho o que a modelo já tem configurado.
   const grupos: {
     key: "geral" | "pix" | "upsell";
     titulo: string;
@@ -1909,7 +1910,7 @@ function FunnelCard({
       setAtivo: setOnDownsell,
       steps: downsell,
       setSteps: setDownsell,
-      padrao: [],
+      padrao: DOWNSELL_GERAL_PADRAO,
       permiteGerarIA: true,
     },
     {
@@ -1921,7 +1922,7 @@ function FunnelCard({
       setAtivo: setOnPix,
       steps: pixDownsell,
       setSteps: setPixDownsell,
-      padrao: [],
+      padrao: PIX_DOWNSELL_PADRAO,
       permiteGerarIA: true,
     },
     {
@@ -2131,6 +2132,134 @@ const DESCONTOS = [0, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70];
  *  a mesma progressão do exemplo mais comum. Da quarta mensagem em diante cai
  *  num intervalo fixo (ver uso). */
 const PADRAO_RENOVACAO = [720, 360, 60];
+
+/**
+ * Modelo pronto do Downsell geral — chega a 50% de desconto em 24h, escalando
+ * aos poucos, e depois disso manda um lembrete curto por hora ALTERNANDO
+ * entre dois ângulos (bônus vs urgência), pra não repetir a mesma frase pra
+ * sempre. Os dois últimos passos têm `isLoop: true` — o motor do funil gira
+ * entre eles indefinidamente (ver `resolveStepIndex` em `telegramCron.ts`).
+ */
+const DOWNSELL_GERAL_PADRAO: FunnelStep[] = [
+  {
+    delayMinutes: 30,
+    discountPercent: 0,
+    text: "Oi {nome} 😘 vi que você sumiu bem na hora que a gente tava conversando... ainda quer dar uma olhada no que eu separei pra você?",
+    planMode: "all",
+    audience: "leads",
+  },
+  {
+    delayMinutes: 180,
+    discountPercent: 0,
+    text: "{nome}, várias pessoas entraram hoje e eu queria muito te ver aí dentro também 🥺 dá uma olhadinha nos planos quando puder",
+    planMode: "all",
+    audience: "leads",
+  },
+  {
+    delayMinutes: 480,
+    discountPercent: 15,
+    text: "Ei {nome} 😏 separei 15% de desconto só pra você voltar e ver tudo que eu tenho preparado. Não vou deixar isso aberto pra sempre",
+    planMode: "all",
+    audience: "leads",
+  },
+  {
+    delayMinutes: 960,
+    discountPercent: 30,
+    text: "{nome}, hoje ainda dá pra pegar 30% OFF 🔥 amanhã volta pro preço normal, não perde essa",
+    planMode: "all",
+    audience: "leads",
+  },
+  {
+    delayMinutes: 1320,
+    discountPercent: 40,
+    text: "Faltam poucas horas, {nome}! Consegui liberar 40% de desconto, dificilmente vou fazer isso de novo essa semana 😈",
+    planMode: "all",
+    audience: "leads",
+  },
+  {
+    delayMinutes: 1440,
+    discountPercent: 50,
+    text: "ÚLTIMA CHANCE HOJE, {nome} 🚨 50% de desconto, o maior que eu dou. Depois desse horário volta tudo ao normal",
+    planMode: "all",
+    audience: "leads",
+  },
+  {
+    delayMinutes: 60,
+    discountPercent: 50,
+    isLoop: true,
+    text: "{nome}, ainda dá tempo de aproveitar os 50% OFF 🔥",
+    planMode: "all",
+    audience: "leads",
+  },
+  {
+    delayMinutes: 60,
+    discountPercent: 50,
+    isLoop: true,
+    text: "Psiu, {nome} 👀 o desconto de 50% continua valendo, só clicar aqui embaixo",
+    planMode: "all",
+    audience: "leads",
+  },
+];
+
+/**
+ * Modelo pronto do Downsell de PIX gerado — mesma lógica (chega a 50% em
+ * 24h, depois alterna hora a hora), mas mais direto: essa pessoa já
+ * escolheu o plano e viu a tela de pagamento, então não reapresenta a
+ * oferta do zero, só lembra de fechar. Conta da criação do PIX, não do
+ * último contato.
+ */
+const PIX_DOWNSELL_PADRAO: FunnelStep[] = [
+  {
+    delayMinutes: 15,
+    discountPercent: 0,
+    text: "{nome}, seu PIX ainda tá aberto! É só copiar o código de novo e finalizar 💕",
+    planMode: "all",
+  },
+  {
+    delayMinutes: 60,
+    discountPercent: 10,
+    text: "{nome}, separei 10% de desconto pra você fechar agora, é rapidinho 😘",
+    planMode: "all",
+  },
+  {
+    delayMinutes: 240,
+    discountPercent: 25,
+    text: "Ei {nome}, aumentei pra 25% de desconto — não vou deixar isso parado pra sempre, finaliza aí 🔥",
+    planMode: "all",
+  },
+  {
+    delayMinutes: 600,
+    discountPercent: 35,
+    text: "{nome}, 35% de desconto liberado! Muita gente que entrou hoje já tá aproveitando, não fica de fora",
+    planMode: "all",
+  },
+  {
+    delayMinutes: 1080,
+    discountPercent: 45,
+    text: "Só mais um pouco, {nome} 😱 45% de desconto pra você terminar o pagamento agora",
+    planMode: "all",
+  },
+  {
+    delayMinutes: 1440,
+    discountPercent: 50,
+    text: "ÚLTIMA CHANCE, {nome} 🚨 50% OFF pra fechar o que você já tinha escolhido. Depois volta ao preço normal",
+    planMode: "all",
+  },
+  {
+    delayMinutes: 60,
+    discountPercent: 50,
+    isLoop: true,
+    text: "{nome}, os 50% de desconto continuam valendo pra você fechar 🔥",
+    planMode: "all",
+  },
+  {
+    delayMinutes: 60,
+    discountPercent: 50,
+    isLoop: true,
+    text: "Ainda dá tempo, {nome} 👀 clica aqui embaixo e garante com 50% off",
+    planMode: "all",
+  },
+];
 
 /** Quais planos vão no teclado da mensagem. */
 const MODOS_BOTAO: { key: NonNullable<FunnelStep["planMode"]>; label: string }[] = [

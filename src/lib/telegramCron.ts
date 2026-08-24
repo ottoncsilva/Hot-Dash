@@ -523,6 +523,35 @@ function buildPixDownsellMarkup(
   };
 }
 
+/**
+ * Descobre a partir de qual índice começa o "rabo" de passos em loop — a
+ * sequência de UM OU MAIS passos marcados `isLoop`, sempre os ÚLTIMOS da
+ * lista. Sem nenhum passo em loop no fim, devolve `funnel.length` (não tem
+ * pra onde repetir).
+ */
+function loopStartIndex(funnel: FunnelStep[]): number {
+  let k = funnel.length;
+  while (k > 0 && funnel[k - 1].isLoop) k--;
+  return k;
+}
+
+/**
+ * Traduz um CONTADOR sempre crescente (quantos passos essa pessoa já
+ * processou, contando os pulados por destinatário) no índice FÍSICO do
+ * passo a mandar agora. Dentro da sequência normal é 1:1; depois que passa
+ * do fim, GIRA pelos passos em loop na ordem em que aparecem — é o que
+ * permite alternar entre duas (ou mais) mensagens no rabo, em vez de
+ * repetir sempre a última pra sempre. Uma sequência com só UM passo em
+ * loop no fim se comporta exatamente como antes: repete sempre aquele.
+ */
+function resolveStepIndex(funnel: FunnelStep[], counter: number): number | null {
+  if (counter < funnel.length) return counter;
+  const k = loopStartIndex(funnel);
+  if (k >= funnel.length) return null; // acabou e não tem loop configurado
+  const loopLen = funnel.length - k;
+  return k + ((counter - funnel.length) % loopLen);
+}
+
 async function sendFunnelStep(
   botToken: string,
   botId: string,
@@ -598,32 +627,19 @@ export async function runTelegramFunnels(): Promise<{
         const activeSub = findActiveSubscription(bot.id, Number(lead.chatId));
         if (activeSub) continue; // Pagou, sai do remarketing
 
-        let stepIndex = lead.downsellStepIndex;
-        if (stepIndex >= downsellFunnel.length) {
-          // Chegou no fim. É loop?
-          const lastStep = downsellFunnel[downsellFunnel.length - 1];
-          if (lastStep.isLoop) {
-            stepIndex = downsellFunnel.length - 1; // Repete a última ad infinitum
-          } else {
-            continue; // Acabou
-          }
-        }
+        const idx = resolveStepIndex(downsellFunnel, lead.downsellStepIndex);
+        if (idx === null) continue; // Acabou e não repete
 
-        const step = downsellFunnel[stepIndex];
+        const step = downsellFunnel[idx];
 
         // DESTINATÁRIOS do passo. Quem não se encaixa PULA a mensagem e avança
         // — travar a pessoa num passo que nunca vai ser dela pararia a
-        // sequência inteira para ela, em silêncio. Um passo em loop não é
-        // pulado eternamente: quem não se encaixa nele simplesmente sai da
-        // sequência.
+        // sequência inteira para ela, em silêncio. O contador SEMPRE avança
+        // (mesmo pulando), então dentro do rabo em loop ela continua girando
+        // pelos passos certos em vez de travar num só.
         if (!encaixaNoPublico(bot.id, Number(lead.chatId), step.audience)) {
-          if (stepIndex === lead.downsellStepIndex && !step.isLoop) {
-            lead.downsellStepIndex += 1;
-            upsertTelegramLead(lead);
-          } else if (step.isLoop) {
-            lead.downsellStepIndex = downsellFunnel.length;
-            upsertTelegramLead(lead);
-          }
+          lead.downsellStepIndex += 1;
+          upsertTelegramLead(lead);
           continue;
         }
 
@@ -634,9 +650,7 @@ export async function runTelegramFunnels(): Promise<{
           await sendFunnelStep(bot.botToken, bot.id, lead.chatId, p.id, step, replyMarkup, bot.botUsername);
 
           lead.lastInteractionAt = now;
-          if (stepIndex === lead.downsellStepIndex && !step.isLoop) {
-            lead.downsellStepIndex += 1;
-          }
+          lead.downsellStepIndex += 1;
           upsertTelegramLead(lead);
           downsellCount++;
         }
@@ -665,14 +679,11 @@ export async function runTelegramFunnels(): Promise<{
         // Pagou por outra cobrança no meio do caminho: sai da recuperação.
         if (findActiveSubscription(bot.id, row.telegram_user_id)) continue;
 
-        let stepIndex = row.pix_step_index || 0;
-        if (stepIndex >= pixFunnel.length) {
-          const ultimo = pixFunnel[pixFunnel.length - 1];
-          if (ultimo.isLoop) stepIndex = pixFunnel.length - 1;
-          else continue;
-        }
+        const counter = row.pix_step_index || 0;
+        const idx = resolveStepIndex(pixFunnel, counter);
+        if (idx === null) continue; // Acabou e não repete
 
-        const step = pixFunnel[stepIndex];
+        const step = pixFunnel[idx];
         // Conta desde o último passo enviado; na primeira vez, desde a criação
         // da cobrança — que é o momento em que ele viu o PIX e não pagou.
         const desde = row.last_pix_step_at || row.created_at;
@@ -708,7 +719,7 @@ export async function runTelegramFunnels(): Promise<{
 
         db.prepare(
           "UPDATE telegram_subscriptions SET pix_step_index = ?, last_pix_step_at = ? WHERE id = ?",
-        ).run(step.isLoop && stepIndex === pixFunnel.length - 1 ? stepIndex : stepIndex + 1, now, row.id);
+        ).run(counter + 1, now, row.id);
         downsellCount++;
       }
     }

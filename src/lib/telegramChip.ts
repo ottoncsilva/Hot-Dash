@@ -104,8 +104,10 @@ function escutar(accountId: string, client: TelegramClient) {
 
       insertMessage({ chatId: chat.id, role: "user", content: conteudo });
 
-      const { responderLead } = await import("./ltvAgent");
-      void responderLead(chat.id);
+      // `agendarResposta` junta rajada de mensagens numa resposta só — ver
+      // o comentário dela em ltvAgent.ts.
+      const { agendarResposta } = await import("./ltvAgent");
+      agendarResposta(chat.id);
     } catch (e) {
       console.error(`[chip ${accountId}] erro tratando mensagem:`, e);
     }

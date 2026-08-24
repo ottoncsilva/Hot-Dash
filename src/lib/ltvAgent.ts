@@ -517,8 +517,75 @@ async function cobrarPix(
 }
 
 /**
- * Responde uma mensagem que acabou de chegar. Chamado pelos dois webhooks
- * (Evolution e chip do Telegram) depois de gravar a mensagem do lead.
+ * Buffer de mensagens: junta uma RAJADA de mensagens do lead numa resposta só.
+ *
+ * Sem isto, cada mensagem do lead disparava o SEU PRÓPRIO `responderLead` em
+ * paralelo — quem manda "oi" "vc tá aí?" "quero comprar" em três toques
+ * (comum no celular) gerava três chamadas à IA rodando ao mesmo tempo, cada
+ * uma vendo um pedaço diferente do histórico, e as respostas chegavam fora de
+ * ordem, repetidas ou se contradizendo. Um humano lê a rajada inteira antes
+ * de responder; é isso que o buffer imita.
+ *
+ * Duas travas, uma por chat:
+ *  - DEBOUNCE: cada mensagem nova adia o disparo em `JANELA_BUFFER_MS`. Só quando o
+ *    lead FICA CALADO por essa janela é que a IA lê o histórico (já com tudo
+ *    que ele mandou) e responde uma vez.
+ *  - FILA DE 1: se uma mensagem chegar enquanto uma resposta anterior ainda
+ *    está em voo (o `responderLead` pode ficar minutos "esperando" antes de
+ *    mandar, de propósito — é o ritmo humano), ela não dispara uma segunda
+ *    chamada por cima; só marca que há novidade, e o buffer dispara de novo
+ *    assim que a resposta em andamento terminar. Nunca duas em paralelo.
+ */
+const JANELA_BUFFER_MS = 10_000;
+
+type BufferChat = {
+  timer: ReturnType<typeof setTimeout> | null;
+  emAndamento: boolean;
+  pendenteAoTerminar: boolean;
+};
+const buffers = new Map<string, BufferChat>();
+
+async function dispararBuffer(chatId: string): Promise<void> {
+  const buf = buffers.get(chatId);
+  if (!buf) return;
+  buf.timer = null;
+  buf.emAndamento = true;
+  try {
+    await responderLead(chatId);
+  } finally {
+    buf.emAndamento = false;
+    // Chegou mensagem nova enquanto a de cima estava em voo: mais uma leva,
+    // com a mesma janela de espera — não é urgente ler ela sozinha.
+    if (buf.pendenteAoTerminar) {
+      buf.pendenteAoTerminar = false;
+      buf.timer = setTimeout(() => void dispararBuffer(chatId), JANELA_BUFFER_MS);
+    } else {
+      buffers.delete(chatId);
+    }
+  }
+}
+
+/**
+ * Chamar a cada mensagem NOVA do lead, no lugar de `responderLead` direto —
+ * os dois webhooks (Evolution e chip do Telegram) usam este ponto de entrada.
+ */
+export function agendarResposta(chatId: string): void {
+  let buf = buffers.get(chatId);
+  if (!buf) {
+    buf = { timer: null, emAndamento: false, pendenteAoTerminar: false };
+    buffers.set(chatId, buf);
+  }
+  if (buf.emAndamento) {
+    buf.pendenteAoTerminar = true;
+    return;
+  }
+  if (buf.timer) clearTimeout(buf.timer);
+  buf.timer = setTimeout(() => void dispararBuffer(chatId), JANELA_BUFFER_MS);
+}
+
+/**
+ * Responde uma mensagem que acabou de chegar. Chamado pelo buffer acima
+ * depois que o lead fica quieto, já com toda a rajada gravada.
  *
  * Nunca lança: um erro aqui é um lead sem resposta, não um webhook com 500 —
  * o provedor reentregaria o evento e a modelo mandaria a mesma coisa de novo.

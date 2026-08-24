@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { decryptSecret } from "@/lib/crypto";
-import { responderLead } from "@/lib/ltvAgent";
+import { agendarResposta } from "@/lib/ltvAgent";
 import { sendPushEvent } from "@/lib/push";
 import * as uazapi from "@/lib/uazapi";
 import {
@@ -167,7 +167,7 @@ export async function POST(req: NextRequest) {
       insertMessage({ chatId: chat.id, role: "user", content: conteudo });
     }
 
-    void responderLead(chat.id);
+    agendarResposta(chat.id);
 
     return NextResponse.json({ ok: true });
   } catch (err) {

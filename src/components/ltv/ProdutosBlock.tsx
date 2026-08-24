@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import MediaPicker from "@/components/telegram/bot/MediaPicker";
-import { IconMedia, IconPlus, IconTrash } from "@/components/icons";
+import { IconPlus, IconTrash } from "@/components/icons";
 import { apiSend } from "@/lib/api";
 import { showToast } from "@/lib/toast";
 import type { LtvAudio, LtvProduct } from "@/lib/ltvDb";
@@ -25,6 +24,8 @@ export default function ProdutosBlock({
   onProdutos,
   audios,
   onAudios,
+  sampleMediaIds,
+  onSampleMediaIds,
   maxDiscountPct,
   onMaxDiscountPct,
   podeCopiarDoWhatsapp,
@@ -35,6 +36,9 @@ export default function ProdutosBlock({
   onProdutos: (p: ProdutoEditavel[]) => void;
   audios: LtvAudio[];
   onAudios: (a: LtvAudio[]) => void;
+  /** Ids da Galeria escolhidos como amostra/prévia. */
+  sampleMediaIds: string[];
+  onSampleMediaIds: (ids: string[]) => void;
   maxDiscountPct: number;
   onMaxDiscountPct: (v: number) => void;
   /** Some no WhatsApp: copiar da própria origem não faria sentido. */
@@ -42,6 +46,7 @@ export default function ProdutosBlock({
 }) {
   const [copiando, setCopiando] = useState(false);
   const [subindoAudio, setSubindoAudio] = useState(false);
+  const [subindoAmostra, setSubindoAmostra] = useState(false);
 
   function alterar(id: string, patch: Partial<ProdutoEditavel>) {
     onProdutos(produtos.map((p) => (p.id === id ? { ...p, ...patch } : p)));
@@ -95,6 +100,25 @@ export default function ProdutosBlock({
     }
   }
 
+  /** Upload direto pela tela: o arquivo entra na Galeria da modelo (mesma
+   *  rota da tela de Mídia) e já sai marcado como amostra — sem precisar
+   *  passar pela Galeria antes para depois voltar aqui e escolher. */
+  async function subirAmostra(file: File) {
+    setSubindoAmostra(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`/api/profiles/${profileId}/media`, { method: "POST", body: form });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Falha ao enviar a amostra.");
+      onSampleMediaIds([...sampleMediaIds, d.media.id]);
+    } catch (e: any) {
+      showToast(e.message, "error");
+    } finally {
+      setSubindoAmostra(false);
+    }
+  }
+
   async function removerAudio(id: string) {
     try {
       await apiSend(`/api/ltv/audios?id=${encodeURIComponent(id)}`, "DELETE");
@@ -115,23 +139,27 @@ export default function ProdutosBlock({
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Amostras: a IA escolhe sozinha entre as fotos etiquetadas da Galeria.
-          Etiqueta em vez de lista fixa porque assim cada lead vê uma foto
-          diferente — mandar sempre a mesma prévia denuncia o roteiro. */}
+      {/* Amostras: escolhidas a dedo direto na Galeria — não mais por
+          etiqueta. A cada prévia a IA sorteia uma destas, então cada lead vê
+          uma foto diferente sem que a modelo precise pensar em etiquetar
+          nada. */}
       <div className="rounded-xl border border-fuchsia-500/25 bg-fuchsia-500/[0.06] p-4">
         <p className="text-sm leading-relaxed text-zinc-300">
-          <strong className="text-white">Amostras / prévias:</strong> a IA pode mandar prévias
-          leves para esquentar o lead e puxar a venda. Suba as fotos na{" "}
-          <strong>Galeria</strong> desta modelo e marque com a etiqueta{" "}
-          <strong>&quot;amostra&quot;</strong> — ela escolhe sozinha, descreve provocando e
-          continua vendendo.
+          <strong className="text-white">Amostras / prévias:</strong> a IA sorteia uma destas
+          fotos para mandar como prévia leve e esquentar o lead. Escolha na Galeria ou suba uma
+          foto nova direto por aqui.
         </p>
-        <Link
-          href={`/dashboard/media?profileId=${profileId}`}
-          className="mt-3 inline-flex items-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-white/5"
-        >
-          <IconMedia size={16} /> Adicionar amostras na Galeria
-        </Link>
+        <div className="mt-3">
+          <MediaPicker
+            profileId={profileId}
+            selected={sampleMediaIds}
+            onChange={onSampleMediaIds}
+            apenasImagens
+            max={30}
+            onArquivo={subirAmostra}
+            enviando={subindoAmostra}
+          />
+        </div>
       </div>
 
       {/* Áudio com a voz real é o que mais convence — e é o que um bot não faz. */}

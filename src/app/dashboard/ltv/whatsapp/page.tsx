@@ -307,6 +307,8 @@ export default function LtvWhatsappPage() {
                       onProdutos={setProdutos}
                       audios={audios}
                       onAudios={setAudios}
+                      sampleMediaIds={agente.sampleMediaIds}
+                      onSampleMediaIds={(ids) => mudarAgente({ sampleMediaIds: ids })}
                       maxDiscountPct={agente.maxDiscountPct}
                       onMaxDiscountPct={(v) => mudarAgente({ maxDiscountPct: v })}
                     />

@@ -41,6 +41,9 @@ export async function PATCH(req: NextRequest) {
     if (Number.isFinite(body.dailyLimit)) patch.dailyLimit = Number(body.dailyLimit);
     if (typeof body.onlyReplyFirst === "boolean") patch.onlyReplyFirst = body.onlyReplyFirst;
     if (Number.isFinite(body.maxDiscountPct)) patch.maxDiscountPct = Number(body.maxDiscountPct);
+    if (Array.isArray(body.sampleMediaIds)) {
+      patch.sampleMediaIds = body.sampleMediaIds.filter((t: unknown) => typeof t === "string");
+    }
 
     return NextResponse.json({ agent: saveAgent(accountId, patch) });
   } catch (err) {

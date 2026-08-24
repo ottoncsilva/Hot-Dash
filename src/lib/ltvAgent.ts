@@ -204,18 +204,23 @@ function adaptadorDe(conta: LtvAccount, chat: LtvChat): Adaptador {
 
 /* ------------------------------------------------------------------ prompt */
 
-/** Etiquetas de amostra da modelo — as prévias leves que esquentam o lead. */
-function etiquetasDeAmostra(profileId: string): string[] {
+/**
+ * Amostras/prévias VÁLIDAS da conta — ids escolhidos a dedo na tela
+ * (`sampleMediaIds`), filtrados contra o que ainda existe de fato na
+ * Galeria. Sem o filtro, uma foto apagada depois de escolhida ficaria presa
+ * na lista para sempre e a IA tentaria mandar uma mídia que já não existe.
+ */
+function amostrasValidas(profileId: string, sampleMediaIds: string[]): string[] {
+  if (!sampleMediaIds.length) return [];
+  const placeholders = sampleMediaIds.map(() => "?").join(",");
   const rows = getDb()
     .prepare(
-      `SELECT DISTINCT t.name
-         FROM tags t
-         JOIN media_tags mt ON mt.tag_id = t.id
-         JOIN media m ON m.id = mt.media_id
-        WHERE m.profile_id = ? AND m.kind = 'image' AND COALESCE(m.hidden, 0) = 0`,
+      `SELECT id FROM media
+        WHERE profile_id = ? AND kind = 'image' AND COALESCE(hidden, 0) = 0
+          AND id IN (${placeholders})`,
     )
-    .all(profileId) as { name: string }[];
-  return rows.map((r) => r.name);
+    .all(profileId, ...sampleMediaIds) as { id: string }[];
+  return rows.map((r) => r.id);
 }
 
 const ABORDAGEM: Record<LtvAgentSettings["approach"], string> = {
@@ -233,7 +238,7 @@ function montarPrompt(
   agente: LtvAgentSettings,
   produtos: LtvProduct[],
   audios: LtvAudio[],
-  amostras: string[],
+  temAmostras: boolean,
   compras: { nome: string; cents: number; quando: number }[] = [],
 ): string {
   const partes: string[] = [];
@@ -313,7 +318,6 @@ function montarPrompt(
       "{",
       '  "tipo": "texto" | "amostra" | "audio" | "pix",',
       '  "resposta": "o que você diz ao lead",',
-      '  "amostra_tag": "quando tipo=amostra, UMA etiqueta exata da lista",',
       '  "audio_contexto": "quando tipo=audio, UM contexto exato da lista",',
       '  "produto": "quando tipo=pix, o NOME EXATO de um produto da lista",',
       '  "desconto_pct": "quando tipo=pix e você combinou desconto, só o número (ex: 20)"',
@@ -322,9 +326,9 @@ function montarPrompt(
   );
 
   partes.push(
-    amostras.length
-      ? `ETIQUETAS DE AMOSTRA DISPONÍVEIS: [${amostras.join(", ")}]. Use tipo "amostra" para mandar uma prévia e esquentar o lead.`
-      : 'VOCÊ NÃO TEM FOTOS CADASTRADAS: nunca use tipo "amostra".',
+    temAmostras
+      ? 'Você tem FOTOS DE AMOSTRA cadastradas. Use tipo "amostra" para mandar uma prévia e esquentar o lead — o sistema escolhe qual foto mandar, você só decide QUANDO usar esse tipo.'
+      : 'VOCÊ NÃO TEM FOTOS DE AMOSTRA CADASTRADAS: nunca use tipo "amostra".',
   );
 
   const contextos = audios.map((a) => a.context).filter(Boolean);
@@ -412,7 +416,6 @@ const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
 type Acao = {
   tipo?: string;
   resposta?: string;
-  amostra_tag?: string;
   audio_contexto?: string;
   produto?: string;
   desconto_pct?: number | string;
@@ -438,29 +441,11 @@ function parseAcao(bruto: string): Acao {
   }
 }
 
-function acharMidiaPorEtiqueta(profileId: string, etiqueta: string): string | null {
-  const db = getDb();
-  const row =
-    (db
-      .prepare(
-        `SELECT m.id
-           FROM media m
-           JOIN media_tags mt ON mt.media_id = m.id
-           JOIN tags t ON t.id = mt.tag_id
-          WHERE m.profile_id = ? AND m.kind = 'image'
-            AND COALESCE(m.hidden, 0) = 0 AND t.name = ?
-          ORDER BY RANDOM() LIMIT 1`,
-      )
-      .get(profileId, etiqueta) as { id: string } | undefined) ||
-    // Etiqueta inventada pela IA: manda outra foto em vez de mandar nada.
-    (db
-      .prepare(
-        `SELECT id FROM media
-          WHERE profile_id = ? AND kind = 'image' AND COALESCE(hidden, 0) = 0
-          ORDER BY RANDOM() LIMIT 1`,
-      )
-      .get(profileId) as { id: string } | undefined);
-  return row?.id || null;
+/** Sorteia uma amostra entre as escolhidas na tela — cada lead vê uma foto
+ *  diferente, para não denunciar o roteiro mandando sempre a mesma prévia. */
+function sortearAmostra(sampleMediaIds: string[]): string | null {
+  if (!sampleMediaIds.length) return null;
+  return sampleMediaIds[Math.floor(Math.random() * sampleMediaIds.length)];
 }
 
 /**
@@ -566,11 +551,14 @@ export async function responderLead(chatId: string): Promise<void> {
 
     const produtos = listProducts(conta.id);
     const audios = listAudios(conta.id);
-    const amostras = etiquetasDeAmostra(conta.profileId);
+    const amostras = amostrasValidas(conta.profileId, agente.sampleMediaIds);
     const compras = comprasDoLead(chat.id);
 
     const mensagens = [
-      { role: "system", content: montarPrompt(agente, produtos, audios, amostras, compras) },
+      {
+        role: "system",
+        content: montarPrompt(agente, produtos, audios, amostras.length > 0, compras),
+      },
       ...historico.map((m) => ({ role: m.role, content: m.content })),
     ];
 
@@ -628,7 +616,7 @@ export async function responderLead(chatId: string): Promise<void> {
     }
 
     if (tipo === "amostra") {
-      const mediaId = acharMidiaPorEtiqueta(conta.profileId, acao.amostra_tag || "");
+      const mediaId = sortearAmostra(amostras);
       if (mediaId) {
         await adaptador.midia(mediaId, texto);
         insertMessage({ chatId: chat.id, role: "assistant", content: texto, type: "imagem" });

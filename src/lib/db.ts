@@ -656,6 +656,10 @@ function migrate(d: Database.Database) {
       only_reply_first INTEGER NOT NULL DEFAULT 1,
       -- Teto do desconto que a IA pode dar sozinha. 0 = só o preço de tabela.
       max_discount_pct INTEGER NOT NULL DEFAULT 0,
+      -- Amostras/prévias: ids da Galeria escolhidos a dedo na tela (JSON,
+      -- ex.: ["m1","m2"]). Substituiu a etiqueta "amostra" — a IA sorteia
+      -- entre ESTES ids, não mais por nome de etiqueta.
+      sample_media_ids TEXT,
       FOREIGN KEY (account_id) REFERENCES ltv_accounts(id) ON DELETE CASCADE
     );
 
@@ -1052,6 +1056,7 @@ function migrate(d: Database.Database) {
   // cabem na sequência.
   ensureColumn(d, "question_box_items", "seconds", "INTEGER");
   ensureColumn(d, "ltv_agent_settings", "max_discount_pct", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(d, "ltv_agent_settings", "sample_media_ids", "TEXT");
   ensureColumn(d, "ltv_orders", "list_price_cents", "INTEGER");
   ensureColumn(d, "ltv_chats", "peer_access_hash", "TEXT");
   ensureColumn(d, "ltv_accounts", "provider_ref", "TEXT");

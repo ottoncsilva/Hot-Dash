@@ -48,6 +48,11 @@ export type LtvAgentSettings = {
    * qualquer valor assim que o lead reclama do preço.
    */
   maxDiscountPct: number;
+  /**
+   * Amostras/prévias: ids da Galeria escolhidos a dedo na tela (não mais por
+   * etiqueta). A IA sorteia um destes a cada vez que manda uma prévia.
+   */
+  sampleMediaIds: string[];
 };
 
 export type LtvProduct = {
@@ -119,6 +124,7 @@ const AGENT_PADRAO: Omit<LtvAgentSettings, "accountId"> = {
   dailyLimit: 80,
   onlyReplyFirst: true,
   maxDiscountPct: 0,
+  sampleMediaIds: [],
 };
 
 /**
@@ -308,6 +314,13 @@ export function getAgent(accountId: string): LtvAgentSettings {
   } catch {
     /* config antiga ou corrompida: melhor sem tom do que quebrar a tela */
   }
+  let sampleMediaIds: string[] = [];
+  try {
+    const parsed = JSON.parse(r.sample_media_ids || "[]");
+    if (Array.isArray(parsed)) sampleMediaIds = parsed.filter((t) => typeof t === "string");
+  } catch {
+    /* idem: melhor sem amostra do que quebrar a tela */
+  }
   return {
     accountId,
     enabled: Boolean(r.enabled),
@@ -323,6 +336,7 @@ export function getAgent(accountId: string): LtvAgentSettings {
     dailyLimit: r.daily_limit,
     onlyReplyFirst: Boolean(r.only_reply_first),
     maxDiscountPct: r.max_discount_pct ?? 0,
+    sampleMediaIds,
   };
 }
 
@@ -342,10 +356,10 @@ export function saveAgent(accountId: string, patch: Partial<LtvAgentSettings>): 
       `INSERT INTO ltv_agent_settings
          (account_id, enabled, approach, persona_name, tone_tags, personality, mechanism,
           limits, rhythm, delay_min_s, delay_max_s, daily_limit, only_reply_first,
-          max_discount_pct)
+          max_discount_pct, sample_media_ids)
        VALUES (@accountId, @enabled, @approach, @personaName, @toneTags, @personality,
                @mechanism, @limits, @rhythm, @delayMinS, @delayMaxS, @dailyLimit, @onlyReplyFirst,
-               @maxDiscountPct)
+               @maxDiscountPct, @sampleMediaIds)
        ON CONFLICT(account_id) DO UPDATE SET
          enabled = excluded.enabled,
          approach = excluded.approach,
@@ -359,7 +373,8 @@ export function saveAgent(accountId: string, patch: Partial<LtvAgentSettings>): 
          delay_max_s = excluded.delay_max_s,
          daily_limit = excluded.daily_limit,
          only_reply_first = excluded.only_reply_first,
-         max_discount_pct = excluded.max_discount_pct`,
+         max_discount_pct = excluded.max_discount_pct,
+         sample_media_ids = excluded.sample_media_ids`,
     )
     .run({
       accountId,
@@ -376,6 +391,7 @@ export function saveAgent(accountId: string, patch: Partial<LtvAgentSettings>): 
       dailyLimit: novo.dailyLimit,
       onlyReplyFirst: novo.onlyReplyFirst ? 1 : 0,
       maxDiscountPct: novo.maxDiscountPct,
+      sampleMediaIds: JSON.stringify(novo.sampleMediaIds || []),
     });
   return novo;
 }

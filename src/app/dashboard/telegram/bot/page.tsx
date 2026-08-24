@@ -2019,6 +2019,7 @@ function FunnelCard({
           planos={planos}
           permiteGerarIA={atual.permiteGerarIA}
           funnelType={atual.key === "pix" ? "pix" : "geral"}
+          confirm={confirm}
         />
       </div>
 
@@ -2317,6 +2318,7 @@ function FunnelEditor({
   modoRenovacao,
   permiteGerarIA,
   funnelType,
+  confirm,
 }: {
   profileId: string;
   title: string;
@@ -2330,6 +2332,9 @@ function FunnelEditor({
   permiteGerarIA?: boolean;
   /** Qual dos dois downsells é este, para o prompt calibrar o tom certo. */
   funnelType?: "geral" | "pix";
+  /** Confirmação antes de gerar TODAS as mensagens de uma vez — com 50+
+   * passos isso sobrescreve muita coisa junta, vale um "tem certeza?". */
+  confirm?: ConfirmFn;
 }) {
   function update(i: number, patch: Partial<FunnelStep>) {
     setSteps(steps.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
@@ -2356,11 +2361,91 @@ function FunnelEditor({
     }
   }
 
+  // Gera a sequência INTEIRA de uma vez — com 50+ passos, clicar um por um
+  // não é opção. Poucas chamadas em paralelo (não uma de cada vez, que
+  // levaria minutos, nem todas juntas, que estouraria limite de taxa da IA).
+  const [gerandoTodos, setGerandoTodos] = useState(false);
+  const [progressoTodos, setProgressoTodos] = useState<{ feitos: number; total: number } | null>(null);
+  const CONCORRENCIA_GERACAO = 3;
+
+  async function gerarTodosComIA() {
+    if (gerandoTodos || steps.length === 0) return;
+    const ok = await confirm?.({
+      title: "Gerar todas as mensagens com IA?",
+      message: `Isso reescreve o texto das ${steps.length} mensagens desta sequência, puxando a persona da modelo. Mensagens já editadas à mão também serão substituídas. Só vale depois de salvar.`,
+      confirmLabel: "Gerar todas",
+    });
+    if (confirm && !ok) return;
+
+    setGerandoTodos(true);
+    setProgressoTodos({ feitos: 0, total: steps.length });
+    // Cópia local: é a fonte de verdade DESTE lote — evita que chamadas
+    // concorrentes se pisem lendo `steps` desatualizado a cada iteração.
+    const atual = steps.map((s) => ({ ...s }));
+    let feitos = 0;
+    let falhas = 0;
+    let proximo = 0;
+
+    async function worker() {
+      while (proximo < atual.length) {
+        const i = proximo++;
+        try {
+          const { text } = await apiSend<{ text: string }>("/api/ai/downsell-message", "POST", {
+            profileId,
+            funnelType: funnelType || "geral",
+            stepIndex: i,
+            steps: atual,
+          });
+          atual[i] = { ...atual[i], text };
+        } catch {
+          falhas++;
+        } finally {
+          feitos++;
+          setProgressoTodos({ feitos, total: atual.length });
+          setSteps(atual.map((s) => ({ ...s })));
+        }
+      }
+    }
+
+    await Promise.all(Array.from({ length: CONCORRENCIA_GERACAO }, worker));
+
+    setGerandoTodos(false);
+    setProgressoTodos(null);
+    if (falhas > 0) {
+      showToast(
+        `${atual.length - falhas} de ${atual.length} mensagens geradas. ${falhas} falharam — gera essas de novo uma a uma.`,
+        "error",
+      );
+    } else {
+      showToast(`${atual.length} mensagens geradas com IA.`, "success");
+    }
+  }
+
   const todosAtivos = planos.filter((p) => p.active !== false);
 
   return (
     <div className="mt-4 border-t border-white/10 pt-3">
-      {title && <p className="eyebrow">{title}</p>}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {title ? <p className="eyebrow">{title}</p> : <span />}
+        {permiteGerarIA && steps.length > 0 && (
+          <div className="flex items-center gap-2">
+            {progressoTodos && (
+              <span className="text-[11px] text-zinc-500">
+                Gerando {progressoTodos.feitos}/{progressoTodos.total}…
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={gerarTodosComIA}
+              disabled={gerandoTodos || geradorBusy !== null}
+              className="btn-ghost flex items-center gap-1 text-xs disabled:opacity-50"
+              title="Gera o texto de TODAS as mensagens desta sequência de uma vez"
+            >
+              <IconSparkle size={13} /> {gerandoTodos ? "Gerando todas…" : `Gerar todas com IA (${steps.length})`}
+            </button>
+          </div>
+        )}
+      </div>
       <div className="mt-2 space-y-3">
         {steps.map((s, i) => {
           const desconto = s.discountPercent ?? 0;
@@ -2398,7 +2483,7 @@ function FunnelEditor({
                   <button
                     type="button"
                     onClick={() => gerarComIA(i)}
-                    disabled={geradorBusy !== null}
+                    disabled={geradorBusy !== null || gerandoTodos}
                     className="ml-auto flex items-center gap-1 rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/10 hover:text-white disabled:opacity-50"
                     title="Gera o texto desta mensagem com IA, usando a persona da modelo e o /start dela como base"
                   >

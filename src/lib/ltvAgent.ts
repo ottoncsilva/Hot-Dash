@@ -1,5 +1,5 @@
 import "server-only";
-import { callAiRaw } from "./ai";
+import { callAiChat, type ChatMessage } from "./ai";
 import { getDb } from "./db";
 import { getAppTimeZone } from "./settings";
 import { partsInTimeZone } from "./timezone";
@@ -623,15 +623,22 @@ export async function responderLead(chatId: string): Promise<void> {
     const amostras = amostrasValidas(conta.profileId, agente.sampleMediaIds);
     const compras = comprasDoLead(chat.id);
 
-    const mensagens = [
+    // Mensagens de PAPEL DE VERDADE — não mais um JSON.stringify de tudo
+    // dentro de uma única mensagem "user". A persona vai como "system", que é
+    // a instrução com mais peso pra maioria dos modelos, e o histórico entra
+    // como uma conversa de fato (um "user"/"assistant" por vez), do jeito que
+    // a API de chat foi desenhada pra ler. Menos tokens gastos com sintaxe
+    // (200 mensagens de histórico não carregam mais `{"role":...,"content":`
+    // escrito por extenso a cada uma) e mais aderência à persona.
+    const mensagens: ChatMessage[] = [
       {
         role: "system",
         content: montarPrompt(agente, produtos, audios, amostras.length > 0, compras),
       },
-      ...historico.map((m) => ({ role: m.role, content: m.content })),
+      ...historico.map((m) => ({ role: m.role, content: m.content }) as ChatMessage),
     ];
 
-    const bruto = await callAiRaw(JSON.stringify(mensagens), PROVEDOR_IA, {
+    const bruto = await callAiChat(mensagens, PROVEDOR_IA, {
       maxTokens: 500,
       activity: "whatsapp",
     });

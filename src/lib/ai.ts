@@ -214,8 +214,41 @@ async function withRateLimitRetry<T extends { res: Response }>(
   }
 }
 
+/**
+ * Uma volta da conversa, no formato que toda API de chat entende: `system`
+ * fixa a instrução por cima de tudo, `user`/`assistant` alternam o histórico.
+ */
+export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+
+/**
+ * Chamada de UM PROMPT SÓ — é o formato que a maioria das atividades do painel
+ * usa (gerar uma legenda, uma enquete, uma ideia). Por baixo é só
+ * `callAiChat` com uma mensagem `user` única; existe como atalho para não
+ * obrigar cada chamador de tiro único a montar um array de um item.
+ */
 export async function callAiRaw(
   prompt: string,
+  provider: AiProvider,
+  opts?: { json?: boolean; maxTokens?: number; images?: CaptionImage[]; activity?: AiActivity },
+): Promise<string> {
+  return callAiChat([{ role: "user", content: prompt }], provider, opts);
+}
+
+/**
+ * Chamada com HISTÓRICO DE VERDADE — cada mensagem entra na API com o papel
+ * dela (`system`/`user`/`assistant`), em vez de virar um texto só.
+ *
+ * Nasceu para o motor do LTV (`ltvAgent.ts`): antes, o prompt de sistema (a
+ * persona da modelo) e até 200 mensagens de histórico eram achatados com
+ * `JSON.stringify` dentro de UMA ÚNICA mensagem `user` — o modelo recebia um
+ * bloco de texto que por acaso PARECIA um array de mensagens, em vez de uma
+ * conversa de verdade estruturada pela API. Isso desperdiçava tokens com a
+ * sintaxe do JSON repetida a cada mensagem do histórico, e a persona perdia o
+ * reforço que uma mensagem `system` de verdade dá — a maioria dos modelos foi
+ * treinada para tratá-la como a instrução que manda mais.
+ */
+export async function callAiChat(
+  messages: ChatMessage[],
   provider: AiProvider,
   opts?: { json?: boolean; maxTokens?: number; images?: CaptionImage[]; activity?: AiActivity },
 ): Promise<string> {
@@ -235,16 +268,26 @@ export async function callAiRaw(
   // mudando só a URL base e, no caso do OpenRouter, dois cabeçalhos de
   // identificação — por isso são tratados no mesmo ramo.
   if (provider === "openai" || provider === "grok" || provider === "openrouter") {
-    const content =
+    // A imagem vai anexada na ÚLTIMA mensagem (o turno atual) — é sobre ela
+    // que a pergunta em aberto é feita; anexar na primeira a deixaria presa
+    // junto da instrução de sistema, longe de onde o modelo espera achá-la.
+    const msgs: unknown[] =
       images.length > 0
-        ? [
-            { type: "text", text: prompt },
-            ...images.map((img) => ({
-              type: "image_url",
-              image_url: { url: `data:${img.mime};base64,${img.base64}` },
-            })),
-          ]
-        : prompt;
+        ? messages.map((m, i) =>
+            i === messages.length - 1
+              ? {
+                  role: m.role,
+                  content: [
+                    { type: "text", text: m.content },
+                    ...images.map((img) => ({
+                      type: "image_url",
+                      image_url: { url: `data:${img.mime};base64,${img.base64}` },
+                    })),
+                  ],
+                }
+              : m,
+          )
+        : messages;
 
     // Alguns modelos (família "reasoning": o1/o3/o4, gpt-5...) rejeitam
     // `max_tokens` (exigem `max_completion_tokens`) e/ou `temperature`
@@ -255,7 +298,7 @@ export async function callAiRaw(
     function buildBody(opts_: { dropTemperature?: boolean; useMaxCompletionTokens?: boolean }) {
       return {
         model: creds!.model,
-        messages: [{ role: "user", content }],
+        messages: msgs,
         ...(opts_.dropTemperature ? {} : { temperature: 0.9 }),
         ...(opts_.useMaxCompletionTokens
           ? { max_completion_tokens: maxTokens }
@@ -315,11 +358,30 @@ export async function callAiRaw(
     return text;
   }
 
-  // Google Gemini
-  const parts: Record<string, unknown>[] = [
-    { text: prompt },
-    ...images.map((img) => ({ inlineData: { mimeType: img.mime, data: img.base64 } })),
-  ];
+  // Google Gemini — papel próprio: a instrução de sistema vai em
+  // `systemInstruction` (campo dedicado da API, fora da conversa), e o
+  // histórico em `contents`, alternando `user`/`model` (Gemini chama a
+  // resposta da IA de "model", não "assistant"). A imagem entra na ÚLTIMA
+  // mensagem, mesmo critério do ramo OpenAI/Grok acima.
+  const systemText = messages
+    .filter((m) => m.role === "system")
+    .map((m) => m.content)
+    .join("\n\n");
+  const conversa = messages.filter((m) => m.role !== "system");
+  const contents: { role: string; parts: Record<string, unknown>[] }[] = conversa.map((m, i) => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts:
+      i === conversa.length - 1
+        ? [
+            { text: m.content },
+            ...images.map((img) => ({ inlineData: { mimeType: img.mime, data: img.base64 } })),
+          ]
+        : [{ text: m.content }],
+  }));
+  // Sem nenhuma mensagem além da de sistema (caso de borda: `callAiChat` com
+  // só instrução, sem turno nenhum), manda a instrução como o próprio
+  // conteúdo — `contents` vazio a API recusa com 400.
+  if (contents.length === 0) contents.push({ role: "user", parts: [{ text: systemText }] });
   /**
    * PENSAMENTO DESLIGADO nos modelos 2.5.
    *
@@ -337,7 +399,8 @@ export async function callAiRaw(
    */
   function corpoGemini(comPensamento: boolean) {
     return {
-      contents: [{ parts }],
+      ...(systemText ? { systemInstruction: { parts: [{ text: systemText }] } } : {}),
+      contents,
       generationConfig: {
         temperature: 0.9,
         // Teto folgado: com o pensamento desligado sobra tudo para o texto, e

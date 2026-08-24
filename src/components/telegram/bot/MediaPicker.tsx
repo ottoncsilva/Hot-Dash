@@ -82,6 +82,49 @@ export default function MediaPicker({
   const [filtro, setFiltro] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // A grade rola na VERTICAL (`max-h-64 overflow-y-auto`) e sem aviso a
+  // última linha cortava no meio — metade de uma miniatura colada direto na
+  // linha de cima, sem respiro nenhum entre as duas, lia como "as linhas
+  // estão montadas uma na outra". Mesma máscara que a `FaixaRolavel` já usa
+  // para a rolagem horizontal (ver o comentário lá), só que no eixo vertical.
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [pontasV, setPontasV] = useState({ cima: false, baixo: false });
+
+  const medirV = useCallback(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const sobraBaixo = el.scrollHeight - el.clientHeight - el.scrollTop;
+    setPontasV((p) => {
+      const novo = { cima: el.scrollTop > 1, baixo: sobraBaixo > 1 };
+      return p.cima === novo.cima && p.baixo === novo.baixo ? p : novo;
+    });
+  }, []);
+
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    medirV();
+    el.addEventListener("scroll", medirV, { passive: true });
+    // A lista muda de altura sozinha (filtro de etiqueta, carregamento) —
+    // reobservar no tamanho, não só na montagem.
+    const ro = new ResizeObserver(medirV);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => {
+      el.removeEventListener("scroll", medirV);
+      ro.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [medirV, carregando, filtro]);
+
+  const FADE_V = "1.5rem";
+  const mascaraV =
+    pontasV.cima || pontasV.baixo
+      ? `linear-gradient(to bottom, transparent 0, #000 ${pontasV.cima ? FADE_V : "0"}, #000 calc(100% - ${
+          pontasV.baixo ? FADE_V : "0px"
+        }), transparent 100%)`
+      : undefined;
+
   const carregar = useCallback(async () => {
     if (all.length > 0) return;
     setCarregando(true);
@@ -282,8 +325,12 @@ export default function MediaPicker({
                   fica menor que `minmax`, e a grade decide sozinha quantas
                   cabem na largura REAL do card, não na da tela. */}
               <div
+                ref={gridRef}
                 className="grid max-h-64 gap-1.5 overflow-y-auto"
-                style={{ gridTemplateColumns: "repeat(auto-fill, minmax(4.25rem, 1fr))" }}
+                style={{
+                  gridTemplateColumns: "repeat(auto-fill, minmax(4.25rem, 1fr))",
+                  ...(mascaraV ? { maskImage: mascaraV, WebkitMaskImage: mascaraV } : {}),
+                }}
               >
                 {/* PRIMEIRO item: o aparelho. Fica na grade, e não num botão à
                     parte, porque a pergunta é a mesma das outras casinhas. */}

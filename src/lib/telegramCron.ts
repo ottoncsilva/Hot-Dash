@@ -14,6 +14,7 @@ import {
   dequeueApproval,
   saveSubscription,
   getSubscription,
+  getPlan,
 } from "@/lib/telegramDb";
 import {
   sendTelegramMedia,
@@ -42,6 +43,7 @@ import {
   updateMailingStatus,
   computeNextRunAt,
   renderMailingText,
+  getMailingOffer,
   type Mailing,
 } from "@/lib/telegramMailing";
 import { updatePost } from "@/lib/posts";
@@ -390,7 +392,7 @@ export async function runTelegramAutopost(): Promise<number> {
 // 2) FUNIS — remarketing (downsell) para quem não pagou e pós-venda (upsell)
 // ---------------------------------------------------------------------------
 
-type FunnelStep = {
+export type FunnelStep = {
   delayMinutes: number;
   text: string;
   discountPercent?: number;
@@ -464,6 +466,63 @@ function buildReplyMarkup(
   return inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : undefined;
 }
 
+/**
+ * Botão do Downsell de PIX gerado — DIFERENTE do `buildReplyMarkup` genérico:
+ * este lead já escolheu um item específico (o plano ou a oferta de mailing
+ * gravados em `sub` na hora que o PIX foi criado), então o desconto do passo
+ * incide SÓ sobre o preço DAQUELE item, não sobre a lista inteira de planos
+ * de novo — reabrir a lista faria parecer um convite pra escolher de novo,
+ * quando o pedido é "termine de pagar o que você já escolheu, com desconto".
+ *
+ * `bumpCents` (o Order Bump que o lead pode ter aceitado na hora) fica de
+ * fora do recálculo por ora — reabrir o bump aqui seria uma oferta à parte.
+ *
+ * Sem `planId`/`offerId` resolvível (linha órfã, plano apagado depois),
+ * cai pro `buildReplyMarkup` genérico — pra nunca sair sem nenhum botão.
+ */
+/**
+ * Resolve o item (plano ou oferta de mailing) que o lead já escolheu, com o
+ * desconto do passo já aplicado — usado tanto para montar o botão quanto
+ * para preencher `{plano}`/`{valor}` no texto do mesmo passo.
+ */
+function resolvePixItem(sub: { planId?: string; offerId?: string }, discountPercent = 0) {
+  const isPlan = Boolean(sub.planId);
+  const item = sub.planId ? getPlan(sub.planId) : sub.offerId ? getMailingOffer(sub.offerId) : null;
+  if (!item) return null;
+
+  let finalPrice = item.priceCents;
+  if (discountPercent > 0 && discountPercent <= 100) {
+    finalPrice = Math.floor(finalPrice * (1 - discountPercent / 100));
+  }
+  const highlight = "highlight" in item ? (item as { highlight?: string }).highlight : undefined;
+  return { item, isPlan, finalPrice, highlight };
+}
+
+function buildPixDownsellMarkup(
+  bot: { id: string; buttonStyles?: ButtonStyles },
+  sub: { planId?: string; offerId?: string },
+  discountPercent = 0,
+) {
+  const resolvido = resolvePixItem(sub, discountPercent);
+  if (!resolvido) return buildReplyMarkup(bot, discountPercent);
+  const { item, isPlan, finalPrice, highlight } = resolvido;
+
+  const priceStr = (finalPrice / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const prefixo = isPlan ? "buy_plan_" : "buy_offer_";
+
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: `${discountPercent > 0 ? `🔥 (-${discountPercent}%) ` : ""}${item.name} - ${priceStr}`,
+          callback_data: `${prefixo}${item.id}${discountPercent > 0 ? `_${discountPercent}` : ""}`,
+          ...planButtonStyleProps(bot, highlight),
+        },
+      ],
+    ],
+  };
+}
+
 async function sendFunnelStep(
   botToken: string,
   botId: string,
@@ -472,6 +531,8 @@ async function sendFunnelStep(
   step: FunnelStep,
   replyMarkup: any,
   botUsername?: string,
+  /** Só o Downsell de PIX gerado preenche isto — ver `resolvePixItem`. */
+  extraVars?: { planoEscolhido?: string; valorComDesconto?: string },
 ) {
   // As VARIÁVEIS eram oferecidas na tela e NÃO eram trocadas no envio: o lead
   // recebia a chave literal no meio do texto. No privado o chat_id é o próprio
@@ -483,6 +544,7 @@ async function sendFunnelStep(
     username: pessoa?.username,
     profileName: getProfileName(profileId),
     botUsername,
+    ...extraVars,
   });
 
   // Mesmo caminho de envio do /start: mídias escolhidas, em álbum ou uma por
@@ -616,8 +678,33 @@ export async function runTelegramFunnels(): Promise<{
         const desde = row.last_pix_step_at || row.created_at;
         if ((now - desde) / 60000 < step.delayMinutes) continue;
 
-        const markup = buildReplyMarkup(bot, step.discountPercent, step.planMode);
-        await sendFunnelStep(bot.botToken, bot.id, String(row.telegram_user_id), p.id, step, markup, bot.botUsername);
+        // Botão baseado no que ELE JÁ ESCOLHEU (planId/offerId gravados na
+        // hora que o PIX foi gerado), não na lista genérica de planos — ver
+        // o comentário de `buildPixDownsellMarkup`.
+        const sub = getSubscription(row.id);
+        const resolvido = sub ? resolvePixItem(sub, step.discountPercent) : null;
+        const markup = sub
+          ? buildPixDownsellMarkup(bot, sub, step.discountPercent)
+          : buildReplyMarkup(bot, step.discountPercent, step.planMode);
+        const extraVars = resolvido
+          ? {
+              planoEscolhido: resolvido.item.name,
+              valorComDesconto: (resolvido.finalPrice / 100).toLocaleString("pt-BR", {
+                style: "currency",
+                currency: "BRL",
+              }),
+            }
+          : undefined;
+        await sendFunnelStep(
+          bot.botToken,
+          bot.id,
+          String(row.telegram_user_id),
+          p.id,
+          step,
+          markup,
+          bot.botUsername,
+          extraVars,
+        );
 
         db.prepare(
           "UPDATE telegram_subscriptions SET pix_step_index = ?, last_pix_step_at = ? WHERE id = ?",

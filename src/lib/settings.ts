@@ -389,7 +389,7 @@ export type AiProvider =
  * medição real, 423,6K tokens de raciocínio produziram 13,1K de texto e
  * responderam por 76% da fatura.
  */
-export type AiActivity = "mk" | "schedule" | "caption" | "whatsapp" | "caixinha" | "videoprompt";
+export type AiActivity = "mk" | "schedule" | "caption" | "whatsapp" | "caixinha" | "videoprompt" | "downsell";
 
 export const AI_ACTIVITIES: { key: AiActivity; label: string; hint: string }[] = [
   {
@@ -421,6 +421,11 @@ export const AI_ACTIVITIES: { key: AiActivity; label: string; hint: string }[] =
     key: "videoprompt",
     label: "Prompt final do Gerador de Vídeo",
     hint: "Lê a foto e a caixinha e escreve o roteiro do vídeo. Precisa de um modelo com visão.",
+  },
+  {
+    key: "downsell",
+    label: "Mensagens de downsell (Recuperação)",
+    hint: "Escreve a copy de cada passo do downsell puxando a persona da modelo — conteúdo adulto direto, então Grok costuma sair na frente.",
   },
 ];
 

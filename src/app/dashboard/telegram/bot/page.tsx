@@ -1896,6 +1896,9 @@ function FunnelCard({
     steps: FunnelStep[];
     setSteps: (s: FunnelStep[]) => void;
     padrao: FunnelStep[];
+    /** Só os dois downsells geram mensagem com IA — Upsell fica de fora por
+     * ora, combinado. */
+    permiteGerarIA?: boolean;
   }[] = [
     {
       key: "geral",
@@ -1907,6 +1910,7 @@ function FunnelCard({
       steps: downsell,
       setSteps: setDownsell,
       padrao: [],
+      permiteGerarIA: true,
     },
     {
       key: "pix",
@@ -1918,6 +1922,7 @@ function FunnelCard({
       steps: pixDownsell,
       setSteps: setPixDownsell,
       padrao: [],
+      permiteGerarIA: true,
     },
     {
       key: "upsell",
@@ -2008,6 +2013,8 @@ function FunnelCard({
           steps={atual.steps}
           setSteps={atual.setSteps}
           planos={planos}
+          permiteGerarIA={atual.permiteGerarIA}
+          funnelType={atual.key === "pix" ? "pix" : "geral"}
         />
       </div>
 
@@ -2304,6 +2311,8 @@ function FunnelEditor({
   setSteps,
   planos,
   modoRenovacao,
+  permiteGerarIA,
+  funnelType,
 }: {
   profileId: string;
   title: string;
@@ -2312,9 +2321,35 @@ function FunnelEditor({
   planos: Plan[];
   /** Ver o comentário em `FunilRetratil`. */
   modoRenovacao?: boolean;
+  /** Mostra o botão "Gerar com IA" em cada mensagem — só nos dois downsells
+   * por ora (Upsell fica de fora, combinado). */
+  permiteGerarIA?: boolean;
+  /** Qual dos dois downsells é este, para o prompt calibrar o tom certo. */
+  funnelType?: "geral" | "pix";
 }) {
   function update(i: number, patch: Partial<FunnelStep>) {
     setSteps(steps.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
+  }
+
+  // Índice do passo sendo gerado agora (só um por vez), para travar o botão
+  // certo sem travar os outros passos da sequência.
+  const [geradorBusy, setGeradorBusy] = useState<number | null>(null);
+
+  async function gerarComIA(i: number) {
+    setGeradorBusy(i);
+    try {
+      const { text } = await apiSend<{ text: string }>("/api/ai/downsell-message", "POST", {
+        profileId,
+        funnelType: funnelType || "geral",
+        stepIndex: i,
+        steps,
+      });
+      update(i, { text });
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha ao gerar a mensagem.", "error");
+    } finally {
+      setGeradorBusy(null);
+    }
   }
 
   const todosAtivos = planos.filter((p) => p.active !== false);
@@ -2352,12 +2387,26 @@ function FunnelEditor({
                     repetir (loop)
                   </label>
                 )}
+                {/* Puxa a persona da modelo + a mensagem real de /start dela
+                    (mesma voz) e escreve por cima do texto deste passo,
+                    calibrando pelo tempo/desconto já configurados aqui. */}
+                {permiteGerarIA && (
+                  <button
+                    type="button"
+                    onClick={() => gerarComIA(i)}
+                    disabled={geradorBusy !== null}
+                    className="ml-auto flex items-center gap-1 rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/10 hover:text-white disabled:opacity-50"
+                    title="Gera o texto desta mensagem com IA, usando a persona da modelo e o /start dela como base"
+                  >
+                    <IconSparkle size={13} /> {geradorBusy === i ? "Gerando…" : "Gerar com IA"}
+                  </button>
+                )}
                 {/* Duplicar poupa refazer texto, mídia e desconto quando a
                     mensagem seguinte é uma variação da anterior — que é o caso
                     na maior parte das sequências de recuperação. */}
                 <button
                   onClick={() => setSteps([...steps.slice(0, i + 1), { ...s }, ...steps.slice(i + 1)])}
-                  className="ml-auto rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/10 hover:text-white"
+                  className={`rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/10 hover:text-white ${permiteGerarIA ? "" : "ml-auto"}`}
                 >
                   Duplicar
                 </button>

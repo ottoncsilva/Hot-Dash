@@ -24,6 +24,14 @@ export type VarContext = {
   botUsername?: string;
   /** Id do lead no Telegram, para {id}. */
   telegramUserId?: number;
+  /** Nome do plano/oferta que o lead JÁ escolheu — só preenchido no Downsell
+   * de PIX gerado, quando dá pra resolver o que ele selecionou (ver
+   * `buildPixDownsellMarkup`). Nos demais funis fica vazio, como as outras
+   * variáveis sem valor. */
+  planoEscolhido?: string;
+  /** Preço do plano/oferta acima JÁ COM o desconto do passo, formatado em
+   * R$. Anda sempre junto de `planoEscolhido`. */
+  valorComDesconto?: string;
 };
 
 /** O que a tela mostra nos chips, com a explicação de cada uma. */
@@ -35,6 +43,8 @@ export const TELEGRAM_VARS: [string, string][] = [
   ["{saudacao}", "Bom dia / Boa tarde / Boa noite, pelo fuso da operação"],
   ["{modelo}", "nome da modelo"],
   ["{bot}", "@ do bot"],
+  ["{plano}", "plano/oferta que o lead já escolheu (só no Downsell de PIX gerado)"],
+  ["{valor}", "preço desse plano já com o desconto do passo (idem)"],
 ];
 
 /** Bom dia até 11:59, boa tarde até 17:59, boa noite depois. */
@@ -68,6 +78,8 @@ export function aplicarVariaveis(texto: string, ctx: VarContext): string {
     modelo: (ctx.profileName || "").trim(),
     bot: bot ? `@${bot}` : "",
     id: ctx.telegramUserId ? String(ctx.telegramUserId) : "",
+    plano: (ctx.planoEscolhido || "").trim(),
+    valor: (ctx.valorComDesconto || "").trim(),
   };
 
   return (texto || "").replace(/\{([a-zA-Z_ç.]+)\}/g, (chaveInteira, chave: string) => {

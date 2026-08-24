@@ -369,7 +369,13 @@ export async function POST(
           itemName = plan.name;
           basePriceCents = plan.priceCents;
         } else {
-          offerId = data.replace("buy_offer_", "");
+          // Mesmo sufixo de desconto do plano (`_<percentual>`) — o Downsell de
+          // PIX gerado manda esse botão quando o lead escolheu a oferta de um
+          // mailing, não um plano do catálogo. UUID não tem "_", então o split
+          // é seguro do mesmo jeito que já era para `buy_plan_`.
+          const parts = data.replace("buy_offer_", "").split("_");
+          offerId = parts[0];
+          discountPercent = parseInt(parts[1]) || 0;
           const offer = getMailingOffer(offerId);
           if (!offer) {
             await sendTelegramMessage(

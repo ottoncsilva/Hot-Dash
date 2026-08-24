@@ -841,7 +841,7 @@ export default function AiSettingsPage() {
 // ---------------------------------------------------------------------------
 // Modelo por atividade
 // ---------------------------------------------------------------------------
-type ActivityKey = "mk" | "schedule" | "caption" | "whatsapp" | "caixinha";
+type ActivityKey = "mk" | "schedule" | "caption" | "whatsapp" | "caixinha" | "videoprompt" | "downsell";
 type ActivityModels = Partial<Record<ActivityKey, Partial<Record<string, string>>>>;
 
 /**
@@ -874,6 +874,16 @@ const ATIVIDADES: { key: ActivityKey; label: string; hint: string }[] = [
     key: "caixinha",
     label: "Caixinha de perguntas (Instagram)",
     hint: "Poucos pares por vez, nos provedores escolhidos na tela. Precisa de um modelo solto com conteúdo adulto leve.",
+  },
+  {
+    key: "videoprompt",
+    label: "Prompt final do Gerador de Vídeo",
+    hint: "Lê a foto e a caixinha e escreve o roteiro do vídeo. Precisa de um modelo com visão.",
+  },
+  {
+    key: "downsell",
+    label: "Mensagens de downsell (Recuperação)",
+    hint: "Escreve a copy de cada passo do downsell puxando a persona da modelo — conteúdo adulto direto, então Grok costuma sair na frente.",
   },
 ];
 

@@ -5,9 +5,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Gatilho HTTP (manual/externo) dos funis de downsell/upsell. A lógica vive em
- * `@/lib/telegramCron` e também roda sozinha pelo agendador em segundo plano
- * (`src/instrumentation.ts`).
+ * Gatilho HTTP (manual/externo) dos funis de downsell/upsell/renovação. A
+ * lógica vive em `@/lib/telegramCron` e também roda sozinha pelo agendador em
+ * segundo plano (`src/instrumentation.ts`).
  */
 export async function GET(req: Request) {
   // Autenticação básica via Cron Secret
@@ -19,6 +19,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { downsellCount, upsellCount } = await runTelegramFunnels();
-  return NextResponse.json({ ok: true, downsellCount, upsellCount });
+  const { downsellCount, upsellCount, renewalCount } = await runTelegramFunnels();
+  return NextResponse.json({ ok: true, downsellCount, upsellCount, renewalCount });
 }

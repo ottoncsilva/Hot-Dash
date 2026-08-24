@@ -933,9 +933,19 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "telegram_bots", "effect_welcome", "TEXT");
   ensureColumn(d, "telegram_bots", "effect_pix", "TEXT");
   ensureColumn(d, "telegram_bots", "effect_success", "TEXT");
+  // ALERTA DE RENOVAÇÃO: avisa quem está VIP de que o acesso está vencendo,
+  // com desconto para renovar — a CONTAGEM É REGRESSIVA até `expires_at`, ao
+  // contrário do upsell (que conta pra frente desde a última ação). Por isso
+  // vive num funil próprio, não dentro do upsell.
+  ensureColumn(d, "telegram_bots", "renewal_funnel", "TEXT");
+  ensureColumn(d, "telegram_bots", "renewal_enabled", "INTEGER NOT NULL DEFAULT 1");
   // Progresso do funil de PIX gerado, na própria inscrição pendente.
   ensureColumn(d, "telegram_subscriptions", "pix_step_index", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(d, "telegram_subscriptions", "last_pix_step_at", "INTEGER");
+  // Progresso do alerta de renovação — por assinatura, não por lead: cada
+  // compra vence na sua hora, e uma renovação nasce como uma inscrição NOVA
+  // (índice zerado de fábrica), então não precisa de reset manual aqui.
+  ensureColumn(d, "telegram_subscriptions", "renewal_step_index", "INTEGER NOT NULL DEFAULT 0");
   // O TRACKEAMENTO foi retirado do produto. A tabela sai junto; as colunas
   // `source_code` de leads e transações ficam, porque o Funil de Vendas usa a
   // origem do tráfego e o deep-link continua gravando-a sem custo.

@@ -257,6 +257,7 @@ export async function POST(req: NextRequest) {
           downsellEnabled: true,
           pixDownsellEnabled: true,
           upsellEnabled: true,
+          renewalEnabled: true,
         }),
         id: botId,
         profileId,
@@ -540,6 +541,9 @@ export async function POST(req: NextRequest) {
             : bot.pixDownsellEnabled,
         upsellEnabled:
           body.upsellEnabled !== undefined ? Boolean(body.upsellEnabled) : bot.upsellEnabled,
+        renewalFunnel: normFunnel(body.renewalFunnel) ?? bot.renewalFunnel,
+        renewalEnabled:
+          body.renewalEnabled !== undefined ? Boolean(body.renewalEnabled) : bot.renewalEnabled,
       });
       return NextResponse.json({ ok: true });
     }

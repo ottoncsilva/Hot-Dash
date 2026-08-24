@@ -13,7 +13,7 @@ import {
   advanceApproval,
   dequeueApproval,
   saveSubscription,
-  type TelegramSubscription,
+  getSubscription,
 } from "@/lib/telegramDb";
 import {
   sendTelegramMedia,
@@ -503,12 +503,17 @@ async function sendFunnelStep(
   }
 }
 
-export async function runTelegramFunnels(): Promise<{ downsellCount: number; upsellCount: number }> {
+export async function runTelegramFunnels(): Promise<{
+  downsellCount: number;
+  upsellCount: number;
+  renewalCount: number;
+}> {
   const db = getDb();
   const profiles = db.prepare("SELECT id FROM profiles").all() as { id: string }[];
 
   let downsellCount = 0;
   let upsellCount = 0;
+  let renewalCount = 0;
 
   for (const p of profiles) {
     const bot = getBotConfigByProfile(p.id);
@@ -635,21 +640,13 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
         .all(bot.id) as any[];
 
       for (const row of activeSubs) {
-        const sub: TelegramSubscription = {
-          id: row.id,
-          botId: row.bot_id,
-          transactionId: row.transaction_id || undefined,
-          planId: row.plan_id || undefined,
-          offerId: row.offer_id || undefined,
-          telegramUserId: row.telegram_user_id,
-          telegramUsername: row.telegram_username || undefined,
-          inviteLink: row.invite_link || undefined,
-          status: row.status,
-          expiresAt: row.expires_at,
-          lastUpsellAt: row.last_upsell_at || undefined,
-          upsellStepIndex: row.upsell_step_index || 0,
-          createdAt: row.created_at,
-        };
+        // Lida pelo `getSubscription`, e não remontada campo a campo aqui: a
+        // versão manual esquecia pix_code/bump_cents/pix_step_index (e agora
+        // renewal_step_index) — o `saveSubscription` no fim do laço gravaria
+        // esses campos como se tivessem voltado a zero, apagando o progresso
+        // de OUTRO funil só porque o upsell salvou por cima.
+        const sub = getSubscription(row.id);
+        if (!sub) continue;
 
         let stepIndex = sub.upsellStepIndex;
         if (stepIndex >= upsellFunnel.length) {
@@ -675,9 +672,55 @@ export async function runTelegramFunnels(): Promise<{ downsellCount: number; ups
         }
       }
     }
+
+    // 3. ALERTA DE RENOVAÇÃO — avisa quem está VIP de que o acesso está
+    // vencendo, com desconto para renovar. Ao contrário do upsell, a
+    // contagem é REGRESSIVA: cada passo dispara quando falta X tempo para
+    // `expires_at`, não X tempo desde a última ação. Por isso os passos são
+    // lidos NA ORDEM (mais distante → mais perto do vencimento) e não há
+    // "loop": uma vez vencida a distância de um passo ela só diminui, então
+    // repetir o último para sempre significaria mandar a cada minuto.
+    let renewalFunnel: FunnelStep[] = [];
+    try {
+      if (bot.renewalFunnel) renewalFunnel = JSON.parse(bot.renewalFunnel);
+    } catch {
+      // JSON inválido
+    }
+
+    if (renewalFunnel.length > 0 && bot.renewalEnabled !== false) {
+      // expires_at > 0 exclui pacote (compra única, sem vencimento) e
+      // expires_at > now exclui quem já venceu — daí em diante quem cuida é
+      // a expiração (`runTelegramEviction`), não este funil.
+      const vencendo = db
+        .prepare(
+          `SELECT * FROM telegram_subscriptions
+            WHERE bot_id = ? AND status = 'active' AND expires_at > ?`,
+        )
+        .all(bot.id, now) as any[];
+
+      for (const row of vencendo) {
+        const sub = getSubscription(row.id);
+        if (!sub) continue;
+
+        const stepIndex = sub.renewalStepIndex || 0;
+        if (stepIndex >= renewalFunnel.length) continue; // Já mandou todos os avisos.
+
+        const step = renewalFunnel[stepIndex];
+        const minutosParaVencer = (sub.expiresAt - now) / (60 * 1000);
+
+        if (minutosParaVencer <= step.delayMinutes) {
+          const replyMarkup = buildReplyMarkup(bot, step.discountPercent, step.planMode);
+          await sendFunnelStep(bot.botToken, bot.id, String(sub.telegramUserId), p.id, step, replyMarkup, bot.botUsername);
+
+          sub.renewalStepIndex = stepIndex + 1;
+          saveSubscription(sub);
+          renewalCount++;
+        }
+      }
+    }
   }
 
-  return { downsellCount, upsellCount };
+  return { downsellCount, upsellCount, renewalCount };
 }
 
 // ---------------------------------------------------------------------------

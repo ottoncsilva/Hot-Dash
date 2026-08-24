@@ -73,6 +73,8 @@ type Bot = {
   downsellEnabled?: boolean;
   pixDownsellEnabled?: boolean;
   upsellEnabled?: boolean;
+  renewalFunnel?: string;
+  renewalEnabled?: boolean;
   effectWelcome?: string;
   effectPix?: string;
   effectSuccess?: string;
@@ -115,6 +117,7 @@ type ApprovalMode = "subscribers" | "all" | "manual";
 type PixDefaults = {
   generatingMessage: string;
   caption: string;
+  socialProofText: string;
   btnCheck: string;
   btnQr: string;
   btnCopy: string;
@@ -251,13 +254,17 @@ export default function BotVendasPage() {
       setEfeitoWelcome(d.bot?.effectWelcome || "");
       setEfeitoPix(d.bot?.effectPix || "");
       setEfeitoSuccess(d.bot?.effectSuccess || "");
-      setPixGerando(d.bot?.pixGeneratingMessage || "");
-      setPixLegenda(d.bot?.pixCaption || "");
+      // O texto padrão entra como VALOR de verdade, não só como placeholder
+      // cinza — "Usando o padrão" ficava parecendo campo vazio, e a pessoa só
+      // descobria o que ia ser mandado se abrisse a legenda em cinza. Assim já
+      // chega preenchido, pronto pra editar por cima se quiser.
+      setPixGerando(d.bot?.pixGeneratingMessage || d.pixDefaults?.generatingMessage || "");
+      setPixLegenda(d.bot?.pixCaption || d.pixDefaults?.caption || "");
       setPixProva(Boolean(d.bot?.pixSocialProof));
-      setPixProvaTexto(d.bot?.pixSocialProofText || "");
-      setPixBtnCheck(d.bot?.pixBtnCheck || "");
-      setPixBtnQr(d.bot?.pixBtnQr || "");
-      setPixBtnCopy(d.bot?.pixBtnCopy || "");
+      setPixProvaTexto(d.bot?.pixSocialProofText || d.pixDefaults?.socialProofText || "");
+      setPixBtnCheck(d.bot?.pixBtnCheck || d.pixDefaults?.btnCheck || "");
+      setPixBtnQr(d.bot?.pixBtnQr || d.pixDefaults?.btnQr || "");
+      setPixBtnCopy(d.bot?.pixBtnCopy || d.pixDefaults?.btnCopy || "");
       setPixAudio(d.bot?.pixAudioUrl || "");
       setSucessoTexto(d.bot?.successMessage || "");
       setSucessoBotao(d.bot?.successButtonText || "");
@@ -396,17 +403,6 @@ export default function BotVendasPage() {
                     setEfeito={setEfeitoWelcome}
                     onSaved={load}
                   />
-                  <SuccessRow
-                    profileId={profileId}
-                    bot={bot}
-                    texto={sucessoTexto}
-                    setTexto={setSucessoTexto}
-                    botao={sucessoBotao}
-                    setBotao={setSucessoBotao}
-                    efeito={efeitoSuccess}
-                    setEfeito={setEfeitoSuccess}
-                    onSaved={load}
-                  />
                   <PixRow
                     profileId={profileId}
                     bot={bot}
@@ -431,6 +427,17 @@ export default function BotVendasPage() {
                     setEfeito={setEfeitoPix}
                     onSaved={load}
                   />
+                  <SuccessRow
+                    profileId={profileId}
+                    bot={bot}
+                    texto={sucessoTexto}
+                    setTexto={setSucessoTexto}
+                    botao={sucessoBotao}
+                    setBotao={setSucessoBotao}
+                    efeito={efeitoSuccess}
+                    setEfeito={setEfeitoSuccess}
+                    onSaved={load}
+                  />
                   <ExtrasRow profileId={profileId} bot={bot} onSaved={load} />
                   <ButtonsCard profileId={profileId} buttons={buttons} onSaved={load} />
                   {/* Estas duas valem para TODAS as modelos, e mesmo assim
@@ -450,6 +457,9 @@ export default function BotVendasPage() {
               {tab === "planos" && <PlansCard profileId={profileId} plans={plans} onSaved={load} />}
               {tab === "recuperacao" && (
                 <FunnelCard profileId={profileId} bot={bot} planos={plans} onSaved={load} />
+              )}
+              {tab === "renovacao" && (
+                <RenewalCard profileId={profileId} bot={bot} planos={plans} onSaved={load} />
               )}
               {tab === "aprovacao" && (
                 <ApprovalCard
@@ -555,6 +565,7 @@ const TABS = [
   { key: "config", label: "Configuração" },
   { key: "planos", label: "Planos" },
   { key: "recuperacao", label: "Recuperação" },
+  { key: "renovacao", label: "Alerta de Renovação" },
   { key: "aprovacao", label: "Aprovação Automática" },
 ] as const;
 
@@ -1106,7 +1117,7 @@ function PixRow({
   // A resposta de "ainda não pago" não entra no preview do funil (só aparece
   // se o cliente tocar em "Verificar Status" antes de pagar), então continua
   // local — não precisa subir para o irmão do formulário.
-  const [naoPago, setNaoPago] = useState(bot.pixNotPaidMessage || "");
+  const [naoPago, setNaoPago] = useState(bot.pixNotPaidMessage || pixDefaults?.notPaidMessage || "");
   const [busy, setBusy] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const provaRef = useRef<HTMLTextAreaElement>(null);
@@ -1181,6 +1192,32 @@ function PixRow({
         <b>{"{pix_code}"}</b>, o código entra no fim mesmo assim.
       </p>
 
+      <label className="eyebrow mt-5 block">Botões que acompanham o PIX</label>
+      <p className="mb-1.5 mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+        Vai como <b>texto</b>, não legenda de foto — só assim o Telegram faz &quot;toque para copiar&quot;
+        no código. O QR fica atrás do botão.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <input
+          className="input text-xs"
+          placeholder={pixDefaults?.btnCheck}
+          value={btnCheck}
+          onChange={(e) => setBtnCheck(e.target.value)}
+        />
+        <input
+          className="input text-xs"
+          placeholder={pixDefaults?.btnQr}
+          value={btnQr}
+          onChange={(e) => setBtnQr(e.target.value)}
+        />
+        <input
+          className="input text-xs"
+          placeholder={pixDefaults?.btnCopy}
+          value={btnCopy}
+          onChange={(e) => setBtnCopy(e.target.value)}
+        />
+      </div>
+
       {/* Prova social — números REAIS, e só isso. Não existe campo para
           inventar quantidade: o cliente está a um toque de pagar, e um número
           falso ali é propaganda enganosa por quem opera, não pelo painel. */}
@@ -1213,32 +1250,6 @@ function PixRow({
             />
           </>
         )}
-      </div>
-
-      <label className="eyebrow mt-5 block">Botões que acompanham o PIX</label>
-      <p className="mb-1.5 mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-        Vai como <b>texto</b>, não legenda de foto — só assim o Telegram faz &quot;toque para copiar&quot;
-        no código. O QR fica atrás do botão.
-      </p>
-      <div className="grid gap-2 sm:grid-cols-3">
-        <input
-          className="input text-xs"
-          placeholder={pixDefaults?.btnCheck}
-          value={btnCheck}
-          onChange={(e) => setBtnCheck(e.target.value)}
-        />
-        <input
-          className="input text-xs"
-          placeholder={pixDefaults?.btnQr}
-          value={btnQr}
-          onChange={(e) => setBtnQr(e.target.value)}
-        />
-        <input
-          className="input text-xs"
-          placeholder={pixDefaults?.btnCopy}
-          value={btnCopy}
-          onChange={(e) => setBtnCopy(e.target.value)}
-        />
       </div>
 
       <label className="eyebrow mt-4 block">Resposta quando o pagamento ainda não consta</label>
@@ -1901,6 +1912,79 @@ function FunnelCard({
   );
 }
 
+/**
+ * ALERTA DE RENOVAÇÃO — mesma peça dos funis de recuperação (`FunilRetratil` +
+ * `FunnelEditor`), mas com a contagem AO CONTRÁRIO: os outros três contam PARA
+ * FRENTE desde um evento (último contato, PIX gerado, última venda); este
+ * conta PARA TRÁS até o vencimento da assinatura. Por isso vive na própria
+ * aba, e não dentro de "Recuperação" — misturar as duas contagens na mesma
+ * tela ia confundir qual "tempo" está sendo configurado em cada mensagem.
+ */
+function RenewalCard({
+  profileId,
+  bot,
+  planos,
+  onSaved,
+}: {
+  profileId: string;
+  bot: Bot;
+  planos: Plan[];
+  onSaved: () => void;
+}) {
+  const [steps, setSteps] = useState<FunnelStep[]>(parseFunnel(bot.renewalFunnel));
+  const [ativo, setAtivo] = useState(bot.renewalEnabled !== false);
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await apiSend("/api/telegram", "POST", {
+        action: "save-funnels",
+        profileId,
+        renewalFunnel: JSON.stringify(steps),
+        renewalEnabled: ativo,
+      });
+      showToast("Alerta de renovação salvo.", "success");
+      onSaved();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="card p-4">
+        <h2 className="font-display text-lg font-semibold">Alerta de renovação</h2>
+        <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+          Avisa quem está VIP de que o acesso está para vencer, com desconto para renovar.
+          Configure da etapa <b>mais distante</b> para a <b>mais perto</b> do vencimento — por
+          exemplo 12 horas antes, depois 6 horas, depois 1 hora — e cada uma dispara sozinha na
+          hora certa.
+        </p>
+      </div>
+
+      <FunilRetratil
+        titulo="Alerta de renovação"
+        resumo="Assinantes VIP a caminho do vencimento"
+        aviso="Conta REGRESSIVO até o vencimento da assinatura, não desde a última mensagem. Some da lista assim que a pessoa renova (a renovação nasce como uma inscrição nova, do zero) ou quando o acesso vence de vez."
+        ativo={ativo}
+        setAtivo={setAtivo}
+        steps={steps}
+        setSteps={setSteps}
+        profileId={profileId}
+        planos={planos}
+        modoRenovacao
+      />
+
+      <button onClick={save} disabled={busy} className="btn-primary mt-4">
+        {busy ? "Salvando..." : "Salvar alerta"}
+      </button>
+    </div>
+  );
+}
+
 /** Tempos oferecidos na Recuperação. Lista fechada porque digitar minutos
  *  soltos convidava a "1440" quando a intenção era "1 dia". */
 const TEMPOS = [
@@ -1922,6 +2006,11 @@ const TEMPOS = [
 ];
 
 const DESCONTOS = [0, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70];
+
+/** Sequência sugerida do Alerta de Renovação — 12h, 6h e 1h antes de vencer,
+ *  a mesma progressão do exemplo mais comum. Da quarta mensagem em diante cai
+ *  num intervalo fixo (ver uso). */
+const PADRAO_RENOVACAO = [720, 360, 60];
 
 /** Quais planos vão no teclado da mensagem. */
 const MODOS_BOTAO: { key: NonNullable<FunnelStep["planMode"]>; label: string }[] = [
@@ -1965,7 +2054,17 @@ function rotuloDoTempo(min: number): string {
  * está nela. E ele pede a UNIDADE, em vez de minutos: "3 dias" digitado como
  * 4320 é onde se erra uma casa e a mensagem sai um mês depois.
  */
-function TempoDoPasso({ minutos, onChange }: { minutos: number; onChange: (v: number) => void }) {
+function TempoDoPasso({
+  minutos,
+  onChange,
+  rotulo,
+}: {
+  minutos: number;
+  onChange: (v: number) => void;
+  /** Padrão "Tempo de espera" — o Alerta de Renovação usa outro, já que aqui
+   *  a contagem é regressiva até o vencimento, não progressiva desde um evento. */
+  rotulo?: string;
+}) {
   const naLista = TEMPOS.some((t) => t.min === minutos);
   const [personalizado, setPersonalizado] = useState(!naLista);
   const inicial = decompoeMinutos(minutos);
@@ -1974,7 +2073,7 @@ function TempoDoPasso({ minutos, onChange }: { minutos: number; onChange: (v: nu
 
   return (
     <div>
-      <label className="eyebrow block">Tempo de espera</label>
+      <label className="eyebrow block">{rotulo || "Tempo de espera"}</label>
       <select
         className="input mt-1 h-9 py-0 text-xs"
         value={personalizado ? "custom" : String(minutos)}
@@ -2091,12 +2190,15 @@ function FunnelEditor({
   steps,
   setSteps,
   planos,
+  modoRenovacao,
 }: {
   profileId: string;
   title: string;
   steps: FunnelStep[];
   setSteps: (s: FunnelStep[]) => void;
   planos: Plan[];
+  /** Ver o comentário em `FunilRetratil`. */
+  modoRenovacao?: boolean;
 }) {
   function update(i: number, patch: Partial<FunnelStep>) {
     setSteps(steps.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
@@ -2121,15 +2223,22 @@ function FunnelEditor({
             <div key={i} className="panel p-3">
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <span className="chip">Mensagem {i + 1}</span>
-                <label className="flex items-center gap-1 text-[11px] text-zinc-400">
-                  <input
-                    type="checkbox"
-                    className="accent-white"
-                    checked={Boolean(s.isLoop)}
-                    onChange={(e) => update(i, { isLoop: e.target.checked })}
-                  />
-                  repetir (loop)
-                </label>
+                {/* Loop não existe no Alerta de Renovação: repetir a última
+                    mensagem "ad infinitum" aqui significaria mandá-la de novo
+                    a CADA MINUTO depois de cruzar o limiar — a contagem é
+                    regressiva até um vencimento fixo, não avança sozinha como
+                    nos outros funis. */}
+                {!modoRenovacao && (
+                  <label className="flex items-center gap-1 text-[11px] text-zinc-400">
+                    <input
+                      type="checkbox"
+                      className="accent-white"
+                      checked={Boolean(s.isLoop)}
+                      onChange={(e) => update(i, { isLoop: e.target.checked })}
+                    />
+                    repetir (loop)
+                  </label>
+                )}
                 {/* Duplicar poupa refazer texto, mídia e desconto quando a
                     mensagem seguinte é uma variação da anterior — que é o caso
                     na maior parte das sequências de recuperação. */}
@@ -2164,6 +2273,7 @@ function FunnelEditor({
                 <TempoDoPasso
                   minutos={s.delayMinutes ?? 60}
                   onChange={(v) => update(i, { delayMinutes: v })}
+                  rotulo={modoRenovacao ? "Quanto tempo ANTES de vencer" : undefined}
                 />
                 <DescontoDoPasso
                   valor={desconto}
@@ -2185,25 +2295,30 @@ function FunnelEditor({
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="eyebrow block">Destinatários</label>
-                  <select
-                    className="input mt-1 h-9 py-0 text-xs"
-                    value={s.audience || "leads"}
-                    onChange={(e) =>
-                      update(i, { audience: e.target.value as FunnelStep["audience"] })
-                    }
-                  >
-                    {PUBLICOS.map((pb) => (
-                      <option key={pb.key} value={pb.key}>
-                        {pb.label}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-[11px] text-zinc-500">
-                    {PUBLICOS.find((pb) => pb.key === (s.audience || "leads"))?.hint}
-                  </p>
-                </div>
+                {/* Destinatários (leads/expirados/todos) é do público de quem
+                    NÃO tem assinatura ativa — não se aplica aqui: este funil
+                    já fala só com quem ESTÁ VIP e vencendo. */}
+                {!modoRenovacao && (
+                  <div>
+                    <label className="eyebrow block">Destinatários</label>
+                    <select
+                      className="input mt-1 h-9 py-0 text-xs"
+                      value={s.audience || "leads"}
+                      onChange={(e) =>
+                        update(i, { audience: e.target.value as FunnelStep["audience"] })
+                      }
+                    >
+                      {PUBLICOS.map((pb) => (
+                        <option key={pb.key} value={pb.key}>
+                          {pb.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-[11px] text-zinc-500">
+                      {PUBLICOS.find((pb) => pb.key === (s.audience || "leads"))?.hint}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {ativos.length > 0 && s.planMode !== "none" && (
@@ -2244,7 +2359,22 @@ function FunnelEditor({
 
       <button
         onClick={() =>
-          setSteps([...steps, { delayMinutes: steps.length === 0 ? 60 : 1440, text: "", discountPercent: 0 }])
+          setSteps([
+            ...steps,
+            {
+              // Renovação nasce sugerindo a sequência do exemplo mais comum —
+              // 12h, depois 6h, depois 1h antes de vencer — em vez de "1440"
+              // (o padrão dos outros funis, que conta pra FRENTE e não faz
+              // sentido pedindo "1 dia antes" logo de cara).
+              delayMinutes: modoRenovacao
+                ? (PADRAO_RENOVACAO[steps.length] ?? 30)
+                : steps.length === 0
+                  ? 60
+                  : 1440,
+              text: "",
+              discountPercent: modoRenovacao ? 50 : 0,
+            },
+          ])
         }
         className="btn-ghost mt-2 text-sm"
       >
@@ -3180,6 +3310,7 @@ function FunilRetratil({
   setSteps,
   profileId,
   planos,
+  modoRenovacao,
 }: {
   titulo: string;
   resumo: string;
@@ -3190,8 +3321,15 @@ function FunilRetratil({
   setSteps: (s: FunnelStep[]) => void;
   profileId: string;
   planos: Plan[];
+  /** Passos contam PARA TRÁS até o vencimento, não para frente desde um
+   *  evento — troca o rótulo do tempo e esconde loop/destinatários, que não
+   *  fazem sentido nesse funil. */
+  modoRenovacao?: boolean;
 }) {
-  const [aberto, setAberto] = useState(false);
+  // O Alerta de Renovação é o conteúdo INTEIRO da própria aba — sem outros
+  // dois funis ao lado como na Recuperação —, então já abre sozinho em vez de
+  // exigir um clique a mais só para ver o que tem lá dentro.
+  const [aberto, setAberto] = useState(Boolean(modoRenovacao));
 
   return (
     <div className={`card overflow-hidden ${aberto ? "border-emerald-500/25" : ""}`}>
@@ -3231,7 +3369,14 @@ function FunilRetratil({
             {aviso}
           </p>
           <div className="mt-1">
-            <FunnelEditor title="" profileId={profileId} steps={steps} setSteps={setSteps} planos={planos} />
+            <FunnelEditor
+              title=""
+              profileId={profileId}
+              steps={steps}
+              setSteps={setSteps}
+              planos={planos}
+              modoRenovacao={modoRenovacao}
+            />
           </div>
         </div>
       )}

@@ -1,7 +1,8 @@
 import "server-only";
 import { getDb } from "@/lib/db";
 import { listProfiles } from "@/lib/profiles";
-import { buttonStyleProps, planButtonStyleProps, type ButtonStyles } from "@/lib/settings";
+import { buttonStyleProps, planButtonStyleProps, getAppTimeZone, type ButtonStyles } from "@/lib/settings";
+import { partsInTimeZone, zonedWallTimeToUtcMs, addDaysInTimeZone } from "@/lib/timezone";
 import {
   getBotConfigByProfile,
   getBotConfig,
@@ -431,6 +432,13 @@ export type FunnelStep = {
    * Quem não se encaixa PULA o passo (e avança), em vez de travar nele.
    */
   audience?: "leads" | "expirados" | "todos";
+  /**
+   * Passo por HORÁRIO FIXO do dia (ex.: "16:00"), não por minutos decorridos
+   * — usado no rabo do Downsell (depois de bater 50%, manda sempre nos
+   * mesmos horários, todo dia). Quando presente, IGNORA `delayMinutes`
+   * inteiramente; ver `passoPronto`. Só faz sentido junto de `isLoop: true`.
+   */
+  dailyTime?: string;
 };
 
 function buildReplyMarkup(
@@ -552,6 +560,32 @@ function resolveStepIndex(funnel: FunnelStep[], counter: number): number | null 
   return k + ((counter - funnel.length) % loopLen);
 }
 
+/**
+ * Próxima ocorrência de um horário fixo (ex.: "16:00") ESTRITAMENTE depois
+ * de `apos`, no fuso da operação. Se o horário de hoje já passou, cai pro
+ * mesmo horário amanhã — é o que faz um passo com `dailyTime` repetir todo
+ * dia, sempre na mesma hora de parede, em vez de andar com o relógio UTC.
+ */
+function proximoHorarioFixo(hhmm: string, apos: number, tz: string): number {
+  const [h, m] = hhmm.split(":").map((n) => parseInt(n, 10) || 0);
+  const p = partsInTimeZone(apos, tz);
+  const candidatoHoje = zonedWallTimeToUtcMs(p.year, p.month, p.day, h, m, tz);
+  if (candidatoHoje > apos) return candidatoHoje;
+  const meiaNoiteAmanha = addDaysInTimeZone(apos, 1, tz);
+  const pa = partsInTimeZone(meiaNoiteAmanha, tz);
+  return zonedWallTimeToUtcMs(pa.year, pa.month, pa.day, h, m, tz);
+}
+
+/**
+ * Decide se É HORA de mandar este passo. Passo comum conta minutos desde o
+ * último envio (`desde`); passo com `dailyTime` ignora isso e espera o
+ * relógio bater aquele horário — ver `proximoHorarioFixo`.
+ */
+function passoPronto(step: FunnelStep, desde: number, now: number, tz: string): boolean {
+  if (step.dailyTime) return now >= proximoHorarioFixo(step.dailyTime, desde, tz);
+  return (now - desde) / 60000 >= step.delayMinutes;
+}
+
 async function sendFunnelStep(
   botToken: string,
   botId: string,
@@ -601,6 +635,7 @@ export async function runTelegramFunnels(): Promise<{
 }> {
   const db = getDb();
   const profiles = db.prepare("SELECT id FROM profiles").all() as { id: string }[];
+  const tz = getAppTimeZone();
 
   let downsellCount = 0;
   let upsellCount = 0;
@@ -643,9 +678,7 @@ export async function runTelegramFunnels(): Promise<{
           continue;
         }
 
-        const elapsedMinutes = (now - lead.lastInteractionAt) / (60 * 1000);
-
-        if (elapsedMinutes >= step.delayMinutes) {
+        if (passoPronto(step, lead.lastInteractionAt, now, tz)) {
           const replyMarkup = buildReplyMarkup(bot, step.discountPercent, step.planMode);
           await sendFunnelStep(bot.botToken, bot.id, lead.chatId, p.id, step, replyMarkup, bot.botUsername);
 
@@ -687,7 +720,7 @@ export async function runTelegramFunnels(): Promise<{
         // Conta desde o último passo enviado; na primeira vez, desde a criação
         // da cobrança — que é o momento em que ele viu o PIX e não pagou.
         const desde = row.last_pix_step_at || row.created_at;
-        if ((now - desde) / 60000 < step.delayMinutes) continue;
+        if (!passoPronto(step, desde, now, tz)) continue;
 
         // Botão baseado no que ELE JÁ ESCOLHEU (planId/offerId gravados na
         // hora que o PIX foi gerado), não na lista genérica de planos — ver

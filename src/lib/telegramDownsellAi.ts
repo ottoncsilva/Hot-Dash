@@ -60,6 +60,17 @@ export async function montarPromptDownsell({
       ? `Este passo tem ${percentualAtual}% de desconto — mencione o desconto naturalmente.`
       : `Este passo NÃO tem desconto — não invente nem cite nenhum percentual.`;
 
+  // O campo de texto do passo pode já trazer um RASCUNHO genérico (o modelo
+  // pronto do "Puxar padrão" — mesmo ângulo/piada da etapa, sem persona
+  // nenhuma). Quando existe, ele entra como referência de ESTRUTURA pra
+  // reescrever, não pra copiar — é o que faz a IA aproveitar a escalada já
+  // pensada (a piada do app do banco, a provocação, o teaser de conteúdo)
+  // em vez de reinventar do zero a cada clique.
+  const rascunho = (passoAtual.text || "").trim();
+  const rascunhoTexto = rascunho
+    ? `\nRASCUNHO DE REFERÊNCIA PRA ESTE PASSO (é uma ideia genérica de ângulo/piada, sem nenhuma característica de ${nome} — REESCREVA do zero na voz e persona dela, sem copiar frase por frase, adaptando pro jeito dela falar):\n"""\n${rascunho}\n"""\n`
+    : "";
+
   return `Você é a assistente de copywriting de ${nome}, uma modelo de conteúdo adulto. Você está escrevendo UMA mensagem de um funil automático de recuperação de vendas no Telegram — o texto que ela mesma vai enviar ao lead, em primeira pessoa. NUNCA revele que é uma IA, bot ou sistema automático.
 
 PERSONA DA MODELO
@@ -78,7 +89,7 @@ ${tipoTexto}
 
 ESTE PASSO
 Passo ${indice + 1} de ${passos.length} da sequência. ${descontoTexto}
-
+${rascunhoTexto}
 OS OUTROS PASSOS DA SEQUÊNCIA (só os números, pra você calibrar a escalada e não repetir o mesmo ângulo em dois passos seguidos):
 ${irmaos}
 

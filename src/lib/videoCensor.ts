@@ -197,80 +197,110 @@ export async function censurarVideoComEmoji(
       };
     }
 
-    // --- c) desenha a camada de emojis -----------------------------------
+    // --- c) desenha a camada de emojis e, se ativado, a máscara do borrão --
     const dirCamada = join(dir, "camada");
     await mkdir(dirCamada, { recursive: true });
-    // A camada é montada em MEIA resolução e o ffmpeg amplia na hora de
-    // sobrepor: é 4x menos pixel para o sharp compor, e o emoji é uma mancha
-    // colorida — ninguém nota a borda um pouco mais macia.
+    const usaBorrao = opts.borrarPorBaixo !== false;
+    const dirMascara = join(dir, "mascara");
+    if (usaBorrao) await mkdir(dirMascara, { recursive: true });
+
+    // As camadas são montadas em MEIA resolução e o ffmpeg amplia na hora de
+    // sobrepor: é 4x menos pixel para o sharp compor, e tanto o emoji quanto
+    // a máscara do borrão são manchas — ninguém nota a borda um pouco mais
+    // macia (e no caso da máscara, a intenção é que a borda SEJA macia).
     const escalaCamada = 0.5;
     const lc = Math.round((largura * escalaCamada) / 2) * 2;
     const ac = Math.round((altura * escalaCamada) / 2) * 2;
     const fpsCamada = fpsAmostra; // o ffmpeg repete os quadros até o fps do vídeo
     const totalQuadros = Math.max(1, Math.ceil(duracao * fpsCamada));
+    // Caixa do borrão ~30% maior que a do emoji: cobre a folga de posição do
+    // detector do mesmo jeito que a margem dos blocos antigos cobria.
+    const margemBorrao = 1.3;
+    const textura = usaBorrao ? await texturaBorrao() : null;
+    const escalaTextura = textura ? TEXTURA_BORRAO_CANVAS / TEXTURA_BORRAO_CAIXA : 1;
 
     for (let i = 0; i < totalQuadros; i++) {
       const t = i / fpsCamada;
-      const composicoes: sharp.OverlayOptions[] = [];
+      const composicoesEmoji: sharp.OverlayOptions[] = [];
+      const composicoesBorrao: sharp.OverlayOptions[] = [];
       for (const trilha of trilhas) {
         const caixa = caixaEm(trilha, t);
         if (!caixa) continue;
-        const png = await emojiPng(trilha.emoji);
-        if (!png) continue;
         const base = Math.max(caixa.w * lc, caixa.h * ac);
-        const lado = Math.max(16, Math.round(base * (opts.escalaEmoji ?? 1.45)));
-        const cx = Math.round((caixa.x + caixa.w / 2) * lc - lado / 2);
-        const cy = Math.round((caixa.y + caixa.h / 2) * ac - lado / 2);
-        composicoes.push({
-          input: await sharp(png).resize(lado, lado, { fit: "inside" }).png().toBuffer(),
-          left: Math.max(0, Math.min(lc - 1, cx)),
-          top: Math.max(0, Math.min(ac - 1, cy)),
-        });
+        const cx = (caixa.x + caixa.w / 2) * lc;
+        const cy = (caixa.y + caixa.h / 2) * ac;
+
+        const png = await emojiPng(trilha.emoji);
+        if (png) {
+          const lado = Math.max(16, Math.round(base * (opts.escalaEmoji ?? 1.45)));
+          composicoesEmoji.push({
+            input: await sharp(png).resize(lado, lado, { fit: "inside" }).png().toBuffer(),
+            left: Math.max(0, Math.min(lc - 1, Math.round(cx - lado / 2))),
+            top: Math.max(0, Math.min(ac - 1, Math.round(cy - lado / 2))),
+          });
+        }
+
+        if (textura) {
+          const ladoCaixa = Math.max(16, Math.round(base * margemBorrao));
+          const ladoTextura = Math.round(ladoCaixa * escalaTextura);
+          composicoesBorrao.push({
+            input: await sharp(textura).resize(ladoTextura, ladoTextura).png().toBuffer(),
+            left: Math.max(0, Math.min(lc - 1, Math.round(cx - ladoTextura / 2))),
+            top: Math.max(0, Math.min(ac - 1, Math.round(cy - ladoTextura / 2))),
+            // "lighten" em vez do "over" padrão: quando duas trilhas se
+            // sobrepõem, fica o pixel mais claro dos dois em vez de a
+            // segunda cortar o gradiente da primeira — sem isso, a borda
+            // esfumaçada de uma trilha "apagava" a outra na sobreposição.
+            blend: "lighten",
+          });
+        }
       }
-      const quadro = sharp({
+
+      await sharp({
         create: { width: lc, height: ac, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
-      });
-      await quadro
-        .composite(composicoes)
+      })
+        .composite(composicoesEmoji)
         .png()
         .toFile(join(dirCamada, `${String(i + 1).padStart(5, "0")}.png`));
+
+      if (usaBorrao) {
+        await sharp({
+          create: { width: lc, height: ac, channels: 3, background: { r: 0, g: 0, b: 0 } },
+        })
+          .composite(composicoesBorrao)
+          .png()
+          .toFile(join(dirMascara, `${String(i + 1).padStart(5, "0")}.png`));
+      }
     }
 
     // --- d) junta tudo ---------------------------------------------------
     const saida = join(dir, "out.mp4");
+    const entradas: string[] = ["-i", entrada, "-framerate", String(fpsCamada), "-i", join(dirCamada, "%05d.png")];
     const cadeia: string[] = [];
-    let atual = "[0:v]";
+    let base = "[0:v]";
 
-    if (opts.borrarPorBaixo !== false) {
-      // Borrão por baixo, seguindo a trilha em BLOCOS de tempo: para cada
-      // bloco, a caixa é a UNIÃO das posições daquele trecho, então o
-      // movimento dentro do bloco já está coberto. É o que o operador pediu ao
-      // escolher "prefiro o borrão" quando a detecção titubeia — se o emoji
-      // sair um pouco fora do lugar, embaixo dele não há nada legível.
-      const blocos = blocosDeBorrao(trilhas, duracao);
-      blocos.forEach((b, i) => {
-        const x = Math.max(0, Math.round(b.caixa.x * largura));
-        const y = Math.max(0, Math.round(b.caixa.y * altura));
-        const w = Math.max(2, Math.min(largura - x, Math.round(b.caixa.w * largura)));
-        const h = Math.max(2, Math.min(altura - y, Math.round(b.caixa.h * altura)));
-        const raio = Math.min(100, Math.max(6, Math.round(Math.min(w, h) / 6)));
-        cadeia.push(`${atual}split=2[b${i}][p${i}]`);
-        cadeia.push(`[p${i}]crop=${w}:${h}:${x}:${y},boxblur=${raio}:2[bl${i}]`);
-        cadeia.push(
-          `[b${i}][bl${i}]overlay=${x}:${y}:enable='between(t,${b.de.toFixed(2)},${b.ate.toFixed(2)})'[s${i}]`,
-        );
-        atual = `[s${i}]`;
-      });
+    if (usaBorrao) {
+      entradas.push("-framerate", String(fpsCamada), "-i", join(dirMascara, "%05d.png"));
+      const raio = raioBorraoDe(trilhas, largura, altura);
+      // Borrão do quadro INTEIRO + revelado só onde a máscara está branca
+      // (`maskedmerge`), em vez do crop+overlay reto de antes. Como a
+      // máscara tem borda esfumaçada (ver `texturaBorrao`), a transição
+      // pro vídeo nítido ao redor vira gradiente — não o "quadrado" que
+      // denunciava edição. E como a posição vem de `caixaEm` (interpolação
+      // contínua, a mesma do emoji), acompanha o movimento quadro a quadro
+      // em vez de pular a cada bloco de 2s como antes.
+      cadeia.push(`[0:v]boxblur=${raio}:2[blur]`);
+      cadeia.push(`[2:v]scale=${largura}:${altura},format=gray[mascara]`);
+      cadeia.push(`[0:v][blur][mascara]maskedmerge[borrado]`);
+      base = "[borrado]";
     }
 
     cadeia.push(`[1:v]scale=${largura}:${altura}[camada]`);
-    cadeia.push(`${atual}[camada]overlay=0:0:shortest=1[vout]`);
+    cadeia.push(`${base}[camada]overlay=0:0:shortest=1[vout]`);
 
     await run("ffmpeg", [
       "-y",
-      "-i", entrada,
-      "-framerate", String(fpsCamada),
-      "-i", join(dirCamada, "%05d.png"),
+      ...entradas,
       "-filter_complex", cadeia.join(";"),
       "-map", "[vout]",
       "-map", "0:a?",
@@ -381,46 +411,44 @@ function caixaEm(trilha: Trilha, t: number): Caixa | null {
 }
 
 /**
- * Blocos de borrão: um retângulo por trecho de tempo, cobrindo a UNIÃO das
- * posições da trilha naquele trecho.
- *
- * Blocos de 2 segundos são o meio-termo: menos que isso enche o ffmpeg de
- * filtros (cada bloco vira três nós no grafo) e mais que isso faz a caixa
- * crescer demais quando a pessoa se move.
+ * Textura reutilizável do halo do borrão: um quadrado branco com a borda bem
+ * esfumaçada (Gaussian blur), calculada UMA vez e redimensionada por
+ * caixa/quadro — mesmo truque do `emojiPng`. É essa borda em gradiente que
+ * faz o `maskedmerge` (ver `censurarVideoComEmoji`) revelar o desfoque aos
+ * poucos em vez de cortar reto: o corte reto era exatamente o que denunciava
+ * a edição a olho nu.
  */
-function blocosDeBorrao(
-  trilhas: Trilha[],
-  duracao: number,
-): { de: number; ate: number; caixa: Caixa }[] {
-  const BLOCO = 2;
-  const saida: { de: number; ate: number; caixa: Caixa }[] = [];
+const TEXTURA_BORRAO_CAIXA = 200; // lado da parte "cheia" (branco sólido)
+const TEXTURA_BORRAO_HALO = 0.4; // fração da caixa que vira halo, de cada lado
+const TEXTURA_BORRAO_CANVAS = Math.round(TEXTURA_BORRAO_CAIXA * (1 + TEXTURA_BORRAO_HALO * 2));
+let texturaBorraoCache: Promise<Buffer> | null = null;
+function texturaBorrao(): Promise<Buffer> {
+  if (!texturaBorraoCache) {
+    const pad = Math.round(TEXTURA_BORRAO_CAIXA * TEXTURA_BORRAO_HALO);
+    const svg =
+      `<svg width="${TEXTURA_BORRAO_CANVAS}" height="${TEXTURA_BORRAO_CANVAS}">` +
+      `<rect x="${pad}" y="${pad}" width="${TEXTURA_BORRAO_CAIXA}" height="${TEXTURA_BORRAO_CAIXA}" fill="white"/></svg>`;
+    texturaBorraoCache = sharp(Buffer.from(svg)).blur(pad / 2).png().toBuffer();
+  }
+  return texturaBorraoCache;
+}
+
+/**
+ * Raio (px) do `boxblur` de quadro inteiro — o maior que qualquer caixa
+ * detectada pediria, isolada (mesma conta de antes: lado/6). Usar o maior em
+ * vez de um por caixa não custa nada a mais: o `boxblur` roda no quadro
+ * inteiro de qualquer jeito, é a MÁSCARA (não o raio) que decide onde o
+ * borrão aparece.
+ */
+function raioBorraoDe(trilhas: Trilha[], largura: number, altura: number): number {
+  let maior = 0;
   for (const trilha of trilhas) {
-    for (let de = 0; de < duracao; de += BLOCO) {
-      const ate = Math.min(duracao, de + BLOCO);
-      const dentro = trilha.amostras.filter((a) => a.t >= de && a.t < ate && a.caixa).map((a) => a.caixa!);
-      if (dentro.length === 0) continue;
-      const x0 = Math.min(...dentro.map((c) => c.x));
-      const y0 = Math.min(...dentro.map((c) => c.y));
-      const x1 = Math.max(...dentro.map((c) => c.x + c.w));
-      const y1 = Math.max(...dentro.map((c) => c.y + c.h));
-      // Margem de 15%: a caixa do detector encosta na parte, e o emoji é
-      // redondo — sem folga, sobra borda aparecendo nos cantos. Borrar um
-      // pouco a mais não custa nada; a menos, custa o motivo de existir.
-      const mx = (x1 - x0) * 0.15;
-      const my = (y1 - y0) * 0.15;
-      saida.push({
-        de,
-        ate,
-        caixa: {
-          x: Math.max(0, x0 - mx),
-          y: Math.max(0, y0 - my),
-          w: Math.min(1, x1 - x0 + mx * 2),
-          h: Math.min(1, y1 - y0 + my * 2),
-        },
-      });
+    for (const amostra of trilha.amostras) {
+      if (!amostra.caixa) continue;
+      maior = Math.max(maior, Math.min(amostra.caixa.w * largura, amostra.caixa.h * altura));
     }
   }
-  return saida;
+  return Math.min(100, Math.max(10, Math.round(maior / 6)));
 }
 
 /**

@@ -13,6 +13,18 @@ import type { ChargeInput, ChargeResult, PaymentProvider } from "./types";
  * `pending` é pré-criada com esse `providerRef`, e o webhook
  * (`/api/webhooks/stripe`) só faz `updateStatusByRef("stripe", providerRef, ...)`.
  */
+
+/**
+ * `price_data.product_data` cria um Produto NOVO na Stripe a cada cobrança
+ * (não reaproveita um cadastrado antes) — e o nome dele aparece na página de
+ * checkout e no dashboard da Stripe. Por isso é sempre um rótulo genérico e
+ * fixo, nunca o nome/descrição do plano (que poderia expor a modelo ou o
+ * conteúdo vendido para quem olha o dashboard da Stripe). Configurável por
+ * `STRIPE_PRODUCT_NAME` só para o operador poder trocar o texto sem deploy;
+ * o padrão já é genérico o bastante para não precisar mexer.
+ */
+const NOME_PRODUTO_GENERICO = (process.env.STRIPE_PRODUCT_NAME || "Digital Access").trim();
+
 export function createStripe(creds: { secretKey: string; webhookSecret: string }): PaymentProvider {
   const stripe = new Stripe(creds.secretKey);
 
@@ -30,7 +42,7 @@ export function createStripe(creds: { secretKey: string; webhookSecret: string }
             price_data: {
               currency: moeda,
               unit_amount: input.amountCents,
-              product_data: { name: input.description || "Assinatura" },
+              product_data: { name: NOME_PRODUTO_GENERICO },
             },
             quantity: 1,
           },

@@ -1937,6 +1937,13 @@ function FunnelCard({
   // fileira igual à das abas principais decide qual sequência aparece embaixo
   // — o LED avisa o estado sem precisar abrir nada.
   const [subTab, setSubTab] = useState<"geral" | "pix" | "upsell">("geral");
+  // Sobe a cada "Puxar padrão" — força o FunnelEditor a REMONTAR as linhas
+  // (ver o comentário no `key` do map de passos). Sem isso, uma linha que já
+  // existia antes de puxar o padrão mantém o <select> de tempo/desconto com
+  // o modo (lista/personalizado) calculado da mensagem ANTIGA daquele
+  // índice — o texto muda (vem direto da prop), mas o tempo selecionado
+  // fica errado, porque aquele estado só é calculado uma vez, no mount.
+  const [versaoPadrao, setVersaoPadrao] = useState(0);
 
   async function save() {
     setBusy(true);
@@ -2079,7 +2086,10 @@ function FunnelCard({
                   message: `Isso substitui ${atual.steps.length ? `as ${atual.steps.length} mensagem(ns) atuais` : "a lista vazia atual"} de "${atual.titulo}" pelo modelo pronto. Só vale depois de "Salvar funis".`,
                   confirmLabel: "Puxar padrão",
                 });
-                if (ok) atual.setSteps(atual.padrao.map((s) => ({ ...s })));
+                if (ok) {
+                  atual.setSteps(atual.padrao.map((s) => ({ ...s })));
+                  setVersaoPadrao((v) => v + 1);
+                }
               }}
               className="btn-ghost text-xs"
             >
@@ -2100,6 +2110,7 @@ function FunnelCard({
           permiteGerarIA={atual.permiteGerarIA}
           funnelType={atual.key}
           confirm={confirm}
+          versaoPadrao={versaoPadrao}
         />
       </div>
 
@@ -2452,6 +2463,7 @@ function FunnelEditor({
   permiteGerarIA,
   funnelType,
   confirm,
+  versaoPadrao,
 }: {
   profileId: string;
   title: string;
@@ -2468,6 +2480,9 @@ function FunnelEditor({
   /** Confirmação antes de gerar TODAS as mensagens de uma vez — com 50+
    * passos isso sobrescreve muita coisa junta, vale um "tem certeza?". */
   confirm?: ConfirmFn;
+  /** Sobe a cada "Puxar padrão" — entra na `key` de cada linha pra forçar o
+   * remount (ver o comentário em `FunnelCard`). */
+  versaoPadrao?: number;
 }) {
   function update(i: number, patch: Partial<FunnelStep>) {
     setSteps(steps.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
@@ -2590,7 +2605,7 @@ function FunnelEditor({
             modo === "subs" ? p.kind !== "package" : modo === "packages" ? p.kind === "package" : true,
           );
           return (
-            <div key={i} className="panel p-3">
+            <div key={`${versaoPadrao ?? 0}-${i}`} className="panel p-3">
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <span className="chip">Mensagem {i + 1}</span>
                 {/* Loop não existe no Alerta de Renovação: repetir a última
@@ -3765,6 +3780,11 @@ function FunilRetratil({
   // dois funis ao lado como na Recuperação —, então já abre sozinho em vez de
   // exigir um clique a mais só para ver o que tem lá dentro.
   const [aberto, setAberto] = useState(Boolean(modoRenovacao));
+  // Ver o comentário equivalente em `FunnelCard` — força o FunnelEditor a
+  // remontar as linhas depois de "Puxar padrão", pra não deixar o <select>
+  // de tempo/desconto de uma linha reaproveitada com o modo calculado da
+  // mensagem antiga daquele índice.
+  const [versaoPadrao, setVersaoPadrao] = useState(0);
 
   return (
     <div className={`card overflow-hidden ${aberto ? "border-emerald-500/25" : ""}`}>
@@ -3801,7 +3821,10 @@ function FunilRetratil({
                 message: `Isso substitui ${steps.length ? `as ${steps.length} mensagem(ns) atuais` : "a lista vazia atual"} de "${titulo}" pelo modelo pronto. Só vale depois de salvar.`,
                 confirmLabel: "Puxar padrão",
               });
-              if (ok && padrao) setSteps(padrao.map((s) => ({ ...s })));
+              if (ok && padrao) {
+                setSteps(padrao.map((s) => ({ ...s })));
+                setVersaoPadrao((v) => v + 1);
+              }
             }}
             className="btn-ghost shrink-0 text-xs"
           >
@@ -3836,6 +3859,7 @@ function FunilRetratil({
               permiteGerarIA={permiteGerarIA}
               funnelType={funnelType}
               confirm={confirm}
+              versaoPadrao={versaoPadrao}
             />
           </div>
         </div>

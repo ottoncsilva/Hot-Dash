@@ -1113,6 +1113,16 @@ function migrate(d: Database.Database) {
   // um plano específico da lista sem apagar o preço dele. Padrão LIGADO:
   // preserva o comportamento de sempre (todo plano com preço em USD entrava).
   ensureColumn(d, "telegram_plans", "intl_available", "INTEGER NOT NULL DEFAULT 1");
+  // ASSINATURA STRIPE COM RENOVAÇÃO AUTOMÁTICA (checkout internacional).
+  // Só preenchidos quando a compra virou `mode: "subscription"` na Stripe —
+  // é a presença de `stripe_subscription_id` que diferencia "essa inscrição
+  // se renova sozinha" de "PIX/pagamento avulso", inclusive pro Alerta de
+  // Renovação saber quem NÃO precisa mais do aviso manual (telegramCron.ts).
+  ensureColumn(d, "telegram_subscriptions", "stripe_subscription_id", "TEXT");
+  ensureColumn(d, "telegram_subscriptions", "stripe_customer_id", "TEXT");
+  d.exec(
+    `CREATE INDEX IF NOT EXISTS idx_tg_subs_stripe_sub ON telegram_subscriptions(stripe_subscription_id)`,
+  );
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);

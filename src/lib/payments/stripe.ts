@@ -4,13 +4,20 @@ import { publicOriginSemRequest } from "../publicOrigin";
 import type { ChargeInput, ChargeResult, PaymentProvider } from "./types";
 
 /**
- * Adaptador Stripe — cartão em moeda estrangeira (USD), para leads de fora do
- * Brasil. Usa Checkout Session em MODO PAGAMENTO ÚNICO (`mode: "payment"`),
- * não assinatura nativa: a cobrança é avulsa por ciclo, igual ao PIX hoje —
- * o motor de renovação/downsell que já existe cuida da virada.
+ * Adaptador Stripe — cartão em moeda estrangeira, para leads de fora do
+ * Brasil. Dois modos, escolhidos por `input.recurring`:
  *
- * `providerRef = session.id` é o mesmo mecanismo do PIX: a transação
- * `pending` é pré-criada com esse `providerRef`, e o webhook
+ *   • AUSENTE (padrão) → `mode: "payment"`, cobrança avulsa por ciclo — o
+ *     motor de renovação/downsell que já existe cuida da virada, igual ao
+ *     PIX hoje.
+ *   • PRESENTE → `mode: "subscription"`, a Stripe cobra o cartão sozinha a
+ *     cada ciclo (ver `recurringFromDurationDays` em `telegramDb.ts` pra
+ *     quem decide isso). `session.subscription`/`session.customer` só
+ *     existem DEPOIS do pagamento — o webhook (`checkout.session.completed`)
+ *     é quem grava esses ids na inscrição local.
+ *
+ * `providerRef = session.id` é o mesmo mecanismo do PIX nos dois modos: a
+ * transação `pending` é pré-criada com esse `providerRef`, e o webhook
  * (`/api/webhooks/stripe`) só faz `updateStatusByRef("stripe", providerRef, ...)`.
  */
 
@@ -34,8 +41,9 @@ export function createStripe(creds: { secretKey: string; webhookSecret: string }
     async createCharge(input: ChargeInput): Promise<ChargeResult> {
       const origin = publicOriginSemRequest();
       const moeda = (input.currency || "USD").toLowerCase();
+      const recurring = input.recurring;
       const session = await stripe.checkout.sessions.create({
-        mode: "payment",
+        mode: recurring ? "subscription" : "payment",
         // SEM `payment_method_types` de propósito: travar em ["card"] esconde
         // Apple Pay/Google Pay/Link mesmo com os três habilitados no
         // Dashboard (Configurações → Formas de pagamento). Omitido, o
@@ -47,6 +55,12 @@ export function createStripe(creds: { secretKey: string; webhookSecret: string }
               currency: moeda,
               unit_amount: input.amountCents,
               product_data: { name: NOME_PRODUTO_GENERICO },
+              // `recurring` só é aceito pela API quando `mode: "subscription"`
+              // — omitido (undefined) em `mode: "payment"`, exatamente como
+              // já era antes desta função saber lidar com assinatura.
+              ...(recurring
+                ? { recurring: { interval: recurring.interval, interval_count: recurring.intervalCount } }
+                : {}),
             },
             quantity: 1,
           },
@@ -80,6 +94,51 @@ export function createStripe(creds: { secretKey: string; webhookSecret: string }
       };
     },
   };
+}
+
+/**
+ * Link do Billing Portal ("Gerenciar assinatura") — é por aí que o cliente
+ * cancela sozinho uma assinatura automática, sem precisar falar com a
+ * modelo. Sem esse caminho de autoatendimento, cancelamento vira
+ * contestação/chargeback no cartão.
+ *
+ * O Portal exige uma CONFIGURAÇÃO cadastrada na conta antes de gerar
+ * sessão — conta nova não tem nenhuma. Em vez de depender de um passo
+ * manual no Dashboard antes do recurso funcionar, cria uma configuração
+ * padrão (permite cancelar, sem forçar troca de plano) na primeira vez que
+ * a conta ainda não tiver uma.
+ */
+export async function createBillingPortalSession(
+  creds: { secretKey: string },
+  customerId: string,
+  returnUrl: string,
+): Promise<string | null> {
+  const stripe = new Stripe(creds.secretKey);
+  try {
+    const session = await stripe.billingPortal.sessions.create({ customer: customerId, return_url: returnUrl });
+    return session.url;
+  } catch {
+    // Provavelmente falta configuração — confere e cria a padrão só se for
+    // isso mesmo (uma falha por outro motivo, ex.: customerId inválido,
+    // não se resolve criando configuração, então não tenta de novo à toa).
+    try {
+      const existentes = await stripe.billingPortal.configurations.list({ limit: 1 });
+      if (existentes.data.length === 0) {
+        await stripe.billingPortal.configurations.create({
+          features: {
+            subscription_cancel: { enabled: true, mode: "at_period_end" },
+            invoice_history: { enabled: true },
+          },
+        });
+      } else {
+        return null;
+      }
+      const session = await stripe.billingPortal.sessions.create({ customer: customerId, return_url: returnUrl });
+      return session.url;
+    } catch {
+      return null;
+    }
+  }
 }
 
 /** Testa credenciais sem afetar cache/estado de nenhum provider já instanciado. */

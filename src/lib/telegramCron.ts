@@ -963,11 +963,14 @@ async function runTelegramFunnelsImpl(): Promise<{
     if (renewalFunnel.length > 0 && bot.renewalEnabled !== false) {
       // expires_at > 0 exclui pacote (compra única, sem vencimento) e
       // expires_at > now exclui quem já venceu — daí em diante quem cuida é
-      // a expiração (`runTelegramEviction`), não este funil.
+      // a expiração (`runTelegramEviction`), não este funil. stripe_subscription_id
+      // IS NULL exclui quem já tem renovação AUTOMÁTICA (checkout internacional,
+      // Stripe cobra o cartão sozinha) — avisar "renove manualmente" pra
+      // quem nem precisa fazer nada não faz sentido nenhum.
       const vencendo = db
         .prepare(
           `SELECT * FROM telegram_subscriptions
-            WHERE bot_id = ? AND status = 'active' AND expires_at > ?`,
+            WHERE bot_id = ? AND status = 'active' AND expires_at > ? AND stripe_subscription_id IS NULL`,
         )
         .all(bot.id, now) as any[];
 

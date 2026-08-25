@@ -35,6 +35,11 @@ export type ChargeInput = {
    *  Checkout Session (ex.: botId/telegramUserId/planId), usados como rede
    *  de segurança no webhook pra casar um pagamento sem transação pendente. */
   metadata?: Record<string, string>;
+  /** Presente = a Stripe cria a Checkout Session em `mode: "subscription"`
+   *  (cobrança automática a cada ciclo) em vez de `mode: "payment"` (avulsa).
+   *  Ignorado pela SyncPay (PIX não tem esse conceito). Ver
+   *  `recurringFromDurationDays` em `telegramDb.ts` pra montar este valor. */
+  recurring?: { interval: "day" | "week" | "month" | "year"; intervalCount: number };
 };
 
 export type ChargeResult = {

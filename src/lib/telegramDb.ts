@@ -323,6 +323,32 @@ export function planPeriodLabel(days: number): string {
   return exato ? exato.label : `${days} dias`;
 }
 
+export type StripeRecurring = { interval: "day" | "week" | "month" | "year"; intervalCount: number };
+
+/**
+ * Traduz `durationDays` pro ciclo de cobrança que a Stripe entende
+ * (`price_data.recurring`), para o checkout internacional virar assinatura
+ * de verdade (cobrança automática) em vez de link avulso.
+ *
+ * Prioriza a unidade "redonda" (ano/mês/semana) quando o número de dias bate
+ * exato — fica melhor no extrato do cliente e na lista de assinaturas da
+ * própria Stripe do que "a cada 30 dias". Fora dos múltiplos exatos, cai
+ * pra `day`, que a Stripe aceita em qualquer contagem até o teto de 3 anos
+ * documentado pra `interval_count` (156 semanas / 36 meses / 3 anos).
+ *
+ * `null` = não dá pra representar com segurança (vitalício, ou uma duração
+ * absurda) — quem chama trata como "esta compra não vira assinatura,
+ * cobra avulso como sempre".
+ */
+export function recurringFromDurationDays(days: number): StripeRecurring | null {
+  if (!Number.isFinite(days) || days <= 0) return null;
+  if (days % 365 === 0 && days / 365 <= 3) return { interval: "year", intervalCount: days / 365 };
+  if (days % 30 === 0 && days / 30 <= 12) return { interval: "month", intervalCount: days / 30 };
+  if (days % 7 === 0 && days / 7 <= 52) return { interval: "week", intervalCount: days / 7 };
+  if (days <= 1095) return { interval: "day", intervalCount: days };
+  return null;
+}
+
 export type TelegramSubscription = {
   id: string;
   botId: string;
@@ -349,6 +375,15 @@ export type TelegramSubscription = {
    *  não tem um "lastRenewalStepAt": o que importa é o QUANTO FALTA, não
    *  desde quando. */
   renewalStepIndex?: number;
+  /** Id da Subscription na Stripe — só existe quando a compra virou
+   *  cobrança automática (checkout internacional, `mode: "subscription"`).
+   *  Presença dele é o que tira esta inscrição do Alerta de Renovação
+   *  manual (ver `runTelegramFunnels`) e é a CHAVE que o webhook usa pra
+   *  achar a inscrição local quando a Stripe cobra um novo ciclo sozinha. */
+  stripeSubscriptionId?: string;
+  /** Id do Customer na Stripe — usado pra abrir o Billing Portal
+   *  ("Gerenciar assinatura", cancelamento self-service). */
+  stripeCustomerId?: string;
 };
 
 /** Linha do banco → config do bot. Um lugar só: as duas consultas abaixo
@@ -777,6 +812,8 @@ function toSubscription(r: any): TelegramSubscription {
     pixStepIndex: r.pix_step_index || 0,
     lastPixStepAt: r.last_pix_step_at || undefined,
     renewalStepIndex: r.renewal_step_index || 0,
+    stripeSubscriptionId: r.stripe_subscription_id || undefined,
+    stripeCustomerId: r.stripe_customer_id || undefined,
   };
 }
 
@@ -833,10 +870,22 @@ export function findSubscriptionByTransaction(transactionId: string): TelegramSu
   return row ? toSubscription(row) : null;
 }
 
+/** Acha a inscrição local pela Subscription da Stripe — é assim que o
+ *  webhook de renovação (`invoice.paid`) sabe qual acesso estender quando a
+ *  Stripe cobra um novo ciclo sozinha, sem o lead voltar a falar com o bot. */
+export function findSubscriptionByStripeSubscriptionId(
+  stripeSubscriptionId: string,
+): TelegramSubscription | null {
+  const row = getDb()
+    .prepare("SELECT * FROM telegram_subscriptions WHERE stripe_subscription_id = ?")
+    .get(stripeSubscriptionId) as any;
+  return row ? toSubscription(row) : null;
+}
+
 export function saveSubscription(sub: TelegramSubscription): void {
   getDb().prepare(
-    `INSERT INTO telegram_subscriptions (id, bot_id, transaction_id, plan_id, offer_id, telegram_user_id, telegram_username, invite_link, status, expires_at, last_upsell_at, upsell_step_index, created_at, pix_code, bump_cents, pix_step_index, last_pix_step_at, renewal_step_index)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_subscriptions (id, bot_id, transaction_id, plan_id, offer_id, telegram_user_id, telegram_username, invite_link, status, expires_at, last_upsell_at, upsell_step_index, created_at, pix_code, bump_cents, pix_step_index, last_pix_step_at, renewal_step_index, stripe_subscription_id, stripe_customer_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        status = excluded.status,
        expires_at = excluded.expires_at,
@@ -850,7 +899,9 @@ export function saveSubscription(sub: TelegramSubscription): void {
        bump_cents = excluded.bump_cents,
        pix_step_index = excluded.pix_step_index,
        last_pix_step_at = excluded.last_pix_step_at,
-       renewal_step_index = excluded.renewal_step_index`
+       renewal_step_index = excluded.renewal_step_index,
+       stripe_subscription_id = excluded.stripe_subscription_id,
+       stripe_customer_id = excluded.stripe_customer_id`
   ).run(
     sub.id,
     sub.botId,
@@ -870,6 +921,8 @@ export function saveSubscription(sub: TelegramSubscription): void {
     Math.max(0, Math.round(sub.pixStepIndex || 0)),
     sub.lastPixStepAt || null,
     Math.max(0, Math.round(sub.renewalStepIndex || 0)),
+    sub.stripeSubscriptionId || null,
+    sub.stripeCustomerId || null,
   );
 }
 

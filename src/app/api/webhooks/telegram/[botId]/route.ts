@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { TelegramPlan } from "@/lib/telegramDb";
-import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, BUMP_DEFAULTS, PIX_DEFAULTS } from "@/lib/telegramDb";
+import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, recurringFromDurationDays, BUMP_DEFAULTS, PIX_DEFAULTS } from "@/lib/telegramDb";
 import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser, setTelegramUserLanguage } from "@/lib/telegramUsers";
 import { recordGroupMembershipChange } from "@/lib/telegramMonitor";
 import { getMailingOffer } from "@/lib/telegramMailing";
@@ -37,6 +37,10 @@ const CHECKOUT_INTL_TEXTS = {
     makePayment: "Make payment 👉",
     checkStatus: "Check payment status",
     planNotFound: "⚠️ Plan not found or not available in USD.",
+    subNotFound: "⚠️ Subscription not found.",
+    portalFailed: "⚠️ Couldn't open the portal right now. Please try again in a moment.",
+    managePortal: "⚙️ Manage your subscription (cancel, view charges):",
+    openPortal: "Open portal 👉",
   },
   es: {
     noPlan: "⚠️ No hay ningún plan disponible en USD por ahora.",
@@ -48,6 +52,10 @@ const CHECKOUT_INTL_TEXTS = {
     makePayment: "Pagar 👉",
     checkStatus: "Verificar estado del pago",
     planNotFound: "⚠️ Plan no encontrado o no disponible en USD.",
+    subNotFound: "⚠️ Suscripción no encontrada.",
+    portalFailed: "⚠️ No pudimos abrir el portal ahora. Inténtalo de nuevo en un momento.",
+    managePortal: "⚙️ Gestiona tu suscripción (cancelar, ver cobros):",
+    openPortal: "Abrir portal 👉",
   },
 } as const;
 
@@ -433,6 +441,40 @@ export async function POST(
         return NextResponse.json({ ok: true });
       }
 
+      // ---- "Gerenciar assinatura" (Billing Portal da Stripe) ----
+      // Só existe pra quem comprou em `mode: "subscription"` (renovação
+      // automática) — é o autoatendimento que evita contestação/chargeback:
+      // sem um jeito de cancelar sozinho, quem esquece que assinou e é
+      // cobrado de novo tende a contestar no banco em vez de escrever pro
+      // suporte. A sessão é criada NA HORA do clique (não reaproveitada) —
+      // evita um link salvo expirar antes de ser usado.
+      const manageAcao = typeof data === "string" && data.match(/^manage_sub_(.+)$/);
+      if (manageAcao) {
+        const [, subId] = manageAcao;
+        const sub = getSubscription(subId);
+        const chatId = String(message.chat.id);
+        // Só existe pra assinatura Stripe (nunca PIX) — sempre EN/ES.
+        const tManage = CHECKOUT_INTL_TEXTS[getTelegramUser(`${bot.id}_${from.id}`)?.language || "en"];
+        if (!sub || sub.telegramUserId !== from.id || !sub.stripeCustomerId) {
+          await sendTelegramMessage(bot.botToken, chatId, tManage.subNotFound);
+          return NextResponse.json({ ok: true });
+        }
+        const { getStripeCredentials } = await import("@/lib/settings");
+        const { createBillingPortalSession } = await import("@/lib/payments/stripe");
+        const creds = getStripeCredentials();
+        const url = creds
+          ? await createBillingPortalSession(creds, sub.stripeCustomerId, `${publicOrigin(req)}/checkout/stripe/obrigado`)
+          : null;
+        if (!url) {
+          await sendTelegramMessage(bot.botToken, chatId, tManage.portalFailed);
+          return NextResponse.json({ ok: true });
+        }
+        await sendTelegramMessage(bot.botToken, chatId, tManage.managePortal, {
+          reply_markup: { inline_keyboard: [[{ text: tManage.openPortal, url }]] },
+        });
+        return NextResponse.json({ ok: true });
+      }
+
       const isPlanBuy = typeof data === "string" && data.startsWith("buy_plan_");
       // Oferta de um MAILING: mesmo fluxo do plano, mas com nome/preço/duração
       // ajustados só para aquele disparo (o plano original fica intacto).
@@ -634,11 +676,27 @@ export async function POST(
         // Dashboard, não por cobrança — mas não custa nada calcular também.)
         const postbackUrl = `${publicOrigin(req)}/w/${ensureSyncpayWebhookShortToken()}`;
 
-        // Cria a cobrança — PIX na SyncPay, Checkout Session na Stripe.
+        // RENOVAÇÃO AUTOMÁTICA: só no checkout internacional, só plano de
+        // assinatura (pacote/vitalício não fazem sentido cobrar de novo
+        // sozinho), e só SEM desconto — a Stripe cobra o MESMO valor todo
+        // ciclo, então um desconto "só desta compra" (funil de recuperação)
+        // viraria desconto pra sempre se entrasse numa assinatura. Duração
+        // que não mapeia num ciclo da Stripe (recurringFromDurationDays)
+        // também cai pra avulso — nenhum desses casos precisa de ação da
+        // modelo, o fallback é automático.
+        const planIntl = isIntlBuy ? getPlan(planId) : null;
+        const recurring =
+          isIntlBuy && planIntl?.kind === "subscription" && discountPercent === 0
+            ? recurringFromDurationDays(planIntl.durationDays)
+            : null;
+
+        // Cria a cobrança — PIX na SyncPay, Checkout Session na Stripe
+        // (avulsa ou assinatura, conforme `recurring`).
         const charge = await provider.createCharge({
           amountCents,
           currency: isIntlBuy ? "USD" : undefined,
           description: `Assinatura ${itemName}`,
+          recurring: recurring || undefined,
           postbackUrl,
           customer: {
             name: from.first_name + (from.last_name ? ` ${from.last_name}` : ""),

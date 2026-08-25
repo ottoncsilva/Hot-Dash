@@ -221,6 +221,24 @@ export async function deliverPaidTransaction(
               botoesEntregavel,
             );
           }
+
+          // Assinatura com RENOVAÇÃO AUTOMÁTICA (checkout internacional,
+          // `mode: "subscription"`): dá ao cliente um jeito de cancelar
+          // sozinho. Sem isso, quem quer parar de pagar e não sabe como
+          // tende a contestar a cobrança no banco em vez de escrever pro
+          // suporte — o botão evita virar chargeback. Sempre em EN/ES: quem
+          // tem `stripeSubscriptionId` só pode ter vindo do checkout
+          // internacional, nunca do PIX.
+          if (sub.stripeSubscriptionId) {
+            const textoManage =
+              idiomaLead === "es"
+                ? "🔁 Tu suscripción se renueva automáticamente cada ciclo. Puedes cancelarla cuando quieras, sin hablar con nadie:"
+                : "🔁 Your subscription renews automatically each cycle. You can cancel anytime, no need to talk to anyone:";
+            const botaoManage = idiomaLead === "es" ? "⚙️ Gestionar suscripción" : "⚙️ Manage subscription";
+            await sendTelegramMessage(bot.botToken, String(sub.telegramUserId), textoManage, {
+              reply_markup: { inline_keyboard: [[{ text: botaoManage, callback_data: `manage_sub_${sub.id}` }]] },
+            }).catch(() => {});
+          }
         }
 
         // O aviso de venda no CANAL DE REGISTRO saiu a pedido — o recurso

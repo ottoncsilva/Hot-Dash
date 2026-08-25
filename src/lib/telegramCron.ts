@@ -472,6 +472,16 @@ function buildReplyMarkup(
       ]);
     });
   }
+  // "Not from Brazil?" — mesmo critério do /start (ver webhooks/telegram):
+  // só aparece quando existe plano com priceUsdCents cadastrado. Só o
+  // Downsell GERAL ganha este botão; o Downsell de PIX gerado (irmão, usa
+  // `buildPixDownsellMarkup` logo abaixo) fica de fora por ora — ver Parte
+  // C.4 do plano da Stripe.
+  if (plans.some((p) => (p.priceUsdCents || 0) > 0)) {
+    inlineKeyboard.push([
+      { text: "🌎 Not from Brazil?", callback_data: "intl_menu", ...buttonStyleProps(bot, "redirect") },
+    ]);
+  }
   return inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : undefined;
 }
 

@@ -11,6 +11,10 @@ function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+function usd(cents: number) {
+  return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
 type LastPaid = { at: number; amountCents: number; customer?: string } | null;
 
 export default function PaymentSettingsPage() {
@@ -22,6 +26,15 @@ export default function PaymentSettingsPage() {
   const [stripeSecretKey, setStripeSecretKey] = useState("");
   const [stripeWebhookSecret, setStripeWebhookSecret] = useState("");
   const [stripeCopied, setStripeCopied] = useState(false);
+  // Saldo na Stripe (em USD) — consulta simples, sem o cache/diagnóstico que
+  // a da SyncPay precisa (a API dela é direta, sem limite de taxa a driblar).
+  const [stripeBalance, setStripeBalance] = useState<{
+    availableCents: number | null;
+    pendingCents: number | null;
+    connected: boolean;
+    error?: string;
+  } | null>(null);
+  const [stripeBalanceBusy, setStripeBalanceBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [origin, setOrigin] = useState("");
@@ -91,7 +104,7 @@ export default function PaymentSettingsPage() {
 
   async function carregarEventos() {
     try {
-      const d = await apiGet<{ events: typeof eventos }>("/api/payments/webhook-events");
+      const d = await apiGet<{ events: typeof eventos }>("/api/payments/webhook-events?provider=syncpay");
       setEventos(d.events || []);
     } catch {
       setEventos([]);
@@ -188,6 +201,28 @@ export default function PaymentSettingsPage() {
       setTimeout(() => setStripeCopied(false), 2000);
     } catch {
       /* clipboard indisponível — o usuário pode copiar manualmente */
+    }
+  }
+
+  async function carregarSaldoStripe() {
+    setStripeBalanceBusy(true);
+    try {
+      const d = await apiGet<{
+        connected: boolean;
+        availableCents: number | null;
+        pendingCents: number | null;
+        error?: string;
+      }>("/api/payments/stripe/balance");
+      setStripeBalance(d);
+    } catch (e) {
+      setStripeBalance({
+        connected: false,
+        availableCents: null,
+        pendingCents: null,
+        error: e instanceof Error ? e.message : "Falha ao consultar o saldo.",
+      });
+    } finally {
+      setStripeBalanceBusy(false);
     }
   }
 
@@ -617,6 +652,49 @@ export default function PaymentSettingsPage() {
               {stripeCopied ? "Copiado ✓" : "Copiar"}
             </button>
           </div>
+        </div>
+
+        {/* Saldo — equivalente ao painel da SyncPay, mas em USD e sem o
+            diagnóstico multi-caminho (a API da Stripe é direta). */}
+        <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                Saldo na Stripe
+              </p>
+              <p className="mt-0.5 text-xs text-zinc-500">Disponível e a caminho, em USD.</p>
+            </div>
+            <button
+              type="button"
+              onClick={carregarSaldoStripe}
+              disabled={stripeBalanceBusy}
+              className="btn-ghost shrink-0 px-3 py-1.5 text-xs"
+            >
+              {stripeBalanceBusy ? "Consultando..." : stripeBalance ? "Atualizar" : "Consultar"}
+            </button>
+          </div>
+          {stripeBalance && (
+            <div className="mt-2 text-xs">
+              {!stripeBalance.connected ? (
+                <p className="text-amber-400/80">
+                  {stripeBalance.error || "Não foi possível consultar — confira a Secret Key acima."}
+                </p>
+              ) : (
+                <p className="text-zinc-300">
+                  Disponível:{" "}
+                  <span className="text-emerald-400">
+                    {stripeBalance.availableCents !== null ? usd(stripeBalance.availableCents) : "—"}
+                  </span>
+                  {stripeBalance.pendingCents !== null && stripeBalance.pendingCents > 0 && (
+                    <>
+                      {" "}
+                      · A caminho: <span className="text-zinc-400">{usd(stripeBalance.pendingCents)}</span>
+                    </>
+                  )}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

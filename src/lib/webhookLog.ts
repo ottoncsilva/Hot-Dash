@@ -56,21 +56,32 @@ export function logWebhookEvent(input: {
       input.decision,
       texto.slice(0, 4000),
     );
-    // Poda os antigos, mantendo a tabela pequena.
+    // Poda os antigos, mantendo a tabela pequena — POR PROVEDOR, não no total:
+    // um provedor que manda muito evento (ex.: Stripe com "todos os eventos"
+    // marcados, a maioria ignorada) não pode empurrar pra fora o histórico de
+    // outro provedor mais silencioso.
     db.prepare(
-      `DELETE FROM webhook_events WHERE id NOT IN (
-         SELECT id FROM webhook_events ORDER BY received_at DESC LIMIT ?
+      `DELETE FROM webhook_events WHERE provider = ? AND id NOT IN (
+         SELECT id FROM webhook_events WHERE provider = ? ORDER BY received_at DESC LIMIT ?
        )`,
-    ).run(LIMITE);
+    ).run(input.provider, input.provider, LIMITE);
   } catch {
     /* registrar não pode derrubar o webhook — o gateway reenviaria em loop */
   }
 }
 
-export function listWebhookEvents(limit = LIMITE): WebhookEvent[] {
-  const rows = getDb()
-    .prepare("SELECT * FROM webhook_events ORDER BY received_at DESC LIMIT ?")
-    .all(limit) as Row[];
+/** `provider` filtra pra um gateway só — sem isso, a lista mistura todos, e um
+ *  provedor mais falante (ex.: Stripe com muitos tipos de evento marcados,
+ *  a maioria ignorada) empurra pra fora da TELA o histórico de outro mais
+ *  silencioso, mesmo com a poda já sendo por provedor (ver `logWebhookEvent`). */
+export function listWebhookEvents(limit = LIMITE, provider?: string): WebhookEvent[] {
+  const rows = provider
+    ? (getDb()
+        .prepare("SELECT * FROM webhook_events WHERE provider = ? ORDER BY received_at DESC LIMIT ?")
+        .all(provider, limit) as Row[])
+    : (getDb()
+        .prepare("SELECT * FROM webhook_events ORDER BY received_at DESC LIMIT ?")
+        .all(limit) as Row[]);
   return rows.map((r) => ({
     id: r.id,
     provider: r.provider,

@@ -49,6 +49,9 @@ export type ChargeResult = {
 
 export type BalanceResult = {
   availableCents: number;
+  /** Ainda não liberado pro saque (ex.: retenção padrão da Stripe até o
+   *  repasse). Ausente = provedor não distingue os dois estados. */
+  pendingCents?: number;
   raw?: unknown;
 };
 

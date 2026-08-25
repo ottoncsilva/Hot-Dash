@@ -6,11 +6,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** Últimos webhooks recebidos do gateway, com o corpo cru. Serve para ver o que
- *  a SyncPay manda de fato em cada tipo de movimento (venda, saque…). */
+ *  cada provedor manda de fato em cada tipo de evento. `?provider=stripe`
+ *  filtra pra um gateway só — sem isso, a lista mistura todos. */
 export async function GET(req: NextRequest) {
   try {
     await requireUser(req);
-    return NextResponse.json({ events: listWebhookEvents(50) });
+    const provider = req.nextUrl.searchParams.get("provider") || undefined;
+    return NextResponse.json({ events: listWebhookEvents(50, provider) });
   } catch (err) {
     return errorResponse(err);
   }

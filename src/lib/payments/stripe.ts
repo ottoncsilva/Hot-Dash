@@ -67,10 +67,17 @@ export function createStripe(creds: { secretKey: string; webhookSecret: string }
 
     async getBalance() {
       const bal = await stripe.balance.retrieve();
-      // Soma tudo que está disponível, através das moedas — mistura USD com
-      // outra moeda seria incorreto, mas hoje só existe cobrança em USD.
-      const cents = bal.available.reduce((acc, b) => acc + b.amount, 0);
-      return { availableCents: cents, raw: bal };
+      // Só a entrada em USD — a conta pode ter outras moedas na lista (ex.:
+      // o saldo padrão do país da conta), e somar valores em moedas
+      // diferentes sem converter misturaria centavos de unidades distintas.
+      // Este app só cobra em USD pela Stripe, então é a única que importa.
+      const somaUsd = (lista: { amount: number; currency: string }[]) =>
+        lista.filter((b) => b.currency === "usd").reduce((acc, b) => acc + b.amount, 0);
+      return {
+        availableCents: somaUsd(bal.available),
+        pendingCents: somaUsd(bal.pending),
+        raw: bal,
+      };
     },
   };
 }

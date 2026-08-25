@@ -38,6 +38,7 @@ const VIP_SOURCE_LABEL: Record<string, string> = {
 };
 import { showToast } from "@/lib/toast";
 import DetectChat from "@/components/telegram/bot/DetectChat";
+import { KeyLabel } from "../../settings/_shared";
 
 export default function ProfileDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -492,13 +493,13 @@ export default function ProfileDetailPage() {
               </p>
               <div className="mt-3 space-y-3">
                 <div>
-                  <label className="eyebrow mb-1.5 block">Bot Token</label>
+                  <KeyLabel salva={hasToken}>Bot Token</KeyLabel>
                   <input
                     className="input font-mono"
                     type="password"
                     autoComplete="off"
                     placeholder={
-                      hasToken ? "token salvo — cole outro para trocar" : "Ex: 123456:ABC-DEF..."
+                      hasToken ? "•••••••• (em branco = manter)" : "Ex: 123456:ABC-DEF..."
                     }
                     value={botToken}
                     onChange={(e) => setBotToken(e.target.value)}

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
 import { IconLock } from "@/components/icons";
 import type { PaymentSettingsPublic } from "@/lib/settings";
-import { BackToSettings, ConnectionBadge } from "../_shared";
+import { BackToSettings, ConnectionBadge, KeyLabel } from "../_shared";
 import { showToast } from "@/lib/toast";
 
 function brl(cents: number) {
@@ -281,7 +281,9 @@ export default function PaymentSettingsPage() {
           value={syncClientId}
           onChange={(e) => setSyncClientId(e.target.value)}
         />
-        <label className="eyebrow mb-1.5 mt-3 block">Client Secret</label>
+        <div className="mt-3">
+          <KeyLabel salva={Boolean(cfg?.syncpay.hasSecret)}>Client Secret</KeyLabel>
+        </div>
         <input
           className="input font-mono"
           type="password"
@@ -559,7 +561,9 @@ export default function PaymentSettingsPage() {
             onChange={(e) => setStripeEnabled(e.target.checked)}
           />
         </label>
-        <label className="eyebrow mb-1.5 mt-3 block">Secret Key</label>
+        <div className="mt-3">
+          <KeyLabel salva={Boolean(cfg?.stripe.hasSecretKey)}>Secret Key</KeyLabel>
+        </div>
         <input
           className="input font-mono"
           type="password"
@@ -569,7 +573,9 @@ export default function PaymentSettingsPage() {
           value={stripeSecretKey}
           onChange={(e) => setStripeSecretKey(e.target.value)}
         />
-        <label className="eyebrow mb-1.5 mt-3 block">Webhook Signing Secret</label>
+        <div className="mt-3">
+          <KeyLabel salva={Boolean(cfg?.stripe.hasWebhookSecret)}>Webhook Signing Secret</KeyLabel>
+        </div>
         <input
           className="input font-mono"
           type="password"

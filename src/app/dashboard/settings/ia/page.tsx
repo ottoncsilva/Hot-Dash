@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
 import { IconRefresh } from "@/components/icons";
 import type { AiSettingsPublic } from "@/lib/settings";
-import { BackToSettings, ConnectionBadge } from "../_shared";
+import { BackToSettings, ConnectionBadge, KeyLabel } from "../_shared";
 import { showToast } from "@/lib/toast";
 
 // Usados só se a busca ao vivo (lista real de modelos do provedor) falhar.
@@ -346,7 +346,7 @@ export default function AiSettingsPage() {
               </div>
               
               <div>
-                <label className="eyebrow mb-1.5 block">API key</label>
+                <KeyLabel salva={Boolean(cfg?.openai.hasKey)}>API key</KeyLabel>
                 <input
                   className="input font-mono"
                   type="password"
@@ -439,7 +439,7 @@ export default function AiSettingsPage() {
               </div>
               
               <div>
-                <label className="eyebrow mb-1.5 block">API key</label>
+                <KeyLabel salva={Boolean(cfg?.gemini.hasKey)}>API key</KeyLabel>
                 <input
                   className="input font-mono"
                   type="password"
@@ -453,9 +453,7 @@ export default function AiSettingsPage() {
               </div>
 
               <div className="md:col-span-2">
-                <label className="eyebrow mb-1.5 block">
-                  Chave só para imagem e vídeo (opcional)
-                </label>
+                <KeyLabel salva={temChaveMidia}>Chave só para imagem e vídeo (opcional)</KeyLabel>
                 <input
                   className="input font-mono"
                   type="password"
@@ -540,7 +538,7 @@ export default function AiSettingsPage() {
                 )}
               </div>
               <div>
-                <label className="eyebrow mb-1.5 block">API Key</label>
+                <KeyLabel salva={Boolean(cfg?.grok.hasKey)}>API Key</KeyLabel>
                 <input
                   className="input font-mono"
                   type="password"
@@ -634,7 +632,7 @@ export default function AiSettingsPage() {
                 )}
               </div>
               <div>
-                <label className="eyebrow mb-1.5 block">API Key</label>
+                <KeyLabel salva={Boolean(cfg?.openrouter?.hasKey)}>API Key</KeyLabel>
                 <input
                   className="input font-mono"
                   type="password"
@@ -689,7 +687,7 @@ export default function AiSettingsPage() {
           {magnificEnabled && (
             <div className="grid gap-4 md:grid-cols-2 mt-4">
               <div className="md:col-span-2">
-                <label className="eyebrow mb-1.5 block">Chave API Magnific</label>
+                <KeyLabel salva={Boolean(cfg?.magnific?.hasKey)}>Chave API Magnific</KeyLabel>
                 <input
                   className="input font-mono"
                   type="password"
@@ -730,7 +728,7 @@ export default function AiSettingsPage() {
           {byteplusEnabled && (
             <div className="grid gap-4 md:grid-cols-2 mt-4">
               <div className="md:col-span-2">
-                <label className="eyebrow mb-1.5 block">Chave API BytePlus (ARK_API_KEY)</label>
+                <KeyLabel salva={Boolean(cfg?.byteplus?.hasKey)}>Chave API BytePlus (ARK_API_KEY)</KeyLabel>
                 <input
                   className="input font-mono"
                   type="password"
@@ -799,7 +797,7 @@ export default function AiSettingsPage() {
                 </p>
               </div>
               <div className="md:col-span-2">
-                <label className="eyebrow mb-1.5 block">Token (opcional)</label>
+                <KeyLabel salva={Boolean(cfg?.nudenet?.hasKey)}>Token (opcional)</KeyLabel>
                 <input
                   className="input font-mono"
                   type="password"

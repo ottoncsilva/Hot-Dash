@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
-import { BackToSettings } from "../_shared";
+import { BackToSettings, KeyLabel } from "../_shared";
 import type { TelegramAppSettingsPublic, UazapiSettingsPublic } from "@/lib/settings";
 import { showToast } from "@/lib/toast";
 
@@ -92,7 +92,7 @@ export default function ConexoesLtvPage() {
             </p>
           </div>
           <div>
-            <label className="eyebrow mb-1.5 block">Admin Token</label>
+            <KeyLabel salva={Boolean(cfg?.hasAdminToken)}>Admin Token</KeyLabel>
             <input
               className="input font-mono"
               type="password"
@@ -139,7 +139,7 @@ export default function ConexoesLtvPage() {
             />
           </div>
           <div>
-            <label className="eyebrow mb-1.5 block">api_hash</label>
+            <KeyLabel salva={Boolean(tg?.hasApiHash)}>api_hash</KeyLabel>
             <input
               className="input font-mono"
               type="password"

@@ -67,6 +67,28 @@ export function ConnectionBadge({
   );
 }
 
+/**
+ * Rótulo de um campo de segredo (chave de API, token, secret) — junto com um
+ * selo "salva" quando já existe algo guardado no servidor.
+ *
+ * O placeholder sozinho ("•••••••• em branco = manter") é cinza-claro, igual
+ * a qualquer outro texto de exemplo — de relance, um campo preenchido assim
+ * lia como vazio. O selo é um sinal que não depende de ninguém reparar na
+ * cor do placeholder: fica lá, verde, o tempo todo que existir algo salvo.
+ */
+export function KeyLabel({ children, salva }: { children: React.ReactNode; salva: boolean }) {
+  return (
+    <div className="mb-1.5 flex flex-wrap items-center gap-2">
+      <label className="eyebrow block">{children}</label>
+      {salva && (
+        <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+          🔒 salva
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** Link de volta para a lista de Configurações, usado no topo de cada sub-rota. */
 /**
  * Volta para o índice das Configurações. É sempre o PRIMEIRO elemento da tela,

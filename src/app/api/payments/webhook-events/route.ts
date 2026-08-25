@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   try {
     await requireUser(req);
     const provider = req.nextUrl.searchParams.get("provider") || undefined;
-    return NextResponse.json({ events: listWebhookEvents(50, provider) });
+    return NextResponse.json({ events: listWebhookEvents(100, provider) });
   } catch (err) {
     return errorResponse(err);
   }

@@ -683,6 +683,7 @@ export default function PaymentSettingsPage() {
               <option value="GBP">GBP</option>
               <option value="MXN">MXN</option>
               <option value="EUR">EUR</option>
+              <option value="BRL">BRL</option>
             </select>
             <MoneyInput
               className="w-32"

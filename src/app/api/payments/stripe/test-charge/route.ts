@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 /** Mesmas moedas que a tela oferece no seletor — Checkout da Stripe aceita
  *  bem mais que isso, mas travar na lista evita erro de digitação virando
  *  moeda inválida na API. */
-const MOEDAS_TESTE = ["USD", "GBP", "MXN", "EUR"] as const;
+const MOEDAS_TESTE = ["USD", "GBP", "MXN", "EUR", "BRL"] as const;
 type MoedaTeste = (typeof MOEDAS_TESTE)[number];
 
 /**

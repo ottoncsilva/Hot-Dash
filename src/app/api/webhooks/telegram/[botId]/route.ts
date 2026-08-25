@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { TelegramPlan } from "@/lib/telegramDb";
-import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, enqueueApproval, buildAccessMessage, BUMP_DEFAULTS, PIX_DEFAULTS } from "@/lib/telegramDb";
+import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, BUMP_DEFAULTS, PIX_DEFAULTS } from "@/lib/telegramDb";
 import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser } from "@/lib/telegramUsers";
 import { recordGroupMembershipChange } from "@/lib/telegramMonitor";
 import { getMailingOffer } from "@/lib/telegramMailing";
 import { sendTelegramMessage, sendTelegramMedia, sendTelegramMediaGroup, sendTelegramVoiceUrl, sendTelegramPhotoBuffer, approveTelegramJoinRequest, declineTelegramJoinRequest, telegramWebhookSecret } from "@/lib/telegramApi";
 import QRCode from "qrcode";
 import { listMedia, getMediaRow } from "@/lib/media";
-import { activeProvider } from "@/lib/payments";
+import { activeProvider, getProvider } from "@/lib/payments";
 import { recordTransaction, overview } from "@/lib/transactions";
-import { ensureSyncpayWebhookShortToken, applyDynamicPrice, buttonStyleProps, planButtonStyleProps } from "@/lib/settings";
+import { ensureSyncpayWebhookShortToken, applyDynamicPrice, buttonStyleProps } from "@/lib/settings";
 import { publicOrigin } from "@/lib/publicOrigin";
 import { botaoCopiar, efeitoProps } from "@/lib/telegramEffects";
 import { enviarMensagemDoBot } from "@/lib/telegramSend";
@@ -186,21 +186,16 @@ export async function POST(
 
         // Botões de Planos
         if (plans.length > 0) {
-          plans.forEach((plan) => {
-            const priceStr = (plan.priceCents / 100).toLocaleString("pt-BR", {
-              style: "currency",
-              currency: "BRL",
-            });
-            inlineKeyboard.push([
-              {
-                text: `${plan.name} - ${priceStr}`,
-                callback_data: `buy_plan_${plan.id}`,
-                // A cor do PLANO vence a global — é o que destaca a oferta
-                // principal no meio das outras.
-                ...planButtonStyleProps(bot, plan.highlight),
-              },
-            ]);
-          });
+          inlineKeyboard.push(...buildPlanKeyboardRows(bot, plans, { moeda: "BRL", prefix: "buy_plan_" }));
+        }
+
+        // "Not from Brazil?" — só aparece quando existe ao menos um plano com
+        // preço em USD cadastrado (ver PlansCard, campo opcional). Abre o menu
+        // internacional (checkout Stripe) numa mensagem NOVA, não editada.
+        if (plans.some((p) => (p.priceUsdCents || 0) > 0)) {
+          inlineKeyboard.push([
+            { text: "🌎 Not from Brazil?", callback_data: "intl_menu", ...buttonStyleProps(bot, "redirect") },
+          ]);
         }
 
         // Botões Personalizados
@@ -252,6 +247,29 @@ export async function POST(
     // ---- Clique nos botões de compra (Callback Query) ----
     if (update.callback_query) {
       const { id, data, from, message } = update.callback_query;
+
+      // ---- "Not from Brazil?" — menu internacional (checkout Stripe) ----
+      // Mensagem NOVA (mesmo padrão do bump), com os planos que têm preço em
+      // USD cadastrado. Sem esses planos o botão nem aparece no /start.
+      if (data === "intl_menu") {
+        const plans = listActivePlans(bot.id);
+        const rows = buildPlanKeyboardRows(bot, plans, { moeda: "USD", prefix: "buy_intl_" });
+        if (rows.length === 0) {
+          await sendTelegramMessage(
+            bot.botToken,
+            String(message.chat.id),
+            "⚠️ No plan available in USD right now.",
+          );
+        } else {
+          await sendTelegramMessage(
+            bot.botToken,
+            String(message.chat.id),
+            "🌎 Choose your plan (charged in USD, via card):",
+            { reply_markup: { inline_keyboard: rows } },
+          );
+        }
+        return NextResponse.json({ ok: true });
+      }
 
       // ---- Botões da tela do PIX ----
       // Os três agem sobre uma cobrança JÁ criada, por isso carregam o id da
@@ -328,6 +346,11 @@ export async function POST(
       // Oferta de um MAILING: mesmo fluxo do plano, mas com nome/preço/duração
       // ajustados só para aquele disparo (o plano original fica intacto).
       const isOfferBuy = typeof data === "string" && data.startsWith("buy_offer_");
+      // Compra INTERNACIONAL (cartão, via Stripe) — MESMO plano do catálogo,
+      // só que cobrado pelo priceUsdCents em vez do priceCents. Sem bump: o
+      // botão do bump só é oferecido a partir de `buy_plan_` (isPlanBuy),
+      // então um clique em `buy_intl_` nunca entra naquele fluxo.
+      const isIntlBuy = typeof data === "string" && data.startsWith("buy_intl_");
 
       // ---- Order Bump: a oferta que aparece entre escolher o plano e gerar
       // o PIX. `bump_yes_` / `bump_no_` carregam o mesmo par (plano, desconto)
@@ -346,7 +369,7 @@ export async function POST(
 
       const isPlanBuyEfetivo = typeof dataEfetivo === "string" && dataEfetivo.startsWith("buy_plan_");
 
-      if (isPlanBuyEfetivo || isOfferBuy) {
+      if (isPlanBuyEfetivo || isOfferBuy || isIntlBuy) {
         let planId = "";
         let offerId = "";
         let itemName = "";
@@ -368,6 +391,23 @@ export async function POST(
           }
           itemName = plan.name;
           basePriceCents = plan.priceCents;
+        } else if (isIntlBuy) {
+          // Mesmo formato de callback do plano (`<id>[_<desconto>]`) — MESMO
+          // catálogo, só que o preço vem de `priceUsdCents`.
+          const parts = data.replace("buy_intl_", "").split("_");
+          planId = parts[0];
+          discountPercent = parseInt(parts[1]) || 0;
+          const plan = getPlan(planId);
+          if (!plan || !((plan.priceUsdCents || 0) > 0)) {
+            await sendTelegramMessage(
+              bot.botToken,
+              String(message.chat.id),
+              "⚠️ Plan not found or not available in USD.",
+            );
+            return NextResponse.json({ ok: true });
+          }
+          itemName = plan.name;
+          basePriceCents = plan.priceUsdCents!;
         } else {
           // Mesmo sufixo de desconto do plano (`_<percentual>`) — o Downsell de
           // PIX gerado manda esse botão quando o lead escolheu a oferta de um
@@ -450,21 +490,25 @@ export async function POST(
           }
         }
 
-        const provider = activeProvider();
+        const provider = isIntlBuy ? getProvider("stripe") : activeProvider();
         if (!provider) {
           await sendTelegramMessage(
             bot.botToken,
             String(message.chat.id),
-            "⚠️ O checkout temporariamente indisponível. Tente novamente mais tarde."
+            isIntlBuy
+              ? "⚠️ International checkout temporarily unavailable. Please try again later."
+              : "⚠️ O checkout temporariamente indisponível. Tente novamente mais tarde."
           );
           return NextResponse.json({ ok: true });
         }
 
-        // Informa que a cobrança está sendo gerada (texto configurável).
+        // Informa que a cobrança está sendo gerada (texto configurável — só
+        // faz sentido em PT para o PIX; o intl usa um texto fixo em inglês,
+        // já que o lead chegou ali pelo botão "Not from Brazil?").
         await sendTelegramMessage(
           bot.botToken,
           String(message.chat.id),
-          bot.pixGeneratingMessage?.trim() || PIX_DEFAULTS.generatingMessage,
+          isIntlBuy ? "⏳ Generating your payment link..." : (bot.pixGeneratingMessage?.trim() || PIX_DEFAULTS.generatingMessage),
         );
 
         let amountCents = basePriceCents;
@@ -478,7 +522,10 @@ export async function POST(
         // O bump entra ANTES da variação de centavos: a variação é o último
         // ajuste, para o valor final continuar único por lead.
         if (bumpAceito) amountCents += bumpAceito.priceCents;
-        amountCents = applyDynamicPrice(bot, amountCents, from.id);
+        // A Stripe casa o pagamento pelo `session.id` (providerRef), não pelo
+        // VALOR — a variação de centavos existe só para o PIX, que não tem
+        // outra forma de saber quem pagou.
+        if (!isIntlBuy) amountCents = applyDynamicPrice(bot, amountCents, from.id);
         // Usa o token gerenciado (o mesmo mostrado na UI e aceito pelo webhook),
         // não o SESSION_SECRET — assim a confirmação autentica mesmo sem a env.
         // E usa a origem PÚBLICA: atrás de proxy/EasyPanel, req.nextUrl.origin
@@ -486,17 +533,24 @@ export async function POST(
         // criada, o cliente paga, mas a confirmação nunca chega e a venda some
         // do painel. Configure NEXT_PUBLIC_APP_URL (ou WEBHOOK_APP_URL) com o
         // domínio público para garantir isso em produção.
+        // (A Stripe não usa isso — o webhook dela é cadastrado uma vez no
+        // Dashboard, não por cobrança — mas não custa nada calcular também.)
         const postbackUrl = `${publicOrigin(req)}/w/${ensureSyncpayWebhookShortToken()}`;
 
-        // Cria cobrança PIX no SyncPay
+        // Cria a cobrança — PIX na SyncPay, Checkout Session na Stripe.
         const charge = await provider.createCharge({
           amountCents,
+          currency: isIntlBuy ? "USD" : undefined,
           description: `Assinatura ${itemName}`,
           postbackUrl,
           customer: {
             name: from.first_name + (from.last_name ? ` ${from.last_name}` : ""),
             email: "cliente@telegram.com",
           },
+          // Rede de segurança do webhook da Stripe: se por algum motivo a
+          // transação `pending` não for encontrada pelo `providerRef`, esses
+          // dados ainda identificam o pedido (ver deliverPayment.ts).
+          metadata: isIntlBuy ? { botId: bot.id, telegramUserId: String(from.id), planId } : undefined,
         });
 
         // Registra transação
@@ -510,26 +564,26 @@ export async function POST(
           description: `Assinatura Telegram - ${itemName}`,
           customer: from.first_name,
           amountCents,
+          currency: isIntlBuy ? "USD" : undefined,
           status: "pending",
           sourceCode: lead?.sourceCode,
           origin: "bot",
         });
 
-        // Alerta de PIX GERADO pelo bot de vendas (lead pediu o pagamento).
+        // Alerta de cobrança GERADA pelo bot de vendas (lead pediu o pagamento).
         try {
           const { sendPushEvent } = await import("@/lib/push");
-          const valStr = (amountCents / 100).toLocaleString("pt-BR", {
-            style: "currency",
-            currency: "BRL",
-          });
+          const valStr = isIntlBuy
+            ? (amountCents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })
+            : (amountCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
           await sendPushEvent(
             "pix",
-            `⏳ Pix gerado — ${valStr}`,
+            `⏳ ${isIntlBuy ? "Cobrança internacional gerada" : "Pix gerado"} — ${valStr}`,
             `${itemName} · ${from.first_name} (bot de vendas)`,
             "/dashboard/payments",
           );
         } catch (pErr) {
-          console.error("Erro ao enviar push de Pix gerado:", pErr);
+          console.error("Erro ao enviar push de cobrança gerada:", pErr);
         }
 
         // Registra inscrição pendente (guarda planId/offerId p/ resolver
@@ -553,6 +607,36 @@ export async function POST(
           pixCode: charge.pixCode || undefined,
           bumpCents: bumpAceito?.priceCents || 0,
         });
+
+        // ---- Checkout internacional (Stripe): link, não PIX ----
+        // Sem código copia-e-cola nem QR — não existem pra Stripe. O "Check
+        // payment status" reaproveita o MESMO handler `pix_check_`: ele já é
+        // agnóstico de provedor, só olha `sub.status`.
+        if (isIntlBuy) {
+          if (!charge.checkoutUrl) {
+            await sendTelegramMessage(
+              bot.botToken,
+              String(message.chat.id),
+              "⚠️ Could not generate the payment link. Please try again in a moment.",
+            );
+            return NextResponse.json({ ok: true });
+          }
+          await sendTelegramMessage(
+            bot.botToken,
+            String(message.chat.id),
+            "Finish the payment through the link below.",
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: "Make payment 👉", url: charge.checkoutUrl }],
+                  [{ text: "Check payment status", callback_data: `pix_check_${subId}`, ...buttonStyleProps(bot, "pixCheck") }],
+                ],
+              },
+              ...efeitoProps(bot.effectPix),
+            },
+          );
+          return NextResponse.json({ ok: true });
+        }
 
         // Envia o PIX: QR Code (imagem) + código copia-e-cola na legenda. Se a
         // geração do QR falhar por algum motivo, cai para só o texto.

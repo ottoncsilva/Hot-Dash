@@ -1,5 +1,5 @@
 import { getDb } from "./db";
-import { sanitizeButtonStyles, type ButtonStyles, type DynamicPrice } from "./settings";
+import { planButtonStyleProps, sanitizeButtonStyles, type ButtonStyles, type DynamicPrice } from "./settings";
 
 export type TelegramBotConfig = {
   id: string;
@@ -609,6 +609,41 @@ export function listActivePlans(botId: string): TelegramPlan[] {
 export function getPlan(id: string): TelegramPlan | null {
   const row = getDb().prepare("SELECT * FROM telegram_plans WHERE id = ?").get(id) as any;
   return row ? toPlan(row) : null;
+}
+
+/**
+ * Monta as linhas de botão de uma lista de planos — um botão por linha,
+ * `callback_data` no formato `<prefix><planId>[_<desconto>]`. Usado nos três
+ * lugares que mostram plano pra escolher (PIX no `/start`, PIX no downsell, e
+ * o menu internacional da Stripe), pra não duplicar a formatação de preço e
+ * cor em cada um.
+ *
+ * Em `moeda: "USD"` só entram os planos com `priceUsdCents` cadastrado — é
+ * esse campo, vazio ou não, que decide se um plano aparece no botão
+ * internacional (ver `TelegramPlan.priceUsdCents`).
+ */
+export function buildPlanKeyboardRows(
+  bot: { buttonStyles?: ButtonStyles },
+  plans: TelegramPlan[],
+  opts: { moeda: "BRL" | "USD"; discountPercent?: number; prefix: "buy_plan_" | "buy_intl_" },
+): { text: string; callback_data: string; style?: string }[][] {
+  const relevantes =
+    opts.moeda === "USD" ? plans.filter((p) => (p.priceUsdCents || 0) > 0) : plans;
+  const sufixo = opts.discountPercent && opts.discountPercent > 0 ? `_${opts.discountPercent}` : "";
+  return relevantes.map((plan) => {
+    const cents = opts.moeda === "USD" ? plan.priceUsdCents! : plan.priceCents;
+    const priceStr = (cents / 100).toLocaleString(opts.moeda === "USD" ? "en-US" : "pt-BR", {
+      style: "currency",
+      currency: opts.moeda,
+    });
+    return [
+      {
+        text: `${plan.name} - ${priceStr}`,
+        callback_data: `${opts.prefix}${plan.id}${sufixo}`,
+        ...planButtonStyleProps(bot, plan.highlight),
+      },
+    ];
+  });
 }
 
 export function savePlan(plan: TelegramPlan): void {

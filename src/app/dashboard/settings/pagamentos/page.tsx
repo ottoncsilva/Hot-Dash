@@ -36,6 +36,13 @@ export default function PaymentSettingsPage() {
     error?: string;
   } | null>(null);
   const [stripeBalanceBusy, setStripeBalanceBusy] = useState(false);
+  // Teste manual de cobrança: gera um link de checkout de verdade (com um
+  // valor qualquer) pra confirmar chave + webhook ponta a ponta antes de
+  // ligar o botão internacional pros leads.
+  const [stripeTestAmount, setStripeTestAmount] = useState("1.00");
+  const [stripeTestBusy, setStripeTestBusy] = useState(false);
+  const [stripeTestUrl, setStripeTestUrl] = useState<string | null>(null);
+  const [stripeTestErr, setStripeTestErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [origin, setOrigin] = useState("");
@@ -209,6 +216,31 @@ export default function PaymentSettingsPage() {
       });
     } finally {
       setStripeBalanceBusy(false);
+    }
+  }
+
+  async function testarCobrancaStripe() {
+    setStripeTestBusy(true);
+    setStripeTestErr(null);
+    setStripeTestUrl(null);
+    try {
+      const amount = Number(stripeTestAmount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        setStripeTestErr("Informe um valor válido.");
+        return;
+      }
+      const d = await apiSend<{ checkoutUrl?: string }>("/api/payments/stripe/test-charge", "POST", {
+        amount,
+      });
+      if (!d.checkoutUrl) {
+        setStripeTestErr("A Stripe não devolveu um link de checkout.");
+        return;
+      }
+      setStripeTestUrl(d.checkoutUrl);
+    } catch (e) {
+      setStripeTestErr(e instanceof Error ? e.message : "Falha ao gerar a cobrança de teste.");
+    } finally {
+      setStripeTestBusy(false);
     }
   }
 
@@ -623,6 +655,58 @@ export default function PaymentSettingsPage() {
                   )}
                 </p>
               )}
+            </div>
+          )}
+        </div>
+
+        {/* Teste de cobrança: gera um link de checkout de VERDADE (mesmo
+            caminho de uma venda real), pra confirmar chave + webhook ponta a
+            ponta antes de ligar o botão internacional pros leads. */}
+        <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+            Testar cobrança
+          </p>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            Gera um link de checkout de teste com o valor abaixo — pague com um cartão de
+            teste da Stripe (ou de verdade) e confira se a venda chega no Financeiro.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <MoneyInput
+              className="w-32"
+              currency="USD"
+              value={stripeTestAmount}
+              onChange={setStripeTestAmount}
+            />
+            <button
+              type="button"
+              onClick={testarCobrancaStripe}
+              disabled={stripeTestBusy || !stripeEnabled}
+              className="btn-ghost px-3 py-1.5 text-xs disabled:opacity-40"
+            >
+              {stripeTestBusy ? "Gerando..." : "Gerar link de teste"}
+            </button>
+          </div>
+          {!stripeEnabled && (
+            <p className="mt-1.5 text-[11px] text-zinc-600">Ative e salve a Stripe acima primeiro.</p>
+          )}
+          {stripeTestErr && <p className="mt-1.5 text-xs text-red-400">{stripeTestErr}</p>}
+          {stripeTestUrl && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] px-2.5 py-2">
+              <a
+                href={stripeTestUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-w-0 flex-1 truncate text-xs text-emerald-300 underline underline-offset-2"
+              >
+                {stripeTestUrl}
+              </a>
+              <button
+                type="button"
+                onClick={() => navigator.clipboard.writeText(stripeTestUrl).catch(() => {})}
+                className="btn-ghost shrink-0 px-2.5 py-1 text-[11px]"
+              >
+                Copiar
+              </button>
             </div>
           )}
         </div>

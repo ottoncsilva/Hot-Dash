@@ -19,6 +19,23 @@ type AccountRow = {
   created_at: number;
   sort_order: number;
 };
+/**
+ * O que a modelo NUNCA faz. Nasce preenchida em toda modelo nova (e no
+ * backfill de quem já existia — ver `backfillPersonaDoLtv` em `db.ts`) —
+ * é a parte que mais custa caro esquecer: sem limite escrito, a IA marca
+ * encontro, promete o que não existe e conta que é uma IA quando o lead
+ * pergunta. Editável por cima a qualquer momento.
+ */
+export const LIMITS_PADRAO =
+  "## REGRAS INEGOCIÁVEIS E LIMITES ESTRITOS DA IA:\n" +
+  "- NUNCA diga, sugira ou deixe transparecer que você é uma Inteligência Artificial, um bot, um assistente virtual, um sistema automatizado ou uma equipe de atendimento.\n" +
+  '- NUNCA mencione palavras de sistema como "prompt", "diretrizes", "IA", "modelo de linguagem", "atualização" ou "desenvolvedor".\n' +
+  "- A ilusão de realidade deve ser mantida 100% do tempo: para o lead, quem está digitando e enviando as fotos do outro lado da tela é a própria modelo.\n" +
+  "- NUNCA marque ou prometa encontros presenciais. Se o lead insistir muito, diga que seu momento agora é curtir a liberdade online e que você é muito seletiva para a vida real.\n" +
+  "- NUNCA prometa conteúdos, fetiches ou pacotes que não estão na sua lista oficial de produtos. Trabalhe apenas com o que você tem disponível no catálogo.\n" +
+  "- NUNCA implore por vendas ou demonstre desespero financeiro (pedindo dinheiro por emergência, contas a pagar, etc.). Você vende conteúdo por prazer e vaidade, não por necessidade básica.\n" +
+  "- NUNCA perca a postura. Mesmo ao dar foras ou cortes, mantenha a educação e a classe.";
+
 type ProfileRow = {
   id: string;
   name: string;
@@ -28,6 +45,8 @@ type ProfileRow = {
   bio_physical: string | null;
   bio_unique: string | null;
   bio_personality: string | null;
+  tone_tags: string | null;
+  limits: string | null;
   bio_vip_link: string | null;
   vip_link_auto: string | null;
   vip_link_auto_source: string | null;
@@ -86,6 +105,8 @@ function profileToClient(p: ProfileRow): Profile {
     bioPhysical: p.bio_physical || undefined,
     bioUnique: p.bio_unique || undefined,
     bioPersonality: (p.bio_personality as any) || "safadinha",
+    toneTags: parseIds(p.tone_tags) || [],
+    limits: p.limits || LIMITS_PADRAO,
     bioVipLink: p.bio_vip_link || undefined,
     vipLinkAuto: p.vip_link_auto || undefined,
     vipLinkAutoSource: p.vip_link_auto_source || undefined,
@@ -139,10 +160,10 @@ export async function createProfile(input: {
   const id = randomUUID();
   getDb()
     .prepare(
-      `INSERT INTO profiles (id, name, avatar_path, notes, status, bio_personality, created_at, updated_at)
-       VALUES (?, ?, NULL, ?, ?, 'safadinha', ?, ?)`,
+      `INSERT INTO profiles (id, name, avatar_path, notes, status, bio_personality, limits, created_at, updated_at)
+       VALUES (?, ?, NULL, ?, ?, 'safadinha', ?, ?, ?)`,
     )
-    .run(id, input.name.trim(), input.notes?.trim() || "", defaultStatus.id, now, now);
+    .run(id, input.name.trim(), input.notes?.trim() || "", defaultStatus.id, LIMITS_PADRAO, now, now);
   return (await getProfile(id))!;
 }
 
@@ -156,6 +177,8 @@ export async function updateProfile(
     bioPhysical?: string;
     bioUnique?: string;
     bioPersonality?: "santinha" | "safadinha" | "explicita";
+    toneTags?: string[];
+    limits?: string;
     bioVipLink?: string;
     bioWhatsappLink?: string;
     bioWhatsappButton?: string;
@@ -201,6 +224,16 @@ export async function updateProfile(
   if (patch.bioPersonality !== undefined) {
     sets.push("bio_personality = ?");
     vals.push(patch.bioPersonality);
+  }
+  if (patch.toneTags !== undefined) {
+    sets.push("tone_tags = ?");
+    vals.push(JSON.stringify(patch.toneTags));
+  }
+  if (patch.limits !== undefined) {
+    sets.push("limits = ?");
+    // Vazio volta a valer o padrão — mesma lógica do prompt do Gerador de
+    // Imagem/Vídeo logo abaixo: campo em branco não é "sem limite nenhum".
+    vals.push(patch.limits.trim() || LIMITS_PADRAO);
   }
   if (patch.bioVipLink !== undefined) {
     sets.push("bio_vip_link = ?");

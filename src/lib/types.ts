@@ -45,9 +45,18 @@ export type Profile = {
   mediaCount?: number;
   /** Id de um item do catálogo `ProfileStatusDef`. */
   status: string;
+  /** Personalidade — bio, jeito de falar, gírias, o que gosta (texto livre,
+   *  pode incluir o físico como prosa). Também alimenta o agente de LTV. */
   bioPhysical?: string;
+  /** Mecanismo/história — o contexto que ela usa pra vender e criar conexão. */
   bioUnique?: string;
+  /** @deprecated substituído por `toneTags` (chips multi-select). Mantido só
+   *  pra não perder o dado de quem nunca abriu a tela depois da migração. */
   bioPersonality?: "santinha" | "safadinha" | "explicita";
+  /** Tom — pode combinar mais de um (Carinhosa, Safada, Dominadora...). */
+  toneTags?: string[];
+  /** O que ela NUNCA faz. Nasce preenchido com um texto genérico editável. */
+  limits?: string;
   bioVipLink?: string;
   /** Link do VIP descoberto sozinho (lib/vipLink.ts). O manual acima manda. */
   vipLinkAuto?: string;

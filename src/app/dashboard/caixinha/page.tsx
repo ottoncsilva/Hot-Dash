@@ -99,13 +99,6 @@ function textoDoGerador(item: Item): string[] {
   return [item.text];
 }
 
-/** Os mesmos rótulos do cadastro da modelo (Modelos → Perfil da modelo). */
-const COMO_ELA_E: Record<string, string> = {
-  santinha: "Santinha — inocente por fora",
-  safadinha: "Safadinha — safada na medida",
-  explicita: "Explícita — sem papas na língua",
-};
-
 export default function CaixinhaPage() {
   const { profileId, profile } = useProfile();
 
@@ -273,7 +266,7 @@ export default function CaixinhaPage() {
 
   const rotulos = TIPOS.find((x) => x.key === kind) || TIPOS[0];
   const temPersona = Boolean(
-    profile?.bioPhysical || profile?.bioUnique || profile?.bioPersonality,
+    profile?.bioPhysical || profile?.bioUnique || profile?.toneTags?.length,
   );
   // UMA lista só. O tipo é uma etiqueta na linha, não uma gaveta: quem abre a
   // tela quer ver o que tem para postar hoje, e caixinha e frase de duplo
@@ -357,20 +350,17 @@ export default function CaixinhaPage() {
             <div className="mt-1.5 space-y-0.5 text-[12px] leading-relaxed text-zinc-300">
               {profile?.bioPhysical && (
                 <p>
-                  <span className="text-zinc-600">Características físicas:</span>{" "}
-                  {profile.bioPhysical}
+                  <span className="text-zinc-600">Personalidade:</span> {profile.bioPhysical}
                 </p>
               )}
               {profile?.bioUnique && (
                 <p>
-                  <span className="text-zinc-600">Mecanismo único / fetiche:</span>{" "}
-                  {profile.bioUnique}
+                  <span className="text-zinc-600">Mecanismo / história:</span> {profile.bioUnique}
                 </p>
               )}
-              {profile?.bioPersonality && (
+              {profile?.toneTags && profile.toneTags.length > 0 && (
                 <p>
-                  <span className="text-zinc-600">Como ela é:</span>{" "}
-                  {COMO_ELA_E[profile.bioPersonality]}
+                  <span className="text-zinc-600">Tom:</span> {profile.toneTags.join(" + ")}
                 </p>
               )}
             </div>

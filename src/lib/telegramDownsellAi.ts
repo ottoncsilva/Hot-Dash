@@ -157,7 +157,7 @@ async function blocoPersona(profileId: string): Promise<{ nome: string; texto: s
   const unico = perfil?.bioUnique || "";
   return {
     nome,
-    texto: `PERSONA DA MODELO\nNome: ${nome}\nCaracterísticas físicas: ${fisico || "(não informado)"}\nO que a torna única / seu diferencial: ${unico || "(não informado)"}`,
+    texto: `PERSONA DA MODELO\nNome: ${nome}\nPersonalidade: ${fisico || "(não informado)"}\nO que a torna única / seu diferencial: ${unico || "(não informado)"}`,
   };
 }
 

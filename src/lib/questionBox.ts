@@ -281,17 +281,9 @@ function segundosDoTexto(pergunta: string, resposta?: string): number {
  */
 export function personaDaModelo(p: Profile): string {
   const partes: string[] = [`Nome: ${p.name}`];
-  if (p.bioPhysical) partes.push(`Características físicas: ${p.bioPhysical}`);
+  if (p.bioPhysical) partes.push(`Personalidade: ${p.bioPhysical}`);
   if (p.bioUnique) partes.push(`Mecanismo único / fetiche (o diferencial): ${p.bioUnique}`);
-  if (p.bioPersonality) {
-    const tipo =
-      p.bioPersonality === "santinha"
-        ? "Santinha (inocente por fora)"
-        : p.bioPersonality === "explicita"
-          ? "Explícita (sem papas na língua)"
-          : "Safadinha (safada na medida)";
-    partes.push(`Como ela é: ${tipo}`);
-  }
+  if (p.toneTags?.length) partes.push(`Tom: ${p.toneTags.join(" + ")}`);
   if (p.notes?.trim()) partes.push(`Anotações: ${p.notes.trim()}`);
   return partes.join("\n");
 }

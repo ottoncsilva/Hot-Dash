@@ -212,16 +212,9 @@ export async function POST(req: NextRequest) {
 
         // Personalização Profunda baseada no Perfil
         let richNotes = profile.notes || "";
-        if (profile.bioPhysical) richNotes += `\nCaracterísticas Físicas da modelo: ${profile.bioPhysical}`;
+        if (profile.bioPhysical) richNotes += `\nPersonalidade da modelo: ${profile.bioPhysical}`;
         if (profile.bioUnique) richNotes += `\nMecanismo Único / Fetiche: ${profile.bioUnique}`;
-        if (profile.bioPersonality) {
-          const pType = profile.bioPersonality === "santinha"
-            ? "Santinha (inocente por fora)"
-            : profile.bioPersonality === "explicita"
-            ? "Explícita (sem papas na língua, bem ousada e direta)"
-            : "Safadinha (safada na medida)";
-          richNotes += `\nPersonalidade/Estilo de escrita: ${pType}`;
-        }
+        if (profile.toneTags?.length) richNotes += `\nTom: ${profile.toneTags.join(" + ")}`;
 
         // Provedores a tentar neste slot: se já travamos um que funcionou, usa só
         // ele; caso contrário, percorre a cadeia inteira (permissivo → restritivo).

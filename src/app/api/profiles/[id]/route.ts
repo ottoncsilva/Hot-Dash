@@ -43,6 +43,10 @@ export async function PATCH(
       bioPhysical: body.bioPhysical,
       bioUnique: body.bioUnique,
       bioPersonality: body.bioPersonality,
+      toneTags: Array.isArray(body.toneTags)
+        ? body.toneTags.filter((x: unknown): x is string => typeof x === "string")
+        : undefined,
+      limits: body.limits,
       bioVipLink: body.bioVipLink,
       bioWhatsappLink: body.bioWhatsappLink,
       bioWhatsappButton: body.bioWhatsappButton,

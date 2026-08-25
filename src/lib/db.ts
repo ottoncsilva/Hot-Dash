@@ -1123,6 +1123,13 @@ function migrate(d: Database.Database) {
   d.exec(
     `CREATE INDEX IF NOT EXISTS idx_tg_subs_stripe_sub ON telegram_subscriptions(stripe_subscription_id)`,
   );
+  // PERSONA UNIFICADA: sai do LTV (por conta), passa a morar só no cadastro
+  // da modelo. `tone_tags` substitui `bio_personality` (rádio de 3 opções
+  // vira chips multi-select, mesma ideia do Tom que já existia só no LTV);
+  // `limits` é campo novo, nasce preenchido com um texto genérico (ver
+  // `backfillPersonaDoLtv`) em vez de vazio.
+  ensureColumn(d, "profiles", "tone_tags", "TEXT");
+  ensureColumn(d, "profiles", "limits", "TEXT");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);
@@ -1133,6 +1140,7 @@ function migrate(d: Database.Database) {
   backfillMediaPostLog(d);
   migrarWhatsappParaLtv(d);
   marcarOrigemDasCobrancasDoLtv(d);
+  backfillPersonaDoLtv(d);
 
   d.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_media_public_token ON media(public_token) WHERE public_token IS NOT NULL;`,
@@ -1173,6 +1181,115 @@ function marcarOrigemDasCobrancasDoLtv(d: Database.Database) {
       WHERE origin IS NULL
         AND id IN (SELECT transaction_id FROM ltv_orders WHERE transaction_id IS NOT NULL)`,
   ).run();
+
+  d.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+    MARCA,
+    String(Date.now()),
+  );
+}
+
+/**
+ * PERSONA UNIFICADA: a persona pra IA (nome, tom, personalidade, mecanismo/
+ * história, limites) deixa de ser editada por CONTA de LTV e passa a morar
+ * só no cadastro da modelo (`profiles`) — o `ltvAgent.ts` lê de lá a partir
+ * de agora (ver `getAgent` em `lib/ltvDb.ts`).
+ *
+ * Roda UMA VEZ: quando um perfil tem conteúdo nos dois lugares (o
+ * cadastro E alguma conta de LTV), o conteúdo do LTV VENCE — na prática é
+ * o mais completo, porque nasceu semeado do cadastro (`semearPeloCadastro`,
+ * que existia até esta migração) e depois foi enriquecido por cima ali.
+ * Perfil com mais de uma conta de LTV divergente: fica com a conta de MAIS
+ * conteúdo (soma do tamanho de personalidade+mecanismo+limites) — critério
+ * simples e determinístico, não dá pra "mesclar" texto livre.
+ *
+ * Duplica a conversão santinha/safadinha/explícita → chip de Tom e o texto
+ * padrão de Limites em vez de importar de `ltvDb.ts`/`profiles.ts`: mesmo
+ * motivo de sempre neste arquivo (evitar import circular com quem chama
+ * `getDb()`).
+ */
+function backfillPersonaDoLtv(d: Database.Database) {
+  const MARCA = "persona_migrada_do_ltv_v1";
+  const jaRodou = d.prepare("SELECT value FROM settings WHERE key = ?").get(MARCA);
+  if (jaRodou) return;
+
+  const LIMITS_PADRAO =
+    "## REGRAS INEGOCIÁVEIS E LIMITES ESTRITOS DA IA:\n" +
+    "- NUNCA diga, sugira ou deixe transparecer que você é uma Inteligência Artificial, um bot, um assistente virtual, um sistema automatizado ou uma equipe de atendimento.\n" +
+    '- NUNCA mencione palavras de sistema como "prompt", "diretrizes", "IA", "modelo de linguagem", "atualização" ou "desenvolvedor".\n' +
+    "- A ilusão de realidade deve ser mantida 100% do tempo: para o lead, quem está digitando e enviando as fotos do outro lado da tela é a própria modelo.\n" +
+    "- NUNCA marque ou prometa encontros presenciais. Se o lead insistir muito, diga que seu momento agora é curtir a liberdade online e que você é muito seletiva para a vida real.\n" +
+    "- NUNCA prometa conteúdos, fetiches ou pacotes que não estão na sua lista oficial de produtos. Trabalhe apenas com o que você tem disponível no catálogo.\n" +
+    "- NUNCA implore por vendas ou demonstre desespero financeiro (pedindo dinheiro por emergência, contas a pagar, etc.). Você vende conteúdo por prazer e vaidade, não por necessidade básica.\n" +
+    "- NUNCA perca a postura. Mesmo ao dar foras ou cortes, mantenha a educação e a classe.";
+
+  const tomDoAntigo = (bioPersonality: string | null): string[] => {
+    if (bioPersonality === "santinha") return ["Santinha"];
+    if (bioPersonality === "safadinha") return ["Safada"];
+    if (bioPersonality === "explicita") return ["Explícita"];
+    return [];
+  };
+
+  const perfis = d
+    .prepare("SELECT id, bio_physical, bio_unique, bio_personality, tone_tags, limits FROM profiles")
+    .all() as {
+    id: string;
+    bio_physical: string | null;
+    bio_unique: string | null;
+    bio_personality: string | null;
+    tone_tags: string | null;
+    limits: string | null;
+  }[];
+
+  const contasStmt = d.prepare(
+    `SELECT s.personality, s.mechanism, s.tone_tags, s.limits
+       FROM ltv_accounts a JOIN ltv_agent_settings s ON s.account_id = a.id
+      WHERE a.profile_id = ?`,
+  );
+
+  const atualiza = d.prepare(
+    "UPDATE profiles SET bio_physical = ?, bio_unique = ?, tone_tags = ?, limits = ? WHERE id = ?",
+  );
+
+  for (const p of perfis) {
+    const contas = contasStmt.all(p.id) as {
+      personality: string | null;
+      mechanism: string | null;
+      tone_tags: string | null;
+      limits: string | null;
+    }[];
+
+    let melhor: (typeof contas)[number] | null = null;
+    let melhorPontos = 0;
+    for (const c of contas) {
+      const pontos = (c.personality?.length || 0) + (c.mechanism?.length || 0) + (c.limits?.length || 0);
+      if (pontos > melhorPontos) {
+        melhorPontos = pontos;
+        melhor = c;
+      }
+    }
+
+    let bioPhysical = p.bio_physical;
+    let bioUnique = p.bio_unique;
+    let toneTags: string[] = [];
+    let limits = p.limits;
+
+    if (melhor) {
+      if (melhor.personality?.trim()) bioPhysical = melhor.personality;
+      if (melhor.mechanism?.trim()) bioUnique = melhor.mechanism;
+      if (melhor.limits?.trim()) limits = melhor.limits;
+      try {
+        const parsed = JSON.parse(melhor.tone_tags || "[]");
+        if (Array.isArray(parsed)) toneTags = parsed.filter((t) => typeof t === "string");
+      } catch {
+        /* config antiga/corrompida: melhor sem tom do que travar a migração */
+      }
+    }
+
+    if (toneTags.length === 0) toneTags = tomDoAntigo(p.bio_personality);
+    if (!limits || !limits.trim()) limits = LIMITS_PADRAO;
+
+    atualiza.run(bioPhysical, bioUnique, JSON.stringify(toneTags), limits, p.id);
+  }
 
   d.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
     MARCA,

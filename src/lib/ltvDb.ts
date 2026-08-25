@@ -101,15 +101,6 @@ export type LtvMessage = {
   createdAt: number;
 };
 
-/**
- * O que a modelo NUNCA faz. Nasce preenchido porque é a parte que mais custa
- * caro esquecer: sem limite escrito, a IA marca encontro, promete o que não
- * existe e conta que é uma IA quando o lead pergunta.
- */
-export const LIMITES_PADRAO =
-  "não marca encontro presencial, não promete o que não pode ou não vai conseguir entregar, " +
-  "não fala que é IA, não fala sobre sistema ou plataforma. tem que parecer uma mulher real.";
-
 const AGENT_PADRAO: Omit<LtvAgentSettings, "accountId"> = {
   enabled: false,
   approach: "aquecer",
@@ -128,26 +119,35 @@ const AGENT_PADRAO: Omit<LtvAgentSettings, "accountId"> = {
 };
 
 /**
- * Primeira abertura da tela: a persona nasce com o que já foi escrito no
- * cadastro da modelo, em vez de três caixas vazias. É o mesmo texto que
- * alimenta o resto do painel, então a modelo já chega coerente — e a pessoa
- * edita por cima do que quiser.
+ * A persona (nome, tom, personalidade, mecanismo, limites) mora só no
+ * cadastro da modelo agora — não é mais editada por conta de LTV (ver
+ * `PersonaBlock`, removido). Toda conta do mesmo perfil usa a MESMA
+ * persona; só o resto do agente (ritmo, limite diário, desconto...)
+ * continua por conta.
  */
-function semearPeloCadastro(accountId: string): Partial<LtvAgentSettings> {
+function personaDoPerfil(accountId: string): Pick<LtvAgentSettings, "personaName" | "toneTags" | "personality" | "mechanism" | "limits"> {
   const r = getDb()
     .prepare(
-      `SELECT p.name, p.bio_physical, p.bio_unique
+      `SELECT p.name, p.bio_physical, p.bio_unique, p.tone_tags, p.limits
          FROM ltv_accounts c JOIN profiles p ON p.id = c.profile_id
         WHERE c.id = ?`,
     )
     .get(accountId) as
-    | { name?: string; bio_physical?: string; bio_unique?: string }
+    | { name?: string; bio_physical?: string; bio_unique?: string; tone_tags?: string; limits?: string }
     | undefined;
+  let toneTags: string[] = [];
+  try {
+    const parsed = JSON.parse(r?.tone_tags || "[]");
+    if (Array.isArray(parsed)) toneTags = parsed.filter((t) => typeof t === "string");
+  } catch {
+    /* cadastro com tom corrompido: melhor sem tom do que quebrar a tela */
+  }
   return {
     personaName: r?.name || "",
+    toneTags,
     personality: r?.bio_physical || "",
     mechanism: r?.bio_unique || "",
-    limits: LIMITES_PADRAO,
+    limits: r?.limits || "",
   };
 }
 
@@ -303,17 +303,11 @@ export function deleteAccount(id: string): void {
 /* ------------------------------------------------------------------ agente */
 
 export function getAgent(accountId: string): LtvAgentSettings {
+  const persona = personaDoPerfil(accountId);
   const r = getDb()
     .prepare(`SELECT * FROM ltv_agent_settings WHERE account_id = ?`)
     .get(accountId) as any;
-  if (!r) return { accountId, ...AGENT_PADRAO, ...semearPeloCadastro(accountId) };
-  let toneTags: string[] = [];
-  try {
-    const parsed = JSON.parse(r.tone_tags || "[]");
-    if (Array.isArray(parsed)) toneTags = parsed.filter((t) => typeof t === "string");
-  } catch {
-    /* config antiga ou corrompida: melhor sem tom do que quebrar a tela */
-  }
+  if (!r) return { accountId, ...AGENT_PADRAO, ...persona };
   let sampleMediaIds: string[] = [];
   try {
     const parsed = JSON.parse(r.sample_media_ids || "[]");
@@ -325,11 +319,7 @@ export function getAgent(accountId: string): LtvAgentSettings {
     accountId,
     enabled: Boolean(r.enabled),
     approach: r.approach === "direto" ? "direto" : "aquecer",
-    personaName: r.persona_name || "",
-    toneTags,
-    personality: r.personality || "",
-    mechanism: r.mechanism || "",
-    limits: r.limits || "",
+    ...persona,
     rhythm: r.rhythm === "fixo" ? "fixo" : "humano",
     delayMinS: r.delay_min_s,
     delayMaxS: r.delay_max_s,
@@ -351,23 +341,20 @@ export function saveAgent(accountId: string, patch: Partial<LtvAgentSettings>): 
   // Acima de 100% o preço viraria negativo e a cobrança seria recusada pela
   // SyncPay com um erro que ninguém entenderia olhando a conversa.
   novo.maxDiscountPct = Math.min(100, Math.max(0, Math.round(novo.maxDiscountPct)));
+  // Persona (nome/tom/personalidade/mecanismo/limites) NÃO é mais gravada
+  // aqui — mora só no cadastro da modelo (ver `personaDoPerfil`). A tela
+  // de LTV não manda mais esses campos (PersonaBlock foi removido), mas
+  // mesmo que algum chamador antigo mandasse, esta função os ignora.
   getDb()
     .prepare(
       `INSERT INTO ltv_agent_settings
-         (account_id, enabled, approach, persona_name, tone_tags, personality, mechanism,
-          limits, rhythm, delay_min_s, delay_max_s, daily_limit, only_reply_first,
-          max_discount_pct, sample_media_ids)
-       VALUES (@accountId, @enabled, @approach, @personaName, @toneTags, @personality,
-               @mechanism, @limits, @rhythm, @delayMinS, @delayMaxS, @dailyLimit, @onlyReplyFirst,
-               @maxDiscountPct, @sampleMediaIds)
+         (account_id, enabled, approach, rhythm, delay_min_s, delay_max_s, daily_limit,
+          only_reply_first, max_discount_pct, sample_media_ids)
+       VALUES (@accountId, @enabled, @approach, @rhythm, @delayMinS, @delayMaxS, @dailyLimit,
+               @onlyReplyFirst, @maxDiscountPct, @sampleMediaIds)
        ON CONFLICT(account_id) DO UPDATE SET
          enabled = excluded.enabled,
          approach = excluded.approach,
-         persona_name = excluded.persona_name,
-         tone_tags = excluded.tone_tags,
-         personality = excluded.personality,
-         mechanism = excluded.mechanism,
-         limits = excluded.limits,
          rhythm = excluded.rhythm,
          delay_min_s = excluded.delay_min_s,
          delay_max_s = excluded.delay_max_s,
@@ -380,11 +367,6 @@ export function saveAgent(accountId: string, patch: Partial<LtvAgentSettings>): 
       accountId,
       enabled: novo.enabled ? 1 : 0,
       approach: novo.approach,
-      personaName: novo.personaName,
-      toneTags: JSON.stringify(novo.toneTags),
-      personality: novo.personality,
-      mechanism: novo.mechanism,
-      limits: novo.limits,
       rhythm: novo.rhythm,
       delayMinS: novo.delayMinS,
       delayMaxS: novo.delayMaxS,
@@ -393,7 +375,7 @@ export function saveAgent(accountId: string, patch: Partial<LtvAgentSettings>): 
       maxDiscountPct: novo.maxDiscountPct,
       sampleMediaIds: JSON.stringify(novo.sampleMediaIds || []),
     });
-  return novo;
+  return { ...novo, ...personaDoPerfil(accountId) };
 }
 
 /* ---------------------------------------------------------------- produtos */

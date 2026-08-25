@@ -6,6 +6,7 @@ import Link from "next/link";
 import { apiGet, apiSend, apiUpload } from "@/lib/api";
 import AuthImage from "@/components/AuthImage";
 import Modal from "@/components/Modal";
+import ToggleChip from "@/components/ToggleChip";
 import { useConfirm } from "@/hooks/useConfirm";
 import {
   IconArrowLeft,
@@ -40,6 +41,20 @@ import { showToast } from "@/lib/toast";
 import DetectChat from "@/components/telegram/bot/DetectChat";
 import { KeyLabel } from "../../settings/_shared";
 
+/** Junta o que era "Como ela é" (Santinha/Safadinha/Explícita) com o Tom que
+ *  só existia no LTV — são a mesma ideia (o jeito dela na conversa), então
+ *  viram um chip multi-select só, em vez de dois campos que se sobrepõem. */
+const TONS = [
+  "Carinhosa",
+  "Namoradinha",
+  "Safada",
+  "Dominadora",
+  "Misteriosa",
+  "Brincalhona",
+  "Santinha",
+  "Explícita",
+];
+
 export default function ProfileDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -50,7 +65,8 @@ export default function ProfileDetailPage() {
   const [notes, setNotes] = useState("");
   const [bioPhysical, setBioPhysical] = useState("");
   const [bioUnique, setBioUnique] = useState("");
-  const [bioPersonality, setBioPersonality] = useState<"santinha" | "safadinha" | "explicita">("safadinha");
+  const [toneTags, setToneTags] = useState<string[]>([]);
+  const [limits, setLimits] = useState("");
   const [bioVipLink, setBioVipLink] = useState("");
   // O link do VIP que o painel DESCOBRIU sozinho (bot/grupo). Só serve para
   // mostrar na tela: quem manda no envio é o campo acima, quando preenchido.
@@ -84,7 +100,8 @@ export default function ProfileDetailPage() {
       setNotes(data.profile.notes || "");
       setBioPhysical(data.profile.bioPhysical || "");
       setBioUnique(data.profile.bioUnique || "");
-      setBioPersonality(data.profile.bioPersonality || "safadinha");
+      setToneTags(data.profile.toneTags || []);
+      setLimits(data.profile.limits || "");
       setBioVipLink(data.profile.bioVipLink || "");
       setBioWhatsappLink(data.profile.bioWhatsappLink || "");
       setBioWhatsappButton(data.profile.bioWhatsappButton || "");
@@ -143,7 +160,8 @@ export default function ProfileDetailPage() {
           notes,
           bioPhysical,
           bioUnique,
-          bioPersonality,
+          toneTags,
+          limits,
           bioVipLink,
           bioWhatsappLink,
           bioWhatsappButton,
@@ -235,7 +253,8 @@ export default function ProfileDetailPage() {
     (notes || "") !== (profile.notes || "") ||
     bioPhysical !== (profile.bioPhysical || "") ||
     bioUnique !== (profile.bioUnique || "") ||
-    bioPersonality !== (profile.bioPersonality || "safadinha") ||
+    JSON.stringify(toneTags) !== JSON.stringify(profile.toneTags || []) ||
+    limits !== (profile.limits || "") ||
     bioVipLink !== (profile.bioVipLink || "") ||
     bioWhatsappLink !== (profile.bioWhatsappLink || "") ||
     bioWhatsappButton !== (profile.bioWhatsappButton || "") ||
@@ -315,48 +334,74 @@ export default function ProfileDetailPage() {
             </div>
             
             <div>
-              <label className="eyebrow mb-1.5 block">Características Físicas</label>
+              <label className="eyebrow mb-1.5 block">
+                Personalidade{" "}
+                <span className="font-normal text-zinc-500">
+                  (bio, jeito de falar, gírias, o que gosta — quanto mais detalhada, mais humana
+                  fica a conversa)
+                </span>
+              </label>
               <textarea
-                className="input min-h-[72px] resize-y"
-                placeholder="Ex: Loira corpo levemente malhado, silicone médio..."
+                className="input min-h-[120px] resize-y"
+                placeholder="Ex: 40 anos, loira, de Alphaville São Paulo, chama o cliente de amor, usa pouco emoji, gosta de provocar, é elegante e fina, divorciada, não tem filhos..."
                 value={bioPhysical}
                 onChange={(e) => setBioPhysical(e.target.value)}
               />
             </div>
 
             <div>
-              <label className="eyebrow mb-1.5 block">Mecanismo Único / Fetiche <span className="text-zinc-500 font-normal">(o diferencial — vira a história)</span></label>
-              <input
-                className="input"
-                placeholder="Ex: Coroa 40 anos divorciada"
+              <label className="eyebrow mb-1.5 block">
+                Mecanismo / História{" "}
+                <span className="font-normal text-zinc-500">
+                  (o contexto que ela usa pra vender e criar conexão)
+                </span>
+              </label>
+              <textarea
+                className="input min-h-[90px] resize-y"
+                placeholder="Ex: Após o divórcio, resolveu vender conteúdo na internet para manter o estilo de vida, tem pacotes de fotos..."
                 value={bioUnique}
                 onChange={(e) => setBioUnique(e.target.value)}
               />
             </div>
 
             <div>
-              <label className="eyebrow mb-1.5 block">Como ela é</label>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { id: "santinha", title: "Santinha", desc: "inocente por fora" },
-                  { id: "safadinha", title: "Safadinha", desc: "safada na medida" },
-                  { id: "explicita", title: "Explícita", desc: "sem papas na língua" }
-                ].map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setBioPersonality(item.id as any)}
-                    className={`flex flex-col items-start px-3 py-2 rounded-lg border transition-all text-left ${
-                      bioPersonality === item.id
-                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400 shadow-md'
-                        : 'border-white/[0.06] bg-zinc-900/40 text-zinc-400 hover:bg-zinc-900/60'
-                    }`}
+              <label className="eyebrow mb-1.5 block">Tom · pode escolher mais de um para mesclar</label>
+              <div className="flex flex-wrap gap-2">
+                {TONS.map((tom) => (
+                  <ToggleChip
+                    key={tom}
+                    active={toneTags.includes(tom)}
+                    onClick={() =>
+                      setToneTags((atual) =>
+                        atual.includes(tom) ? atual.filter((t) => t !== tom) : [...atual, tom],
+                      )
+                    }
                   >
-                    <span className={`text-xs font-bold ${bioPersonality === item.id ? 'text-emerald-400' : 'text-zinc-200'}`}>{item.title}</span>
-                    <span className="text-[10px] text-zinc-500 mt-0.5">{item.desc}</span>
-                  </button>
+                    {tom}
+                  </ToggleChip>
                 ))}
               </div>
+              {toneTags.length > 1 && (
+                <p className="mt-2 text-xs text-emerald-400">
+                  Mesclando: <strong>{toneTags.join(" + ")}</strong> — ela alterna entre esses
+                  traços na conversa.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="eyebrow mb-1.5 block">
+                Limites <span className="font-normal text-zinc-500">(o que ela NUNCA faz)</span>
+              </label>
+              <textarea
+                className="input min-h-[140px] resize-y font-mono text-xs"
+                value={limits}
+                onChange={(e) => setLimits(e.target.value)}
+              />
+              <p className="mt-1 text-[11px] text-zinc-500">
+                Nasce preenchido com um texto genérico — edite à vontade. Vazio, volta a valer
+                esse padrão.
+              </p>
             </div>
 
             <div>

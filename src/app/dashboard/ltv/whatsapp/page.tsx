@@ -7,7 +7,6 @@ import Switch from "@/components/Switch";
 import LtvBlock from "@/components/ltv/LtvBlock";
 import OpcaoCartao from "@/components/ltv/OpcaoCartao";
 import ContaWhatsappBlock from "@/components/ltv/ContaWhatsappBlock";
-import PersonaBlock from "@/components/ltv/PersonaBlock";
 import ProdutosBlock, { type ProdutoEditavel } from "@/components/ltv/ProdutosBlock";
 import SegurancaBlock from "@/components/ltv/SegurancaBlock";
 import { PrecisaDeModelo } from "@/components/ProfilePicker";
@@ -288,7 +287,14 @@ export default function LtvWhatsappPage() {
                       "Não configurada"
                     }
                   >
-                    <PersonaBlock agente={agente} onChange={mudarAgente} />
+                    <p className="text-sm text-zinc-400">
+                      Nome, tom, personalidade, mecanismo e limites agora vivem no cadastro da
+                      modelo — valem pra todos os canais dela (LTV do WhatsApp, LTV do Telegram
+                      e bot de vendas), não só aqui.
+                    </p>
+                    <Link href={`/dashboard/profiles/${profileId}`} className="btn-ghost mt-3 inline-flex">
+                      Editar no cadastro da modelo
+                    </Link>
                   </LtvBlock>
 
                   <LtvBlock

@@ -249,17 +249,9 @@ async function processBatch(row: JobRow): Promise<number> {
 
   // Persona rica (mesmo detalhamento dos outros geradores).
   let richNotes = profile.notes || "";
-  if (profile.bioPhysical) richNotes += `\nCaracterísticas físicas: ${profile.bioPhysical}`;
+  if (profile.bioPhysical) richNotes += `\nPersonalidade: ${profile.bioPhysical}`;
   if (profile.bioUnique) richNotes += `\nDiferencial/fetiche: ${profile.bioUnique}`;
-  if (profile.bioPersonality) {
-    const pType =
-      profile.bioPersonality === "santinha"
-        ? "Santinha (inocente por fora, safada por dentro)"
-        : profile.bioPersonality === "explicita"
-          ? "Explícita (sem papas na língua, ousada e direta)"
-          : "Safadinha (safada na medida)";
-    richNotes += `\nPersonalidade/estilo: ${pType}`;
-  }
+  if (profile.toneTags?.length) richNotes += `\nTom: ${profile.toneTags.join(" + ")}`;
 
   // Fila de mídia do VIP. `getScheduledMediaUses` traz o que os lotes ANTERIORES
   // desta mesma geração já consumiram — sem isso cada lote recomeçaria a fila e

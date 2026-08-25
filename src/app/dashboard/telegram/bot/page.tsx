@@ -905,6 +905,52 @@ function EfeitoPicker({
   );
 }
 
+/**
+ * "Gerar com IA" de uma mensagem AVULSA (sem sequência) — boas-vindas,
+ * pagamento aprovado, telas do PIX. Mesmo motor do Downsell
+ * (`/api/ai/bot-message`, persona + voz do /start), só que pra campos que
+ * não fazem parte de nenhuma escalada de tempo/desconto.
+ */
+function BotaoGerarMensagem({
+  profileId,
+  campo,
+  rascunho,
+  onGerado,
+}: {
+  profileId: string;
+  campo: "welcome" | "success" | "pixGenerating" | "pixCaption" | "pixSocialProof" | "pixNotPaid";
+  rascunho?: string;
+  onGerado: (texto: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  async function gerar() {
+    setBusy(true);
+    try {
+      const { text } = await apiSend<{ text: string }>("/api/ai/bot-message", "POST", {
+        profileId,
+        campo,
+        rascunho,
+      });
+      onGerado(text);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha ao gerar a mensagem.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={gerar}
+      disabled={busy}
+      className="btn-ghost flex items-center gap-1 text-xs disabled:opacity-50"
+      title="Gera este texto com IA, usando a persona da modelo e o /start dela como base"
+    >
+      <IconSparkle size={13} /> {busy ? "Gerando…" : "Gerar com IA"}
+    </button>
+  );
+}
+
 function WelcomeRow({
   profileId,
   bot,
@@ -959,7 +1005,10 @@ function WelcomeRow({
       summary={resumo(bot.welcomeMessage) || "(vazia)"}
       status={bot.welcomeMessage?.trim() ? undefined : { label: "vazia", tone: "warn" }}
     >
-      <label className="eyebrow block">Texto enviado no /start</label>
+      <div className="flex items-center justify-between gap-2">
+        <label className="eyebrow block">Texto enviado no /start</label>
+        <BotaoGerarMensagem profileId={profileId} campo="welcome" rascunho={welcome} onGerado={setWelcome} />
+      </div>
       <div className="mt-1.5">
         <MessageEditor
           profileId={profileId}
@@ -1042,7 +1091,10 @@ function SuccessRow({
       summary={resumo(bot.successMessage) || "(vazia)"}
       status={semMarcador ? { label: "link anexado no fim", tone: "warn" } : undefined}
     >
-      <label className="eyebrow block">Enviada assim que o PIX é confirmado</label>
+      <div className="flex items-center justify-between gap-2">
+        <label className="eyebrow block">Enviada assim que o PIX é confirmado</label>
+        <BotaoGerarMensagem profileId={profileId} campo="success" rascunho={texto} onGerado={setTexto} />
+      </div>
       <textarea
         ref={areaRef}
         className="input mt-1.5 min-h-[110px]"
@@ -1181,7 +1233,10 @@ function PixRow({
         O que o lead vê entre clicar no plano e pagar. Deixe em branco para usar o texto padrão.
       </p>
 
-      <label className="eyebrow mt-4 block">Aviso enquanto a cobrança é criada</label>
+      <div className="mt-4 flex items-center justify-between gap-2">
+        <label className="eyebrow block">Aviso enquanto a cobrança é criada</label>
+        <BotaoGerarMensagem profileId={profileId} campo="pixGenerating" rascunho={gerando} onGerado={setGerando} />
+      </div>
       <input
         className="input mt-1.5"
         placeholder={pixDefaults?.generatingMessage}
@@ -1189,7 +1244,10 @@ function PixRow({
         onChange={(e) => setGerando(e.target.value)}
       />
 
-      <label className="eyebrow mt-4 block">Legenda do PIX (vai junto do QR Code)</label>
+      <div className="mt-4 flex items-center justify-between gap-2">
+        <label className="eyebrow block">Legenda do PIX (vai junto do QR Code)</label>
+        <BotaoGerarMensagem profileId={profileId} campo="pixCaption" rascunho={legenda} onGerado={setLegenda} />
+      </div>
       <textarea
         ref={areaRef}
         className="input mt-1.5 min-h-[140px] font-mono text-xs"
@@ -1252,9 +1310,17 @@ function PixRow({
         </div>
         {prova && (
           <>
+            <div className="mt-3 flex justify-end">
+              <BotaoGerarMensagem
+                profileId={profileId}
+                campo="pixSocialProof"
+                rascunho={provaTexto}
+                onGerado={setProvaTexto}
+              />
+            </div>
             <textarea
               ref={provaRef}
-              className="input mt-3 min-h-[60px]"
+              className="input mt-1.5 min-h-[60px]"
               placeholder={PROVA_PADRAO}
               value={provaTexto}
               onChange={(e) => setProvaTexto(e.target.value)}
@@ -1271,7 +1337,10 @@ function PixRow({
         )}
       </div>
 
-      <label className="eyebrow mt-4 block">Resposta quando o pagamento ainda não consta</label>
+      <div className="mt-4 flex items-center justify-between gap-2">
+        <label className="eyebrow block">Resposta quando o pagamento ainda não consta</label>
+        <BotaoGerarMensagem profileId={profileId} campo="pixNotPaid" rascunho={naoPago} onGerado={setNaoPago} />
+      </div>
       <textarea
         className="input mt-1.5 min-h-[60px]"
         placeholder={pixDefaults?.notPaidMessage}
@@ -1887,9 +1956,11 @@ function FunnelCard({
   // então adicionar um quarto gatilho um dia é só entrar nesta lista.
   // `padrao` do Downsell geral e do de PIX puxa de `DOWNSELL_GERAL_PADRAO`/
   // `PIX_DOWNSELL_PADRAO` (chega a 50% em 24h, depois alterna hora a hora —
-  // ver o comentário de cada constante). Upsell ainda NASCE VAZIO: fica pra
-  // uma próxima leva, como combinado. O botão "Puxar padrão" é sempre
-  // OPT-IN — nunca substitui sozinho o que a modelo já tem configurado.
+  // ver o comentário de cada constante). Upsell ainda não tem cronograma
+  // pronto pro "Puxar padrão" (fica pra uma próxima leva), mas já ganha
+  // "Gerar com IA" por mensagem igual aos outros dois. O botão "Puxar
+  // padrão" é sempre OPT-IN — nunca substitui sozinho o que a modelo já tem
+  // configurado.
   const grupos: {
     key: "geral" | "pix" | "upsell";
     titulo: string;
@@ -1938,6 +2009,7 @@ function FunnelCard({
       steps: upsell,
       setSteps: setUpsell,
       padrao: [],
+      permiteGerarIA: true,
     },
   ];
   const atual = grupos.find((g) => g.key === subTab) || grupos[0];
@@ -2018,7 +2090,7 @@ function FunnelCard({
           setSteps={atual.setSteps}
           planos={planos}
           permiteGerarIA={atual.permiteGerarIA}
-          funnelType={atual.key === "pix" ? "pix" : "geral"}
+          funnelType={atual.key}
           confirm={confirm}
         />
       </div>
@@ -2101,6 +2173,8 @@ function RenewalCard({
         modoRenovacao
         padrao={padrao}
         confirm={confirm}
+        permiteGerarIA
+        funnelType="renewal"
       />
 
       <button onClick={save} disabled={busy} className="btn-primary mt-4">
@@ -2331,7 +2405,7 @@ function FunnelEditor({
    * por ora (Upsell fica de fora, combinado). */
   permiteGerarIA?: boolean;
   /** Qual dos dois downsells é este, para o prompt calibrar o tom certo. */
-  funnelType?: "geral" | "pix";
+  funnelType?: "geral" | "pix" | "upsell" | "renewal" | "aprovacao";
   /** Confirmação antes de gerar TODAS as mensagens de uma vez — com 50+
    * passos isso sobrescreve muita coisa junta, vale um "tem certeza?". */
   confirm?: ConfirmFn;
@@ -3156,6 +3230,27 @@ function WelcomeSequence({
     setSteps(steps.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
   }
 
+  // Mesmo motor do Downsell, com "aprovacao" como tipo — persona da modelo +
+  // /start real, mas sem desconto/urgência: o objetivo aqui é dar boas-vindas
+  // de verdade, não vender.
+  const [geradorBusy, setGeradorBusy] = useState<number | null>(null);
+  async function gerarComIA(i: number) {
+    setGeradorBusy(i);
+    try {
+      const { text } = await apiSend<{ text: string }>("/api/ai/downsell-message", "POST", {
+        profileId,
+        funnelType: "aprovacao",
+        stepIndex: i,
+        steps,
+      });
+      update(i, { text });
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha ao gerar a mensagem.", "error");
+    } finally {
+      setGeradorBusy(null);
+    }
+  }
+
   return (
     <div className="mt-5">
       <p className="text-sm font-semibold text-white">{titulo}</p>
@@ -3219,8 +3314,17 @@ function WelcomeSequence({
                 <option value="custom">Botões próprios desta mensagem</option>
               </select>
               <button
+                type="button"
+                onClick={() => gerarComIA(i)}
+                disabled={geradorBusy !== null}
+                className="ml-auto flex items-center gap-1 rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/10 hover:text-white disabled:opacity-50"
+                title="Gera o texto desta mensagem com IA, usando a persona da modelo e o /start dela como base"
+              >
+                <IconSparkle size={13} /> {geradorBusy === i ? "Gerando…" : "Gerar com IA"}
+              </button>
+              <button
                 onClick={() => setSteps([...steps.slice(0, i + 1), { ...s }, ...steps.slice(i + 1)])}
-                className="ml-auto rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/10 hover:text-white"
+                className="rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/10 hover:text-white"
               >
                 Duplicar
               </button>
@@ -3564,6 +3668,8 @@ function FunilRetratil({
   modoRenovacao,
   padrao,
   confirm,
+  permiteGerarIA,
+  funnelType,
 }: {
   titulo: string;
   resumo: string;
@@ -3581,6 +3687,9 @@ function FunilRetratil({
   /** Modelo pronto do botão "Puxar padrão" — vazio some com ele. */
   padrao?: FunnelStep[];
   confirm?: ConfirmFn;
+  /** Ver o comentário em `FunnelEditor`. */
+  permiteGerarIA?: boolean;
+  funnelType?: "geral" | "pix" | "upsell" | "renewal" | "aprovacao";
 }) {
   // O Alerta de Renovação é o conteúdo INTEIRO da própria aba — sem outros
   // dois funis ao lado como na Recuperação —, então já abre sozinho em vez de
@@ -3654,6 +3763,9 @@ function FunilRetratil({
               setSteps={setSteps}
               planos={planos}
               modoRenovacao={modoRenovacao}
+              permiteGerarIA={permiteGerarIA}
+              funnelType={funnelType}
+              confirm={confirm}
             />
           </div>
         </div>

@@ -30,7 +30,8 @@ export async function POST(req: NextRequest) {
     const profileId = String(body.profileId || "").trim();
     if (!profileId) throw new ApiError(400, "Selecione a modelo.");
 
-    const tipo: TipoFunilDownsell = body.funnelType === "pix" ? "pix" : "geral";
+    const TIPOS: TipoFunilDownsell[] = ["geral", "pix", "upsell", "renewal", "aprovacao"];
+    const tipo: TipoFunilDownsell = TIPOS.includes(body.funnelType) ? body.funnelType : "geral";
     const indice = Number(body.stepIndex);
     const passosBrutos: unknown[] = Array.isArray(body.steps) ? body.steps : [];
     const passos = passosBrutos.map(parsePasso).filter((p): p is FunnelStep => p !== null);

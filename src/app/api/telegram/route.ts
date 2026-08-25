@@ -502,6 +502,7 @@ export async function POST(req: NextRequest) {
           name,
           priceCents,
           priceUsdCents,
+          intlAvailable: p.intlAvailable !== false,
           durationDays,
           kind,
           deliverable,

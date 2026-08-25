@@ -141,6 +141,9 @@ type Plan = {
   /** Preço em USD do MESMO plano, pro botão "Not from Brazil?" (Stripe).
    *  Ausente/0 = não entra na venda internacional. */
   priceUsdCents?: number;
+  /** Controle A MAIS (além do preço em USD) pra incluir/excluir este plano
+   *  da venda internacional. Padrão true. */
+  intlAvailable?: boolean;
   /** 0 = vitalício. */
   durationDays: number;
   kind: "subscription" | "package";
@@ -323,8 +326,10 @@ export default function BotVendasPage() {
         style: corDo((p.highlight && CORES_DO_PLANO[p.highlight]) || bot?.buttonStyles?.plans),
       })),
     // "Not from Brazil?" — mesmo critério do /start de verdade: interruptor
-    // ligado (aba Planos) E pelo menos um plano ativo com preço em USD.
-    ...(bot?.intlEnabled !== false && plans.some((p) => p.active !== false && (p.priceUsdCents || 0) > 0)
+    // geral ligado (aba Planos) E pelo menos um plano ativo, com preço em
+    // USD, disponível pra outras moedas (interruptor por plano).
+    ...(bot?.intlEnabled !== false &&
+    plans.some((p) => p.active !== false && (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false)
       ? [{ text: "🌎 Not from Brazil?", kind: "custom" as const, style: corDo(bot?.buttonStyles?.redirect) }]
       : []),
     ...buttons.map((b) => ({ text: b.text, kind: "custom" as const, style: corDo(bot?.buttonStyles?.redirect) })),
@@ -1652,6 +1657,7 @@ type PlanRow = {
   name: string;
   price: string;
   priceUsd: string;
+  intlAvailable: boolean;
   durationDays: number;
   kind: "subscription" | "package";
   deliverable: string;
@@ -1683,6 +1689,7 @@ function PlansCard({
       name: p.name,
       price: (p.priceCents / 100).toFixed(2),
       priceUsd: p.priceUsdCents ? (p.priceUsdCents / 100).toFixed(2) : "",
+      intlAvailable: p.intlAvailable !== false,
       durationDays: p.durationDays,
       kind: p.kind || "subscription",
       deliverable: p.deliverable || "",
@@ -1724,6 +1731,7 @@ function PlansCard({
           priceUsdCents: r.priceUsd.trim()
             ? Math.round(parseFloat(r.priceUsd.replace(",", ".")) * 100) || undefined
             : undefined,
+          intlAvailable: r.intlAvailable,
           durationDays: r.durationDays,
           kind: r.kind,
           deliverable: r.deliverable.trim() || undefined,
@@ -1752,6 +1760,7 @@ function PlansCard({
             name: p.name,
             price: (p.priceCents / 100).toFixed(2),
             priceUsd: p.priceUsdCents ? (p.priceUsdCents / 100).toFixed(2) : "",
+            intlAvailable: p.intlAvailable !== false,
             durationDays: p.durationDays,
             kind: p.kind || "subscription",
             deliverable: p.deliverable || "",
@@ -1921,6 +1930,18 @@ function PlansCard({
                     Preço em USD é opcional — vazio, esse plano não aparece no botão internacional
                     (&quot;Not from Brazil?&quot;, pago via Stripe).
                   </p>
+                  {r.priceUsd.trim() && (
+                    <label className="mt-1.5 flex items-center gap-1.5 text-[11px] text-zinc-400">
+                      <input
+                        type="checkbox"
+                        checked={r.intlAvailable}
+                        onChange={(e) => update(i, { intlAvailable: e.target.checked })}
+                        className="h-3.5 w-3.5 rounded border-white/20 bg-transparent"
+                      />
+                      Disponível pra outras moedas (desmarcado, some do botão internacional mesmo
+                      com preço em USD).
+                    </label>
+                  )}
 
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     <select
@@ -2069,6 +2090,7 @@ function PlansCard({
                 name: "",
                 price: "",
                 priceUsd: "",
+                intlAvailable: true,
                 durationDays: 30,
                 kind: "subscription",
                 deliverable: "",

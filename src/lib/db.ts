@@ -1108,6 +1108,11 @@ function migrate(d: Database.Database) {
   // sem controle nem visibilidade nenhuma em Configurações. Padrão LIGADO:
   // preserva o comportamento de sempre pra quem já tinha preço em USD.
   ensureColumn(d, "telegram_bots", "intl_enabled", "INTEGER NOT NULL DEFAULT 1");
+  // Por PLANO: entra ou não na venda internacional. Continua exigindo preço em
+  // USD cadastrado (isso não muda) — este campo é o CONTROLE A MAIS, pra tirar
+  // um plano específico da lista sem apagar o preço dele. Padrão LIGADO:
+  // preserva o comportamento de sempre (todo plano com preço em USD entrava).
+  ensureColumn(d, "telegram_plans", "intl_available", "INTEGER NOT NULL DEFAULT 1");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);

@@ -228,11 +228,12 @@ export async function POST(
           inlineKeyboard.push(...buildPlanKeyboardRows(bot, plans, { moeda: "BRL", prefix: "buy_plan_" }));
         }
 
-        // "Not from Brazil?" — precisa das DUAS coisas: o interruptor ligado
-        // (Configurações → Planos, independente dos preços) E ao menos um
-        // plano com preço em USD cadastrado (ver PlansCard). Abre o menu
-        // internacional (checkout Stripe) numa mensagem NOVA, não editada.
-        if (bot.intlEnabled && plans.some((p) => (p.priceUsdCents || 0) > 0)) {
+        // "Not from Brazil?" — precisa das TRÊS coisas: o interruptor geral
+        // ligado (Configurações → Planos), ao menos um plano com preço em
+        // USD cadastrado, e esse plano estar disponível pra outras moedas
+        // (interruptor por plano — ver PlansCard). Abre o menu internacional
+        // (checkout Stripe) numa mensagem NOVA, não editada.
+        if (bot.intlEnabled && plans.some((p) => (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false)) {
           inlineKeyboard.push([
             { text: "🌎 Not from Brazil?", callback_data: "intl_menu", ...buttonStyleProps(bot, "redirect") },
           ]);
@@ -494,7 +495,11 @@ export async function POST(
           planId = parts[0];
           discountPercent = parseInt(parts[1]) || 0;
           const plan = getPlan(planId);
-          if (!plan || !((plan.priceUsdCents || 0) > 0)) {
+          // Confere de novo aqui (não só na hora de montar o menu): se a
+          // modelo desligou o plano da venda internacional DEPOIS de o lead
+          // já ter o botão na tela, um toque atrasado não pode completar a
+          // compra mesmo assim.
+          if (!plan || !((plan.priceUsdCents || 0) > 0) || plan.intlAvailable === false) {
             await sendTelegramMessage(bot.botToken, String(message.chat.id), tIntl.planNotFound);
             return NextResponse.json({ ok: true });
           }

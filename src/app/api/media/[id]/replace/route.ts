@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extname } from "node:path";
-import { errorResponse, requireUser } from "@/lib/apiAuth";
-import { cleanMetadata, mediaKind } from "@/lib/metadata";
+import { errorResponse, recusaSePesado, requireUser } from "@/lib/apiAuth";
+import { getUploadLimitMb } from "@/lib/settings";
+import { cleanMetadata, cleanMetadataInPlace, mediaKind } from "@/lib/metadata";
 import { ensureVideoThumbnail, ensureImageThumbnail, getMediaRow, newMediaPath, overwriteMediaFile } from "@/lib/media";
-import { saveFile } from "@/lib/storage";
+import { absolutePath, fileSize, saveFile, saveStream } from "@/lib/storage";
 import { getImageDimensions } from "@/lib/imageDimensions";
+import { getVideoInfo } from "@/lib/videoDimensions";
 import { addTagsByNameToMedia, getTagsForMedia } from "@/lib/tags";
 
 export const runtime = "nodejs";
@@ -22,6 +24,12 @@ export async function POST(
 ) {
   try {
     await requireUser(req);
+    // Mesmo teto do upload normal — esta rota não tinha nenhum, então um vídeo
+    // editado gigante passava batido pelo cabeçalho antes de virar RAM.
+    const maxMb = getUploadLimitMb();
+    const maxBytes = maxMb * 1024 * 1024;
+    recusaSePesado(req, maxBytes, maxMb);
+
     const row = getMediaRow(params.id);
     if (!row) {
       return NextResponse.json({ error: "Mídia não encontrada." }, { status: 404 });
@@ -40,6 +48,12 @@ export async function POST(
     if (!(file instanceof File) || file.size === 0) {
       return NextResponse.json({ error: "Arquivo inválido." }, { status: 400 });
     }
+    if (file.size > maxBytes) {
+      return NextResponse.json(
+        { error: `Arquivo excede o limite de ${maxMb} MB.` },
+        { status: 413 },
+      );
+    }
     const ext = extname(file.name).toLowerCase();
     const kind = mediaKind(ext);
     if (!kind) {
@@ -49,20 +63,34 @@ export async function POST(
       );
     }
 
-    const cleaned = await cleanMetadata(Buffer.from(await file.arrayBuffer()), ext);
     const { relPath } = newMediaPath(row.profile_id, ext);
-    await saveFile(relPath, cleaned);
+    let tamanho: number;
+    let dimensions: { width?: number; height?: number } | null;
+
     if (kind === "video") {
+      // Mesmo motivo do upload normal (ver `/api/profiles/[id]/media`): o
+      // vídeo editado pode ser tão grande quanto o original, e o caminho
+      // antigo (arrayBuffer → cleanMetadata → Buffer) mantinha o arquivo
+      // inteiro em RAM duas vezes — derrubava o container.
+      await saveStream(relPath, file.stream());
+      await cleanMetadataInPlace(absolutePath(relPath), ext);
+      tamanho = await fileSize(relPath);
+      dimensions = await getVideoInfo(absolutePath(relPath));
       await ensureVideoThumbnail(relPath);
     } else {
+      // Imagem é pequena o bastante pra caber em RAM sem risco — mantém o
+      // caminho por buffer, que já devolve os bytes prontos pra medir.
+      const cleaned = await cleanMetadata(Buffer.from(await file.arrayBuffer()), ext);
+      await saveFile(relPath, cleaned);
+      tamanho = cleaned.length;
+      dimensions = getImageDimensions(cleaned, ext);
       await ensureImageThumbnail(relPath);
     }
 
-    const dimensions = kind === "image" ? getImageDimensions(cleaned, ext) : null;
     const item = await overwriteMediaFile({
       id: params.id,
       relPath,
-      size: cleaned.length,
+      size: tamanho,
       width: dimensions?.width,
       height: dimensions?.height,
     });

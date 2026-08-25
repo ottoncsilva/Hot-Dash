@@ -17,6 +17,26 @@ import { useEffect, useRef } from "react";
  * EDIÇÃO muda de comportamento. Mostra a cifra (R$/US$) fixa, fora da parte
  * editável.
  */
+export type MoneyCurrency = "BRL" | "USD" | "GBP" | "MXN" | "EUR";
+
+/** Cifra mostrada fixa no campo, e o locale só decide separador de milhar/
+ *  decimal na exibição (a matemática do dígito-a-dígito não muda com moeda
+ *  nenhuma). */
+const CIFRA: Record<MoneyCurrency, string> = {
+  BRL: "R$",
+  USD: "US$",
+  GBP: "£",
+  MXN: "MX$",
+  EUR: "€",
+};
+const LOCALE: Record<MoneyCurrency, string> = {
+  BRL: "pt-BR",
+  USD: "en-US",
+  GBP: "en-GB",
+  MXN: "es-MX",
+  EUR: "de-DE",
+};
+
 export function MoneyInput({
   value,
   onChange,
@@ -29,15 +49,15 @@ export function MoneyInput({
   /** "34.90" (ponto decimal) ou "" — mesmo formato já usado nos campos de preço. */
   value: string;
   onChange: (v: string) => void;
-  currency?: "BRL" | "USD";
+  currency?: MoneyCurrency;
   className?: string;
   placeholder?: string;
   autoFocus?: boolean;
   title?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const cifra = currency === "USD" ? "US$" : "R$";
-  const locale = currency === "USD" ? "en-US" : "pt-BR";
+  const cifra = CIFRA[currency];
+  const locale = LOCALE[currency];
 
   const centavos = value.trim() ? Math.round((parseFloat(value.replace(",", ".")) || 0) * 100) : 0;
   const formatted =

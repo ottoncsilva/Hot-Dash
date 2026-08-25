@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
 import { IconLock } from "@/components/icons";
-import { MoneyInput } from "@/components/MoneyInput";
+import { MoneyInput, type MoneyCurrency } from "@/components/MoneyInput";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import { BackToSettings, ConnectionBadge, KeyLabel, WebhookDiaryPanel } from "../_shared";
 import { showToast } from "@/lib/toast";
@@ -40,6 +40,7 @@ export default function PaymentSettingsPage() {
   // valor qualquer) pra confirmar chave + webhook ponta a ponta antes de
   // ligar o botão internacional pros leads.
   const [stripeTestAmount, setStripeTestAmount] = useState("1.00");
+  const [stripeTestCurrency, setStripeTestCurrency] = useState<MoneyCurrency>("USD");
   const [stripeTestBusy, setStripeTestBusy] = useState(false);
   const [stripeTestUrl, setStripeTestUrl] = useState<string | null>(null);
   const [stripeTestErr, setStripeTestErr] = useState<string | null>(null);
@@ -231,6 +232,7 @@ export default function PaymentSettingsPage() {
       }
       const d = await apiSend<{ checkoutUrl?: string }>("/api/payments/stripe/test-charge", "POST", {
         amount,
+        currency: stripeTestCurrency,
       });
       if (!d.checkoutUrl) {
         setStripeTestErr("A Stripe não devolveu um link de checkout.");
@@ -671,9 +673,20 @@ export default function PaymentSettingsPage() {
             teste da Stripe (ou de verdade) e confira se a venda chega no Financeiro.
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
+            <select
+              className="input w-24 py-1.5 text-xs"
+              value={stripeTestCurrency}
+              onChange={(e) => setStripeTestCurrency(e.target.value as MoneyCurrency)}
+              aria-label="Moeda da cobrança de teste"
+            >
+              <option value="USD">USD</option>
+              <option value="GBP">GBP</option>
+              <option value="MXN">MXN</option>
+              <option value="EUR">EUR</option>
+            </select>
             <MoneyInput
               className="w-32"
-              currency="USD"
+              currency={stripeTestCurrency}
               value={stripeTestAmount}
               onChange={setStripeTestAmount}
             />

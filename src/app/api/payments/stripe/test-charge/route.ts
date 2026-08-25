@@ -6,6 +6,12 @@ import { recordTransaction } from "@/lib/transactions";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** Mesmas moedas que a tela oferece no seletor — Checkout da Stripe aceita
+ *  bem mais que isso, mas travar na lista evita erro de digitação virando
+ *  moeda inválida na API. */
+const MOEDAS_TESTE = ["USD", "GBP", "MXN", "EUR"] as const;
+type MoedaTeste = (typeof MOEDAS_TESTE)[number];
+
 /**
  * Cobrança de TESTE na Stripe — Configurações → Pagamentos, "Testar
  * cobrança". Mesmo caminho de uma venda de verdade (mesmo `createCharge`,
@@ -31,10 +37,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Informe um valor válido." }, { status: 400 });
     }
     const amountCents = Math.round(amount * 100);
+    const currencyRaw = String(body.currency || "USD").toUpperCase();
+    const currency: MoedaTeste = (MOEDAS_TESTE as readonly string[]).includes(currencyRaw)
+      ? (currencyRaw as MoedaTeste)
+      : "USD";
 
     const result = await provider.createCharge({
       amountCents,
-      currency: "USD",
+      currency,
       description: "Teste manual (Configurações → Pagamentos)",
       metadata: { origin: "teste-manual" },
     });
@@ -48,7 +58,7 @@ export async function POST(req: NextRequest) {
       providerRef: result.providerRef,
       description: "Teste manual (Configurações)",
       amountCents,
-      currency: "USD",
+      currency,
       method: "card",
       status: result.status,
       origin: "painel",

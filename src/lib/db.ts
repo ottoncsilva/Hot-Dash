@@ -1102,6 +1102,12 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "ltv_orders", "list_price_cents", "INTEGER");
   ensureColumn(d, "ltv_chats", "peer_access_hash", "TEXT");
   ensureColumn(d, "ltv_accounts", "provider_ref", "TEXT");
+  // Liga/desliga do botão "Not from Brazil?" (checkout internacional via
+  // Stripe), independente de haver plano com preço em USD cadastrado — antes
+  // só existia o critério implícito (aparece se algum plano tem priceUsdCents),
+  // sem controle nem visibilidade nenhuma em Configurações. Padrão LIGADO:
+  // preserva o comportamento de sempre pra quem já tinha preço em USD.
+  ensureColumn(d, "telegram_bots", "intl_enabled", "INTEGER NOT NULL DEFAULT 1");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);

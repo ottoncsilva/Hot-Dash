@@ -86,6 +86,11 @@ export type TelegramBotConfig = {
    */
   renewalFunnel?: string;
   renewalEnabled: boolean;
+  /** Liga/desliga o botão "Not from Brazil?" (checkout Stripe), independente
+   *  de existir plano com preço em USD — sem plano em USD o botão não
+   *  aparece de qualquer jeito, mas isto permite escondê-lo mesmo com preço
+   *  cadastrado (ex.: pausar cobrança internacional sem apagar os preços). */
+  intlEnabled: boolean;
 };
 
 /** Textos padrão da tela de pagamento — os mesmos que antes viviam fixos no
@@ -402,6 +407,7 @@ function toBotConfig(row: any): TelegramBotConfig {
     buttonStyles: parseButtonStyles(row.button_styles),
     renewalFunnel: row.renewal_funnel || undefined,
     renewalEnabled: row.renewal_enabled === undefined || row.renewal_enabled === null ? true : !!row.renewal_enabled,
+    intlEnabled: row.intl_enabled === undefined || row.intl_enabled === null ? true : !!row.intl_enabled,
   };
 }
 
@@ -445,8 +451,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, success_message_en, success_message_es, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, renewal_funnel, renewal_enabled, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, success_message_en, success_message_es, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, renewal_funnel, renewal_enabled, intl_enabled, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -493,7 +499,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        dynamic_price_direction = excluded.dynamic_price_direction,
        button_styles = excluded.button_styles,
        renewal_funnel = excluded.renewal_funnel,
-       renewal_enabled = excluded.renewal_enabled`
+       renewal_enabled = excluded.renewal_enabled,
+       intl_enabled = excluded.intl_enabled`
   ).run(
     id,
     config.profileId,
@@ -545,6 +552,7 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.buttonStyles ? JSON.stringify(sanitizeButtonStyles(config.buttonStyles)) : null,
     config.renewalFunnel?.trim() || null,
     config.renewalEnabled === false ? 0 : 1,
+    config.intlEnabled === false ? 0 : 1,
     now
   );
   // Lê PELO PERFIL, não pelo `id` que acabou de ser passado. O INSERT resolve

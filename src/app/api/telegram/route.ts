@@ -269,6 +269,7 @@ export async function POST(req: NextRequest) {
           // mas nunca começa sem nada configurado.
           renewalEnabled: true,
           renewalFunnel: JSON.stringify(RENEWAL_DEFAULT_STEPS),
+          intlEnabled: true,
         }),
         id: botId,
         profileId,
@@ -458,6 +459,12 @@ export async function POST(req: NextRequest) {
     // ---- Planos/ofertas — substitui a lista inteira do bot ----
     if (action === "save-plans") {
       const bot = requireBot(body.profileId);
+      // Interruptor do "Not from Brazil?" mora nesta aba (junto do preço em
+      // USD, que é o outro requisito pra ele aparecer) — só grava se a tela
+      // mandou o campo, pra não desligar à toa em chamadas antigas.
+      if (body.intlEnabled !== undefined) {
+        saveBotConfig({ ...bot, intlEnabled: Boolean(body.intlEnabled) });
+      }
       const incoming = Array.isArray(body.plans) ? body.plans : [];
       const existing = listPlans(bot.id);
       const keepIds = new Set<string>();

@@ -228,10 +228,11 @@ export async function POST(
           inlineKeyboard.push(...buildPlanKeyboardRows(bot, plans, { moeda: "BRL", prefix: "buy_plan_" }));
         }
 
-        // "Not from Brazil?" — só aparece quando existe ao menos um plano com
-        // preço em USD cadastrado (ver PlansCard, campo opcional). Abre o menu
+        // "Not from Brazil?" — precisa das DUAS coisas: o interruptor ligado
+        // (Configurações → Planos, independente dos preços) E ao menos um
+        // plano com preço em USD cadastrado (ver PlansCard). Abre o menu
         // internacional (checkout Stripe) numa mensagem NOVA, não editada.
-        if (plans.some((p) => (p.priceUsdCents || 0) > 0)) {
+        if (bot.intlEnabled && plans.some((p) => (p.priceUsdCents || 0) > 0)) {
           inlineKeyboard.push([
             { text: "🌎 Not from Brazil?", callback_data: "intl_menu", ...buttonStyleProps(bot, "redirect") },
           ]);
@@ -280,6 +281,22 @@ export async function POST(
           replyMarkup,
           extra: efeitoProps(bot.effectWelcome),
         });
+
+        // PROVA SOCIAL, logo abaixo dos planos — pesa na hora de decidir, não
+        // depois que o lead já escolheu (por isso saiu da tela do PIX, onde
+        // morava antes). Números REAIS desta modelo, nunca inventados: se o
+        // dia ainda estiver zerado, a mensagem simplesmente não sai — dizer
+        // "0 pessoas hoje" seria pior que não dizer nada.
+        if (bot.pixSocialProof && plans.length > 0) {
+          const hoje = overview(bot.profileId).today.paidCount;
+          const assinantes = countActiveSubscriptions(bot.id);
+          if (hoje > 0 || assinantes > 0) {
+            const linha = (bot.pixSocialProofText?.trim() || PIX_DEFAULTS.socialProofText)
+              .replace(/{vendas_hoje}/gi, String(hoje))
+              .replace(/{assinantes}/gi, String(assinantes));
+            await sendTelegramMessage(bot.botToken, String(chat.id), linha);
+          }
+        }
       }
     }
 
@@ -728,20 +745,6 @@ export async function POST(
           pixCaption += `\n\n<code>${pixCode}</code>`;
         }
 
-        // PROVA SOCIAL com números REAIS desta modelo. Se o número do dia for
-        // zero, a linha inteira é omitida — dizer "0 pessoas garantiram hoje"
-        // seria pior que não dizer nada, e inventar um número seria enganar o
-        // cliente que está prestes a pagar.
-        if (bot.pixSocialProof) {
-          const hoje = overview(bot.profileId).today.paidCount;
-          const assinantes = countActiveSubscriptions(bot.id);
-          if (hoje > 0 || assinantes > 0) {
-            const linha = (bot.pixSocialProofText?.trim() || PIX_DEFAULTS.socialProofText)
-              .replace(/{vendas_hoje}/gi, String(hoje))
-              .replace(/{assinantes}/gi, String(assinantes));
-            pixCaption = `${linha}\n\n${pixCaption}`;
-          }
-        }
         // A tela do PIX vai como TEXTO, não como legenda de foto.
         //
         // A diferença é prática: o Telegram só faz "toque para copiar" no

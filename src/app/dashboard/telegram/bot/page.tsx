@@ -31,7 +31,7 @@ import {
 import PageHeader from "@/components/PageHeader";
 import SectionRow, { resumo } from "@/components/telegram/bot/SectionRow";
 import VarChips from "@/components/telegram/bot/VarChips";
-import BotPreview, {
+import {
   FunnelPreview,
   SequencePreview,
   type PreviewStyle,
@@ -92,6 +92,7 @@ type Bot = {
   vipUseWelcome?: boolean;
   dynamicPrice?: DynamicPrice;
   buttonStyles?: ButtonStyles;
+  intlEnabled?: boolean;
 };
 /** Cores dos botões DESTA modelo (não do painel). O preview usa as mesmas. */
 type ButtonStyles = Record<string, "" | "primary" | "success" | "danger">;
@@ -321,9 +322,9 @@ export default function BotVendasPage() {
         kind: "plan" as const,
         style: corDo((p.highlight && CORES_DO_PLANO[p.highlight]) || bot?.buttonStyles?.plans),
       })),
-    // "Not from Brazil?" — mesmo critério do /start de verdade: só aparece
-    // com pelo menos um plano ativo tendo preço em USD cadastrado.
-    ...(plans.some((p) => p.active !== false && (p.priceUsdCents || 0) > 0)
+    // "Not from Brazil?" — mesmo critério do /start de verdade: interruptor
+    // ligado (aba Planos) E pelo menos um plano ativo com preço em USD.
+    ...(bot?.intlEnabled !== false && plans.some((p) => p.active !== false && (p.priceUsdCents || 0) > 0)
       ? [{ text: "🌎 Not from Brazil?", kind: "custom" as const, style: corDo(bot?.buttonStyles?.redirect) }]
       : []),
     ...buttons.map((b) => ({ text: b.text, kind: "custom" as const, style: corDo(bot?.buttonStyles?.redirect) })),
@@ -497,7 +498,14 @@ export default function BotVendasPage() {
                   />
                 </>
               )}
-              {tab === "planos" && <PlansCard profileId={profileId} plans={plans} onSaved={load} />}
+              {tab === "planos" && (
+                <PlansCard
+                  profileId={profileId}
+                  plans={plans}
+                  intlEnabled={bot?.intlEnabled !== false}
+                  onSaved={load}
+                />
+              )}
               {tab === "recuperacao" && (
                 <FunnelCard profileId={profileId} bot={bot} planos={plans} onSaved={load} confirm={confirm} />
               )}
@@ -570,10 +578,11 @@ export default function BotVendasPage() {
                     </div>
                   }
                 />
-              ) : tab === "config" ? (
+              ) : (
                 // O funil inteiro: /start → escolhe o plano → tela do PIX →
-                // pagamento confirmado. É nesta aba que as três mensagens são
-                // editadas, então é aqui que faz sentido ler a conversa corrida.
+                // pagamento confirmado. Mesma prévia nas duas abas que mexem
+                // nessa conversa (Planos e Configuração) — o que muda é só o
+                // formulário ao lado, a leitura da conversa é sempre a mesma.
                 <FunnelPreview
                   botUsername={bot.botUsername}
                   welcomeMessage={welcome}
@@ -593,15 +602,6 @@ export default function BotVendasPage() {
                   successMessage={sucessoTexto}
                   successButtons={successButtons}
                   effectSuccess={efeitoSuccess}
-                />
-              ) : (
-                <BotPreview
-                  botUsername={bot.botUsername}
-                  welcomeMessage={welcome}
-                  welcomeMediaIds={welcomeIds}
-                  welcomeMediaMode={welcomeMode}
-                  buttons={previewButtons}
-                  effect={efeitoWelcome}
                 />
               ))}
           </div>
@@ -1452,14 +1452,16 @@ function PixRow({
       </div>
 
       {/* Prova social — números REAIS, e só isso. Não existe campo para
-          inventar quantidade: o cliente está a um toque de pagar, e um número
-          falso ali é propaganda enganosa por quem opera, não pelo painel. */}
+          inventar quantidade: é a primeira coisa que o lead vê depois dos
+          planos, e um número falso ali é propaganda enganosa por quem
+          opera, não pelo painel. */}
       <div className="mt-5 rounded-xl border border-white/10 bg-ink-850 p-3.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white">Prova social</p>
             <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-              Uma linha acima do PIX com os números <b>reais</b> desta modelo. Zerado, não é enviada.
+              Uma mensagem logo abaixo dos planos no <code>/start</code>, com os números{" "}
+              <b>reais</b> desta modelo — pesa na hora de escolher, não depois. Zerado, não é enviada.
             </p>
           </div>
           <Switch checked={prova} onChange={setProva} ariaLabel="Prova social" />
@@ -1660,7 +1662,21 @@ type PlanRow = {
   bump: Bump;
 };
 
-function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Plan[]; onSaved: () => void }) {
+function PlansCard({
+  profileId,
+  plans,
+  intlEnabled,
+  onSaved,
+}: {
+  profileId: string;
+  plans: Plan[];
+  /** Interruptor do botão "Not from Brazil?" — independente de preço em USD
+   *  cadastrado (esse continua sendo exigido, mas assim dá pra pausar o
+   *  checkout internacional sem apagar preço de plano nenhum). */
+  intlEnabled: boolean;
+  onSaved: () => void;
+}) {
+  const [intlOn, setIntlOn] = useState(intlEnabled);
   const [rows, setRows] = useState<PlanRow[]>(
     plans.map((p) => ({
       id: p.id,
@@ -1726,6 +1742,7 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
         action: "save-plans",
         profileId,
         plans: payload,
+        intlEnabled: intlOn,
       });
       showToast("Ofertas salvas.", "success");
       if (res.plans) {
@@ -1774,6 +1791,18 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
             <b className="text-zinc-300">{pacotes}</b> pacote(s)
           </span>
         </div>
+      </div>
+
+      <div className="card flex items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-white">🌎 Botão &quot;Not from Brazil?&quot;</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
+            Abre o checkout internacional (cartão, via Stripe) pra quem não usa PIX. Só aparece
+            de verdade com o interruptor LIGADO <i>e</i> pelo menos um plano com preço em USD
+            preenchido abaixo — desligar aqui pausa o botão sem apagar preço nenhum.
+          </p>
+        </div>
+        <Switch checked={intlOn} onChange={setIntlOn} ariaLabel='Ativar botão "Not from Brazil?"' />
       </div>
 
       <div className="space-y-2">

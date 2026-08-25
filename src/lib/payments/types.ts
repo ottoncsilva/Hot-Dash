@@ -2,8 +2,10 @@
 
 export type ChargeInput = {
   amountCents: number;
-  /** BRL (SyncPay/PIX) ou USD (Stripe). Ausente = BRL, comportamento de sempre. */
-  currency?: "BRL" | "USD";
+  /** BRL (SyncPay/PIX) ou a moeda internacional da Stripe (USD é o padrão do
+   *  botão "Not from Brazil?", mas o Checkout aceita outras — GBP/MXN/EUR
+   *  entram pela tela de teste em Configurações). Ausente = BRL. */
+  currency?: "BRL" | "USD" | "GBP" | "MXN" | "EUR";
   description?: string;
   /** Dias até o PIX expirar (padrão 1). */
   expiresInDays?: number;

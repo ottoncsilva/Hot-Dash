@@ -209,7 +209,7 @@ export function FunnelPreview({
 
   // Mesma montagem do webhook (ver app/api/webhooks/telegram/[botId]/route.ts):
   // {plano}/{valor} primeiro, depois {pix_code} (ou o código no fim, se o
-  // operador apagou o marcador), e a prova social prefixada por último.
+  // operador apagou o marcador).
   let legenda = pixCaption.trim();
   if (legenda) {
     legenda = legenda.replace(/{plano}/gi, planoNome).replace(/{valor}/gi, planoValor);
@@ -217,12 +217,13 @@ export function FunnelPreview({
       ? legenda.replace(/{pix_code}/gi, PIX_CODIGO_EXEMPLO)
       : `${legenda}\n\n${PIX_CODIGO_EXEMPLO}`;
   }
-  if (pixSocialProof) {
-    const linha = (pixSocialProofText.trim() || PIX_PADRAO_PREVIEW.socialProofText)
-      .replace(/{vendas_hoje}/gi, "3")
-      .replace(/{assinantes}/gi, "128");
-    legenda = legenda ? `${linha}\n\n${legenda}` : linha;
-  }
+  // Números de EXEMPLO (3 vendas hoje, 128 assinantes) — só pra ilustrar
+  // como a linha fica; o bot de verdade usa os números reais desta modelo.
+  const provaSocialLinha = pixSocialProof
+    ? (pixSocialProofText.trim() || PIX_PADRAO_PREVIEW.socialProofText)
+        .replace(/{vendas_hoje}/gi, "3")
+        .replace(/{assinantes}/gi, "128")
+    : "";
 
   return (
     <Celular
@@ -251,6 +252,19 @@ export function FunnelPreview({
           onMedia={medir}
           onCortado={marcarCorte}
         />
+
+        {/* Prova social — mensagem PRÓPRIA logo abaixo dos planos, não mais
+            embutida na tela do PIX: pesa na hora de escolher, não depois. */}
+        {provaSocialLinha && (
+          <PreviewBalao
+            mediaIds={[]}
+            text={provaSocialLinha}
+            buttons={[]}
+            vazio=""
+            onMedia={medir}
+            onCortado={marcarCorte}
+          />
+        )}
 
         <Momento label={`Lead toca em "${planoNome}"`} />
 

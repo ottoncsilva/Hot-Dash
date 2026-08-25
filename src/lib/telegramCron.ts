@@ -776,7 +776,14 @@ async function runTelegramFunnelsImpl(): Promise<{
           continue;
         }
 
-        // O FATO GERADOR é o /start (`lead.createdAt`), fixo pra sempre —
+        // O FATO GERADOR é o /start (`lead.downsellStartedAt`), fixo até o
+        // PRÓXIMO /start — ao contrário de `lead.createdAt` (o PRIMEIRO
+        // /start pra sempre, usado nas métricas do Funil de Vendas), este
+        // campo é reiniciado toda vez que o lead volta e dá /start de novo,
+        // pra ele entrar de novo do zero e não achar o funil na metade (ou
+        // já esgotado) por causa da vez em que apareceu pela primeira vez.
+        // Sem valor salvo (lead de antes desta coluna existir), cai pro
+        // `createdAt` — mesmo comportamento de hoje até o próximo /start dele.
         // `lastInteractionAt` segue de referência só pro rabo em horário
         // fixo (`passoPronto`), que precisa de um ponto que ANDA a cada
         // envio pra repetir uma vez por dia, não do começo do funil.
@@ -789,7 +796,10 @@ async function runTelegramFunnelsImpl(): Promise<{
         // intermediários sem enviar (nunca reenvia o que ficou pra trás). Um
         // passo cujo público não bate também para o avanço aqui (fica pro
         // "pula sem enviar" de cima, no próximo tick).
-        const tempos = { fatoGerador: lead.createdAt, ultimoEnvio: lead.lastInteractionAt };
+        const tempos = {
+          fatoGerador: lead.downsellStartedAt || lead.createdAt,
+          ultimoEnvio: lead.lastInteractionAt,
+        };
         const alvo = passoMaisAvancado(
           idx,
           (i) => resolveStepIndex(downsellFunnel, i),

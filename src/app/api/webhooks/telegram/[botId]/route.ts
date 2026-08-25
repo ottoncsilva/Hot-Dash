@@ -189,6 +189,14 @@ export async function POST(
           lastInteractionAt: Date.now(),
           downsellStepIndex: 0,
           createdAt: Date.now(),
+          // Reinicia o funil de Downsell geral A CADA /start: se o lead
+          // sumiu e voltou dias depois, ele entra de novo do zero — não
+          // encontra o funil na metade (ou já acabado) por causa da PRIMEIRA
+          // vez que ele deu /start. `createdAt` acima não muda de verdade
+          // pra quem já existe (upsertTelegramLead preserva o primeiro
+          // /start pras métricas do Funil de Vendas); só este campo conta
+          // pro Downsell.
+          downsellStartedAt: Date.now(),
           sourceCode: sourceCode || undefined,
         });
         // O mesmo código de origem também fica no usuário, para a lista mostrar

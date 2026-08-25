@@ -950,6 +950,10 @@ export type TelegramLead = {
   lastInteractionAt: number;
   downsellStepIndex: number;
   createdAt: number;
+  /** Início do funil de Downsell geral — reinicia a CADA /start (diferente
+   *  de `createdAt`, que é o primeiro contato pra sempre). Ausente = lead
+   *  gravado antes desta coluna existir; quem lê cai pra `createdAt`. */
+  downsellStartedAt?: number;
   /** Código do deep-link que trouxe o lead (t.me/bot?start=CODIGO). */
   sourceCode?: string;
 };
@@ -958,15 +962,19 @@ export function upsertTelegramLead(lead: TelegramLead): void {
   // O código de origem só é gravado na PRIMEIRA vez: se o mesmo lead voltar a
   // dar /start por outro link, a atribuição continua sendo do que o trouxe.
   getDb().prepare(
-    `INSERT INTO telegram_leads (id, profile_id, chat_id, last_interaction_at, downsell_step_index, created_at, source_code)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_leads (id, profile_id, chat_id, last_interaction_at, downsell_step_index, created_at, downsell_started_at, source_code)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        last_interaction_at = excluded.last_interaction_at,
        downsell_step_index = excluded.downsell_step_index,
+       -- Só troca quando quem chamou de fato mandou um valor novo (o /start
+       -- manda; os dois pontos do cron que só persistem o avanço do índice
+       -- não mandam, e aí o que já estava salvo continua valendo).
+       downsell_started_at = COALESCE(excluded.downsell_started_at, telegram_leads.downsell_started_at),
        source_code = COALESCE(telegram_leads.source_code, excluded.source_code)`
   ).run(
     lead.id, lead.profileId, lead.chatId, lead.lastInteractionAt,
-    lead.downsellStepIndex, lead.createdAt, lead.sourceCode || null,
+    lead.downsellStepIndex, lead.createdAt, lead.downsellStartedAt || null, lead.sourceCode || null,
   );
 }
 
@@ -980,6 +988,7 @@ export function getTelegramLead(id: string): TelegramLead | null {
     lastInteractionAt: row.last_interaction_at,
     downsellStepIndex: row.downsell_step_index,
     createdAt: row.created_at,
+    downsellStartedAt: row.downsell_started_at || undefined,
     sourceCode: row.source_code || undefined,
   };
 }
@@ -1029,6 +1038,8 @@ export function listLeadsForDownsell(): TelegramLead[] {
     lastInteractionAt: r.last_interaction_at,
     downsellStepIndex: r.downsell_step_index,
     createdAt: r.created_at,
+    downsellStartedAt: r.downsell_started_at || undefined,
+    sourceCode: r.source_code || undefined,
   }));
 }
 

@@ -1049,6 +1049,13 @@ function migrate(d: Database.Database) {
   // no lead quando ele chega e é copiado para a venda na hora de gerar o PIX —
   // é o que liga faturamento a origem de tráfego.
   ensureColumn(d, "telegram_leads", "source_code", "TEXT");
+  // Início do funil de Downsell geral — reiniciado a CADA /start (ao
+  // contrário de `created_at`, que é o PRIMEIRO /start pra sempre, usado nas
+  // métricas de tempo-até-compra do Funil de Vendas e nunca deve mudar). Se
+  // o lead some e volta a dar /start dias depois, o funil conta de novo a
+  // partir de agora, não do primeiro contato. Nulo = lead de antes desta
+  // coluna existir; o código cai pra `created_at` nesse caso.
+  ensureColumn(d, "telegram_leads", "downsell_started_at", "INTEGER");
   ensureColumn(d, "transactions", "source_code", "TEXT");
   // De ONDE veio a cobrança: 'bot' (bot de vendas do Telegram), 'ltv' (agente
   // de LTV, no WhatsApp ou no chip do Telegram) ou 'painel' (lançada à mão).

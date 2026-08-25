@@ -18,6 +18,7 @@ import CurvaSort, {
 } from "@/components/CurvaSort";
 import { DEFAULT_PERIOD, type PeriodKey } from "@/lib/periods";
 import { useProfile } from "@/context/ProfileContext";
+import { niceTicks } from "@/lib/chartTicks";
 
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -764,6 +765,10 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
   const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
   const areaPath = `${linePath} L${points[points.length - 1].x.toFixed(1)},${H - PAD} L${points[0].x.toFixed(1)},${H - PAD} Z`;
   const total = series.reduce((n, s) => n + s.cents, 0);
+  // Marcas horizontais leves — os VALORES se adaptam a cada período (não são
+  // fixos): num dia fraco elas caem em 50/100/150/200, num dia forte em
+  // 5.000/10.000/... — sempre a mesma escala usada pra plotar os pontos.
+  const gridTicks = niceTicks(max);
 
   return (
     <div ref={wrapRef}>
@@ -788,6 +793,19 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
             <stop offset="100%" stopColor="#34d399" stopOpacity="0" />
           </linearGradient>
         </defs>
+        {/* Marcas horizontais — atrás de tudo, bem leves (só de referência). */}
+        {gridTicks.map((t) => (
+          <line
+            key={t}
+            x1={PAD}
+            y1={H - PAD - (t / max) * (H - PAD * 2)}
+            x2={W - PAD}
+            y2={H - PAD - (t / max) * (H - PAD * 2)}
+            stroke="#ffffff"
+            strokeOpacity={0.06}
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
         <path d={areaPath} fill="url(#revenueFill)" stroke="none" />
         <path d={linePath} fill="none" stroke="#34d399" strokeWidth={2} vectorEffect="non-scaling-stroke" />
         {/* Guia vertical no ponto ativo. */}

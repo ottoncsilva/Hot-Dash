@@ -8,6 +8,7 @@ import PeriodPicker, { periodQuery, type PeriodState } from "@/components/Period
 import PageHeader from "@/components/PageHeader";
 import { DEFAULT_PERIOD } from "@/lib/periods";
 import { useProfile } from "@/context/ProfileContext";
+import { niceTicks } from "@/lib/chartTicks";
 
 /** Um dia da série de crescimento dos grupos. Espelha o que a rota devolve —
  *  declarado aqui porque o módulo que a produz é `server-only`. */
@@ -597,6 +598,9 @@ function GrupoChart({
   const xCentro = (i: number) => passo * (i + 0.5);
   const yBarra = (v: number) => H - (v / maxTotal) * H;
   const yLinha = (v: number) => H - (v / maxMov) * (H * 0.75) - H * 0.06;
+  // Marcas horizontais leves, na escala das BARRAS (total de membros) — a
+  // mais proeminente das duas. Os valores se adaptam a cada grupo/período.
+  const gridTicks = niceTicks(maxTotal);
 
   // A linha só liga dias MEDIDOS em sequência: dia sem registro (null) vira
   // buraco no traço, e não um ponto no zero — senão o gráfico afirmaria que
@@ -640,6 +644,18 @@ function GrupoChart({
         role="img"
         aria-label={`Crescimento do grupo ${rotulo}`}
       >
+        {gridTicks.map((t) => (
+          <line
+            key={t}
+            x1={0}
+            y1={yBarra(t)}
+            x2={W}
+            y2={yBarra(t)}
+            stroke="#ffffff"
+            strokeOpacity={0.06}
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
         {series.map((d, i) => {
           const v = total(d);
           const ativo = selecionado === i;

@@ -865,8 +865,14 @@ function daysInMonth(monthStartMs: number, tz: string): number {
 function hourlySeriesForDay(dayStartMs: number, profileId?: string): { day: string; cents: number }[] {
   const db = getDb();
   const tz = getAppTimeZone();
+  // HORAS FUTURAS NÃO ENTRAM — mesmo corte de "Este mês"/"Esta semana"
+  // (ver seriesBetween), só que por hora: em "Hoje" as horas que ainda não
+  // chegaram apareciam zeradas, parecendo faturamento que caiu a zero. Um dia
+  // inteiramente no passado (Ontem, uma data escolhida à mão) continua com
+  // as 24 horas — só a hora ATUAL em diante de HOJE fica de fora.
+  const horasReais = Math.min(24, Math.max(0, Math.floor((Date.now() - dayStartMs) / 3_600_000) + 1));
   const out: { day: string; cents: number }[] = [];
-  for (let h = 0; h < 24; h++) {
+  for (let h = 0; h < horasReais; h++) {
     const hourStart = dayStartMs + h * 3_600_000;
     const hourEnd = hourStart + 3_600_000;
     const params: (string | number)[] = [hourStart, hourEnd];

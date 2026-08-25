@@ -86,6 +86,16 @@ function migrate(d: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_webhook_events_at ON webhook_events(received_at DESC);
 
+    -- Trava de execução dos crons que têm DOIS caminhos de disparo (o ticker
+    -- interno de instrumentation.ts E uma rota HTTP externa) — sem isso, as
+    -- duas execuções podiam rodar em paralelo sem saber uma da outra e mandar
+    -- a mesma mensagem mais de uma vez. Ver src/lib/cronLock.ts.
+    CREATE TABLE IF NOT EXISTS cron_locks (
+      key         TEXT PRIMARY KEY,
+      running     INTEGER NOT NULL DEFAULT 0,
+      started_at  INTEGER
+    );
+
     CREATE TABLE IF NOT EXISTS transactions (
       id            TEXT PRIMARY KEY,
       provider      TEXT NOT NULL,

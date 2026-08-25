@@ -1,5 +1,6 @@
 import "server-only";
 import { getDb } from "@/lib/db";
+import { tryAcquireCronLock, releaseCronLock } from "@/lib/cronLock";
 import { listProfiles } from "@/lib/profiles";
 import { buttonStyleProps, planButtonStyleProps, getAppTimeZone, type ButtonStyles } from "@/lib/settings";
 import { partsInTimeZone, zonedWallTimeToUtcMs, addDaysInTimeZone } from "@/lib/timezone";
@@ -118,7 +119,22 @@ function buildWarmupCaption(rawCaption: string, vipLink: string, texts: string[]
 // 1) AUTOPOST — envia posts agendados (VIP / Prévias) cujo horário já chegou
 // ---------------------------------------------------------------------------
 
+/**
+ * Trava por chave: esta tarefa roda tanto pelo ticker interno
+ * (`instrumentation.ts`, a cada 1 min) quanto pela rota HTTP
+ * `/api/cron/telegram/autopost` — sem a trava, as duas podiam rodar juntas e
+ * duplicar o que foi postado/enviado.
+ */
 export async function runTelegramAutopost(): Promise<number> {
+  if (!tryAcquireCronLock("telegram-autopost")) return 0;
+  try {
+    return await runTelegramAutopostImpl();
+  } finally {
+    releaseCronLock("telegram-autopost");
+  }
+}
+
+async function runTelegramAutopostImpl(): Promise<number> {
   const profiles = await listProfiles();
   const now = Date.now();
   const db = getDb();
@@ -611,6 +627,37 @@ function passoPronto(
   return (now - tempos.fatoGerador) / 60000 >= step.delayMinutes;
 }
 
+/**
+ * Acha o passo mais avançado que já está pronto pra envio, sem nunca mandar
+ * os intermediários — se o processamento ficou atrasado (o cron parou de
+ * rodar por um tempo, deploy, etc.), o lead recebe só a mensagem que
+ * corresponde a AGORA, nunca uma rajada com tudo que "deveria" ter recebido
+ * nesse meio-tempo.
+ *
+ * Anda a partir de `indiceAtual` enquanto o PRÓXIMO passo (resolvido por
+ * `resolveIndice`, que decide se ele existe/repete em loop) TAMBÉM já
+ * estiver pronto (`pronto`). No caso normal (nada atrasado), o passo
+ * seguinte nunca está pronto ainda — o resultado é idêntico a mandar só o
+ * passo atual, como sempre foi.
+ */
+function passoMaisAvancado(
+  indiceAtual: number,
+  resolveIndice: (i: number) => number | null,
+  pronto: (i: number) => boolean,
+): { enviar: number; proximo: number } | null {
+  const idx = resolveIndice(indiceAtual);
+  if (idx === null || !pronto(idx)) return null;
+  let enviar = idx;
+  // Trava de segurança contra loop infinito por config quebrada (ex.: delay
+  // 0 num passo em loop) — nunca deve ser atingida em uso normal.
+  for (let guard = 0; guard < 500; guard++) {
+    const seguinte = resolveIndice(enviar + 1);
+    if (seguinte === null || !pronto(seguinte)) break;
+    enviar = seguinte;
+  }
+  return { enviar, proximo: enviar + 1 };
+}
+
 async function sendFunnelStep(
   botToken: string,
   botId: string,
@@ -653,7 +700,28 @@ async function sendFunnelStep(
   }
 }
 
+/**
+ * Trava por chave: esta tarefa roda tanto pelo ticker interno
+ * (`instrumentation.ts`, a cada 1 min) quanto pela rota HTTP
+ * `/api/cron/telegram/funnels` — sem a trava, as duas podiam rodar juntas e
+ * mandar a mesma mensagem de downsell/upsell/renovação mais de uma vez.
+ */
 export async function runTelegramFunnels(): Promise<{
+  downsellCount: number;
+  upsellCount: number;
+  renewalCount: number;
+}> {
+  if (!tryAcquireCronLock("telegram-funnels")) {
+    return { downsellCount: 0, upsellCount: 0, renewalCount: 0 };
+  }
+  try {
+    return await runTelegramFunnelsImpl();
+  } finally {
+    releaseCronLock("telegram-funnels");
+  }
+}
+
+async function runTelegramFunnelsImpl(): Promise<{
   downsellCount: number;
   upsellCount: number;
   renewalCount: number;
@@ -712,12 +780,30 @@ export async function runTelegramFunnels(): Promise<{
         // `lastInteractionAt` segue de referência só pro rabo em horário
         // fixo (`passoPronto`), que precisa de um ponto que ANDA a cada
         // envio pra repetir uma vez por dia, não do começo do funil.
-        if (passoPronto(step, { fatoGerador: lead.createdAt, ultimoEnvio: lead.lastInteractionAt }, now, tz)) {
-          const replyMarkup = buildReplyMarkup(bot, step.discountPercent, step.planMode);
-          await sendFunnelStep(bot.botToken, bot.id, lead.chatId, p.id, step, replyMarkup, bot.botUsername);
+        //
+        // `passoMaisAvancado` evita a rajada quando o processamento ficou
+        // atrasado (cron parado, deploy): em vez de mandar SÓ o passo atual
+        // e avançar 1 por tick — o que varreria o funil inteiro em rajada se
+        // vários passos já estiverem vencidos ao mesmo tempo — ele acha o
+        // passo mais recente que já é válido e manda só ele, pulando os
+        // intermediários sem enviar (nunca reenvia o que ficou pra trás). Um
+        // passo cujo público não bate também para o avanço aqui (fica pro
+        // "pula sem enviar" de cima, no próximo tick).
+        const tempos = { fatoGerador: lead.createdAt, ultimoEnvio: lead.lastInteractionAt };
+        const alvo = passoMaisAvancado(
+          idx,
+          (i) => resolveStepIndex(downsellFunnel, i),
+          (i) =>
+            encaixaNoPublico(bot.id, Number(lead.chatId), downsellFunnel[i].audience) &&
+            passoPronto(downsellFunnel[i], tempos, now, tz),
+        );
+        if (alvo) {
+          const stepFinal = downsellFunnel[alvo.enviar];
+          const replyMarkup = buildReplyMarkup(bot, stepFinal.discountPercent, stepFinal.planMode);
+          await sendFunnelStep(bot.botToken, bot.id, lead.chatId, p.id, stepFinal, replyMarkup, bot.botUsername);
 
           lead.lastInteractionAt = now;
-          lead.downsellStepIndex += 1;
+          lead.downsellStepIndex = alvo.proximo;
           upsertTelegramLead(lead);
           downsellCount++;
         }
@@ -747,17 +833,26 @@ export async function runTelegramFunnels(): Promise<{
         if (findActiveSubscription(bot.id, row.telegram_user_id)) continue;
 
         const counter = row.pix_step_index || 0;
-        const idx = resolveStepIndex(pixFunnel, counter);
-        if (idx === null) continue; // Acabou e não repete
-
-        const step = pixFunnel[idx];
         // O FATO GERADOR é a CRIAÇÃO DA COBRANÇA (`row.created_at`), fixo pra
         // sempre — é o momento em que ele viu o PIX e não pagou. O último
         // envio (`last_pix_step_at`) só serve de referência pro rabo em
         // horário fixo, que precisa andar a cada disparo pra repetir uma vez
         // por dia.
         const ultimoEnvio = row.last_pix_step_at || row.created_at;
-        if (!passoPronto(step, { fatoGerador: row.created_at, ultimoEnvio }, now, tz)) continue;
+        const tempos = { fatoGerador: row.created_at, ultimoEnvio };
+        // `passoMaisAvancado` evita a rajada quando o processamento ficou
+        // atrasado: em vez de mandar o passo atual e avançar 1 por tick — o
+        // que varreria o funil inteiro em rajada se vários passos já
+        // estiverem vencidos ao mesmo tempo —, acha o passo mais recente
+        // que já é válido e manda só ele, nunca reenviando o que ficou pra
+        // trás.
+        const alvo = passoMaisAvancado(
+          counter,
+          (i) => resolveStepIndex(pixFunnel, i),
+          (i) => passoPronto(pixFunnel[i], tempos, now, tz),
+        );
+        if (!alvo) continue;
+        const step = pixFunnel[alvo.enviar];
 
         // Botão baseado no que ELE JÁ ESCOLHEU (planId/offerId gravados na
         // hora que o PIX foi gerado), não na lista genérica de planos — ver
@@ -789,7 +884,7 @@ export async function runTelegramFunnels(): Promise<{
 
         db.prepare(
           "UPDATE telegram_subscriptions SET pix_step_index = ?, last_pix_step_at = ? WHERE id = ?",
-        ).run(counter + 1, now, row.id);
+        ).run(alvo.proximo, now, row.id);
         downsellCount++;
       }
     }
@@ -873,14 +968,25 @@ export async function runTelegramFunnels(): Promise<{
         const stepIndex = sub.renewalStepIndex || 0;
         if (stepIndex >= renewalFunnel.length) continue; // Já mandou todos os avisos.
 
-        const step = renewalFunnel[stepIndex];
         const minutosParaVencer = (sub.expiresAt - now) / (60 * 1000);
+        // `passoMaisAvancado` evita a rajada quando o processamento ficou
+        // atrasado: sem loop aqui (a distância só diminui), então só avança
+        // enquanto o próximo aviso também já valer — nunca reenvia os que
+        // ficaram pra trás. Os passos vêm em ordem decrescente de distância,
+        // então isso pousa direto no aviso mais próximo do vencimento que já
+        // é válido agora.
+        const alvo = passoMaisAvancado(
+          stepIndex,
+          (i) => (i < renewalFunnel.length ? i : null),
+          (i) => minutosParaVencer <= renewalFunnel[i].delayMinutes,
+        );
 
-        if (minutosParaVencer <= step.delayMinutes) {
+        if (alvo) {
+          const step = renewalFunnel[alvo.enviar];
           const replyMarkup = buildReplyMarkup(bot, step.discountPercent, step.planMode);
           await sendFunnelStep(bot.botToken, bot.id, String(sub.telegramUserId), p.id, step, replyMarkup, bot.botUsername);
 
-          sub.renewalStepIndex = stepIndex + 1;
+          sub.renewalStepIndex = alvo.proximo;
           saveSubscription(sub);
           renewalCount++;
         }
@@ -944,7 +1050,22 @@ function buildMailingMarkup(mailing: Mailing) {
   return rows.length > 0 ? { inline_keyboard: rows } : undefined;
 }
 
+/**
+ * Trava por chave: esta tarefa roda tanto pelo ticker interno
+ * (`instrumentation.ts`, a cada 1 min) quanto pela rota HTTP
+ * `/api/cron/telegram/mailing` — sem a trava, as duas podiam rodar juntas e
+ * duplicar o disparo em massa.
+ */
 export async function runTelegramMailings(): Promise<{ sent: number; failed: number }> {
+  if (!tryAcquireCronLock("telegram-mailings")) return { sent: 0, failed: 0 };
+  try {
+    return await runTelegramMailingsImpl();
+  } finally {
+    releaseCronLock("telegram-mailings");
+  }
+}
+
+async function runTelegramMailingsImpl(): Promise<{ sent: number; failed: number }> {
   const due = listDueMailings();
   let sent = 0;
   let failed = 0;
@@ -1164,8 +1285,22 @@ function registrarTentativa(db: any, id: string, erro: string | null, tentativas
  *   • a inscrição vence — isso é calendário, e é registrado sempre;
  *   • a saída do grupo depende do Telegram, e por isso fica PENDENTE e é
  *     retentada com espera crescente até dar certo.
+ *
+ * Trava por chave: esta tarefa roda tanto pelo ticker interno
+ * (`instrumentation.ts`, a cada 1 min) quanto pela rota HTTP
+ * `/api/cron/telegram/eviction` — sem a trava, as duas podiam rodar juntas e
+ * disputar a remoção/expiração das mesmas assinaturas.
  */
 export async function runTelegramEviction(): Promise<number> {
+  if (!tryAcquireCronLock("telegram-eviction")) return 0;
+  try {
+    return await runTelegramEvictionImpl();
+  } finally {
+    releaseCronLock("telegram-eviction");
+  }
+}
+
+async function runTelegramEvictionImpl(): Promise<number> {
   const now = Date.now();
   const db = getDb();
   let removidos = 0;

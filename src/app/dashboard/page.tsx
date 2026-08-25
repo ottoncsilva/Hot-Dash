@@ -22,6 +22,9 @@ import { useProfile } from "@/context/ProfileContext";
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
+function usd(cents: number) {
+  return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
 function pct(ratio: number) {
   return `${(ratio * 100).toFixed(1)}%`;
 }
@@ -342,6 +345,23 @@ function BotSalesPanel({
       .catch(() => setBalance(null));
   }, [innerReload, reloadKey]);
 
+  // Saldo na Stripe (USD) — mesma lógica do da SyncPay, mas sem cache pra
+  // furar: a rota já consulta a Stripe direto, sem o limite de taxa que a
+  // da SyncPay precisa contornar.
+  type StripeBalance = {
+    connected: boolean;
+    availableCents: number | null;
+    pendingCents: number | null;
+    error?: string;
+  };
+  const [stripeBalance, setStripeBalance] = useState<StripeBalance | null>(null);
+  useEffect(() => {
+    setStripeBalance(null);
+    apiGet<StripeBalance>("/api/payments/stripe/balance")
+      .then(setStripeBalance)
+      .catch(() => setStripeBalance(null));
+  }, [innerReload, reloadKey]);
+
   useEffect(() => {
     let cancelled = false;
     setData(null);
@@ -396,7 +416,7 @@ function BotSalesPanel({
         />
         <MetricCard label="Total Starts" value={data ? String(data.funnel.totalStarts) : null} />
       </div>
-      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+      <div className="mt-3 grid gap-3 sm:grid-cols-4">
         <MetricCard label="Quantidade de Vendas" value={data ? String(data.stats.paidCount) : null} />
         <MetricCard label="Ticket Médio" value={data ? brl(data.stats.avgTicketCents) : null} />
         {/* Saldo é uma foto do AGORA — não muda com o período escolhido. */}
@@ -422,6 +442,28 @@ function BotSalesPanel({
                   : balance.stale
                     ? "Último valor conhecido"
                     : "Disponível agora"
+          }
+        />
+        <MetricCard
+          label="Saldo na Stripe"
+          value={
+            stripeBalance === null
+              ? null
+              : !stripeBalance.connected
+                ? "—"
+                : stripeBalance.availableCents === null
+                  ? "indisponível"
+                  : usd(stripeBalance.availableCents)
+          }
+          muted={stripeBalance !== null && (!stripeBalance.connected || stripeBalance.availableCents === null)}
+          hint={
+            stripeBalance === null
+              ? undefined
+              : !stripeBalance.connected
+                ? "Conecte a Stripe em Configurações"
+                : stripeBalance.availableCents === null
+                  ? stripeBalance.error || "Teste em Configurações → Pagamentos"
+                  : "Disponível agora"
           }
         />
       </div>

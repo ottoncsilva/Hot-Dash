@@ -308,6 +308,21 @@ export async function POST(
       if (langAcao) {
         const idioma = langAcao[1] as "en" | "es";
         const t = CHECKOUT_INTL_TEXTS[idioma];
+        // Garante a linha em telegram_users antes de gravar o idioma: o
+        // /start só cria uma quando vem com código de origem (deep-link) —
+        // sem isso, um lead "direto" ainda não tem linha nenhuma aqui, e um
+        // UPDATE sozinho (setTelegramUserLanguage) não criaria nada.
+        upsertTelegramUser({
+          botId: bot.id,
+          profileId: bot.profileId,
+          telegramUserId: from.id,
+          username: from.username,
+          firstName: from.first_name,
+          lastName: from.last_name,
+          chatId: String(message.chat.id),
+          canDm: true,
+          source: "start",
+        });
         setTelegramUserLanguage(bot.id, from.id, idioma);
         const plans = listActivePlans(bot.id);
         const rows = buildPlanKeyboardRows(bot, plans, { moeda: "USD", prefix: "buy_intl_" });

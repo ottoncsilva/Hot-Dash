@@ -233,6 +233,10 @@ export default function BotVendasPage() {
   const [pixAudio, setPixAudio] = useState("");
   const [sucessoTexto, setSucessoTexto] = useState("");
   const [sucessoBotao, setSucessoBotao] = useState("");
+  // Traduções GUARDADAS da mensagem de sucesso (botão "Traduzir" — fluxo
+  // internacional "Not from Brazil?"). Vazio = ainda não traduzida.
+  const [sucessoTextoEn, setSucessoTextoEn] = useState("");
+  const [sucessoTextoEs, setSucessoTextoEs] = useState("");
   // Os papéis de botão são fixos do produto; as CORES vêm do bot da modelo.
   const [buttonRoles, setButtonRoles] = useState<ButtonRoleInfo[]>([]);
 
@@ -287,6 +291,8 @@ export default function BotVendasPage() {
       setPixAudio(d.bot?.pixAudioUrl || "");
       setSucessoTexto(d.bot?.successMessage || "");
       setSucessoBotao(d.bot?.successButtonText || "");
+      setSucessoTextoEn(d.bot?.successMessageEn || "");
+      setSucessoTextoEs(d.bot?.successMessageEs || "");
       setButtonRoles(d.buttonRoles || []);
       setAprVip(d.bot?.vipApprovalMode || "subscribers");
       setAprPrevias(d.bot?.previasApprovalMode || "all");
@@ -461,6 +467,10 @@ export default function BotVendasPage() {
                     setTexto={setSucessoTexto}
                     botao={sucessoBotao}
                     setBotao={setSucessoBotao}
+                    textoEn={sucessoTextoEn}
+                    setTextoEn={setSucessoTextoEn}
+                    textoEs={sucessoTextoEs}
+                    setTextoEs={setSucessoTextoEs}
                     efeito={efeitoSuccess}
                     setEfeito={setEfeitoSuccess}
                     onSaved={load}
@@ -966,6 +976,59 @@ function BotaoGerarMensagem({
   );
 }
 
+/**
+ * "Traduzir" — mesmo padrão do "Gerar com IA" (botão + IA + guarda o
+ * resultado), só que traduzindo um texto já escrito em vez de gerar do
+ * zero. Usado na mensagem de pagamento aprovado (D.4 do fluxo
+ * internacional "Not from Brazil?").
+ */
+function BotaoTraduzir({
+  profileId,
+  texto,
+  idioma,
+  label,
+  onTraduzido,
+}: {
+  profileId: string;
+  /** Texto em português a traduzir. */
+  texto: string;
+  idioma: "en" | "es";
+  label: string;
+  onTraduzido: (texto: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  async function traduzir() {
+    if (!texto.trim()) {
+      showToast("Escreva a mensagem em português antes de traduzir.", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { text } = await apiSend<{ text: string }>("/api/ai/translate-bot-message", "POST", {
+        profileId,
+        idioma,
+        texto,
+      });
+      onTraduzido(text);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha ao traduzir a mensagem.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={traduzir}
+      disabled={busy}
+      className="btn-ghost flex items-center gap-1 text-xs disabled:opacity-50"
+      title={`Traduz o texto em português acima pra ${idioma === "en" ? "inglês" : "espanhol"} com IA e guarda o resultado`}
+    >
+      <IconSparkle size={13} /> {busy ? "Traduzindo…" : label}
+    </button>
+  );
+}
+
 function WelcomeRow({
   profileId,
   bot,
@@ -1059,6 +1122,10 @@ function SuccessRow({
   setTexto,
   botao,
   setBotao,
+  textoEn,
+  setTextoEn,
+  textoEs,
+  setTextoEs,
   efeito,
   setEfeito,
   onSaved,
@@ -1069,11 +1136,16 @@ function SuccessRow({
   setTexto: (v: string) => void;
   botao: string;
   setBotao: (v: string) => void;
+  textoEn: string;
+  setTextoEn: (v: string) => void;
+  textoEs: string;
+  setTextoEs: (v: string) => void;
   efeito: string;
   setEfeito: (v: string) => void;
   onSaved: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [busyTraducao, setBusyTraducao] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
 
   // Sem {link_vip} escrito no texto, o envio ANEXA o link no fim e sempre põe o
@@ -1081,6 +1153,11 @@ function SuccessRow({
   // assim o aviso continua, porque o texto sai diferente do que está escrito
   // aqui, e é melhor o operador saber disso antes da primeira venda.
   const semMarcador = !/{link_vip}/i.test(texto);
+
+  // Tradução pode ficar desatualizada se o PT for editado depois — aviso
+  // simples, sem re-traduzir sozinho (decisão do plano: só o operador decide
+  // quando re-traduzir).
+  const traducaoDesatualizada = (t: string) => t.trim() && texto !== bot.successMessage;
 
   async function save() {
     setBusy(true);
@@ -1096,6 +1173,22 @@ function SuccessRow({
       showToast(e instanceof Error ? e.message : "Falha.", "error");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function salvarTraducoes() {
+    setBusyTraducao(true);
+    try {
+      await salvarMensagens(profileId, {
+        successMessageEn: textoEn,
+        successMessageEs: textoEs,
+      });
+      showToast("Traduções salvas.", "success");
+      onSaved();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha.", "error");
+    } finally {
+      setBusyTraducao(false);
     }
   }
 
@@ -1149,6 +1242,48 @@ function SuccessRow({
       <button onClick={save} disabled={busy} className="btn-primary mt-4">
         {busy ? "Salvando..." : "Salvar mensagem"}
       </button>
+
+      {/* Traduções — só entram em jogo pra quem clicou "Not from Brazil?" e
+          escolheu idioma. Sem tradução salva, esse lead recebe o texto em
+          português acima mesmo (comportamento de hoje, sem quebrar nada). */}
+      <div className="mt-6 border-t border-white/10 pt-4">
+        <p className="eyebrow">tradução (leads internacionais)</p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Só é usada com quem escolheu esse idioma no menu "Not from Brazil?" — sem tradução salva, esse lead recebe o texto em português acima.
+        </p>
+
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <label className="eyebrow block">🇬🇧 English</label>
+          <BotaoTraduzir profileId={profileId} texto={texto} idioma="en" label="Traduzir" onTraduzido={setTextoEn} />
+        </div>
+        <textarea
+          className="input mt-1.5 min-h-[90px]"
+          value={textoEn}
+          onChange={(e) => setTextoEn(e.target.value)}
+          placeholder="(sem tradução salva)"
+        />
+        {traducaoDesatualizada(textoEn) && (
+          <p className="mt-1 text-[11px] text-amber-400/80">Tradução pode estar desatualizada — o texto em português mudou depois dela.</p>
+        )}
+
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <label className="eyebrow block">🇪🇸 Español</label>
+          <BotaoTraduzir profileId={profileId} texto={texto} idioma="es" label="Traduzir" onTraduzido={setTextoEs} />
+        </div>
+        <textarea
+          className="input mt-1.5 min-h-[90px]"
+          value={textoEs}
+          onChange={(e) => setTextoEs(e.target.value)}
+          placeholder="(sem tradução salva)"
+        />
+        {traducaoDesatualizada(textoEs) && (
+          <p className="mt-1 text-[11px] text-amber-400/80">Tradução pode estar desatualizada — o texto em português mudou depois dela.</p>
+        )}
+
+        <button onClick={salvarTraducoes} disabled={busyTraducao} className="btn-ghost mt-3 text-xs">
+          {busyTraducao ? "Salvando..." : "Salvar traduções"}
+        </button>
+      </div>
     </SectionRow>
   );
 }

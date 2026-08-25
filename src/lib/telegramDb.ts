@@ -13,6 +13,12 @@ export type TelegramBotConfig = {
   welcomeMessage: string;
   welcomeMediaTags?: string;
   successMessage: string;
+  /** Traduções GUARDADAS da mensagem de pagamento aprovado (botão "Traduzir",
+   *  IA + cache — nunca traduzida ao vivo a cada envio). Usadas quando o
+   *  lead escolheu esse idioma no menu internacional; sem tradução, cai no
+   *  texto em português de sempre. */
+  successMessageEn?: string;
+  successMessageEs?: string;
   downsellFunnel?: string;
   upsellFunnel?: string;
   /** Mensagem enviada ao aprovar um lead no grupo de prévias (opcional). */
@@ -352,6 +358,8 @@ function toBotConfig(row: any): TelegramBotConfig {
     welcomeMessage: row.welcome_message,
     welcomeMediaTags: row.welcome_media_tags || undefined,
     successMessage: row.success_message,
+    successMessageEn: row.success_message_en || undefined,
+    successMessageEs: row.success_message_es || undefined,
     downsellFunnel: row.downsell_funnel || undefined,
     upsellFunnel: row.upsell_funnel || undefined,
     previewsWelcomeMessage: row.previews_welcome_message || undefined,
@@ -437,8 +445,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, renewal_funnel, renewal_enabled, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, success_message_en, success_message_es, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, renewal_funnel, renewal_enabled, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -449,6 +457,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        welcome_message = excluded.welcome_message,
        welcome_media_tags = excluded.welcome_media_tags,
        success_message = excluded.success_message,
+       success_message_en = excluded.success_message_en,
+       success_message_es = excluded.success_message_es,
        downsell_funnel = excluded.downsell_funnel,
        upsell_funnel = excluded.upsell_funnel,
        previews_welcome_message = excluded.previews_welcome_message,
@@ -496,6 +506,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.welcomeMessage,
     config.welcomeMediaTags || null,
     config.successMessage,
+    config.successMessageEn?.trim() || null,
+    config.successMessageEs?.trim() || null,
     config.downsellFunnel || null,
     config.upsellFunnel || null,
     config.previewsWelcomeMessage || null,

@@ -98,6 +98,22 @@ export async function deliverPaidTransaction(
           }
         : {};
 
+      // Tradução GUARDADA da mensagem de sucesso (D.4 do fluxo internacional)
+      // — só entra em jogo quando o lead escolheu idioma no menu "Not from
+      // Brazil?" E existe uma tradução salva para ele; sem isso, cai no
+      // texto em português de sempre (comportamento de hoje, intacto).
+      const { getTelegramUser } = await import("@/lib/telegramUsers");
+      const idiomaLead = getTelegramUser(`${bot.id}_${sub.telegramUserId}`)?.language;
+      const successMessageTraduzida =
+        idiomaLead === "en"
+          ? bot.successMessageEn?.trim()
+          : idiomaLead === "es"
+            ? bot.successMessageEs?.trim()
+            : undefined;
+      const botParaSucesso = successMessageTraduzida
+        ? { ...bot, successMessage: successMessageTraduzida }
+        : bot;
+
       try {
         if (isPackage) {
           // PACOTE (compra única): entrega o conteúdo, sem acesso VIP.
@@ -111,7 +127,7 @@ export async function deliverPaidTransaction(
           const deliverable = plan?.deliverable?.trim();
           const msg = deliverable
             ? `✅ <b>Pagamento aprovado!</b>\n\n${deliverable}`
-            : bot.successMessage.replace(/{link_vip}/gi, "");
+            : botParaSucesso.successMessage.replace(/{link_vip}/gi, "");
           await sendTelegramMessage(bot.botToken, String(sub.telegramUserId), msg, botoesEntregavel);
         } else {
           // ASSINATURA: gera o convite VIP com a duração REAL do plano.
@@ -163,7 +179,7 @@ export async function deliverPaidTransaction(
             // botão fazia o cliente pagar e receber uma mensagem sem
             // caminho nenhum para o grupo.
             const { efeitoProps } = await import("@/lib/telegramEffects");
-            const aprovada = buildAccessMessage(bot, invite.invite_link, buttonStyleProps(bot, "access"));
+            const aprovada = buildAccessMessage(botParaSucesso, invite.invite_link, buttonStyleProps(bot, "access"));
             await sendTelegramMessage(
               bot.botToken,
               String(sub.telegramUserId),

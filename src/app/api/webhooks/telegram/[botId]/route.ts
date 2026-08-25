@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { TelegramPlan } from "@/lib/telegramDb";
 import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, BUMP_DEFAULTS, PIX_DEFAULTS } from "@/lib/telegramDb";
-import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser } from "@/lib/telegramUsers";
+import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser, setTelegramUserLanguage } from "@/lib/telegramUsers";
 import { recordGroupMembershipChange } from "@/lib/telegramMonitor";
 import { getMailingOffer } from "@/lib/telegramMailing";
 import { sendTelegramMessage, sendTelegramMedia, sendTelegramMediaGroup, sendTelegramVoiceUrl, sendTelegramPhotoBuffer, approveTelegramJoinRequest, declineTelegramJoinRequest, telegramWebhookSecret } from "@/lib/telegramApi";
@@ -19,6 +19,37 @@ import { randomUUID } from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * Textos FIXOS do fluxo internacional (checkout Stripe) — mecânica de
+ * compra, não conteúdo de persona. Iguais para toda modelo, ao contrário das
+ * mensagens editáveis na tela do bot (que continuam só em português até
+ * alguém clicar "Traduzir" na mensagem de sucesso — ver SuccessRow).
+ */
+const CHECKOUT_INTL_TEXTS = {
+  en: {
+    noPlan: "⚠️ No plan available in USD right now.",
+    choosePlan: "🌎 Choose your plan (charged in USD, via card):",
+    unavailable: "⚠️ International checkout temporarily unavailable. Please try again later.",
+    generating: "⏳ Generating your payment link...",
+    linkFailed: "⚠️ Could not generate the payment link. Please try again in a moment.",
+    finishPayment: "Finish the payment through the link below.",
+    makePayment: "Make payment 👉",
+    checkStatus: "Check payment status",
+    planNotFound: "⚠️ Plan not found or not available in USD.",
+  },
+  es: {
+    noPlan: "⚠️ No hay ningún plan disponible en USD por ahora.",
+    choosePlan: "🌎 Elige tu plan (cobrado en USD, con tarjeta):",
+    unavailable: "⚠️ El pago internacional no está disponible en este momento. Inténtalo más tarde.",
+    generating: "⏳ Generando tu enlace de pago...",
+    linkFailed: "⚠️ No se pudo generar el enlace de pago. Inténtalo de nuevo en un momento.",
+    finishPayment: "Termina el pago a través del siguiente enlace.",
+    makePayment: "Pagar 👉",
+    checkStatus: "Verificar estado del pago",
+    planNotFound: "⚠️ Plan no encontrado o no disponible en USD.",
+  },
+} as const;
 
 /** Nome da modelo, para a variável {modelo}. */
 function nomeDaModelo(profileId: string): string {
@@ -249,24 +280,43 @@ export async function POST(
       const { id, data, from, message } = update.callback_query;
 
       // ---- "Not from Brazil?" — menu internacional (checkout Stripe) ----
-      // Mensagem NOVA (mesmo padrão do bump), com os planos que têm preço em
-      // USD cadastrado. Sem esses planos o botão nem aparece no /start.
+      // Primeiro pergunta o IDIOMA (mensagem NOVA, mesmo padrão do bump) —
+      // só depois mostra os planos em USD, já no idioma escolhido. O botão
+      // nem aparece no /start sem plano com priceUsdCents cadastrado.
       if (data === "intl_menu") {
+        await sendTelegramMessage(
+          bot.botToken,
+          String(message.chat.id),
+          "🌎 Choose your language / Elige tu idioma:",
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: "🇬🇧 English", callback_data: "lang_en" },
+                  { text: "🇪🇸 Español", callback_data: "lang_es" },
+                ],
+              ],
+            },
+          },
+        );
+        return NextResponse.json({ ok: true });
+      }
+
+      // ---- Escolha de idioma: grava no LEAD (vale pra sempre, não só pra
+      // esta compra) e então mostra os planos em USD, já traduzidos. ----
+      const langAcao = typeof data === "string" && data.match(/^lang_(en|es)$/);
+      if (langAcao) {
+        const idioma = langAcao[1] as "en" | "es";
+        const t = CHECKOUT_INTL_TEXTS[idioma];
+        setTelegramUserLanguage(bot.id, from.id, idioma);
         const plans = listActivePlans(bot.id);
         const rows = buildPlanKeyboardRows(bot, plans, { moeda: "USD", prefix: "buy_intl_" });
         if (rows.length === 0) {
-          await sendTelegramMessage(
-            bot.botToken,
-            String(message.chat.id),
-            "⚠️ No plan available in USD right now.",
-          );
+          await sendTelegramMessage(bot.botToken, String(message.chat.id), t.noPlan);
         } else {
-          await sendTelegramMessage(
-            bot.botToken,
-            String(message.chat.id),
-            "🌎 Choose your plan (charged in USD, via card):",
-            { reply_markup: { inline_keyboard: rows } },
-          );
+          await sendTelegramMessage(bot.botToken, String(message.chat.id), t.choosePlan, {
+            reply_markup: { inline_keyboard: rows },
+          });
         }
         return NextResponse.json({ ok: true });
       }
@@ -351,6 +401,12 @@ export async function POST(
       // botão do bump só é oferecido a partir de `buy_plan_` (isPlanBuy),
       // então um clique em `buy_intl_` nunca entra naquele fluxo.
       const isIntlBuy = typeof data === "string" && data.startsWith("buy_intl_");
+      // Idioma gravado quando o lead escolheu no menu internacional (D.2).
+      // Sem escolha registrada (ex.: link antigo), cai em inglês — era o
+      // único idioma do fluxo intl antes do menu de idioma existir.
+      const tIntl = CHECKOUT_INTL_TEXTS[
+        isIntlBuy ? getTelegramUser(`${bot.id}_${from.id}`)?.language || "en" : "en"
+      ];
 
       // ---- Order Bump: a oferta que aparece entre escolher o plano e gerar
       // o PIX. `bump_yes_` / `bump_no_` carregam o mesmo par (plano, desconto)
@@ -399,11 +455,7 @@ export async function POST(
           discountPercent = parseInt(parts[1]) || 0;
           const plan = getPlan(planId);
           if (!plan || !((plan.priceUsdCents || 0) > 0)) {
-            await sendTelegramMessage(
-              bot.botToken,
-              String(message.chat.id),
-              "⚠️ Plan not found or not available in USD.",
-            );
+            await sendTelegramMessage(bot.botToken, String(message.chat.id), tIntl.planNotFound);
             return NextResponse.json({ ok: true });
           }
           itemName = plan.name;
@@ -496,19 +548,19 @@ export async function POST(
             bot.botToken,
             String(message.chat.id),
             isIntlBuy
-              ? "⚠️ International checkout temporarily unavailable. Please try again later."
+              ? tIntl.unavailable
               : "⚠️ O checkout temporariamente indisponível. Tente novamente mais tarde."
           );
           return NextResponse.json({ ok: true });
         }
 
         // Informa que a cobrança está sendo gerada (texto configurável — só
-        // faz sentido em PT para o PIX; o intl usa um texto fixo em inglês,
-        // já que o lead chegou ali pelo botão "Not from Brazil?").
+        // faz sentido em PT para o PIX; o intl usa um dos textos fixos D.3,
+        // no idioma que o lead escolheu no menu internacional).
         await sendTelegramMessage(
           bot.botToken,
           String(message.chat.id),
-          isIntlBuy ? "⏳ Generating your payment link..." : (bot.pixGeneratingMessage?.trim() || PIX_DEFAULTS.generatingMessage),
+          isIntlBuy ? tIntl.generating : (bot.pixGeneratingMessage?.trim() || PIX_DEFAULTS.generatingMessage),
         );
 
         let amountCents = basePriceCents;
@@ -614,22 +666,18 @@ export async function POST(
         // agnóstico de provedor, só olha `sub.status`.
         if (isIntlBuy) {
           if (!charge.checkoutUrl) {
-            await sendTelegramMessage(
-              bot.botToken,
-              String(message.chat.id),
-              "⚠️ Could not generate the payment link. Please try again in a moment.",
-            );
+            await sendTelegramMessage(bot.botToken, String(message.chat.id), tIntl.linkFailed);
             return NextResponse.json({ ok: true });
           }
           await sendTelegramMessage(
             bot.botToken,
             String(message.chat.id),
-            "Finish the payment through the link below.",
+            tIntl.finishPayment,
             {
               reply_markup: {
                 inline_keyboard: [
-                  [{ text: "Make payment 👉", url: charge.checkoutUrl }],
-                  [{ text: "Check payment status", callback_data: `pix_check_${subId}`, ...buttonStyleProps(bot, "pixCheck") }],
+                  [{ text: tIntl.makePayment, url: charge.checkoutUrl }],
+                  [{ text: tIntl.checkStatus, callback_data: `pix_check_${subId}`, ...buttonStyleProps(bot, "pixCheck") }],
                 ],
               },
               ...efeitoProps(bot.effectPix),

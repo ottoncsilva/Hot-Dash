@@ -36,7 +36,11 @@ export function createStripe(creds: { secretKey: string; webhookSecret: string }
       const moeda = (input.currency || "USD").toLowerCase();
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
-        payment_method_types: ["card"],
+        // SEM `payment_method_types` de propósito: travar em ["card"] esconde
+        // Apple Pay/Google Pay/Link mesmo com os três habilitados no
+        // Dashboard (Configurações → Formas de pagamento). Omitido, o
+        // Checkout decide sozinho, por sessão, o que mostrar — a mesma
+        // config "dinâmica" que a Stripe já usa para Payment Links.
         line_items: [
           {
             price_data: {

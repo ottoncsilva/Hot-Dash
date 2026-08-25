@@ -35,6 +35,10 @@ export type TelegramUser = {
   sourceCode?: string;
   lastInteractionAt?: number;
   createdAt: number;
+  /** Idioma escolhido no menu internacional ("Not from Brazil?"). Ausente =
+   *  português, comportamento de sempre — o lead só entra em "modo
+   *  traduzido" depois de escolher um idioma ali. */
+  language?: "en" | "es";
 };
 
 /**
@@ -91,6 +95,7 @@ function toUser(r: any): TelegramUser {
     sourceCode: r.source_code || undefined,
     lastInteractionAt: r.last_interaction_at || undefined,
     createdAt: r.created_at,
+    language: r.language === "en" || r.language === "es" ? r.language : undefined,
   };
 }
 
@@ -186,6 +191,14 @@ export function setTelegramUserGroup(
   getDb()
     .prepare(`UPDATE telegram_users SET ${col} = ? WHERE bot_id = ? AND telegram_user_id = ?`)
     .run(member ? 1 : 0, botId, telegramUserId);
+}
+
+/** Grava o idioma escolhido no menu internacional — vale pra sempre para
+ *  aquele lead, não só para a compra em curso. */
+export function setTelegramUserLanguage(botId: string, telegramUserId: number, language: "en" | "es"): void {
+  getDb()
+    .prepare(`UPDATE telegram_users SET language = ? WHERE bot_id = ? AND telegram_user_id = ?`)
+    .run(language, botId, telegramUserId);
 }
 
 export function deleteTelegramUser(id: string): void {

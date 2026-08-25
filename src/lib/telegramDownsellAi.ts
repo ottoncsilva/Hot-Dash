@@ -360,3 +360,34 @@ ${REGRAS_COMUNS}`;
 export async function gerarMensagemAvulsa(params: ParametrosAvulsa): Promise<string> {
   return tentarGerar(await montarPromptMensagemAvulsa(params));
 }
+
+// ---------------------------------------------------------------------------
+// TRADUÇÃO — mensagem de pagamento aprovado (D.4 do fluxo internacional).
+// Gerada por IA e GUARDADA (botão "Traduzir", mesmo padrão do "Gerar com
+// IA"), não traduzida ao vivo a cada envio.
+// ---------------------------------------------------------------------------
+
+const NOME_IDIOMA: Record<"en" | "es", string> = { en: "English", es: "Spanish" };
+
+/**
+ * Traduz um texto já escrito (não gera do zero) mantendo a voz da modelo e
+ * qualquer placeholder ({link_vip} etc.) intacto. Mesma cadeia de provedores
+ * das outras gerações — o texto pode ter conteúdo adulto direto.
+ */
+export async function traduzirTexto(
+  texto: string,
+  idioma: "en" | "es",
+  profileId: string,
+): Promise<string> {
+  const { nome } = await blocoPersona(profileId);
+  const idiomaNome = NOME_IDIOMA[idioma];
+  const prompt = `You are translating a message written by ${nome}, an adult content creator, to ${idiomaNome}. She sends this exact message on Telegram to a subscriber right after their payment was approved. Keep the same tone, warmth and personality — just in ${idiomaNome} instead of Portuguese. Keep any placeholder EXACTLY as written (e.g. {link_vip}) — never translate, remove, or alter a placeholder. Never reveal this is a translation, an AI, or an automated system.
+
+ORIGINAL TEXT (Portuguese):
+"""
+${texto}
+"""
+
+Respond with ONLY the translated text, exactly as it will be sent on Telegram. Nothing else: no label like "Translation:", no header, no separator (---), no code block, no quotes wrapping it, no explanation before or after. The first line of your response is already the first line of the real message.`;
+  return tentarGerar(prompt);
+}

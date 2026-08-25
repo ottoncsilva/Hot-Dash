@@ -54,6 +54,10 @@ type Bot = {
   welcomeMessage: string;
   welcomeMediaTags?: string;
   successMessage: string;
+  /** Traduções guardadas (botão "Traduzir") — usadas quando o lead escolheu
+   *  esse idioma no menu internacional "Not from Brazil?". */
+  successMessageEn?: string;
+  successMessageEs?: string;
   downsellFunnel?: string;
   upsellFunnel?: string;
   previewsWelcomeMessage?: string;

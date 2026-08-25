@@ -985,6 +985,16 @@ function migrate(d: Database.Database) {
   // único: qualquer conversão pra outra moeda no futuro parte daqui, não
   // ganha um campo novo por moeda.
   ensureColumn(d, "telegram_plans", "price_usd_cents", "INTEGER");
+  // Idioma escolhido no menu internacional ("en" | "es"; ausente = português,
+  // comportamento de sempre). Fica no USUÁRIO, não só na sessão de compra —
+  // é o que faz "a partir daí tudo traduzido" valer permanentemente pra
+  // aquele lead.
+  ensureColumn(d, "telegram_users", "language", "TEXT");
+  // Traduções guardadas da mensagem de pagamento aprovado — geradas por IA
+  // (botão "Traduzir", mesmo padrão do "Gerar com IA") e cacheadas, nunca
+  // traduzidas ao vivo a cada envio.
+  ensureColumn(d, "telegram_bots", "success_message_en", "TEXT");
+  ensureColumn(d, "telegram_bots", "success_message_es", "TEXT");
   // A inscrição registra se o bump foi comprado: é o que decide se a entrega
   // inclui o entregável extra, e quanto do valor pago foi dele.
   ensureColumn(d, "telegram_subscriptions", "bump_cents", "INTEGER NOT NULL DEFAULT 0");

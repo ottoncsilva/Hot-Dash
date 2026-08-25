@@ -388,6 +388,10 @@ export async function POST(req: NextRequest) {
             ? body.welcomeMediaMode
             : bot.welcomeMediaMode,
         successMessage: String(body.successMessage ?? bot.successMessage ?? "Aprovado"),
+        // Traduções guardadas (botão "Traduzir") — string vazia LIMPA a
+        // tradução salva (ex.: operador quer voltar a cair no texto em PT).
+        successMessageEn: body.successMessageEn !== undefined ? String(body.successMessageEn) : bot.successMessageEn,
+        successMessageEs: body.successMessageEs !== undefined ? String(body.successMessageEs) : bot.successMessageEs,
         previewsWelcomeMessage: body.previewsWelcomeMessage !== undefined ? String(body.previewsWelcomeMessage) : bot.previewsWelcomeMessage,
         supportUsername: body.supportUsername !== undefined ? String(body.supportUsername) : bot.supportUsername,
         idRegistro: body.idRegistro !== undefined ? String(body.idRegistro) : bot.idRegistro,

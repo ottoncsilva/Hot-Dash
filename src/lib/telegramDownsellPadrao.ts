@@ -52,6 +52,33 @@ function intervalo(
   return out;
 }
 
+/**
+ * O motor do funil (telegramCron.ts) conta cada `delayMinutes` a partir do
+ * ENVIO DO PASSO ANTERIOR, não do evento que disparou o funil inteiro — é
+ * por isso que a tela mostra "Envia X depois da anterior": cada passo
+ * SOMA ao relógio da pessoa, ele não reinicia do /start (ou da geração do
+ * PIX) a cada mensagem.
+ *
+ * Os marcos abaixo (`MARCO_3H`, `intervalo(...)`, etc.) foram desenhados
+ * como TEMPO ABSOLUTO desde o gatilho — "aos 90 minutos do /start", "aos
+ * 1440 (24h) do /start" — porque é assim que dá pra desenhar/conferir a
+ * escalada. Esta função converte a lista inteira de marcos absolutos em
+ * DELTA (cada passo = quanto depois do passo anterior), que é o que o motor
+ * de verdade espera. Sem isso, o passo "aos 1440min" só chegaria 1440
+ * minutos depois do passo anterior — dias depois do pretendido, não no fim
+ * do primeiro dia. Passos de horário fixo (`dailyTime`) ficam de fora: já
+ * são calculados sobre o relógio, não sobre minutos decorridos.
+ */
+function paraDeltas(passos: PassoPadrao[]): PassoPadrao[] {
+  let marcaAnterior = 0;
+  return passos.map((p) => {
+    if (p.dailyTime) return p;
+    const delta = p.delayMinutes - marcaAnterior;
+    marcaAnterior = p.delayMinutes;
+    return { ...p, delayMinutes: delta };
+  });
+}
+
 /** Os 4 lembretes finais, em horário fixo do relógio (repete todo dia). */
 function tailDiario(textos: [string, string, string, string]): PassoPadrao[] {
   const horarios: string[] = ["16:00", "19:00", "22:00", "07:30"];
@@ -160,7 +187,7 @@ function caudaComum(): PassoPadrao[] {
 // DOWNSELL GERAL — quem deu /start e nunca comprou. Conta do último contato.
 // ---------------------------------------------------------------------------
 
-export const DOWNSELL_GERAL_PADRAO: PassoPadrao[] = [
+export const DOWNSELL_GERAL_PADRAO: PassoPadrao[] = paraDeltas([
   {
     delayMinutes: 5,
     discountPercent: 0,
@@ -225,14 +252,14 @@ export const DOWNSELL_GERAL_PADRAO: PassoPadrao[] = [
     "Já é de noite, {nome}, e os 50% continuam aqui te esperando. Última call do dia. 👇🏼 😈",
     "Bom dia, {nome} ☕ os 50% de desconto seguem valendo. Começa o dia comigo. 👇🏼",
   ]).map((p) => ({ ...p, audience: "leads" as const })),
-];
+]);
 
 // ---------------------------------------------------------------------------
 // DOWNSELL DE PIX GERADO — já escolheu o plano e viu a tela de pagamento.
 // Conta da criação do PIX; direto, sem reapresentar a oferta do zero.
 // ---------------------------------------------------------------------------
 
-export const PIX_DOWNSELL_PADRAO: PassoPadrao[] = [
+export const PIX_DOWNSELL_PADRAO: PassoPadrao[] = paraDeltas([
   {
     delayMinutes: 3,
     discountPercent: 0,
@@ -319,4 +346,4 @@ export const PIX_DOWNSELL_PADRAO: PassoPadrao[] = [
     "Já é de noite, {nome}, e os 50% continuam aqui — {plano} por {valor}. Última call do dia. 👇🏼 😈",
     "Bom dia, {nome} ☕ os 50% no seu {plano} ({valor}) seguem valendo. Fecha isso e começa o dia comigo. 👇🏼",
   ]),
-];
+]);

@@ -299,15 +299,21 @@ export function findByProviderRef(
 
 /** Última venda paga registrada (qualquer perfil/provedor) — usado como
  *  diagnóstico em Configurações → Pagamentos para confirmar que o webhook da
- *  SyncPay está realmente chegando. */
+ *  SyncPay está realmente chegando, e no Dashboard para o toast de venda
+ *  nova. Ordena por `paid_at` (quando ela virou paga), não `created_at`
+ *  (quando a cobrança foi gerada) — uma cobrança antiga que acabou de ser
+ *  paga tem que aparecer como a mais recente, não sumir atrás de uma
+ *  cobrança gerada depois dela mas ainda pendente. */
 export function lastPaidTransaction(): { at: number; amountCents: number; customer?: string } | null {
   const r = getDb()
     .prepare(
-      "SELECT created_at, amount_cents, customer FROM transactions WHERE status = 'paid' ORDER BY created_at DESC LIMIT 1",
+      "SELECT created_at, paid_at, amount_cents, customer FROM transactions WHERE status = 'paid' ORDER BY COALESCE(paid_at, created_at) DESC LIMIT 1",
     )
-    .get() as { created_at: number; amount_cents: number; customer: string | null } | undefined;
+    .get() as
+    | { created_at: number; paid_at: number | null; amount_cents: number; customer: string | null }
+    | undefined;
   if (!r) return null;
-  return { at: r.created_at, amountCents: r.amount_cents, customer: r.customer || undefined };
+  return { at: r.paid_at ?? r.created_at, amountCents: r.amount_cents, customer: r.customer || undefined };
 }
 
 /**

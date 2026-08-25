@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, useEffect as import_react_useEffect } from "react";
-import { apiSend } from "@/lib/api";
+import { apiGet, apiSend } from "@/lib/api";
 import { IconArrowLeft } from "@/components/icons";
 
 /** Botão "Testar conexão" + luz de status (usado por SyncPay e por cada provedor de IA). */
@@ -84,6 +84,117 @@ export function KeyLabel({ children, salva }: { children: React.ReactNode; salva
         <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-400">
           🔒 salva
         </span>
+      )}
+    </div>
+  );
+}
+
+type WebhookEventoUi = { id: string; receivedAt: number; providerRef?: string; decision: string; body: string };
+
+/**
+ * Diário de webhooks recebidos de UM provedor — o que ele mandou e o que o
+ * sistema fez com cada evento. "Só relevantes" esconde os "ignorado · ..."
+ * (evento que chegou mas nenhum código trata hoje); "Todos" mostra tudo.
+ *
+ * O filtro não é uma lista fixa de tipos de evento — é derivado do próprio
+ * `decision` que cada webhook grava (`logWebhookEvent`, em
+ * syncpayWebhook.ts/stripeWebhook.ts): todo evento que o código realmente
+ * processa registra uma decisão que NÃO começa com "ignorado". Então quando
+ * um evento novo ganha tratamento no código, ele PASSA A APARECER em "Só
+ * relevantes" sozinho — não tem lista pra atualizar aqui na tela.
+ */
+export function WebhookDiaryPanel({ provider, descricao }: { provider: string; descricao: React.ReactNode }) {
+  const [eventos, setEventos] = useState<WebhookEventoUi[] | null>(null);
+  const [aberto, setAberto] = useState<string | null>(null);
+  const [soRelevantes, setSoRelevantes] = useState(true);
+
+  async function carregar() {
+    try {
+      const d = await apiGet<{ events: WebhookEventoUi[] }>(`/api/payments/webhook-events?provider=${provider}`);
+      setEventos(d.events || []);
+    } catch {
+      setEventos([]);
+    }
+  }
+
+  const visiveis = eventos?.filter((ev) => !soRelevantes || !ev.decision.startsWith("ignorado")) ?? null;
+
+  return (
+    <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Webhooks recebidos</p>
+          <p className="mt-0.5 text-xs text-zinc-500">{descricao}</p>
+        </div>
+        <button type="button" onClick={carregar} className="btn-ghost shrink-0 px-3 py-1.5 text-xs">
+          {eventos === null ? "Ver eventos" : "Atualizar"}
+        </button>
+      </div>
+
+      {eventos !== null && (
+        <>
+          <div className="mt-2 inline-flex items-center gap-1 rounded-lg bg-white/5 p-0.5 text-[11px]">
+            <button
+              type="button"
+              onClick={() => setSoRelevantes(true)}
+              className={`rounded-md px-2 py-1 transition-colors ${
+                soRelevantes ? "bg-white/10 font-semibold text-white" : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Só relevantes
+            </button>
+            <button
+              type="button"
+              onClick={() => setSoRelevantes(false)}
+              className={`rounded-md px-2 py-1 transition-colors ${
+                !soRelevantes ? "bg-white/10 font-semibold text-white" : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Todos
+            </button>
+          </div>
+
+          {visiveis!.length === 0 ? (
+            <p className="mt-2 text-xs text-zinc-600">
+              {eventos.length === 0
+                ? "Nenhum evento recebido ainda (só aparecem os que chegarem daqui pra frente)."
+                : 'Nenhum evento relevante ainda — troque para "Todos" pra ver os que chegaram, mas o sistema ignorou.'}
+            </p>
+          ) : (
+            <div className="mt-2 divide-y divide-white/[0.06] rounded-lg border border-white/10">
+              {visiveis!.map((ev) => (
+                <div key={ev.id} className="px-2 py-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setAberto(aberto === ev.id ? null : ev.id)}
+                    className="flex w-full items-center justify-between gap-2 text-left"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="font-mono text-[10px] text-zinc-500">
+                        {new Date(ev.receivedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "medium" })}
+                      </span>
+                      <span
+                        className={`ml-2 text-[11px] ${
+                          ev.decision.startsWith("ignorado") ? "text-amber-400/80" : "text-emerald-400/80"
+                        }`}
+                      >
+                        {ev.decision}
+                      </span>
+                    </span>
+                    <span className="shrink-0 font-mono text-[10px] text-zinc-600">
+                      {aberto === ev.id ? "fechar" : "ver json"}
+                    </span>
+                  </button>
+                  {aberto === ev.id && (
+                    <pre className="mt-1.5 max-h-64 overflow-auto whitespace-pre-wrap rounded border border-white/10 bg-black/40 p-2 font-mono text-[10px] leading-relaxed text-zinc-400">
+                      {ev.body}
+                    </pre>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

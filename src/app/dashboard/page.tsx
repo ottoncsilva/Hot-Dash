@@ -87,15 +87,21 @@ export default function DashboardHome() {
       .catch(() => setAiConnected(false));
   }, [reloadKey]);
 
-  // Detecta venda nova (via webhook da SyncPay) para o toast "🎉 Nova venda
-  // confirmada" — independe do painel abaixo e do bot estar rodando ou não.
+  // Detecta venda nova (via webhook de qualquer provedor) para o toast "🎉
+  // Nova venda confirmada" — independe do painel abaixo e do bot estar
+  // rodando ou não. `bot-overview` só dá o TOTAL do dia (paidCents), então
+  // serve só de GATILHO (a contagem subiu = algo novo entrou); o VALOR
+  // mostrado vem de `lastPaidTransaction` — a venda em si, não a soma do dia.
   useEffect(() => {
     async function checkNewSale() {
       try {
         const d = await apiGet<{ stats: PeriodStats }>("/api/dashboard/bot-overview?period=today");
         const paid = d.stats.paidCount;
         if (seenPaidRef.current !== null && paid > seenPaidRef.current) {
-          setNewSale({ amountCents: d.stats.paidCents });
+          const { lastPaid } = await apiGet<{
+            lastPaid: { at: number; amountCents: number; customer?: string } | null;
+          }>("/api/payments/last-paid");
+          if (lastPaid) setNewSale({ amountCents: lastPaid.amountCents, customer: lastPaid.customer });
         }
         seenPaidRef.current = paid;
       } catch {
@@ -131,6 +137,7 @@ export default function DashboardHome() {
         <div className="mt-5 flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/[0.08] px-4 py-3">
           <p className="text-sm text-emerald-200">
             🎉 Nova venda confirmada: <strong>{brl(newSale.amountCents)}</strong>
+            {newSale.customer ? ` · ${newSale.customer}` : ""}
           </p>
           <button
             onClick={() => setNewSale(null)}

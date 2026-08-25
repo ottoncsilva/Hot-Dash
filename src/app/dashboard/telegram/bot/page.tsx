@@ -320,6 +320,11 @@ export default function BotVendasPage() {
         kind: "plan" as const,
         style: corDo((p.highlight && CORES_DO_PLANO[p.highlight]) || bot?.buttonStyles?.plans),
       })),
+    // "Not from Brazil?" — mesmo critério do /start de verdade: só aparece
+    // com pelo menos um plano ativo tendo preço em USD cadastrado.
+    ...(plans.some((p) => p.active !== false && (p.priceUsdCents || 0) > 0)
+      ? [{ text: "🌎 Not from Brazil?", kind: "custom" as const, style: corDo(bot?.buttonStyles?.redirect) }]
+      : []),
     ...buttons.map((b) => ({ text: b.text, kind: "custom" as const, style: corDo(bot?.buttonStyles?.redirect) })),
     ...(bot?.supportUsername
       ? [{ text: "💬 Suporte / Dúvidas", kind: "support" as const, style: corDo(bot?.buttonStyles?.redirect) }]

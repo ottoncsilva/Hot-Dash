@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
 import { IconLock } from "@/components/icons";
 import type { PaymentSettingsPublic } from "@/lib/settings";
-import { BackToSettings, ConnectionBadge, KeyLabel } from "../_shared";
+import { BackToSettings, ConnectionBadge, KeyLabel, WebhookDiaryPanel } from "../_shared";
 import { showToast } from "@/lib/toast";
 
 function brl(cents: number) {
@@ -43,12 +43,6 @@ export default function PaymentSettingsPage() {
   // Meta do mês em REAIS na tela; vira centavos só na hora de salvar.
   const [metaReais, setMetaReais] = useState("");
   const [salvandoMeta, setSalvandoMeta] = useState(false);
-  // Diário dos webhooks: o corpo cru do que a SyncPay manda, para distinguir
-  // venda de saque (a documentação só descreve o de venda).
-  const [eventos, setEventos] = useState<
-    { id: string; receivedAt: number; providerRef?: string; decision: string; body: string }[] | null
-  >(null);
-  const [aberto, setAberto] = useState<string | null>(null);
   // Webhooks cadastrados NA SYNCPAY: o evento assinado decide o que chega aqui.
   const [cadastrados, setCadastrados] = useState<
     { lista?: { id: number; title: string; url: string; event: string; allProducts: boolean }[]; erro?: string } | null
@@ -101,15 +95,6 @@ export default function PaymentSettingsPage() {
   }
 
   const webhookUrl = cfg?.syncpay.webhookShort ? `${origin}/w/${cfg.syncpay.webhookShort}` : "";
-
-  async function carregarEventos() {
-    try {
-      const d = await apiGet<{ events: typeof eventos }>("/api/payments/webhook-events?provider=syncpay");
-      setEventos(d.events || []);
-    } catch {
-      setEventos([]);
-    }
-  }
 
   async function carregarCadastrados() {
     setCadastrados(null);
@@ -469,62 +454,10 @@ export default function PaymentSettingsPage() {
 
           {/* Diário dos webhooks: mostra o que a SyncPay manda de fato. É por
               aqui que dá para ver qual campo distingue venda de saque. */}
-          <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-                  Webhooks recebidos
-                </p>
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  O que a SyncPay mandou e o que o sistema fez com cada evento — para conferir por que algo entrou (ou
-                  não) no Financeiro.
-                </p>
-              </div>
-              <button type="button" onClick={carregarEventos} className="btn-ghost shrink-0 px-3 py-1.5 text-xs">
-                {eventos === null ? "Ver eventos" : "Atualizar"}
-              </button>
-            </div>
-            {eventos !== null && (
-              eventos.length === 0 ? (
-                <p className="mt-2 text-xs text-zinc-600">
-                  Nenhum evento recebido ainda (só aparecem os que chegarem daqui pra frente).
-                </p>
-              ) : (
-                <div className="mt-2 divide-y divide-white/[0.06] rounded-lg border border-white/10">
-                  {eventos.map((ev) => (
-                    <div key={ev.id} className="px-2 py-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setAberto(aberto === ev.id ? null : ev.id)}
-                        className="flex w-full items-center justify-between gap-2 text-left"
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="font-mono text-[10px] text-zinc-500">
-                            {new Date(ev.receivedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "medium" })}
-                          </span>
-                          <span
-                            className={`ml-2 text-[11px] ${
-                              ev.decision.startsWith("ignorado") ? "text-amber-400/80" : "text-emerald-400/80"
-                            }`}
-                          >
-                            {ev.decision}
-                          </span>
-                        </span>
-                        <span className="shrink-0 font-mono text-[10px] text-zinc-600">
-                          {aberto === ev.id ? "fechar" : "ver json"}
-                        </span>
-                      </button>
-                      {aberto === ev.id && (
-                        <pre className="mt-1.5 max-h-64 overflow-auto whitespace-pre-wrap rounded border border-white/10 bg-black/40 p-2 font-mono text-[10px] leading-relaxed text-zinc-400">
-                          {ev.body}
-                        </pre>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )
-            )}
-          </div>
+          <WebhookDiaryPanel
+            provider="syncpay"
+            descricao='O que a SyncPay mandou e o que o sistema fez com cada evento — "relevante" é o que já entra no Financeiro hoje (venda); o resto (ex.: saque) fica em "Todos".'
+          />
 
           {/* Importar o export da SyncPay: única fonte do valor líquido do
               histórico (a API não lista vendas nem devolve o final_amount). */}
@@ -700,6 +633,13 @@ export default function PaymentSettingsPage() {
             </div>
           )}
         </div>
+
+        {/* Diário dos webhooks da Stripe — mesmo painel da SyncPay, mesma
+            regra de "relevante" (o que o código já trata hoje). */}
+        <WebhookDiaryPanel
+          provider="stripe"
+          descricao='O que a Stripe mandou e o que o sistema fez com cada evento — "relevante" é o que já vira venda/atualização no Financeiro hoje (checkout.session.completed). Marcou mais eventos lá na Stripe? Eles aparecem aqui em "Todos", pra saber quais ainda vale a pena tratar.'
+        />
       </div>
 
       <div className="mt-3 flex items-center gap-3">

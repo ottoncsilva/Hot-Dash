@@ -241,6 +241,9 @@ export type TelegramPlan = {
   botId: string;
   name: string;
   priceCents: number;
+  /** Preço em USD do MESMO plano, pro botão "Not from Brazil?" (Stripe).
+   *  Ausente/0 = esse plano não entra na venda internacional. */
+  priceUsdCents?: number;
   /** Dias de acesso. 0 = VITALÍCIO (nunca expira). */
   durationDays: number;
   /** "subscription" = dá acesso VIP por N dias; "package" = compra única. */
@@ -566,6 +569,7 @@ function toPlan(r: any): TelegramPlan {
     botId: r.bot_id,
     name: r.name,
     priceCents: r.price_cents,
+    priceUsdCents: r.price_usd_cents || undefined,
     bump: {
       enabled: !!r.bump_enabled,
       name: r.bump_name || "",
@@ -610,11 +614,12 @@ export function getPlan(id: string): TelegramPlan | null {
 export function savePlan(plan: TelegramPlan): void {
   const now = Date.now();
   getDb().prepare(
-    `INSERT INTO telegram_plans (id, bot_id, name, price_cents, duration_days, kind, deliverable, sort_order, active, highlight, deliverable_buttons, bump_enabled, bump_name, bump_price_cents, bump_text, bump_accept_text, bump_decline_text, bump_media_ids, bump_audio_url, bump_deliverable, bump_deliverable_buttons, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_plans (id, bot_id, name, price_cents, price_usd_cents, duration_days, kind, deliverable, sort_order, active, highlight, deliverable_buttons, bump_enabled, bump_name, bump_price_cents, bump_text, bump_accept_text, bump_decline_text, bump_media_ids, bump_audio_url, bump_deliverable, bump_deliverable_buttons, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        price_cents = excluded.price_cents,
+       price_usd_cents = excluded.price_usd_cents,
        duration_days = excluded.duration_days,
        kind = excluded.kind,
        deliverable = excluded.deliverable,
@@ -637,6 +642,7 @@ export function savePlan(plan: TelegramPlan): void {
     plan.botId,
     plan.name,
     plan.priceCents,
+    plan.priceUsdCents && plan.priceUsdCents > 0 ? Math.round(plan.priceUsdCents) : null,
     Math.max(0, Math.round(plan.durationDays) || 0),
     plan.kind || "subscription",
     plan.deliverable || null,

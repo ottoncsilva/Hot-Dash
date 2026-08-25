@@ -980,6 +980,11 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "telegram_plans", "bump_audio_url", "TEXT");
   ensureColumn(d, "telegram_plans", "bump_deliverable", "TEXT");
   ensureColumn(d, "telegram_plans", "bump_deliverable_buttons", "TEXT");
+  // Preço em USD do MESMO plano — vazio/0 = esse plano não entra no botão
+  // "Not from Brazil?" (pagamento internacional via Stripe). É o valor-base
+  // único: qualquer conversão pra outra moeda no futuro parte daqui, não
+  // ganha um campo novo por moeda.
+  ensureColumn(d, "telegram_plans", "price_usd_cents", "INTEGER");
   // A inscrição registra se o bump foi comprado: é o que decide se a entrega
   // inclui o entregável extra, e quanto do valor pago foi dele.
   ensureColumn(d, "telegram_subscriptions", "bump_cents", "INTEGER NOT NULL DEFAULT 0");

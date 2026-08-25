@@ -460,6 +460,8 @@ export async function POST(req: NextRequest) {
       incoming.forEach((p: Record<string, unknown>, idx: number) => {
         const name = String(p.name || "").trim();
         const priceCents = Math.max(0, Math.round(Number(p.priceCents) || 0));
+        const priceUsdCents =
+          Number(p.priceUsdCents) > 0 ? Math.max(0, Math.round(Number(p.priceUsdCents))) : undefined;
         // 0 = VITALÍCIO e é válido; por isso o piso é 0, não 1.
         const durationDays = Math.max(0, Math.round(Number(p.durationDays) || 0));
         const kind = p.kind === "package" ? "package" : "subscription";
@@ -488,6 +490,7 @@ export async function POST(req: NextRequest) {
           botId: bot.id,
           name,
           priceCents,
+          priceUsdCents,
           durationDays,
           kind,
           deliverable,

@@ -348,7 +348,10 @@ export function updateStatusByRef(
   // venda entraria no extrato sem taxa e sem líquido.
   let fee = amounts?.feeCents ?? existing.feeCents ?? null;
   let split = amounts?.splitCents ?? existing.splitCents ?? null;
-  if (fee === null && normalized === "paid") {
+  // A tabela de taxa é da SyncPay (PIX) — aplicá-la a outro provedor (ex.:
+  // Stripe, em centavos de dólar) daria um desconto sem sentido nenhum sobre
+  // o valor. Só cai nesse fallback quando a venda É da SyncPay.
+  if (fee === null && normalized === "paid" && existing.provider === "syncpay") {
     const tabela = syncPayFeeCents(gross);
     const desconto = net !== null ? Math.max(0, gross - net) : tabela;
     fee = Math.min(tabela, desconto);
@@ -356,6 +359,11 @@ export function updateStatusByRef(
   }
   if (net === null && fee !== null && normalized === "paid") {
     net = gross - fee - (split ?? 0);
+  }
+  // Provedor sem tabela de taxa própria (ainda): líquido = venda cheia, em vez
+  // de ficar sem valor nenhum no extrato até alguém cadastrar uma taxa.
+  if (net === null && normalized === "paid") {
+    net = gross;
   }
 
   getDb()

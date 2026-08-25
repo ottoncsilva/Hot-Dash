@@ -132,6 +132,9 @@ type Plan = {
   id: string;
   name: string;
   priceCents: number;
+  /** Preço em USD do MESMO plano, pro botão "Not from Brazil?" (Stripe).
+   *  Ausente/0 = não entra na venda internacional. */
+  priceUsdCents?: number;
   /** 0 = vitalício. */
   durationDays: number;
   kind: "subscription" | "package";
@@ -1501,6 +1504,7 @@ type PlanRow = {
   id?: string;
   name: string;
   price: string;
+  priceUsd: string;
   durationDays: number;
   kind: "subscription" | "package";
   deliverable: string;
@@ -1517,6 +1521,7 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
       id: p.id,
       name: p.name,
       price: (p.priceCents / 100).toFixed(2),
+      priceUsd: p.priceUsdCents ? (p.priceUsdCents / 100).toFixed(2) : "",
       durationDays: p.durationDays,
       kind: p.kind || "subscription",
       deliverable: p.deliverable || "",
@@ -1555,6 +1560,9 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
           id: r.id,
           name: r.name.trim(),
           priceCents: Math.round(parseFloat(r.price.replace(",", ".")) * 100) || 0,
+          priceUsdCents: r.priceUsd.trim()
+            ? Math.round(parseFloat(r.priceUsd.replace(",", ".")) * 100) || undefined
+            : undefined,
           durationDays: r.durationDays,
           kind: r.kind,
           deliverable: r.deliverable.trim() || undefined,
@@ -1581,6 +1589,7 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
             id: p.id,
             name: p.name,
             price: (p.priceCents / 100).toFixed(2),
+            priceUsd: p.priceUsdCents ? (p.priceUsdCents / 100).toFixed(2) : "",
             durationDays: p.durationDays,
             kind: p.kind || "subscription",
             deliverable: p.deliverable || "",
@@ -1714,7 +1723,7 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
 
               {estaAberto && (
                 <div className="border-t border-white/10 p-3">
-                  <div className="grid gap-2 sm:grid-cols-[1fr_120px]">
+                  <div className="grid gap-2 sm:grid-cols-[1fr_120px_120px]">
                     <input
                       className="input"
                       placeholder="Nome do plano"
@@ -1723,12 +1732,24 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
                     />
                     <input
                       className="input"
-                      placeholder="0,00"
+                      placeholder="R$ 0,00"
                       inputMode="decimal"
                       value={r.price}
                       onChange={(e) => update(i, { price: e.target.value })}
                     />
+                    <input
+                      className="input"
+                      placeholder="US$ (opcional)"
+                      inputMode="decimal"
+                      title="Preço em USD — vazio, esse plano não entra no botão &quot;Not from Brazil?&quot; (Stripe)"
+                      value={r.priceUsd}
+                      onChange={(e) => update(i, { priceUsd: e.target.value })}
+                    />
                   </div>
+                  <p className="mt-1 text-[11px] text-zinc-500">
+                    Preço em USD é opcional — vazio, esse plano não aparece no botão internacional
+                    (&quot;Not from Brazil?&quot;, pago via Stripe).
+                  </p>
 
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     <select
@@ -1876,6 +1897,7 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
               {
                 name: "",
                 price: "",
+                priceUsd: "",
                 durationDays: 30,
                 kind: "subscription",
                 deliverable: "",

@@ -489,7 +489,7 @@ export async function POST(
         const postbackUrl = `${publicOrigin(req)}/w/${ensureSyncpayWebhookShortToken()}`;
 
         // Cria cobrança PIX no SyncPay
-        const charge = await provider.createPixCharge({
+        const charge = await provider.createCharge({
           amountCents,
           description: `Assinatura ${itemName}`,
           postbackUrl,

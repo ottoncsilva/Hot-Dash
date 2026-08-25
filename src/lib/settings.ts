@@ -141,6 +141,11 @@ export type PaymentSettingsPublic = {
     /** Token da URL do webhook (/w/…), a que se cola no painel do gateway. */
     webhookShort: string;
   };
+  stripe: {
+    enabled: boolean;
+    hasSecretKey: boolean;
+    hasWebhookSecret: boolean;
+  };
 };
 
 type PaymentSettingsStored = {
@@ -150,12 +155,19 @@ type PaymentSettingsStored = {
     clientSecretEnc?: string;
     webhookShort?: string;
   };
+  stripe?: {
+    enabled: boolean;
+    secretKeyEnc?: string;
+    webhookSecretEnc?: string;
+  };
 };
 
 function rawPayments(): PaymentSettingsStored {
-  return getJson<PaymentSettingsStored>("payments", {
+  const s = getJson<PaymentSettingsStored>("payments", {
     syncpay: { enabled: false },
   });
+  if (!s.stripe) s.stripe = { enabled: false };
+  return s;
 }
 
 /**
@@ -193,6 +205,11 @@ export function getPaymentSettingsPublic(): PaymentSettingsPublic {
       clientId: s.syncpay?.clientId || "",
       webhookShort: ensureSyncpayWebhookShortToken(),
     },
+    stripe: {
+      enabled: Boolean(s.stripe?.enabled),
+      hasSecretKey: Boolean(s.stripe?.secretKeyEnc),
+      hasWebhookSecret: Boolean(s.stripe?.webhookSecretEnc),
+    },
   };
 }
 
@@ -213,8 +230,26 @@ export function getSyncPayCredentials(): {
   }
 }
 
+/** Credenciais descriptografadas da Stripe (uso server-side apenas). */
+export function getStripeCredentials(): {
+  secretKey: string;
+  webhookSecret: string;
+} | null {
+  const s = rawPayments();
+  if (!s.stripe?.secretKeyEnc || !s.stripe?.webhookSecretEnc) return null;
+  try {
+    return {
+      secretKey: decryptSecret(s.stripe.secretKeyEnc),
+      webhookSecret: decryptSecret(s.stripe.webhookSecretEnc),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function updatePaymentSettings(patch: {
   syncpay?: { enabled?: boolean; clientId?: string; clientSecret?: string };
+  stripe?: { enabled?: boolean; secretKey?: string; webhookSecret?: string };
 }): PaymentSettingsPublic {
   const s = rawPayments();
 
@@ -226,6 +261,20 @@ export function updatePaymentSettings(patch: {
     if (patch.syncpay.clientSecret !== undefined) {
       s.syncpay.clientSecretEnc = patch.syncpay.clientSecret
         ? encryptSecret(patch.syncpay.clientSecret)
+        : undefined;
+    }
+  }
+  if (patch.stripe) {
+    if (!s.stripe) s.stripe = { enabled: false };
+    if (patch.stripe.enabled !== undefined) s.stripe.enabled = patch.stripe.enabled;
+    if (patch.stripe.secretKey !== undefined) {
+      s.stripe.secretKeyEnc = patch.stripe.secretKey
+        ? encryptSecret(patch.stripe.secretKey)
+        : undefined;
+    }
+    if (patch.stripe.webhookSecret !== undefined) {
+      s.stripe.webhookSecretEnc = patch.stripe.webhookSecret
+        ? encryptSecret(patch.stripe.webhookSecret)
         : undefined;
     }
   }

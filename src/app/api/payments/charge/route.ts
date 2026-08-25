@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     // SyncPay — outro motivo do dashboard não receber os pagamentos).
     const postbackUrl = `${publicOrigin(req)}/w/${ensureSyncpayWebhookShortToken()}`;
 
-    const result = await provider.createPixCharge({
+    const result = await provider.createCharge({
       amountCents,
       description: body.description,
       customer: body.customer,

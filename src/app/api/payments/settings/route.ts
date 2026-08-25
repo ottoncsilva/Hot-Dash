@@ -24,9 +24,10 @@ export async function PATCH(req: NextRequest) {
   try {
     await requireUser(req);
     const body = await req.json().catch(() => ({}));
-    const settings = body.syncpay
-      ? updatePaymentSettings({ syncpay: body.syncpay })
-      : getPaymentSettingsPublic();
+    const settings =
+      body.syncpay || body.stripe
+        ? updatePaymentSettings({ syncpay: body.syncpay, stripe: body.stripe })
+        : getPaymentSettingsPublic();
     return NextResponse.json({ settings });
   } catch (err) {
     return errorResponse(err);

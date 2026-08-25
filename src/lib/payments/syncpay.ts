@@ -193,7 +193,7 @@ export function createSyncPay(creds: {
   return {
     key: "syncpay",
 
-    async createPixCharge(input: ChargeInput): Promise<ChargeResult> {
+    async createCharge(input: ChargeInput): Promise<ChargeResult> {
       const reais = input.amountCents / 100;
       // Se um CPF real vier (checkout externo), usa-o; senão gera um válido —
       // o bot NÃO pede CPF ao lead, mas a API exige o campo.

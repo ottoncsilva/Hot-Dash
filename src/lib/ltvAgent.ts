@@ -490,7 +490,7 @@ async function cobrarPix(
   const descricao = descontoPct > 0 ? `${produto.name} (-${descontoPct}%)` : produto.name;
 
   const postbackUrl = `${publicOriginSemRequest()}/w/${ensureSyncpayWebhookShortToken()}`;
-  const cobranca = await provider.createPixCharge({
+  const cobranca = await provider.createCharge({
     amountCents: cents,
     description: descricao,
     customer: { name: chat.peerName || "Lead do LTV" },

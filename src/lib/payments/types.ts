@@ -2,12 +2,15 @@
 
 export type ChargeInput = {
   amountCents: number;
+  /** BRL (SyncPay/PIX) ou USD (Stripe). Ausente = BRL, comportamento de sempre. */
+  currency?: "BRL" | "USD";
   description?: string;
   /** Dias até o PIX expirar (padrão 1). */
   expiresInDays?: number;
   /** Referência externa (id do pedido no seu sistema). */
   externalRef?: string;
-  /** URL de webhook para confirmação do pagamento. */
+  /** URL de webhook para confirmação do pagamento (SyncPay — a Stripe usa o
+   *  webhook cadastrado uma vez no Dashboard dela, não por cobrança). */
   postbackUrl?: string;
   customer?: {
     name?: string;
@@ -26,12 +29,10 @@ export type ChargeInput = {
       country?: string;
     };
   };
-  /** Metadados opcionais repassados ao provedor. */
-  metadata?: {
-    userEmail?: string;
-    sellUrl?: string;
-    orderUrl?: string;
-  };
+  /** Metadados repassados ao provedor — na Stripe, viram `metadata` da
+   *  Checkout Session (ex.: botId/telegramUserId/planId), usados como rede
+   *  de segurança no webhook pra casar um pagamento sem transação pendente. */
+  metadata?: Record<string, string>;
 };
 
 export type ChargeResult = {
@@ -52,9 +53,11 @@ export type BalanceResult = {
 };
 
 export interface PaymentProvider {
-  readonly key: "syncpay";
-  /** Cria uma cobrança PIX (ou o método padrão do provedor). */
-  createPixCharge(input: ChargeInput): Promise<ChargeResult>;
+  readonly key: "syncpay" | "stripe";
+  /** Cria uma cobrança — PIX (código copia-e-cola) na SyncPay, link de
+   *  checkout na Stripe. O chamador decide o que fazer olhando
+   *  `ChargeResult.pixCode` vs `checkoutUrl`. */
+  createCharge(input: ChargeInput): Promise<ChargeResult>;
   /** Saldo disponível na conta do provedor (quando suportado). */
   getBalance?(): Promise<BalanceResult | null>;
   /** Webhooks cadastrados na conta do provedor. O evento assinado decide o que

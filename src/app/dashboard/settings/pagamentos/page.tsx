@@ -18,6 +18,10 @@ export default function PaymentSettingsPage() {
   const [syncEnabled, setSyncEnabled] = useState(false);
   const [syncClientId, setSyncClientId] = useState("");
   const [syncClientSecret, setSyncClientSecret] = useState("");
+  const [stripeEnabled, setStripeEnabled] = useState(false);
+  const [stripeSecretKey, setStripeSecretKey] = useState("");
+  const [stripeWebhookSecret, setStripeWebhookSecret] = useState("");
+  const [stripeCopied, setStripeCopied] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [origin, setOrigin] = useState("");
@@ -51,6 +55,7 @@ export default function PaymentSettingsPage() {
         setCfg(d.settings);
         setSyncEnabled(d.settings.syncpay.enabled);
         setSyncClientId(d.settings.syncpay.clientId);
+        setStripeEnabled(d.settings.stripe.enabled);
         setLastPaid(d.lastPaid);
       })
       .catch(() => {});
@@ -173,6 +178,19 @@ export default function PaymentSettingsPage() {
     }
   }
 
+  const stripeWebhookUrl = origin ? `${origin}/api/webhooks/stripe` : "";
+
+  async function copyStripeWebhook() {
+    if (!stripeWebhookUrl) return;
+    try {
+      await navigator.clipboard.writeText(stripeWebhookUrl);
+      setStripeCopied(true);
+      setTimeout(() => setStripeCopied(false), 2000);
+    } catch {
+      /* clipboard indisponível — o usuário pode copiar manualmente */
+    }
+  }
+
   async function save() {
     setSaving(true);
     setSaved(false);
@@ -186,10 +204,17 @@ export default function PaymentSettingsPage() {
             clientId: syncClientId,
             ...(syncClientSecret ? { clientSecret: syncClientSecret } : {}),
           },
+          stripe: {
+            enabled: stripeEnabled,
+            ...(stripeSecretKey ? { secretKey: stripeSecretKey } : {}),
+            ...(stripeWebhookSecret ? { webhookSecret: stripeWebhookSecret } : {}),
+          },
         },
       );
       setCfg(settings);
       setSyncClientSecret("");
+      setStripeSecretKey("");
+      setStripeWebhookSecret("");
       setSaved(true);
       showToast("Salvo!");
     } finally {
@@ -518,6 +543,74 @@ export default function PaymentSettingsPage() {
             {impMsg && <p className="mt-2 text-xs text-zinc-300">{impMsg}</p>}
           </div>
 
+        </div>
+      </div>
+
+      {/* Stripe — cartão em moeda estrangeira (USD), para leads de fora do
+          Brasil. Cobrança avulsa por ciclo (Checkout Session), sem assinatura
+          nativa — o motor de renovação/downsell que já existe cuida da virada. */}
+      <div className="mt-4 card p-4">
+        <label className="flex items-center justify-between">
+          <span className="font-medium text-white">Stripe (cartão internacional)</span>
+          <input
+            type="checkbox"
+            className="h-4 w-4 accent-white"
+            checked={stripeEnabled}
+            onChange={(e) => setStripeEnabled(e.target.checked)}
+          />
+        </label>
+        <label className="eyebrow mb-1.5 mt-3 block">Secret Key</label>
+        <input
+          className="input font-mono"
+          type="password"
+          placeholder={
+            cfg?.stripe.hasSecretKey ? "•••••••• (em branco = manter)" : "sk_live_... ou sk_test_..."
+          }
+          value={stripeSecretKey}
+          onChange={(e) => setStripeSecretKey(e.target.value)}
+        />
+        <label className="eyebrow mb-1.5 mt-3 block">Webhook Signing Secret</label>
+        <input
+          className="input font-mono"
+          type="password"
+          placeholder={
+            cfg?.stripe.hasWebhookSecret ? "•••••••• (em branco = manter)" : "whsec_..."
+          }
+          value={stripeWebhookSecret}
+          onChange={(e) => setStripeWebhookSecret(e.target.value)}
+        />
+        <p className="mt-1.5 flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+          <IconLock size={12} /> obtenha em dashboard.stripe.com → developers → api keys / webhooks
+        </p>
+        <ConnectionBadge
+          testUrl="/api/payments/stripe/settings/test"
+          buildBody={() => ({ secretKey: stripeSecretKey || undefined })}
+        />
+
+        <div className="mt-4 panel p-3">
+          <p className="eyebrow">webhook de recebimento</p>
+          <p className="mt-1.5 text-xs text-zinc-500">
+            Cadastre esta URL no Dashboard da Stripe em <b>Developers → Webhooks</b>,
+            evento <b>checkout.session.completed</b>. A autenticação aqui é por
+            assinatura (a Webhook Signing Secret acima), não por token na URL.
+          </p>
+          <div className="mt-2.5 flex items-center gap-2">
+            <input
+              readOnly
+              value={stripeWebhookUrl}
+              onFocus={(e) => e.currentTarget.select()}
+              className="input flex-1 font-mono text-xs"
+              placeholder="carregando…"
+            />
+            <button
+              type="button"
+              onClick={copyStripeWebhook}
+              disabled={!stripeWebhookUrl}
+              className="btn-ghost shrink-0 px-3 py-2 text-xs"
+            >
+              {stripeCopied ? "Copiado ✓" : "Copiar"}
+            </button>
+          </div>
         </div>
       </div>
 

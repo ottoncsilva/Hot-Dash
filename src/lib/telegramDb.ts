@@ -731,6 +731,18 @@ export function findActiveSubscription(botId: string, telegramUserId: number): T
   return row ? toSubscription(row) : null;
 }
 
+/** PIX gerado e ainda não pago — usado pelo Downsell geral pra saber quando
+ *  PARAR de mandar mensagem pra alguém que já passou a ser cuidado pelo
+ *  Downsell de PIX gerado. */
+export function findPendingSubscription(botId: string, telegramUserId: number): TelegramSubscription | null {
+  const row = getDb()
+    .prepare(
+      "SELECT * FROM telegram_subscriptions WHERE bot_id = ? AND telegram_user_id = ? AND status = 'pending'"
+    )
+    .get(botId, telegramUserId) as any;
+  return row ? toSubscription(row) : null;
+}
+
 /** Quantos assinantes ativos o bot tem AGORA (alimenta a prova social real).
  *  `expires_at > 0` exclui os pacotes de compra única, que ficam "active" com
  *  expiração zero e não são assinantes. */

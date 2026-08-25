@@ -8,6 +8,7 @@ import {
   getBotConfig,
   listLeadsForDownsell,
   findActiveSubscription,
+  findPendingSubscription,
   upsertTelegramLead,
   listActivePlans,
   listApprovalQueue,
@@ -577,13 +578,27 @@ function proximoHorarioFixo(hhmm: string, apos: number, tz: string): number {
 }
 
 /**
- * Decide se É HORA de mandar este passo. Passo comum conta minutos desde o
- * último envio (`desde`); passo com `dailyTime` ignora isso e espera o
- * relógio bater aquele horário — ver `proximoHorarioFixo`.
+ * Decide se É HORA de mandar este passo — e o "desde quando" depende do
+ * TIPO do passo, de propósito:
+ *
+ *   - Passo comum (`delayMinutes`): conta do FATO GERADOR do funil inteiro
+ *     — o /start no Downsell geral, a criação da cobrança no Downsell de
+ *     PIX gerado — e NUNCA reinicia a cada mensagem enviada. É assim que
+ *     "chega a 50% em 24h" significa 24h de verdade desde que o lead entrou
+ *     no funil, e não 24h desde a ÚLTIMA mensagem (que somaria muito mais).
+ *   - Passo de horário fixo (`dailyTime`): PRECISA de uma referência que
+ *     ANDA (o último envio), senão "às 16h" resolveria sempre para o mesmo
+ *     instante fixo no passado e disparava a cada tick do cron pra sempre,
+ *     em vez de uma vez por dia.
  */
-function passoPronto(step: FunnelStep, desde: number, now: number, tz: string): boolean {
-  if (step.dailyTime) return now >= proximoHorarioFixo(step.dailyTime, desde, tz);
-  return (now - desde) / 60000 >= step.delayMinutes;
+function passoPronto(
+  step: FunnelStep,
+  tempos: { fatoGerador: number; ultimoEnvio: number },
+  now: number,
+  tz: string,
+): boolean {
+  if (step.dailyTime) return now >= proximoHorarioFixo(step.dailyTime, tempos.ultimoEnvio, tz);
+  return (now - tempos.fatoGerador) / 60000 >= step.delayMinutes;
 }
 
 async function sendFunnelStep(
@@ -662,6 +677,11 @@ export async function runTelegramFunnels(): Promise<{
         const activeSub = findActiveSubscription(bot.id, Number(lead.chatId));
         if (activeSub) continue; // Pagou, sai do remarketing
 
+        // Gerou o PIX: sai do Downsell geral e passa a ser cuidado pelo
+        // Downsell de PIX gerado (bloco 1b) — os dois nunca correm juntos
+        // pro mesmo lead, senão ele levaria mensagem dobrada.
+        if (findPendingSubscription(bot.id, Number(lead.chatId))) continue;
+
         const idx = resolveStepIndex(downsellFunnel, lead.downsellStepIndex);
         if (idx === null) continue; // Acabou e não repete
 
@@ -678,7 +698,11 @@ export async function runTelegramFunnels(): Promise<{
           continue;
         }
 
-        if (passoPronto(step, lead.lastInteractionAt, now, tz)) {
+        // O FATO GERADOR é o /start (`lead.createdAt`), fixo pra sempre —
+        // `lastInteractionAt` segue de referência só pro rabo em horário
+        // fixo (`passoPronto`), que precisa de um ponto que ANDA a cada
+        // envio pra repetir uma vez por dia, não do começo do funil.
+        if (passoPronto(step, { fatoGerador: lead.createdAt, ultimoEnvio: lead.lastInteractionAt }, now, tz)) {
           const replyMarkup = buildReplyMarkup(bot, step.discountPercent, step.planMode);
           await sendFunnelStep(bot.botToken, bot.id, lead.chatId, p.id, step, replyMarkup, bot.botUsername);
 
@@ -717,10 +741,13 @@ export async function runTelegramFunnels(): Promise<{
         if (idx === null) continue; // Acabou e não repete
 
         const step = pixFunnel[idx];
-        // Conta desde o último passo enviado; na primeira vez, desde a criação
-        // da cobrança — que é o momento em que ele viu o PIX e não pagou.
-        const desde = row.last_pix_step_at || row.created_at;
-        if (!passoPronto(step, desde, now, tz)) continue;
+        // O FATO GERADOR é a CRIAÇÃO DA COBRANÇA (`row.created_at`), fixo pra
+        // sempre — é o momento em que ele viu o PIX e não pagou. O último
+        // envio (`last_pix_step_at`) só serve de referência pro rabo em
+        // horário fixo, que precisa andar a cada disparo pra repetir uma vez
+        // por dia.
+        const ultimoEnvio = row.last_pix_step_at || row.created_at;
+        if (!passoPronto(step, { fatoGerador: row.created_at, ultimoEnvio }, now, tz)) continue;
 
         // Botão baseado no que ELE JÁ ESCOLHEU (planId/offerId gravados na
         // hora que o PIX foi gerado), não na lista genérica de planos — ver

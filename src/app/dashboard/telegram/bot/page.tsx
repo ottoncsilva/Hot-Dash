@@ -360,7 +360,15 @@ export default function BotVendasPage() {
       />
       <div className="mb-5" />
 
-      {loading && (
+      {/* Só a carga INICIAL passa pelo spinner/vazio — um "Salvar" chama
+          `load()` de novo pra trazer o dado fresco do servidor, e gatear
+          isso em `loading` desmontava a tela inteira a cada save (a aba de
+          Recuperação selecionada, por exemplo, voltava sempre pra
+          "Downsell geral"). `bot` continua populado durante o reload
+          (`load()` nunca zera pra null antes do fetch), então basta ele
+          existir pra manter o conteúdo montado — o reload só atualiza os
+          dados, sem resetar nenhum estado local da tela. */}
+      {loading && !bot && (
         <div className="grid place-items-center py-10">
           <div className="h-7 w-7 animate-spin rounded-full border border-white/15 border-t-white" />
         </div>
@@ -374,7 +382,7 @@ export default function BotVendasPage() {
         </div>
       )}
 
-      {!loading && bot && (
+      {bot && (
         <div className="space-y-5">
           {/* Abas em vez de uma rolagem com tudo aberto: cada assunto do bot
               ocupa a tela sozinho, e o preview do /start acompanha à direita. */}
@@ -1979,7 +1987,7 @@ function FunnelCard({
       key: "geral",
       titulo: "Downsell geral",
       resumo: "Quem deu /start e ainda não comprou",
-      aviso: "Começa a contar do último contato do lead com o bot. Para de vez quando o pagamento é confirmado. Cada mensagem soma o SEU PRÓPRIO tempo a partir da anterior — não do /start original — então o tempo total até uma mensagem é a soma de todos os tempos até ali.",
+      aviso: "Conta a partir do /start — o tempo de cada mensagem é sempre desde ali, não desde a mensagem anterior. Para de vez quando o pagamento é confirmado ou quando o lead gera um PIX (a partir daí quem cuida é o Downsell de PIX gerado, logo abaixo).",
       ativo: onDownsell,
       setAtivo: setOnDownsell,
       steps: downsell,
@@ -1991,7 +1999,7 @@ function FunnelCard({
       key: "pix",
       titulo: "Downsell de PIX gerado",
       resumo: "Quem chegou a gerar o PIX e não pagou",
-      aviso: "Público diferente do geral: essa pessoa já escolheu o plano e viu a tela de pagamento — falta menos, então costuma valer outra conversa e outro desconto. Conta a partir da criação da cobrança e para quando ela é paga. Cada mensagem soma o SEU PRÓPRIO tempo a partir da anterior — não da criação do PIX — então o tempo total até uma mensagem é a soma de todos os tempos até ali.",
+      aviso: "Público diferente do geral: essa pessoa já escolheu o plano e viu a tela de pagamento — falta menos, então costuma valer outra conversa e outro desconto. Conta a partir da criação da cobrança (o tempo de cada mensagem é sempre desde ali, não desde a mensagem anterior) e para quando ela é paga.",
       ativo: onPix,
       setAtivo: setOnPix,
       steps: pixDownsell,
@@ -2095,9 +2103,14 @@ function FunnelCard({
         />
       </div>
 
-      <button onClick={save} disabled={busy} className="btn-primary mt-4">
-        {busy ? "Salvando..." : "Salvar funis"}
-      </button>
+      {/* Fixo embaixo da tela — com 50+ passos no Downsell, rolar até o fim
+          só pra salvar era o tipo de atrito que fazia alguém perder uma
+          edição por engano. */}
+      <div className="sticky bottom-0 z-10 -mx-4 border-t border-white/10 bg-ink-900/95 px-4 py-3 backdrop-blur sm:mx-0 sm:rounded-xl sm:border">
+        <button onClick={save} disabled={busy} className="btn-primary">
+          {busy ? "Salvando..." : "Salvar funis"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -2260,6 +2273,8 @@ function TempoDoPasso({
   onChangeDailyTime,
   rotulo,
   permiteHorarioFixo = true,
+  modoRenovacao,
+  ancoraTexto = "da anterior",
 }: {
   minutos: number;
   onChange: (v: number) => void;
@@ -2274,6 +2289,14 @@ function TempoDoPasso({
    *  até o vencimento por outro caminho e ignora `dailyTime`, então a opção
    *  fica escondida lá pra não prometer algo que não funciona. */
   permiteHorarioFixo?: boolean;
+  /** Frase do aviso embaixo fica bem diferente na Renovação (regressivo até
+   *  vencer, não progressivo desde um evento). */
+  modoRenovacao?: boolean;
+  /** A que este tempo se refere — "depois do /start", "depois da geração do
+   *  PIX"... Downsell geral/PIX contam do FATO GERADOR (fixo, nunca
+   *  reinicia); Upsell e outros ainda contam "da anterior" (cada passo soma
+   *  ao tempo do passo de cima). Ver o comentário de `passoPronto`. */
+  ancoraTexto?: string;
 }) {
   const naLista = TEMPOS.some((t) => t.min === minutos);
   const modoInicial: "lista" | "custom" | "horario" = dailyTime ? "horario" : naLista ? "lista" : "custom";
@@ -2357,7 +2380,9 @@ function TempoDoPasso({
       <p className="mt-1 text-[11px] text-zinc-500">
         {modo === "horario"
           ? `Envia TODO DIA às ${dailyTime || "12:00"}, até a pessoa sair do funil.`
-          : `Envia ${rotuloDoTempo(minutos)} depois da anterior.`}
+          : modoRenovacao
+            ? `Envia quando faltam ${rotuloDoTempo(minutos)} para o vencimento.`
+            : `Envia ${rotuloDoTempo(minutos)} ${ancoraTexto}.`}
       </p>
     </div>
   );
@@ -2636,6 +2661,14 @@ function FunnelEditor({
                   onChangeDailyTime={(v) => update(i, { dailyTime: v })}
                   rotulo={modoRenovacao ? "Quanto tempo ANTES de vencer" : undefined}
                   permiteHorarioFixo={!modoRenovacao}
+                  modoRenovacao={modoRenovacao}
+                  ancoraTexto={
+                    funnelType === "geral"
+                      ? "depois do /start"
+                      : funnelType === "pix"
+                        ? "depois da geração do PIX"
+                        : "depois da anterior"
+                  }
                 />
                 <DescontoDoPasso
                   valor={desconto}

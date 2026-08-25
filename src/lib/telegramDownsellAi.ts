@@ -32,20 +32,34 @@ type ParametrosPrompt = {
   indice: number;
 };
 
-/** O que muda de framing entre os tipos de sequência — cada um vende (ou não
- * vende) uma coisa diferente, pro lead num estado diferente. */
-const FRAMING_TIPO: Record<TipoFunilDownsell, { contexto: string; contaTempoComo: "desde" | "faltam" }> = {
+/**
+ * O que muda de framing entre os tipos de sequência — cada um vende (ou não
+ * vende) uma coisa diferente, pro lead num estado diferente — e de onde
+ * cada um CONTA o tempo (ver `passoPronto` em telegramCron.ts):
+ *   - "fato-gerador": conta do evento fixo que disparou o funil inteiro
+ *     (/start no geral, criação do PIX no pix) e NUNCA reinicia — cada
+ *     `delayMinutes` já é o total desde esse evento.
+ *   - "anterior": cada passo soma ao tempo do passo de cima (upsell,
+ *     aprovação).
+ *   - "faltam": regressivo até o vencimento (renovação).
+ */
+const FRAMING_TIPO: Record<
+  TipoFunilDownsell,
+  { contexto: string; contaTempoComo: "fato-gerador" | "anterior" | "faltam"; fatoGerador?: string }
+> = {
   geral: {
     contexto: "Este funil dispara para um lead que recebeu o /start mas NÃO comprou nada ainda. O foco é reengajar e reapresentar a oferta.",
-    contaTempoComo: "desde",
+    contaTempoComo: "fato-gerador",
+    fatoGerador: "o /start",
   },
   pix: {
     contexto: "Este funil dispara para um lead que JÁ escolheu um plano e JÁ gerou o PIX, mas ainda não pagou. O foco é lembrar/pressionar pra fechar o pagamento — NÃO reapresente o VIP do zero, ele já sabe o que está comprando.",
-    contaTempoComo: "desde",
+    contaTempoComo: "fato-gerador",
+    fatoGerador: "a criação do PIX",
   },
   upsell: {
     contexto: "Este funil dispara depois que o lead JÁ VIROU ASSINANTE (pagamento confirmado). O foco é oferecer algo A MAIS — um plano maior, um pacote extra, um bônus — pra quem já confia na modelo. NÃO trate como quem nunca comprou, e não repita a apresentação do zero.",
-    contaTempoComo: "desde",
+    contaTempoComo: "anterior",
   },
   renewal: {
     contexto: "Este funil avisa um assinante ATIVO de que o acesso está prestes a VENCER, incentivando a renovar antes de perder o acesso ao grupo. Não é sobre convencer alguém a comprar pela primeira vez — é sobre não deixar quem já é próximo esfriar o vínculo.",
@@ -53,7 +67,7 @@ const FRAMING_TIPO: Record<TipoFunilDownsell, { contexto: string; contaTempoComo
   },
   aprovacao: {
     contexto: "Este funil dispara logo depois que o lead foi APROVADO para entrar no grupo (prévias ou VIP). NÃO é sobre vender ou dar desconto — é sobre dar as boas-vindas de verdade, mostrar o que ele vai encontrar por ali e puxar ele pra continuar a conversa.",
-    contaTempoComo: "desde",
+    contaTempoComo: "anterior",
   },
 };
 
@@ -62,10 +76,13 @@ function resumoPasso(p: FunnelStep, i: number, tipo: TipoFunilDownsell): string 
   const desconto = percentual > 0 ? `${percentual}% de desconto` : "sem desconto";
   if (p.dailyTime) return `passo ${i + 1}: dispara TODO DIA às ${p.dailyTime}, ${desconto}`;
   const tempo = p.delayMinutes >= 60 ? `${(p.delayMinutes / 60).toFixed(1)}h` : `${p.delayMinutes}min`;
+  const framing = FRAMING_TIPO[tipo];
   const quando =
-    FRAMING_TIPO[tipo].contaTempoComo === "faltam"
+    framing.contaTempoComo === "faltam"
       ? `dispara quando faltam ${tempo} para vencer`
-      : `dispara ${tempo} depois do passo anterior`;
+      : framing.contaTempoComo === "fato-gerador"
+        ? `dispara ${tempo} depois de ${framing.fatoGerador}`
+        : `dispara ${tempo} depois do passo anterior`;
   return `passo ${i + 1}: ${quando}, ${desconto}`;
 }
 

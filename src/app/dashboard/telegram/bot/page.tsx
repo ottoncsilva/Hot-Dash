@@ -11,6 +11,7 @@ import { useConfirm } from "@/hooks/useConfirm";
  *  precisa confirmar antes de uma ação destrutiva (ex.: "Puxar padrão"). */
 type ConfirmFn = ReturnType<typeof useConfirm>["confirm"];
 import Switch from "@/components/Switch";
+import { MoneyInput } from "@/components/MoneyInput";
 import {
   IconTelegram,
   IconClose,
@@ -1874,20 +1875,17 @@ function PlansCard({ profileId, plans, onSaved }: { profileId: string; plans: Pl
                       value={r.name}
                       onChange={(e) => update(i, { name: e.target.value })}
                     />
-                    <input
-                      className="input"
-                      placeholder="R$ 0,00"
-                      inputMode="decimal"
+                    <MoneyInput
+                      currency="BRL"
                       value={r.price}
-                      onChange={(e) => update(i, { price: e.target.value })}
+                      onChange={(v) => update(i, { price: v })}
                     />
-                    <input
-                      className="input"
-                      placeholder="US$ (opcional)"
-                      inputMode="decimal"
+                    <MoneyInput
+                      currency="USD"
+                      placeholder="opcional"
                       title="Preço em USD — vazio, esse plano não entra no botão &quot;Not from Brazil?&quot; (Stripe)"
                       value={r.priceUsd}
-                      onChange={(e) => update(i, { priceUsd: e.target.value })}
+                      onChange={(v) => update(i, { priceUsd: v })}
                     />
                   </div>
                   <p className="mt-1 text-[11px] text-zinc-500">
@@ -3747,13 +3745,10 @@ function BumpEditor({
               value={bump.name}
               onChange={(e) => set({ name: e.target.value })}
             />
-            <input
-              className="input"
-              placeholder="Valor"
-              inputMode="decimal"
+            <MoneyInput
               value={bump.priceCents ? (bump.priceCents / 100).toFixed(2) : ""}
-              onChange={(e) =>
-                set({ priceCents: Math.round(parseFloat(e.target.value.replace(",", ".")) * 100) || 0 })
+              onChange={(v) =>
+                set({ priceCents: v ? Math.round(parseFloat(v) * 100) : 0 })
               }
             />
           </div>

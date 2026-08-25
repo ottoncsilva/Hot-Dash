@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { apiGet, apiSend } from "@/lib/api";
 import Modal from "@/components/Modal";
+import { MoneyInput } from "@/components/MoneyInput";
 import { IconPlus, IconSettings, IconPayments, IconCopy, IconTrash, IconEdit, IconTelegram, IconReport } from "@/components/icons";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import type { Transaction, PeriodStats } from "@/lib/transactions";
@@ -463,7 +464,7 @@ function EditarCobranca({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const emReais = (c: number | undefined) => ((c ?? 0) / 100).toFixed(2).replace(".", ",");
+  const emReais = (c: number | undefined) => ((c ?? 0) / 100).toFixed(2);
   const [venda, setVenda] = useState(emReais(tx.amountCents));
   const [taxa, setTaxa] = useState(emReais(tx.feeCents));
   const [split, setSplit] = useState(emReais(tx.splitCents));
@@ -472,7 +473,7 @@ function EditarCobranca({
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
-  const paraCentavos = (v: string) => Math.round(Number(v.replace(/\./g, "").replace(",", ".")) * 100);
+  const paraCentavos = (v: string) => Math.round((Number(v) || 0) * 100);
   const cVenda = paraCentavos(venda);
   const cTaxa = paraCentavos(taxa);
   const cSplit = paraCentavos(split);
@@ -530,16 +531,16 @@ function EditarCobranca({
         </div>
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="eyebrow mb-1.5 block">Venda (R$)</label>
-            <input className="input" inputMode="decimal" value={venda} onChange={(e) => setVenda(e.target.value)} />
+            <label className="eyebrow mb-1.5 block">Venda</label>
+            <MoneyInput value={venda} onChange={setVenda} />
           </div>
           <div>
-            <label className="eyebrow mb-1.5 block">Taxa (R$)</label>
-            <input className="input" inputMode="decimal" value={taxa} onChange={(e) => setTaxa(e.target.value)} />
+            <label className="eyebrow mb-1.5 block">Taxa</label>
+            <MoneyInput value={taxa} onChange={setTaxa} />
           </div>
           <div>
-            <label className="eyebrow mb-1.5 block">Split (R$)</label>
-            <input className="input" inputMode="decimal" value={split} onChange={(e) => setSplit(e.target.value)} />
+            <label className="eyebrow mb-1.5 block">Split</label>
+            <MoneyInput value={split} onChange={setSplit} />
           </div>
         </div>
         <div className="flex items-center justify-between rounded-lg border border-white/10 bg-black/20 px-3 py-2">
@@ -723,14 +724,8 @@ function ChargeForm({
       <div className="mt-4 grid gap-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="eyebrow mb-1.5 block">Valor (R$)</label>
-            <input
-              className="input"
-              inputMode="decimal"
-              placeholder="0,00"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
+            <label className="eyebrow mb-1.5 block">Valor</label>
+            <MoneyInput value={amount} onChange={setAmount} />
           </div>
           <div>
             <label className="eyebrow mb-1.5 block">CPF do cliente</label>

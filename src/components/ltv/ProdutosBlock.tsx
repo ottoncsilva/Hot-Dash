@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import MediaPicker from "@/components/telegram/bot/MediaPicker";
+import { MoneyInput } from "@/components/MoneyInput";
 import { IconPlus, IconTrash } from "@/components/icons";
 import { apiSend } from "@/lib/api";
 import { showToast } from "@/lib/toast";
@@ -268,17 +269,11 @@ export default function ProdutosBlock({
                   value={p.name}
                   onChange={(e) => alterar(p.id, { name: e.target.value })}
                 />
-                <input
-                  className="input w-28"
-                  inputMode="decimal"
+                <MoneyInput
+                  className="w-28"
                   placeholder="29,90"
-                  value={p.priceCents ? (p.priceCents / 100).toFixed(2).replace(".", ",") : ""}
-                  onChange={(e) => {
-                    const cents = Math.round(
-                      Number(e.target.value.replace(/[^\d,.-]/g, "").replace(",", ".")) * 100,
-                    );
-                    alterar(p.id, { priceCents: Number.isFinite(cents) ? cents : 0 });
-                  }}
+                  value={p.priceCents ? (p.priceCents / 100).toFixed(2) : ""}
+                  onChange={(v) => alterar(p.id, { priceCents: v ? Math.round(parseFloat(v) * 100) : 0 })}
                 />
                 <button
                   type="button"

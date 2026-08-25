@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
 import { IconLock } from "@/components/icons";
+import { MoneyInput } from "@/components/MoneyInput";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import { BackToSettings, ConnectionBadge, KeyLabel, WebhookDiaryPanel } from "../_shared";
 import { showToast } from "@/lib/toast";
@@ -260,17 +261,9 @@ export default function PaymentSettingsPage() {
         <div className="mt-3 flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-1">
             <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-              meta mensal (R$)
+              meta mensal
             </span>
-            <input
-              className="input w-40 py-1.5 text-sm"
-              type="number"
-              min={0}
-              step={100}
-              placeholder="10000"
-              value={metaReais}
-              onChange={(e) => setMetaReais(e.target.value)}
-            />
+            <MoneyInput className="w-40 py-1.5 text-sm" placeholder="10000,00" value={metaReais} onChange={setMetaReais} />
           </label>
           <button
             type="button"

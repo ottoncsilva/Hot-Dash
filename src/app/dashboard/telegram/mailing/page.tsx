@@ -10,6 +10,7 @@ import type { Profile } from "@/lib/types";
 import { IconSend, IconClose, IconPlus, IconTrash } from "@/components/icons";
 import PageHeader from "@/components/PageHeader";
 import MediaPicker from "@/components/telegram/bot/MediaPicker";
+import { MoneyInput } from "@/components/MoneyInput";
 
 // ---- Tipos (espelham telegramMailing.ts / telegramUsers.ts) ----
 type Audience =
@@ -555,26 +556,17 @@ function MailingForm({
                       setOffers((cur) => cur.map((x, idx) => (idx === i ? { ...x, name: e.target.value } : x)))
                     }
                   />
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs text-zinc-500">R$</span>
-                    <input
-                      className="input w-24"
-                      value={(o.priceCents / 100).toFixed(2)}
-                      onChange={(e) =>
-                        setOffers((cur) =>
-                          cur.map((x, idx) =>
-                            idx === i
-                              ? {
-                                  ...x,
-                                  priceCents:
-                                    Math.round(parseFloat(e.target.value.replace(",", ".")) * 100) || 0,
-                                }
-                              : x,
-                          ),
-                        )
-                      }
-                    />
-                  </div>
+                  <MoneyInput
+                    className="w-24"
+                    value={(o.priceCents / 100).toFixed(2)}
+                    onChange={(v) =>
+                      setOffers((cur) =>
+                        cur.map((x, idx) =>
+                          idx === i ? { ...x, priceCents: v ? Math.round(parseFloat(v) * 100) : 0 } : x,
+                        ),
+                      )
+                    }
+                  />
                   {o.kind === "subscription" && (
                     <div className="flex items-center gap-1">
                       <input

@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import Switch from "@/components/Switch";
+import { MoneyInput } from "@/components/MoneyInput";
 import { PrecisaDeModelo } from "@/components/ProfilePicker";
 import { useProfile } from "@/context/ProfileContext";
 import { apiGet, apiSend } from "@/lib/api";
@@ -477,13 +478,7 @@ function FormularioVenda({ chatId, onPronto }: { chatId: string; onPronto: () =>
     <div className="flex flex-wrap items-end gap-2 border-b border-white/[0.06] bg-white/[0.02] p-4">
       <label className="block">
         <span className="eyebrow mb-1 block">Valor</span>
-        <input
-          className="input w-28"
-          inputMode="decimal"
-          placeholder="49,90"
-          value={valor}
-          onChange={(e) => setValor(e.target.value)}
-        />
+        <MoneyInput className="w-28" placeholder="49,90" value={valor} onChange={setValor} />
       </label>
       <label className="block flex-1">
         <span className="eyebrow mb-1 block">Descrição</span>

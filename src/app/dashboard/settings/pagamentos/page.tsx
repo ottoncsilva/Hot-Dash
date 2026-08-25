@@ -337,6 +337,8 @@ export default function PaymentSettingsPage() {
             clientId: syncClientId || undefined,
             clientSecret: syncClientSecret || undefined,
           })}
+          autoTest={true}
+          enabled={syncEnabled}
         />
 
         {/* Webhook de recebimento — alimenta o Financeiro e o Dashboard */}
@@ -626,6 +628,8 @@ export default function PaymentSettingsPage() {
         <ConnectionBadge
           testUrl="/api/payments/stripe/settings/test"
           buildBody={() => ({ secretKey: stripeSecretKey || undefined })}
+          autoTest={true}
+          enabled={stripeEnabled}
         />
 
         <div className="mt-4 panel p-3">

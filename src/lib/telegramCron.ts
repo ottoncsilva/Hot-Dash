@@ -18,6 +18,7 @@ import {
   saveSubscription,
   getSubscription,
   getPlan,
+  buildPlanKeyboardRows,
 } from "@/lib/telegramDb";
 import {
   sendTelegramMedia,
@@ -456,18 +457,38 @@ export type FunnelStep = {
    * inteiramente; ver `passoPronto`. Só faz sentido junto de `isLoop: true`.
    */
   dailyTime?: string;
+  /** Tradução GRAVADA deste passo — mesmo mecanismo de `successMessageEn/Es`:
+   *  populada sozinha quando o funil é salvo em PT (ver `/api/telegram`
+   *  route), usada quando o lead está em en/es (`telegram_users.language`).
+   *  Sem tradução, cai no `text` em português (comportamento de hoje). Só
+   *  `downsellFunnel`/`pixDownsellFunnel` populam isto por ora, mas
+   *  `sendFunnelStep` já respeita pra qualquer funil que usar o campo. */
+  textEn?: string;
+  textEs?: string;
 };
 
 function buildReplyMarkup(
   bot: { id: string; buttonStyles?: ButtonStyles },
   discountPercent = 0,
   planMode: FunnelStep["planMode"] = "all",
+  /** Lead em en/es (idioma salvo em `telegram_users`) — troca pra botões em
+   *  USD (`buy_intl_`, nome em inglês) quando existir plano qualificado,
+   *  mesmo critério do `/start`. Sem idioma, ou sem plano USD, BRL como
+   *  sempre. */
+  idioma?: "en" | "es",
 ) {
   if (planMode === "none") return undefined;
   // Só os ATIVOS: um plano desligado some do /start, e some dos funis também.
   const plans = listActivePlans(bot.id).filter((p) =>
     planMode === "subs" ? p.kind !== "package" : planMode === "packages" ? p.kind === "package" : true,
   );
+  const intl = idioma && plans.some((p) => (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false);
+  if (intl) {
+    // Sem desconto embutido no botão: o downsell traduzido reusa o mesmo
+    // teclado do checkout internacional (preço fixo em USD), o desconto de
+    // recuperação só existe hoje pro fluxo em BRL.
+    return { inline_keyboard: buildPlanKeyboardRows(bot, plans, { moeda: "USD", prefix: "buy_intl_" }) };
+  }
   const inlineKeyboard: any[] = [];
   if (plans.length > 0) {
     plans.forEach((plan) => {
@@ -537,9 +558,22 @@ function buildPixDownsellMarkup(
   bot: { id: string; buttonStyles?: ButtonStyles },
   sub: { planId?: string; offerId?: string },
   discountPercent = 0,
+  /** Ver `buildReplyMarkup` — só se aplica aqui quando o item escolhido é um
+   *  PLANO (não oferta de mailing) com preço em USD: o checkout `buy_intl_`
+   *  só sabe resolver plano do catálogo, nunca oferta avulsa. Sem isso, cai
+   *  no BRL/PIX de sempre — nunca quebra, só não traduz esse caso raro. */
+  idioma?: "en" | "es",
 ) {
   const resolvido = resolvePixItem(sub, discountPercent);
-  if (!resolvido) return buildReplyMarkup(bot, discountPercent);
+  if (!resolvido) return buildReplyMarkup(bot, discountPercent, "all", idioma);
+
+  if (idioma && sub.planId) {
+    const plano = getPlan(sub.planId);
+    if (plano && (plano.priceUsdCents || 0) > 0 && plano.intlAvailable !== false) {
+      return { inline_keyboard: buildPlanKeyboardRows(bot, [plano], { moeda: "USD", prefix: "buy_intl_" }) };
+    }
+  }
+
   const { item, isPlan, finalPrice, highlight } = resolvido;
 
   const priceStr = (finalPrice / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -673,7 +707,13 @@ async function sendFunnelStep(
   // recebia a chave literal no meio do texto. No privado o chat_id é o próprio
   // id do usuário, então os dados saem da lista de usuários.
   const pessoa = getTelegramUser(`${botId}_${chatId}`);
-  const texto = aplicarVariaveis(step.text || "", {
+  // Tradução GRAVADA do passo (ver FunnelStep.textEn/Es) — sem ela, o texto
+  // em português de sempre, mesmo pra quem está em en/es.
+  const textoBase =
+    (pessoa?.language === "en" ? step.textEn : pessoa?.language === "es" ? step.textEs : undefined)?.trim() ||
+    step.text ||
+    "";
+  const texto = aplicarVariaveis(textoBase, {
     firstName: pessoa?.firstName,
     lastName: pessoa?.lastName,
     username: pessoa?.username,
@@ -809,7 +849,9 @@ async function runTelegramFunnelsImpl(): Promise<{
         );
         if (alvo) {
           const stepFinal = downsellFunnel[alvo.enviar];
-          const replyMarkup = buildReplyMarkup(bot, stepFinal.discountPercent, stepFinal.planMode);
+          const idiomaLead = getTelegramUser(`${bot.id}_${lead.chatId}`)?.language;
+          const idioma = idiomaLead === "en" || idiomaLead === "es" ? idiomaLead : undefined;
+          const replyMarkup = buildReplyMarkup(bot, stepFinal.discountPercent, stepFinal.planMode, idioma);
           await sendFunnelStep(bot.botToken, bot.id, lead.chatId, p.id, stepFinal, replyMarkup, bot.botUsername);
 
           lead.lastInteractionAt = now;
@@ -869,18 +911,34 @@ async function runTelegramFunnelsImpl(): Promise<{
         // o comentário de `buildPixDownsellMarkup`.
         const sub = getSubscription(row.id);
         const resolvido = sub ? resolvePixItem(sub, step.discountPercent) : null;
+        const idiomaLeadPix = getTelegramUser(`${bot.id}_${row.telegram_user_id}`)?.language;
+        const idiomaPix = idiomaLeadPix === "en" || idiomaLeadPix === "es" ? idiomaLeadPix : undefined;
         const markup = sub
-          ? buildPixDownsellMarkup(bot, sub, step.discountPercent)
-          : buildReplyMarkup(bot, step.discountPercent, step.planMode);
-        const extraVars = resolvido
+          ? buildPixDownsellMarkup(bot, sub, step.discountPercent, idiomaPix)
+          : buildReplyMarkup(bot, step.discountPercent, step.planMode, idiomaPix);
+        // Em USD (checkout internacional traduzido), o valor exibido nas
+        // variáveis {plano}/{valor} do texto acompanha o mesmo preço do
+        // botão — senão o texto falaria BRL enquanto o botão cobra em USD.
+        const planoUsd =
+          idiomaPix && sub?.planId ? getPlan(sub.planId) : null;
+        const usaUsd = planoUsd && (planoUsd.priceUsdCents || 0) > 0 && planoUsd.intlAvailable !== false;
+        const extraVars = usaUsd
           ? {
-              planoEscolhido: resolvido.item.name,
-              valorComDesconto: (resolvido.finalPrice / 100).toLocaleString("pt-BR", {
+              planoEscolhido: planoUsd!.nameEn?.trim() || planoUsd!.name,
+              valorComDesconto: (planoUsd!.priceUsdCents! / 100).toLocaleString("en-US", {
                 style: "currency",
-                currency: "BRL",
+                currency: "USD",
               }),
             }
-          : undefined;
+          : resolvido
+            ? {
+                planoEscolhido: resolvido.item.name,
+                valorComDesconto: (resolvido.finalPrice / 100).toLocaleString("pt-BR", {
+                  style: "currency",
+                  currency: "BRL",
+                }),
+              }
+            : undefined;
         await sendFunnelStep(
           bot.botToken,
           bot.id,

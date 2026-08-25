@@ -46,8 +46,68 @@ import { resolvePublicOrigin, webhookOriginProblem } from "@/lib/publicOrigin";
 import { buttonStyleProps, sanitizeButtonStyles, BUTTON_ROLES } from "@/lib/settings";
 import { MESSAGE_EFFECTS } from "@/lib/telegramEffects";
 import { resolverLinkDoVip, limparLinkDoVipAuto } from "@/lib/vipLink";
+import { traduzirTexto } from "@/lib/telegramDownsellAi";
+import type { FunnelStep } from "@/lib/telegramCron";
 
 import { randomUUID } from "node:crypto";
+
+/**
+ * TRADUÇÃO AUTOMÁTICA — dispara sozinha quando o texto em PT muda no save
+ * (não mais um botão manual). Sem mudança, mantém a tradução já salva (não
+ * rechama a IA à toa a cada save de campo que nem mudou). Falha de tradução
+ * (sem provedor de IA configurado, IA fora do ar) NUNCA derruba o save do
+ * texto em PT — só fica sem tradução dessa vez, e o operador ainda pode
+ * ajustar o resultado à mão depois.
+ */
+async function traduzirSeMudou(
+  profileId: string,
+  contexto: string,
+  novo: string,
+  antigo: string | undefined,
+  enAntigo: string | undefined,
+  esAntigo: string | undefined,
+): Promise<{ en: string | undefined; es: string | undefined }> {
+  const textoNovo = novo.trim();
+  if (!textoNovo) return { en: undefined, es: undefined };
+  if (textoNovo === (antigo || "").trim()) return { en: enAntigo, es: esAntigo };
+  const [en, es] = await Promise.all([
+    traduzirTexto(textoNovo, "en", profileId, contexto).catch(() => enAntigo),
+    traduzirTexto(textoNovo, "es", profileId, contexto).catch(() => esAntigo),
+  ]);
+  return { en, es };
+}
+
+/**
+ * Mesma ideia, por PASSO de um funil (downsell/PIX gerado) — casa passo novo
+ * com o antigo pela POSIÇÃO na lista (não existe id de passo): só passos cujo
+ * `text` mudou (ou são novos) chamam a IA de novo, os demais mantêm a
+ * tradução que já tinham.
+ */
+async function traduzirFunilSeMudou(
+  profileId: string,
+  contexto: string,
+  funilNovo: FunnelStep[],
+  funilAntigo: FunnelStep[],
+): Promise<FunnelStep[]> {
+  return Promise.all(
+    funilNovo.map(async (passo, i) => {
+      const antigo = funilAntigo[i];
+      const { en, es } = await traduzirSeMudou(profileId, contexto, passo.text || "", antigo?.text, antigo?.textEn, antigo?.textEs);
+      return { ...passo, textEn: en, textEs: es };
+    }),
+  );
+}
+
+/** Lê um funil salvo (JSON de passos) do bot — JSON inválido vira lista vazia. */
+function lerFunnelSalvo(raw: string | undefined): FunnelStep[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
 
 /** Só deixa passar uma chave que existe na lista de efeitos. */
 function efeitoValido(valor: unknown, atual: string | undefined): string | undefined {
@@ -377,9 +437,59 @@ export async function POST(req: NextRequest) {
     // ---- Mensagens / suporte / registro ----
     if (action === "save-bot-messages") {
       const bot = requireBot(body.profileId);
+      const welcomeMessageNovo = String(body.welcomeMessage ?? bot.welcomeMessage ?? "Bem-vindo");
+      const successMessageNovo = String(body.successMessage ?? bot.successMessage ?? "Aprovado");
+      const successButtonTextNovo =
+        body.successButtonText !== undefined ? String(body.successButtonText) : bot.successButtonText || "";
+      // Traduções GRAVADAS — se a tela já mandou o valor pronto (botão
+      // "Traduzir"/painel manual), respeita o que veio; senão, dispara a
+      // tradução automática só quando o texto em PT mudou de verdade.
+      const [traducaoWelcome, traducaoSuccess, traducaoBotao] = await Promise.all([
+        body.welcomeMessageEn !== undefined || body.welcomeMessageEs !== undefined
+          ? Promise.resolve({
+              en: body.welcomeMessageEn !== undefined ? String(body.welcomeMessageEn) : bot.welcomeMessageEn,
+              es: body.welcomeMessageEs !== undefined ? String(body.welcomeMessageEs) : bot.welcomeMessageEs,
+            })
+          : traduzirSeMudou(
+              bot.profileId,
+              "the welcome message she sends when someone starts a conversation with her on Telegram",
+              welcomeMessageNovo,
+              bot.welcomeMessage,
+              bot.welcomeMessageEn,
+              bot.welcomeMessageEs,
+            ),
+        body.successMessageEn !== undefined || body.successMessageEs !== undefined
+          ? Promise.resolve({
+              en: body.successMessageEn !== undefined ? String(body.successMessageEn) : bot.successMessageEn,
+              es: body.successMessageEs !== undefined ? String(body.successMessageEs) : bot.successMessageEs,
+            })
+          : traduzirSeMudou(
+              bot.profileId,
+              "the message she sends on Telegram to a subscriber right after their payment was approved",
+              successMessageNovo,
+              bot.successMessage,
+              bot.successMessageEn,
+              bot.successMessageEs,
+            ),
+        body.successButtonTextEn !== undefined || body.successButtonTextEs !== undefined
+          ? Promise.resolve({
+              en: body.successButtonTextEn !== undefined ? String(body.successButtonTextEn) : bot.successButtonTextEn,
+              es: body.successButtonTextEs !== undefined ? String(body.successButtonTextEs) : bot.successButtonTextEs,
+            })
+          : traduzirSeMudou(
+              bot.profileId,
+              "the SHORT label of a button (not a full message) that unlocks her VIP content after payment",
+              successButtonTextNovo,
+              bot.successButtonText,
+              bot.successButtonTextEn,
+              bot.successButtonTextEs,
+            ),
+      ]);
       saveBotConfig({
         ...bot,
-        welcomeMessage: String(body.welcomeMessage ?? bot.welcomeMessage ?? "Bem-vindo"),
+        welcomeMessage: welcomeMessageNovo,
+        welcomeMessageEn: traducaoWelcome.en,
+        welcomeMessageEs: traducaoWelcome.es,
         welcomeMediaTags: body.welcomeMediaTags !== undefined ? String(body.welcomeMediaTags) : bot.welcomeMediaTags,
         welcomeMediaIds: Array.isArray(body.welcomeMediaIds)
           ? body.welcomeMediaIds.filter((v: unknown) => typeof v === "string" && v).slice(0, 10)
@@ -388,16 +498,15 @@ export async function POST(req: NextRequest) {
           body.welcomeMediaMode === "separate" || body.welcomeMediaMode === "album"
             ? body.welcomeMediaMode
             : bot.welcomeMediaMode,
-        successMessage: String(body.successMessage ?? bot.successMessage ?? "Aprovado"),
-        // Traduções guardadas (botão "Traduzir") — string vazia LIMPA a
-        // tradução salva (ex.: operador quer voltar a cair no texto em PT).
-        successMessageEn: body.successMessageEn !== undefined ? String(body.successMessageEn) : bot.successMessageEn,
-        successMessageEs: body.successMessageEs !== undefined ? String(body.successMessageEs) : bot.successMessageEs,
+        successMessage: successMessageNovo,
+        successMessageEn: traducaoSuccess.en,
+        successMessageEs: traducaoSuccess.es,
         previewsWelcomeMessage: body.previewsWelcomeMessage !== undefined ? String(body.previewsWelcomeMessage) : bot.previewsWelcomeMessage,
         supportUsername: body.supportUsername !== undefined ? String(body.supportUsername) : bot.supportUsername,
         idRegistro: body.idRegistro !== undefined ? String(body.idRegistro) : bot.idRegistro,
-        successButtonText:
-          body.successButtonText !== undefined ? String(body.successButtonText) : bot.successButtonText,
+        successButtonText: successButtonTextNovo,
+        successButtonTextEn: traducaoBotao.en,
+        successButtonTextEs: traducaoBotao.es,
         // EFEITOS DE MENSAGEM. Chave desconhecida vira "" (sem efeito) em vez
         // de ir para o Telegram e derrubar a mensagem inteira.
         effectWelcome: efeitoValido(body.effectWelcome, bot.effectWelcome),
@@ -410,6 +519,22 @@ export async function POST(req: NextRequest) {
     // ---- Tela de pagamento (PIX). Campo vazio = volta ao texto padrão. ----
     if (action === "save-pix") {
       const bot = requireBot(body.profileId);
+      const pixSocialProofTextNovo =
+        body.pixSocialProofText !== undefined ? String(body.pixSocialProofText) : bot.pixSocialProofText || "";
+      const traducaoProvaSocial =
+        body.pixSocialProofTextEn !== undefined || body.pixSocialProofTextEs !== undefined
+          ? {
+              en: body.pixSocialProofTextEn !== undefined ? String(body.pixSocialProofTextEn) : bot.pixSocialProofTextEn,
+              es: body.pixSocialProofTextEs !== undefined ? String(body.pixSocialProofTextEs) : bot.pixSocialProofTextEs,
+            }
+          : await traduzirSeMudou(
+              bot.profileId,
+              "a short social-proof line shown above the plans (e.g. how many people already subscribed today) — keep any placeholder like {vendas_hoje} or {assinantes} exactly as written",
+              pixSocialProofTextNovo,
+              bot.pixSocialProofText,
+              bot.pixSocialProofTextEn,
+              bot.pixSocialProofTextEs,
+            );
       saveBotConfig({
         ...bot,
         pixGeneratingMessage:
@@ -419,10 +544,9 @@ export async function POST(req: NextRequest) {
         pixCaption: body.pixCaption !== undefined ? String(body.pixCaption) : bot.pixCaption,
         pixSocialProof:
           body.pixSocialProof !== undefined ? Boolean(body.pixSocialProof) : bot.pixSocialProof,
-        pixSocialProofText:
-          body.pixSocialProofText !== undefined
-            ? String(body.pixSocialProofText)
-            : bot.pixSocialProofText,
+        pixSocialProofText: pixSocialProofTextNovo,
+        pixSocialProofTextEn: traducaoProvaSocial.en,
+        pixSocialProofTextEs: traducaoProvaSocial.es,
         pixAudioUrl: body.pixAudioUrl !== undefined ? String(body.pixAudioUrl) : bot.pixAudioUrl,
         pixBtnCheck: body.pixBtnCheck !== undefined ? String(body.pixBtnCheck) : bot.pixBtnCheck,
         pixBtnQr: body.pixBtnQr !== undefined ? String(body.pixBtnQr) : bot.pixBtnQr,
@@ -459,16 +583,23 @@ export async function POST(req: NextRequest) {
     // ---- Planos/ofertas — substitui a lista inteira do bot ----
     if (action === "save-plans") {
       const bot = requireBot(body.profileId);
-      // Interruptor do "Not from Brazil?" mora nesta aba (junto do preço em
-      // USD, que é o outro requisito pra ele aparecer) — só grava se a tela
-      // mandou o campo, pra não desligar à toa em chamadas antigas.
-      if (body.intlEnabled !== undefined) {
-        saveBotConfig({ ...bot, intlEnabled: Boolean(body.intlEnabled) });
+      // Interruptor do "Not from Brazil?" (e os dois novos, modo bilíngue e
+      // cartão no Brasil) moram nesta aba (junto do preço em USD, que é o
+      // outro requisito pro primeiro aparecer) — só grava o que a tela
+      // mandou, pra não desligar à toa em chamadas antigas.
+      if (body.intlEnabled !== undefined || body.intlAskFirst !== undefined || body.acceptCardBr !== undefined) {
+        saveBotConfig({
+          ...bot,
+          intlEnabled: body.intlEnabled !== undefined ? Boolean(body.intlEnabled) : bot.intlEnabled,
+          intlAskFirst: body.intlAskFirst !== undefined ? Boolean(body.intlAskFirst) : bot.intlAskFirst,
+          acceptCardBr: body.acceptCardBr !== undefined ? Boolean(body.acceptCardBr) : bot.acceptCardBr,
+        });
       }
       const incoming = Array.isArray(body.plans) ? body.plans : [];
       const existing = listPlans(bot.id);
       const keepIds = new Set<string>();
-      incoming.forEach((p: Record<string, unknown>, idx: number) => {
+      for (let idx = 0; idx < incoming.length; idx++) {
+        const p = incoming[idx] as Record<string, unknown>;
         const name = String(p.name || "").trim();
         const priceCents = Math.max(0, Math.round(Number(p.priceCents) || 0));
         const priceUsdCents =
@@ -477,7 +608,7 @@ export async function POST(req: NextRequest) {
         const durationDays = Math.max(0, Math.round(Number(p.durationDays) || 0));
         const kind = p.kind === "package" ? "package" : "subscription";
         const deliverable = typeof p.deliverable === "string" ? p.deliverable : undefined;
-        if (!name || priceCents <= 0) return;
+        if (!name || priceCents <= 0) continue;
         const id = typeof p.id === "string" && p.id ? p.id : randomUUID();
         keepIds.add(id);
 
@@ -496,10 +627,36 @@ export async function POST(req: NextRequest) {
               .slice(0, 6)
           : undefined;
 
+        // Nome em inglês — tradução GRAVADA (só EN, sem versão em espanhol:
+        // é um rótulo curto de botão, mesmo escopo do bobz). Ao contrário
+        // das mensagens (que têm um botão "Salvar traduções" à parte), o
+        // nome do plano viaja no MESMO save da lista inteira — por isso o
+        // valor que chega é comparado com o que já estava salvo: se o
+        // operador mudou o campo EN à mão, respeita; se veio igual (só um
+        // eco do último save) OU vazio, dispara a tradução automática
+        // quando o nome em PT mudou (e mantém a tradução de antes quando
+        // não mudou nada).
+        const antigo = existing.find((e) => e.id === id);
+        const nameEnEnviado = typeof p.nameEn === "string" ? p.nameEn.trim() : "";
+        const nameEn =
+          nameEnEnviado && nameEnEnviado !== (antigo?.nameEn || "").trim()
+            ? nameEnEnviado
+            : (
+                await traduzirSeMudou(
+                  bot.profileId,
+                  "the SHORT name of a subscription plan/product shown on a button — not a full message, just a product name",
+                  name,
+                  antigo?.name,
+                  antigo?.nameEn,
+                  undefined,
+                )
+              ).en;
+
         savePlan({
           id,
           botId: bot.id,
           name,
+          nameEn,
           priceCents,
           priceUsdCents,
           intlAvailable: p.intlAvailable !== false,
@@ -527,7 +684,7 @@ export async function POST(req: NextRequest) {
             deliverableButtons: bumpBotoes?.length ? bumpBotoes : undefined,
           },
         });
-      });
+      }
       // Remove os que sumiram da lista.
       for (const old of existing) if (!keepIds.has(old.id)) deletePlan(old.id);
       return NextResponse.json({ ok: true, plans: comStats(bot.id) });
@@ -554,11 +711,34 @@ export async function POST(req: NextRequest) {
     // ---- Funis de recuperação ----
     if (action === "save-funnels") {
       const bot = requireBot(body.profileId);
+      // Tradução GRAVADA passo a passo (ver `traduzirFunilSeMudou`) — só o
+      // Downsell geral e o de PIX gerado traduzem automaticamente por ora;
+      // upsell/renovação continuam só em PT (fora do pedido desta leva).
+      const downsellNovoRaw = normFunnel(body.downsellFunnel);
+      const pixDownsellNovoRaw = normFunnel(body.pixDownsellFunnel);
+      const [downsellFunnel, pixDownsellFunnel] = await Promise.all([
+        downsellNovoRaw !== undefined
+          ? traduzirFunilSeMudou(
+              bot.profileId,
+              "one step of a re-engagement sequence sent to a lead who started a chat but hasn't bought anything yet",
+              lerFunnelSalvo(downsellNovoRaw),
+              lerFunnelSalvo(bot.downsellFunnel),
+            ).then((passos) => JSON.stringify(passos))
+          : Promise.resolve(bot.downsellFunnel),
+        pixDownsellNovoRaw !== undefined
+          ? traduzirFunilSeMudou(
+              bot.profileId,
+              "one step of a recovery sequence sent to a lead who already picked a plan and generated a payment but hasn't paid yet",
+              lerFunnelSalvo(pixDownsellNovoRaw),
+              lerFunnelSalvo(bot.pixDownsellFunnel),
+            ).then((passos) => JSON.stringify(passos))
+          : Promise.resolve(bot.pixDownsellFunnel),
+      ]);
       saveBotConfig({
         ...bot,
-        downsellFunnel: normFunnel(body.downsellFunnel) ?? bot.downsellFunnel,
+        downsellFunnel,
         upsellFunnel: normFunnel(body.upsellFunnel) ?? bot.upsellFunnel,
-        pixDownsellFunnel: normFunnel(body.pixDownsellFunnel) ?? bot.pixDownsellFunnel,
+        pixDownsellFunnel,
         downsellEnabled:
           body.downsellEnabled !== undefined ? Boolean(body.downsellEnabled) : bot.downsellEnabled,
         pixDownsellEnabled:

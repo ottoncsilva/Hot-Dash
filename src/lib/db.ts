@@ -1130,6 +1130,26 @@ function migrate(d: Database.Database) {
   // `backfillPersonaDoLtv`) em vez de vazio.
   ensureColumn(d, "profiles", "tone_tags", "TEXT");
   ensureColumn(d, "profiles", "limits", "TEXT");
+  // MODO INTERNACIONAL BILÍNGUE: com `intl_ask_first` ligado, o /start
+  // pergunta Brasil/International ANTES de mostrar qualquer coisa (em vez do
+  // botão "Not from Brazil?" no meio do funil). `accept_card_br` é
+  // independente — libera um botão a mais pro brasileiro pagar no cartão
+  // (Stripe, em BRL) depois da lista de planos em PIX. As mensagens `*_en`/
+  // `*_es` são traduções GRAVADAS (mesmo padrão de `success_message_en/es`,
+  // que já existem) — populadas sozinhas a cada save do texto em PT (ver
+  // `/api/telegram` route), editáveis por cima manualmente.
+  ensureColumn(d, "telegram_bots", "intl_ask_first", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(d, "telegram_bots", "accept_card_br", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(d, "telegram_bots", "welcome_message_en", "TEXT");
+  ensureColumn(d, "telegram_bots", "welcome_message_es", "TEXT");
+  ensureColumn(d, "telegram_bots", "success_button_text_en", "TEXT");
+  ensureColumn(d, "telegram_bots", "success_button_text_es", "TEXT");
+  ensureColumn(d, "telegram_bots", "pix_social_proof_text_en", "TEXT");
+  ensureColumn(d, "telegram_bots", "pix_social_proof_text_es", "TEXT");
+  // Nome do plano em inglês — usado no teclado do checkout internacional e
+  // no downsell quando o lead está em en/es. Vazio cai no nome em PT (mesmo
+  // fallback dos outros campos `*_en`).
+  ensureColumn(d, "telegram_plans", "name_en", "TEXT");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);

@@ -373,15 +373,21 @@ const NOME_IDIOMA: Record<"en" | "es", string> = { en: "English", es: "Spanish" 
  * Traduz um texto já escrito (não gera do zero) mantendo a voz da modelo e
  * qualquer placeholder ({link_vip} etc.) intacto. Mesma cadeia de provedores
  * das outras gerações — o texto pode ter conteúdo adulto direto.
+ *
+ * `contexto` descreve, em português, O QUE é esse texto — entra literal no
+ * prompt em inglês. Default = mensagem de pagamento aprovado (uso
+ * histórico, botão "Traduzir" da D.4). Outros chamadores (boas-vindas,
+ * nome de plano, prova social, passo de funil) passam o seu próprio.
  */
 export async function traduzirTexto(
   texto: string,
   idioma: "en" | "es",
   profileId: string,
+  contexto: string = "the message she sends on Telegram to a subscriber right after their payment was approved",
 ): Promise<string> {
   const { nome } = await blocoPersona(profileId);
   const idiomaNome = NOME_IDIOMA[idioma];
-  const prompt = `You are translating a message written by ${nome}, an adult content creator, to ${idiomaNome}. She sends this exact message on Telegram to a subscriber right after their payment was approved. Keep the same tone, warmth and personality — just in ${idiomaNome} instead of Portuguese. Keep any placeholder EXACTLY as written (e.g. {link_vip}) — never translate, remove, or alter a placeholder. Never reveal this is a translation, an AI, or an automated system.
+  const prompt = `You are translating a message written by ${nome}, an adult content creator, to ${idiomaNome}. This is ${contexto}. Keep the same tone, warmth and personality — just in ${idiomaNome} instead of Portuguese. Keep any placeholder EXACTLY as written (e.g. {link_vip}) — never translate, remove, or alter a placeholder. Never reveal this is a translation, an AI, or an automated system.
 
 ORIGINAL TEXT (Portuguese):
 """

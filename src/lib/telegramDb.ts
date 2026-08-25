@@ -91,6 +91,26 @@ export type TelegramBotConfig = {
    *  aparece de qualquer jeito, mas isto permite escondê-lo mesmo com preço
    *  cadastrado (ex.: pausar cobrança internacional sem apagar os preços). */
   intlEnabled: boolean;
+  /** Com isto ligado, o /start pergunta Brasil/International (2 botões) ANTES
+   *  de mandar qualquer coisa, em vez do botão "Not from Brazil?" no meio do
+   *  funil (que continua existindo pra quem deixa isto desligado — padrão). */
+  intlAskFirst?: boolean;
+  /** Libera um botão extra pro lead BRASILEIRO pagar no cartão (Stripe, em
+   *  BRL) depois da lista de planos em PIX — mensagem separada, em sequência.
+   *  Só aparece de verdade com a Stripe conectada. */
+  acceptCardBr?: boolean;
+  /** Boas-vindas do ramo internacional — traduções GRAVADAS (mesmo padrão de
+   *  `successMessageEn/Es`: populadas sozinhas a cada save do texto em PT,
+   *  editáveis por cima). Vazio cai num texto padrão em inglês/espanhol. */
+  welcomeMessageEn?: string;
+  welcomeMessageEs?: string;
+  /** Texto do botão de acesso, traduzido — a mensagem já traduz
+   *  (`successMessageEn/Es`), mas o botão até aqui saía sempre em português. */
+  successButtonTextEn?: string;
+  successButtonTextEs?: string;
+  /** Prova social traduzida — mesmos marcadores {vendas_hoje}/{assinantes}. */
+  pixSocialProofTextEn?: string;
+  pixSocialProofTextEs?: string;
 };
 
 /** Textos padrão da tela de pagamento — os mesmos que antes viviam fixos no
@@ -212,16 +232,24 @@ export const RENEWAL_DEFAULT_STEPS: { delayMinutes: number; discountPercent: num
  *     menos custa todas.
  */
 export function buildAccessMessage(
-  bot: Pick<TelegramBotConfig, "successMessage" | "successButtonText">,
+  bot: Pick<
+    TelegramBotConfig,
+    "successMessage" | "successButtonText" | "successButtonTextEn" | "successButtonTextEs"
+  >,
   inviteLink: string,
   buttonProps: Record<string, unknown> = {},
+  /** Idioma do lead — troca o texto do BOTÃO (a mensagem já vem trocada de
+   *  fora, ver `deliverPayment.ts`). Sem tradução salva pro idioma, cai no
+   *  texto em português de sempre. */
+  idioma?: "en" | "es",
 ): { text: string; options: Record<string, unknown> } {
   const base = bot.successMessage?.trim() || MESSAGE_DEFAULTS.success;
   const temMarcador = /{link_vip}/i.test(base);
   const text = temMarcador
     ? base.replace(/{link_vip}/gi, inviteLink)
     : `${base}\n\n🔗 ${inviteLink}`;
-  const botao = bot.successButtonText?.trim() || MESSAGE_DEFAULTS.successButton;
+  const botaoTraduzido = idioma === "en" ? bot.successButtonTextEn : idioma === "es" ? bot.successButtonTextEs : undefined;
+  const botao = botaoTraduzido?.trim() || bot.successButtonText?.trim() || MESSAGE_DEFAULTS.successButton;
   return {
     text,
     options: {
@@ -251,6 +279,10 @@ export type TelegramPlan = {
   id: string;
   botId: string;
   name: string;
+  /** Nome em inglês — tradução GRAVADA, populada sozinha quando `name` é
+   *  salvo (mesmo mecanismo de `successMessageEn`). Vazio cai no `name` em
+   *  PT. Usado no teclado do checkout internacional e no downsell em en/es. */
+  nameEn?: string;
   priceCents: number;
   /** Preço em USD do MESMO plano, pro botão "Not from Brazil?" (Stripe).
    *  Ausente/0 = esse plano não entra na venda internacional. */
@@ -447,6 +479,14 @@ function toBotConfig(row: any): TelegramBotConfig {
     renewalFunnel: row.renewal_funnel || undefined,
     renewalEnabled: row.renewal_enabled === undefined || row.renewal_enabled === null ? true : !!row.renewal_enabled,
     intlEnabled: row.intl_enabled === undefined || row.intl_enabled === null ? true : !!row.intl_enabled,
+    intlAskFirst: !!row.intl_ask_first,
+    acceptCardBr: !!row.accept_card_br,
+    welcomeMessageEn: row.welcome_message_en || undefined,
+    welcomeMessageEs: row.welcome_message_es || undefined,
+    successButtonTextEn: row.success_button_text_en || undefined,
+    successButtonTextEs: row.success_button_text_es || undefined,
+    pixSocialProofTextEn: row.pix_social_proof_text_en || undefined,
+    pixSocialProofTextEs: row.pix_social_proof_text_es || undefined,
   };
 }
 
@@ -490,8 +530,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, success_message_en, success_message_es, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, renewal_funnel, renewal_enabled, intl_enabled, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, success_message_en, success_message_es, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, renewal_funnel, renewal_enabled, intl_enabled, intl_ask_first, accept_card_br, welcome_message_en, welcome_message_es, success_button_text_en, success_button_text_es, pix_social_proof_text_en, pix_social_proof_text_es, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -539,7 +579,15 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        button_styles = excluded.button_styles,
        renewal_funnel = excluded.renewal_funnel,
        renewal_enabled = excluded.renewal_enabled,
-       intl_enabled = excluded.intl_enabled`
+       intl_enabled = excluded.intl_enabled,
+       intl_ask_first = excluded.intl_ask_first,
+       accept_card_br = excluded.accept_card_br,
+       welcome_message_en = excluded.welcome_message_en,
+       welcome_message_es = excluded.welcome_message_es,
+       success_button_text_en = excluded.success_button_text_en,
+       success_button_text_es = excluded.success_button_text_es,
+       pix_social_proof_text_en = excluded.pix_social_proof_text_en,
+       pix_social_proof_text_es = excluded.pix_social_proof_text_es`
   ).run(
     id,
     config.profileId,
@@ -592,6 +640,14 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.renewalFunnel?.trim() || null,
     config.renewalEnabled === false ? 0 : 1,
     config.intlEnabled === false ? 0 : 1,
+    config.intlAskFirst ? 1 : 0,
+    config.acceptCardBr ? 1 : 0,
+    config.welcomeMessageEn?.trim() || null,
+    config.welcomeMessageEs?.trim() || null,
+    config.successButtonTextEn?.trim() || null,
+    config.successButtonTextEs?.trim() || null,
+    config.pixSocialProofTextEn?.trim() || null,
+    config.pixSocialProofTextEs?.trim() || null,
     now
   );
   // Lê PELO PERFIL, não pelo `id` que acabou de ser passado. O INSERT resolve
@@ -627,6 +683,7 @@ function toPlan(r: any): TelegramPlan {
     id: r.id,
     botId: r.bot_id,
     name: r.name,
+    nameEn: r.name_en || undefined,
     priceCents: r.price_cents,
     priceUsdCents: r.price_usd_cents || undefined,
     intlAvailable: r.intl_available === undefined || r.intl_available === null ? true : !!r.intl_available,
@@ -685,22 +742,33 @@ export function getPlan(id: string): TelegramPlan | null {
 export function buildPlanKeyboardRows(
   bot: { buttonStyles?: ButtonStyles },
   plans: TelegramPlan[],
-  opts: { moeda: "BRL" | "USD"; discountPercent?: number; prefix: "buy_plan_" | "buy_intl_" },
+  opts: {
+    moeda: "BRL" | "USD";
+    discountPercent?: number;
+    prefix: "buy_plan_" | "buy_intl_" | "buy_card_";
+    /** Usa `plan.nameEn` (com fallback pro `name` em PT) no rótulo do botão —
+     *  independente da moeda: o cartão no Brasil (`buy_card_`) continua em
+     *  BRL, mas pode ser mostrado pra um lead que já está em inglês (ex.: no
+     *  downsell traduzido). Padrão: acompanha `moeda === "USD"`. */
+    nomeEmIngles?: boolean;
+  },
 ): { text: string; callback_data: string; style?: string }[][] {
   const relevantes =
     opts.moeda === "USD"
       ? plans.filter((p) => (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false)
       : plans;
   const sufixo = opts.discountPercent && opts.discountPercent > 0 ? `_${opts.discountPercent}` : "";
+  const emIngles = opts.nomeEmIngles ?? opts.moeda === "USD";
   return relevantes.map((plan) => {
     const cents = opts.moeda === "USD" ? plan.priceUsdCents! : plan.priceCents;
     const priceStr = (cents / 100).toLocaleString(opts.moeda === "USD" ? "en-US" : "pt-BR", {
       style: "currency",
       currency: opts.moeda,
     });
+    const nome = emIngles ? plan.nameEn?.trim() || plan.name : plan.name;
     return [
       {
-        text: `${plan.name} - ${priceStr}`,
+        text: `${nome} - ${priceStr}`,
         callback_data: `${opts.prefix}${plan.id}${sufixo}`,
         ...planButtonStyleProps(bot, plan.highlight),
       },
@@ -711,10 +779,11 @@ export function buildPlanKeyboardRows(
 export function savePlan(plan: TelegramPlan): void {
   const now = Date.now();
   getDb().prepare(
-    `INSERT INTO telegram_plans (id, bot_id, name, price_cents, price_usd_cents, intl_available, duration_days, kind, deliverable, sort_order, active, highlight, deliverable_buttons, bump_enabled, bump_name, bump_price_cents, bump_text, bump_accept_text, bump_decline_text, bump_media_ids, bump_audio_url, bump_deliverable, bump_deliverable_buttons, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_plans (id, bot_id, name, name_en, price_cents, price_usd_cents, intl_available, duration_days, kind, deliverable, sort_order, active, highlight, deliverable_buttons, bump_enabled, bump_name, bump_price_cents, bump_text, bump_accept_text, bump_decline_text, bump_media_ids, bump_audio_url, bump_deliverable, bump_deliverable_buttons, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
+       name_en = excluded.name_en,
        price_cents = excluded.price_cents,
        price_usd_cents = excluded.price_usd_cents,
        intl_available = excluded.intl_available,
@@ -739,6 +808,7 @@ export function savePlan(plan: TelegramPlan): void {
     plan.id,
     plan.botId,
     plan.name,
+    plan.nameEn?.trim() || null,
     plan.priceCents,
     plan.priceUsdCents && plan.priceUsdCents > 0 ? Math.round(plan.priceUsdCents) : null,
     plan.intlAvailable === false ? 0 : 1,

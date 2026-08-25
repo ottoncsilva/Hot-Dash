@@ -68,10 +68,14 @@ type Bot = {
   pixGeneratingMessage?: string;
   pixCaption?: string;
   successButtonText?: string;
+  successButtonTextEn?: string;
+  successButtonTextEs?: string;
   welcomeMediaIds?: string[];
   welcomeMediaMode: "album" | "separate";
   pixSocialProof: boolean;
   pixSocialProofText?: string;
+  pixSocialProofTextEn?: string;
+  pixSocialProofTextEs?: string;
   pixAudioUrl?: string;
   pixBtnCheck?: string;
   pixBtnQr?: string;
@@ -93,6 +97,16 @@ type Bot = {
   dynamicPrice?: DynamicPrice;
   buttonStyles?: ButtonStyles;
   intlEnabled?: boolean;
+  /** Pergunta Brasil/International logo no /start, ANTES de mostrar
+   *  qualquer coisa — em vez do botão "Not from Brazil?" no meio do funil. */
+  intlAskFirst?: boolean;
+  /** Botão extra pro lead brasileiro pagar no cartão (Stripe, em BRL), numa
+   *  mensagem em sequência depois dos planos em PIX. */
+  acceptCardBr?: boolean;
+  /** Boas-vindas do ramo internacional — traduções GRAVADAS (mesmo padrão
+   *  de `successMessageEn/Es`). Vazio cai num texto padrão em inglês/espanhol. */
+  welcomeMessageEn?: string;
+  welcomeMessageEs?: string;
 };
 /** Cores dos botões DESTA modelo (não do painel). O preview usa as mesmas. */
 type ButtonStyles = Record<string, "" | "primary" | "success" | "danger">;
@@ -137,6 +151,9 @@ type PixDefaults = {
 type Plan = {
   id: string;
   name: string;
+  /** Nome em inglês — tradução GRAVADA, populada sozinha quando `name` é
+   *  salvo. Vazio cai no nome em PT. */
+  nameEn?: string;
   priceCents: number;
   /** Preço em USD do MESMO plano, pro botão "Not from Brazil?" (Stripe).
    *  Ausente/0 = não entra na venda internacional. */
@@ -220,6 +237,10 @@ export default function BotVendasPage() {
   const [welcome, setWelcome] = useState("");
   const [welcomeIds, setWelcomeIds] = useState<string[]>([]);
   const [welcomeMode, setWelcomeMode] = useState<"album" | "separate">("album");
+  // Boas-vindas do ramo internacional — tradução GRAVADA (mesmo padrão da
+  // mensagem de sucesso), populada sozinha a cada save do texto em PT.
+  const [welcomeEn, setWelcomeEn] = useState("");
+  const [welcomeEs, setWelcomeEs] = useState("");
   // Efeitos de mensagem — editados aqui porque o preview precisa acompanhar.
   const [efeitoWelcome, setEfeitoWelcome] = useState("");
   const [efeitoPix, setEfeitoPix] = useState("");
@@ -232,6 +253,8 @@ export default function BotVendasPage() {
   const [pixLegenda, setPixLegenda] = useState("");
   const [pixProva, setPixProva] = useState(false);
   const [pixProvaTexto, setPixProvaTexto] = useState("");
+  const [pixProvaTextoEn, setPixProvaTextoEn] = useState("");
+  const [pixProvaTextoEs, setPixProvaTextoEs] = useState("");
   const [pixBtnCheck, setPixBtnCheck] = useState("");
   const [pixBtnQr, setPixBtnQr] = useState("");
   const [pixBtnCopy, setPixBtnCopy] = useState("");
@@ -242,6 +265,10 @@ export default function BotVendasPage() {
   // internacional "Not from Brazil?"). Vazio = ainda não traduzida.
   const [sucessoTextoEn, setSucessoTextoEn] = useState("");
   const [sucessoTextoEs, setSucessoTextoEs] = useState("");
+  // Texto do botão de acesso, traduzido — a mensagem já traduzia, o botão
+  // até aqui saía sempre em português.
+  const [sucessoBotaoEn, setSucessoBotaoEn] = useState("");
+  const [sucessoBotaoEs, setSucessoBotaoEs] = useState("");
   // Os papéis de botão são fixos do produto; as CORES vêm do bot da modelo.
   const [buttonRoles, setButtonRoles] = useState<ButtonRoleInfo[]>([]);
 
@@ -279,6 +306,8 @@ export default function BotVendasPage() {
       setWelcome(d.bot?.welcomeMessage || "");
       setWelcomeIds(d.bot?.welcomeMediaIds || []);
       setWelcomeMode(d.bot?.welcomeMediaMode || "album");
+      setWelcomeEn(d.bot?.welcomeMessageEn || "");
+      setWelcomeEs(d.bot?.welcomeMessageEs || "");
       setEfeitoWelcome(d.bot?.effectWelcome || "");
       setEfeitoPix(d.bot?.effectPix || "");
       setEfeitoSuccess(d.bot?.effectSuccess || "");
@@ -290,6 +319,8 @@ export default function BotVendasPage() {
       setPixLegenda(d.bot?.pixCaption || d.pixDefaults?.caption || "");
       setPixProva(Boolean(d.bot?.pixSocialProof));
       setPixProvaTexto(d.bot?.pixSocialProofText || d.pixDefaults?.socialProofText || "");
+      setPixProvaTextoEn(d.bot?.pixSocialProofTextEn || "");
+      setPixProvaTextoEs(d.bot?.pixSocialProofTextEs || "");
       setPixBtnCheck(d.bot?.pixBtnCheck || d.pixDefaults?.btnCheck || "");
       setPixBtnQr(d.bot?.pixBtnQr || d.pixDefaults?.btnQr || "");
       setPixBtnCopy(d.bot?.pixBtnCopy || d.pixDefaults?.btnCopy || "");
@@ -298,6 +329,8 @@ export default function BotVendasPage() {
       setSucessoBotao(d.bot?.successButtonText || "");
       setSucessoTextoEn(d.bot?.successMessageEn || "");
       setSucessoTextoEs(d.bot?.successMessageEs || "");
+      setSucessoBotaoEn(d.bot?.successButtonTextEn || "");
+      setSucessoBotaoEs(d.bot?.successButtonTextEs || "");
       setButtonRoles(d.buttonRoles || []);
       setAprVip(d.bot?.vipApprovalMode || "subscribers");
       setAprPrevias(d.bot?.previasApprovalMode || "all");
@@ -446,6 +479,10 @@ export default function BotVendasPage() {
                     setMode={setWelcomeMode}
                     efeito={efeitoWelcome}
                     setEfeito={setEfeitoWelcome}
+                    welcomeEn={welcomeEn}
+                    setWelcomeEn={setWelcomeEn}
+                    welcomeEs={welcomeEs}
+                    setWelcomeEs={setWelcomeEs}
                     onSaved={load}
                   />
                   <PixRow
@@ -460,6 +497,10 @@ export default function BotVendasPage() {
                     setProva={setPixProva}
                     provaTexto={pixProvaTexto}
                     setProvaTexto={setPixProvaTexto}
+                    provaTextoEn={pixProvaTextoEn}
+                    setProvaTextoEn={setPixProvaTextoEn}
+                    provaTextoEs={pixProvaTextoEs}
+                    setProvaTextoEs={setPixProvaTextoEs}
                     audio={pixAudio}
                     setAudio={setPixAudio}
                     btnCheck={pixBtnCheck}
@@ -483,6 +524,10 @@ export default function BotVendasPage() {
                     setTextoEn={setSucessoTextoEn}
                     textoEs={sucessoTextoEs}
                     setTextoEs={setSucessoTextoEs}
+                    botaoEn={sucessoBotaoEn}
+                    setBotaoEn={setSucessoBotaoEn}
+                    botaoEs={sucessoBotaoEs}
+                    setBotaoEs={setSucessoBotaoEs}
                     efeito={efeitoSuccess}
                     setEfeito={setEfeitoSuccess}
                     onSaved={load}
@@ -508,6 +553,8 @@ export default function BotVendasPage() {
                   profileId={profileId}
                   plans={plans}
                   intlEnabled={bot?.intlEnabled !== false}
+                  intlAskFirst={Boolean(bot?.intlAskFirst)}
+                  acceptCardBr={Boolean(bot?.acceptCardBr)}
                   onSaved={load}
                 />
               )}
@@ -1051,6 +1098,10 @@ function WelcomeRow({
   setMode,
   efeito,
   setEfeito,
+  welcomeEn,
+  setWelcomeEn,
+  welcomeEs,
+  setWelcomeEs,
   onSaved,
 }: {
   profileId: string;
@@ -1063,6 +1114,10 @@ function WelcomeRow({
   setMode: (v: "album" | "separate") => void;
   efeito: string;
   setEfeito: (v: string) => void;
+  welcomeEn: string;
+  setWelcomeEn: (v: string) => void;
+  welcomeEs: string;
+  setWelcomeEs: (v: string) => void;
   onSaved: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -1079,6 +1134,24 @@ function WelcomeRow({
         effectWelcome: efeito,
       });
       showToast("Boas-vindas salvas.", "success");
+      onSaved();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function salvarTraducoes() {
+    setBusy(true);
+    try {
+      await apiSend("/api/telegram", "POST", {
+        action: "save-bot-messages",
+        profileId,
+        welcomeMessageEn: welcomeEn,
+        welcomeMessageEs: welcomeEs,
+      });
+      showToast("Traduções salvas.", "success");
       onSaved();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha.", "error");
@@ -1122,6 +1195,37 @@ function WelcomeRow({
       <button onClick={save} disabled={busy} className="btn-primary mt-4">
         {busy ? "Salvando..." : "Salvar mensagem"}
       </button>
+
+      {/* Traduções GRAVADAS — populadas sozinhas quando o texto em PT acima é
+          salvo (ver `/api/telegram`); a modelo mesmo assim pode ajustar por
+          cima. Só entram em jogo pro lead internacional (mesma mídia da
+          abertura em PT). */}
+      <div className="mt-6 border-t border-white/10 pt-4">
+        <p className="eyebrow">tradução (leads internacionais)</p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Traduz sozinha quando a mensagem em português é salva. Sem tradução (IA não configurada, por exemplo), cai num texto padrão em inglês/espanhol.
+        </p>
+
+        <label className="eyebrow mt-3 block">🇬🇧 English</label>
+        <textarea
+          className="input mt-1.5 min-h-[90px]"
+          value={welcomeEn}
+          onChange={(e) => setWelcomeEn(e.target.value)}
+          placeholder="(padrão em inglês)"
+        />
+
+        <label className="eyebrow mt-3 block">🇪🇸 Español</label>
+        <textarea
+          className="input mt-1.5 min-h-[90px]"
+          value={welcomeEs}
+          onChange={(e) => setWelcomeEs(e.target.value)}
+          placeholder="(padrão em español)"
+        />
+
+        <button onClick={salvarTraducoes} disabled={busy} className="btn-ghost mt-3 text-xs">
+          {busy ? "Salvando..." : "Salvar traduções"}
+        </button>
+      </div>
     </SectionRow>
   );
 }
@@ -1137,6 +1241,10 @@ function SuccessRow({
   setTextoEn,
   textoEs,
   setTextoEs,
+  botaoEn,
+  setBotaoEn,
+  botaoEs,
+  setBotaoEs,
   efeito,
   setEfeito,
   onSaved,
@@ -1151,6 +1259,10 @@ function SuccessRow({
   setTextoEn: (v: string) => void;
   textoEs: string;
   setTextoEs: (v: string) => void;
+  botaoEn: string;
+  setBotaoEn: (v: string) => void;
+  botaoEs: string;
+  setBotaoEs: (v: string) => void;
   efeito: string;
   setEfeito: (v: string) => void;
   onSaved: () => void;
@@ -1193,6 +1305,8 @@ function SuccessRow({
       await salvarMensagens(profileId, {
         successMessageEn: textoEn,
         successMessageEs: textoEs,
+        successButtonTextEn: botaoEn,
+        successButtonTextEs: botaoEs,
       });
       showToast("Traduções salvas.", "success");
       onSaved();
@@ -1273,6 +1387,12 @@ function SuccessRow({
           onChange={(e) => setTextoEn(e.target.value)}
           placeholder="(sem tradução salva)"
         />
+        <input
+          className="input mt-1.5"
+          placeholder="Texto do botão (EN) — vazio cai no botão em PT"
+          value={botaoEn}
+          onChange={(e) => setBotaoEn(e.target.value)}
+        />
         {traducaoDesatualizada(textoEn) && (
           <p className="mt-1 text-[11px] text-amber-400/80">Tradução pode estar desatualizada — o texto em português mudou depois dela.</p>
         )}
@@ -1286,6 +1406,12 @@ function SuccessRow({
           value={textoEs}
           onChange={(e) => setTextoEs(e.target.value)}
           placeholder="(sem tradução salva)"
+        />
+        <input
+          className="input mt-1.5"
+          placeholder="Texto do botão (ES) — vazio cai no botão em PT"
+          value={botaoEs}
+          onChange={(e) => setBotaoEs(e.target.value)}
         />
         {traducaoDesatualizada(textoEs) && (
           <p className="mt-1 text-[11px] text-amber-400/80">Tradução pode estar desatualizada — o texto em português mudou depois dela.</p>
@@ -1311,6 +1437,10 @@ function PixRow({
   setProva,
   provaTexto,
   setProvaTexto,
+  provaTextoEn,
+  setProvaTextoEn,
+  provaTextoEs,
+  setProvaTextoEs,
   audio,
   setAudio,
   btnCheck,
@@ -1334,6 +1464,10 @@ function PixRow({
   setProva: (v: boolean) => void;
   provaTexto: string;
   setProvaTexto: (v: string) => void;
+  provaTextoEn: string;
+  setProvaTextoEn: (v: string) => void;
+  provaTextoEs: string;
+  setProvaTextoEs: (v: string) => void;
   audio: string;
   setAudio: (v: string) => void;
   btnCheck: string;
@@ -1364,6 +1498,8 @@ function PixRow({
         pixCaption: legenda,
         pixSocialProof: prova,
         pixSocialProofText: provaTexto,
+        pixSocialProofTextEn: provaTextoEn,
+        pixSocialProofTextEs: provaTextoEs,
         pixAudioUrl: audio,
         pixBtnCheck: btnCheck,
         pixBtnQr: btnQr,
@@ -1496,6 +1632,24 @@ function PixRow({
               targetRef={provaRef}
               onChange={setProvaTexto}
             />
+
+            {/* Tradução GRAVADA — populada sozinha quando o texto acima é
+                salvo. Só aparece pro lead internacional. */}
+            <div className="mt-3 border-t border-white/10 pt-3">
+              <p className="text-[11px] uppercase tracking-wide text-zinc-500">tradução (leads internacionais)</p>
+              <input
+                className="input mt-1.5 text-xs"
+                placeholder="🇬🇧 English — vazio cai num padrão em inglês"
+                value={provaTextoEn}
+                onChange={(e) => setProvaTextoEn(e.target.value)}
+              />
+              <input
+                className="input mt-1.5 text-xs"
+                placeholder="🇪🇸 Español — vazio cai num padrão em español"
+                value={provaTextoEs}
+                onChange={(e) => setProvaTextoEs(e.target.value)}
+              />
+            </div>
           </>
         )}
       </div>
@@ -1655,6 +1809,9 @@ const CORES: { key: string; label: string; dot: string; ring: string }[] = [
 type PlanRow = {
   id?: string;
   name: string;
+  /** Nome em inglês — tradução GRAVADA, populada sozinha quando `name` é
+   *  salvo. Vazio cai no nome em PT. */
+  nameEn: string;
   price: string;
   priceUsd: string;
   intlAvailable: boolean;
@@ -1672,6 +1829,8 @@ function PlansCard({
   profileId,
   plans,
   intlEnabled,
+  intlAskFirst,
+  acceptCardBr,
   onSaved,
 }: {
   profileId: string;
@@ -1680,13 +1839,21 @@ function PlansCard({
    *  cadastrado (esse continua sendo exigido, mas assim dá pra pausar o
    *  checkout internacional sem apagar preço de plano nenhum). */
   intlEnabled: boolean;
+  /** Pergunta Brasil/International logo no /start (em vez do botão no meio
+   *  do funil). Só tem efeito de verdade com `intlEnabled` também ligado. */
+  intlAskFirst: boolean;
+  /** Botão extra pro brasileiro pagar no cartão (Stripe, em BRL). */
+  acceptCardBr: boolean;
   onSaved: () => void;
 }) {
   const [intlOn, setIntlOn] = useState(intlEnabled);
+  const [askFirstOn, setAskFirstOn] = useState(intlAskFirst);
+  const [cardBrOn, setCardBrOn] = useState(acceptCardBr);
   const [rows, setRows] = useState<PlanRow[]>(
     plans.map((p) => ({
       id: p.id,
       name: p.name,
+      nameEn: p.nameEn || "",
       price: (p.priceCents / 100).toFixed(2),
       priceUsd: p.priceUsdCents ? (p.priceUsdCents / 100).toFixed(2) : "",
       intlAvailable: p.intlAvailable !== false,
@@ -1727,6 +1894,7 @@ function PlansCard({
         .map((r) => ({
           id: r.id,
           name: r.name.trim(),
+          nameEn: r.nameEn.trim(),
           priceCents: Math.round(parseFloat(r.price.replace(",", ".")) * 100) || 0,
           priceUsdCents: r.priceUsd.trim()
             ? Math.round(parseFloat(r.priceUsd.replace(",", ".")) * 100) || undefined
@@ -1751,6 +1919,8 @@ function PlansCard({
         profileId,
         plans: payload,
         intlEnabled: intlOn,
+        intlAskFirst: askFirstOn,
+        acceptCardBr: cardBrOn,
       });
       showToast("Ofertas salvas.", "success");
       if (res.plans) {
@@ -1758,6 +1928,7 @@ function PlansCard({
           res.plans.map((p) => ({
             id: p.id,
             name: p.name,
+            nameEn: p.nameEn || "",
             price: (p.priceCents / 100).toFixed(2),
             priceUsd: p.priceUsdCents ? (p.priceUsdCents / 100).toFixed(2) : "",
             intlAvailable: p.intlAvailable !== false,
@@ -1812,6 +1983,32 @@ function PlansCard({
           </p>
         </div>
         <Switch checked={intlOn} onChange={setIntlOn} ariaLabel='Ativar botão "Not from Brazil?"' />
+      </div>
+
+      <div className="card flex items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-white">🌐 Modo internacional (bilíngue)</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
+            No <code>/start</code> o lead escolhe <b>🇧🇷 Brasil</b> ou <b>🌎 International</b> ANTES de ver
+            qualquer coisa — em vez do botão &quot;Not from Brazil?&quot; no meio do funil (que continua
+            existindo se preferir deixar desligado). O gringo segue em inglês/espanhol, na sua moeda,
+            pagando no cartão. O brasileiro segue igual (PT + PIX). Requer o interruptor de cima ligado
+            e algum plano com preço em USD.
+          </p>
+        </div>
+        <Switch checked={askFirstOn} onChange={setAskFirstOn} ariaLabel="Ativar modo internacional bilíngue" />
+      </div>
+
+      <div className="card flex items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-white">💳 Aceitar cartão no Brasil também</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
+            Manda um botão extra, numa mensagem em sequência depois dos planos em PIX, pro lead
+            brasileiro pagar no cartão em vez de PIX — mesmo catálogo, mesmo preço em reais, via
+            Stripe. Requer a Stripe conectada na aba Pagamentos.
+          </p>
+        </div>
+        <Switch checked={cardBrOn} onChange={setCardBrOn} ariaLabel="Aceitar cartão no Brasil também" />
       </div>
 
       <div className="space-y-2">
@@ -1930,6 +2127,12 @@ function PlansCard({
                     Preço em USD é opcional — vazio, esse plano não aparece no botão internacional
                     (&quot;Not from Brazil?&quot;, pago via Stripe).
                   </p>
+                  <input
+                    className="input mt-2 text-xs"
+                    placeholder="Nome (EN) — traduz sozinho quando salva, ou edite aqui"
+                    value={r.nameEn}
+                    onChange={(e) => update(i, { nameEn: e.target.value })}
+                  />
                   {r.priceUsd.trim() && (
                     <label className="mt-1.5 flex items-center gap-1.5 text-[11px] text-zinc-400">
                       <input
@@ -2088,6 +2291,7 @@ function PlansCard({
               ...r,
               {
                 name: "",
+                nameEn: "",
                 price: "",
                 priceUsd: "",
                 intlAvailable: true,

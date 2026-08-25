@@ -179,7 +179,12 @@ export async function deliverPaidTransaction(
             // botão fazia o cliente pagar e receber uma mensagem sem
             // caminho nenhum para o grupo.
             const { efeitoProps } = await import("@/lib/telegramEffects");
-            const aprovada = buildAccessMessage(botParaSucesso, invite.invite_link, buttonStyleProps(bot, "access"));
+            const aprovada = buildAccessMessage(
+              botParaSucesso,
+              invite.invite_link,
+              buttonStyleProps(bot, "access"),
+              idiomaLead === "en" || idiomaLead === "es" ? idiomaLead : undefined,
+            );
             await sendTelegramMessage(
               bot.botToken,
               String(sub.telegramUserId),
@@ -222,19 +227,23 @@ export async function deliverPaidTransaction(
             );
           }
 
-          // Assinatura com RENOVAÇÃO AUTOMÁTICA (checkout internacional,
+          // Assinatura com RENOVAÇÃO AUTOMÁTICA (cartão via Stripe —
+          // checkout internacional OU "pagar no cartão" do lead brasileiro,
           // `mode: "subscription"`): dá ao cliente um jeito de cancelar
           // sozinho. Sem isso, quem quer parar de pagar e não sabe como
           // tende a contestar a cobrança no banco em vez de escrever pro
-          // suporte — o botão evita virar chargeback. Sempre em EN/ES: quem
-          // tem `stripeSubscriptionId` só pode ter vindo do checkout
-          // internacional, nunca do PIX.
+          // suporte — o botão evita virar chargeback. `stripeSubscriptionId`
+          // nunca vem do PIX/SyncPay, mas PODE vir de um cartão brasileiro
+          // (sem idioma salvo) — por isso o fallback em PT.
           if (sub.stripeSubscriptionId) {
             const textoManage =
               idiomaLead === "es"
                 ? "🔁 Tu suscripción se renueva automáticamente cada ciclo. Puedes cancelarla cuando quieras, sin hablar con nadie:"
-                : "🔁 Your subscription renews automatically each cycle. You can cancel anytime, no need to talk to anyone:";
-            const botaoManage = idiomaLead === "es" ? "⚙️ Gestionar suscripción" : "⚙️ Manage subscription";
+                : idiomaLead === "en"
+                  ? "🔁 Your subscription renews automatically each cycle. You can cancel anytime, no need to talk to anyone:"
+                  : "🔁 Sua assinatura renova automaticamente a cada ciclo. Você pode cancelar quando quiser, sem falar com ninguém:";
+            const botaoManage =
+              idiomaLead === "es" ? "⚙️ Gestionar suscripción" : idiomaLead === "en" ? "⚙️ Manage subscription" : "⚙️ Gerenciar assinatura";
             await sendTelegramMessage(bot.botToken, String(sub.telegramUserId), textoManage, {
               reply_markup: { inline_keyboard: [[{ text: botaoManage, callback_data: `manage_sub_${sub.id}` }]] },
             }).catch(() => {});

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { TelegramPlan } from "@/lib/telegramDb";
+import type { TelegramPlan, TelegramBotConfig } from "@/lib/telegramDb";
 import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, recurringFromDurationDays, BUMP_DEFAULTS, PIX_DEFAULTS } from "@/lib/telegramDb";
 import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser, setTelegramUserLanguage } from "@/lib/telegramUsers";
 import { recordGroupMembershipChange } from "@/lib/telegramMonitor";
@@ -58,6 +58,134 @@ const CHECKOUT_INTL_TEXTS = {
     openPortal: "Abrir portal 👉",
   },
 } as const;
+
+/** Boas-vindas do ramo internacional quando `welcomeMessageEn/Es` está vazio
+ *  — mesmas variáveis da boas-vindas em PT ({nome} etc.), texto genérico. */
+const WELCOME_INTL_DEFAULTS = {
+  en: "Hi {nome}! 🔥 Choose your VIP access below 👇",
+  es: "¡Hola {nome}! 🔥 Elige tu acceso VIP abajo 👇",
+} as const;
+
+/** Prova social do ramo internacional quando `pixSocialProofTextEn/Es` está
+ *  vazio — mesmos marcadores {vendas_hoje}/{assinantes} do texto em PT. */
+const PROVA_SOCIAL_INTL_DEFAULTS = {
+  en: "🔥 {vendas_hoje} people joined today · {assinantes} active subscribers",
+  es: "🔥 {vendas_hoje} personas se unieron hoy · {assinantes} suscriptores activos",
+} as const;
+
+/**
+ * Abertura BRASILEIRA do /start: planos em BRL + PIX, botão extra de cartão
+ * (opcional), botões customizados, suporte e prova social — o funil de
+ * sempre, sem tradução nenhuma. Função nomeada porque agora tem DOIS pontos
+ * de entrada: direto (bot sem `intlAskFirst`, comportamento de sempre) ou
+ * depois de escolher "🇧🇷 Brasil" na pergunta upfront (`origin_br`).
+ */
+async function enviarAberturaBrasil(
+  bot: TelegramBotConfig,
+  chat: { id: number | string },
+  from: { id: number; first_name?: string; last_name?: string; username?: string },
+): Promise<void> {
+  // Só os ATIVOS: um plano desligado some dos botões mas continua no
+  // painel, com o histórico de vendas.
+  const plans = listActivePlans(bot.id);
+  const customButtons = listCustomButtons(bot.id);
+
+  const inlineKeyboard: any[] = [];
+
+  // Botões de Planos
+  if (plans.length > 0) {
+    inlineKeyboard.push(...buildPlanKeyboardRows(bot, plans, { moeda: "BRL", prefix: "buy_plan_" }));
+  }
+
+  // "Not from Brazil?" — só faz sentido pra quem NÃO ligou a pergunta upfront
+  // (`intlAskFirst`): quem já perguntou Brasil/International não precisa de
+  // um segundo caminho pro mesmo destino no meio do funil.
+  if (
+    !bot.intlAskFirst &&
+    bot.intlEnabled &&
+    plans.some((p) => (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false)
+  ) {
+    inlineKeyboard.push([
+      { text: "🌎 Not from Brazil?", callback_data: "intl_menu", ...buttonStyleProps(bot, "redirect") },
+    ]);
+  }
+
+  // Botões Personalizados
+  if (customButtons.length > 0) {
+    customButtons.forEach((btn) => {
+      inlineKeyboard.push([{ text: btn.text, url: btn.url, ...buttonStyleProps(bot, "redirect") }]);
+    });
+  }
+
+  // Se houver suporte cadastrado, adiciona o botão
+  if (bot.supportUsername) {
+    const supportUrl = bot.supportUsername.startsWith("http")
+      ? bot.supportUsername
+      : `https://t.me/${bot.supportUsername.replace("@", "")}`;
+    inlineKeyboard.push([{ text: "💬 Suporte / Dúvidas", url: supportUrl, ...buttonStyleProps(bot, "redirect") }]);
+  }
+
+  const replyMarkup = inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : undefined;
+
+  // Personaliza a mensagem substituindo o placeholder do nome
+  // Todas as variáveis, não só {nome} — a tela oferece as seis e o /start
+  // é a mensagem onde elas mais aparecem.
+  const welcomeText = aplicarVariaveis(bot.welcomeMessage, {
+    firstName: from.first_name,
+    lastName: from.last_name,
+    username: from.username,
+    profileName: nomeDaModelo(bot.profileId),
+    botUsername: bot.botUsername,
+  });
+
+  // A abertura sai pelo MESMO caminho de envio que a Recuperação e as
+  // sequências de aprovação (lib/telegramSend.ts): mídias escolhidas a
+  // dedo, em álbum ou uma por mensagem. As etiquetas continuam sendo
+  // aceitas ali dentro, como legado, para quem já as tinha salvas.
+  await enviarMensagemDoBot({
+    botToken: bot.botToken,
+    chatId: String(chat.id),
+    profileId: bot.profileId,
+    text: welcomeText,
+    mediaIds: bot.welcomeMediaIds,
+    mode: bot.welcomeMediaMode,
+    mediaTags: bot.welcomeMediaTags,
+    replyMarkup,
+    extra: efeitoProps(bot.effectWelcome),
+  });
+
+  // PROVA SOCIAL, logo abaixo dos planos — pesa na hora de decidir, não
+  // depois que o lead já escolheu (por isso saiu da tela do PIX, onde
+  // morava antes). Números REAIS desta modelo, nunca inventados: se o
+  // dia ainda estiver zerado, a mensagem simplesmente não sai — dizer
+  // "0 pessoas hoje" seria pior que não dizer nada.
+  if (bot.pixSocialProof && plans.length > 0) {
+    const hoje = overview(bot.profileId).today.paidCount;
+    const assinantes = countActiveSubscriptions(bot.id);
+    if (hoje > 0 || assinantes > 0) {
+      const linha = (bot.pixSocialProofText?.trim() || PIX_DEFAULTS.socialProofText)
+        .replace(/{vendas_hoje}/gi, String(hoje))
+        .replace(/{assinantes}/gi, String(assinantes));
+      await sendTelegramMessage(bot.botToken, String(chat.id), linha);
+    }
+  }
+
+  // Cartão no Brasil — botão EXTRA, numa mensagem em SEQUÊNCIA (não editada
+  // na de cima): o lead brasileiro que preferir cartão a PIX abre o mesmo
+  // catálogo, cobrado em BRL pela Stripe (`card_menu` → `buy_card_`). Só
+  // aparece com a Stripe conectada — sem credenciais, o botão levaria a uma
+  // cobrança que nunca seria gerada.
+  if (bot.acceptCardBr && plans.length > 0) {
+    const { getStripeCredentials } = await import("@/lib/settings");
+    if (getStripeCredentials()) {
+      await sendTelegramMessage(bot.botToken, String(chat.id), "💳 Prefere pagar no cartão?", {
+        reply_markup: {
+          inline_keyboard: [[{ text: "💳 Pagar no cartão", callback_data: "card_menu", ...buttonStyleProps(bot, "redirect") }]],
+        },
+      });
+    }
+  }
+}
 
 /** Nome da modelo, para a variável {modelo}. */
 function nomeDaModelo(profileId: string): string {
@@ -224,87 +352,26 @@ export async function POST(
           });
         }
 
-        // Só os ATIVOS: um plano desligado some dos botões mas continua no
-        // painel, com o histórico de vendas.
-        const plans = listActivePlans(bot.id);
-        const customButtons = listCustomButtons(bot.id);
-
-        const inlineKeyboard: any[] = [];
-
-        // Botões de Planos
-        if (plans.length > 0) {
-          inlineKeyboard.push(...buildPlanKeyboardRows(bot, plans, { moeda: "BRL", prefix: "buy_plan_" }));
-        }
-
-        // "Not from Brazil?" — precisa das TRÊS coisas: o interruptor geral
-        // ligado (Configurações → Planos), ao menos um plano com preço em
-        // USD cadastrado, e esse plano estar disponível pra outras moedas
-        // (interruptor por plano — ver PlansCard). Abre o menu internacional
-        // (checkout Stripe) numa mensagem NOVA, não editada.
-        if (bot.intlEnabled && plans.some((p) => (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false)) {
-          inlineKeyboard.push([
-            { text: "🌎 Not from Brazil?", callback_data: "intl_menu", ...buttonStyleProps(bot, "redirect") },
-          ]);
-        }
-
-        // Botões Personalizados
-        if (customButtons.length > 0) {
-          customButtons.forEach((btn) => {
-            inlineKeyboard.push([{ text: btn.text, url: btn.url, ...buttonStyleProps(bot, "redirect") }]);
+        // MODO INTERNACIONAL BILÍNGUE: com `intlAskFirst` ligado (e plano
+        // qualificado em USD), pergunta Brasil/International ANTES de
+        // qualquer conteúdo — 2 botões, mensagem própria. Sem isso (padrão),
+        // segue direto pra abertura brasileira de sempre, sem mudar nada.
+        const plansParaGate = listActivePlans(bot.id);
+        const temIntl =
+          bot.intlEnabled && plansParaGate.some((p) => (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false);
+        if (bot.intlAskFirst && temIntl) {
+          await sendTelegramMessage(bot.botToken, String(chat.id), "🌎 Brasil ou fora do Brasil? / From Brazil or international?", {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: "🇧🇷 Brasil", callback_data: "origin_br", ...buttonStyleProps(bot, "redirect") },
+                  { text: "🌎 International", callback_data: "origin_intl", ...buttonStyleProps(bot, "redirect") },
+                ],
+              ],
+            },
           });
-        }
-
-        // Se houver suporte cadastrado, adiciona o botão
-        if (bot.supportUsername) {
-          const supportUrl = bot.supportUsername.startsWith("http")
-            ? bot.supportUsername
-            : `https://t.me/${bot.supportUsername.replace("@", "")}`;
-          inlineKeyboard.push([{ text: "💬 Suporte / Dúvidas", url: supportUrl, ...buttonStyleProps(bot, "redirect") }]);
-        }
-
-        const replyMarkup = inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : undefined;
-
-        // Personaliza a mensagem substituindo o placeholder do nome
-        // Todas as variáveis, não só {nome} — a tela oferece as seis e o /start
-        // é a mensagem onde elas mais aparecem.
-        const welcomeText = aplicarVariaveis(bot.welcomeMessage, {
-          firstName: from.first_name,
-          lastName: from.last_name,
-          username: from.username,
-          profileName: nomeDaModelo(bot.profileId),
-          botUsername: bot.botUsername,
-        });
-
-        // A abertura sai pelo MESMO caminho de envio que a Recuperação e as
-        // sequências de aprovação (lib/telegramSend.ts): mídias escolhidas a
-        // dedo, em álbum ou uma por mensagem. As etiquetas continuam sendo
-        // aceitas ali dentro, como legado, para quem já as tinha salvas.
-        await enviarMensagemDoBot({
-          botToken: bot.botToken,
-          chatId: String(chat.id),
-          profileId: bot.profileId,
-          text: welcomeText,
-          mediaIds: bot.welcomeMediaIds,
-          mode: bot.welcomeMediaMode,
-          mediaTags: bot.welcomeMediaTags,
-          replyMarkup,
-          extra: efeitoProps(bot.effectWelcome),
-        });
-
-        // PROVA SOCIAL, logo abaixo dos planos — pesa na hora de decidir, não
-        // depois que o lead já escolheu (por isso saiu da tela do PIX, onde
-        // morava antes). Números REAIS desta modelo, nunca inventados: se o
-        // dia ainda estiver zerado, a mensagem simplesmente não sai — dizer
-        // "0 pessoas hoje" seria pior que não dizer nada.
-        if (bot.pixSocialProof && plans.length > 0) {
-          const hoje = overview(bot.profileId).today.paidCount;
-          const assinantes = countActiveSubscriptions(bot.id);
-          if (hoje > 0 || assinantes > 0) {
-            const linha = (bot.pixSocialProofText?.trim() || PIX_DEFAULTS.socialProofText)
-              .replace(/{vendas_hoje}/gi, String(hoje))
-              .replace(/{assinantes}/gi, String(assinantes));
-            await sendTelegramMessage(bot.botToken, String(chat.id), linha);
-          }
+        } else {
+          await enviarAberturaBrasil(bot, chat, from);
         }
       }
     }
@@ -313,11 +380,22 @@ export async function POST(
     if (update.callback_query) {
       const { id, data, from, message } = update.callback_query;
 
-      // ---- "Not from Brazil?" — menu internacional (checkout Stripe) ----
-      // Primeiro pergunta o IDIOMA (mensagem NOVA, mesmo padrão do bump) —
-      // só depois mostra os planos em USD, já no idioma escolhido. O botão
-      // nem aparece no /start sem plano com priceUsdCents cadastrado.
-      if (data === "intl_menu") {
+      // ---- Pergunta upfront (modo internacional bilíngue, `intlAskFirst`) ----
+      // "🇧🇷 Brasil" cai na MESMA abertura de sempre (planos BRL, PIX,
+      // downsell etc. — nada muda). "🌎 International" cai no MESMO menu de
+      // idioma que o botão "Not from Brazil?" já abre hoje — ver logo abaixo.
+      if (data === "origin_br") {
+        await enviarAberturaBrasil(bot, message.chat, from);
+        return NextResponse.json({ ok: true });
+      }
+
+      // ---- "Not from Brazil?" (botão no meio do funil, bots sem
+      // `intlAskFirst`) / "🌎 International" (pergunta upfront) — os dois
+      // caem no mesmo menu internacional (checkout Stripe). Primeiro
+      // pergunta o IDIOMA (mensagem NOVA, mesmo padrão do bump) — só depois
+      // mostra os planos em USD, já no idioma escolhido. Nenhum dos dois
+      // botões aparece sem plano com priceUsdCents cadastrado.
+      if (data === "intl_menu" || data === "origin_intl") {
         await sendTelegramMessage(
           bot.botToken,
           String(message.chat.id),
@@ -358,12 +436,67 @@ export async function POST(
           source: "start",
         });
         setTelegramUserLanguage(bot.id, from.id, idioma);
+
+        // Boas-vindas traduzida (nova) — vale tanto pra quem entrou pela
+        // pergunta upfront quanto por quem clicou "Not from Brazil?" no meio
+        // do funil de sempre: sem `welcomeMessageEn/Es`, cai num padrão em
+        // inglês/espanhol (nunca sai muda). Mesma mídia da abertura em PT.
+        const welcomeIntl =
+          (idioma === "en" ? bot.welcomeMessageEn : bot.welcomeMessageEs)?.trim() || WELCOME_INTL_DEFAULTS[idioma];
+        await enviarMensagemDoBot({
+          botToken: bot.botToken,
+          chatId: String(message.chat.id),
+          profileId: bot.profileId,
+          text: aplicarVariaveis(welcomeIntl, {
+            firstName: from.first_name,
+            lastName: from.last_name,
+            username: from.username,
+            profileName: nomeDaModelo(bot.profileId),
+            botUsername: bot.botUsername,
+          }),
+          mediaIds: bot.welcomeMediaIds,
+          mode: bot.welcomeMediaMode,
+          mediaTags: bot.welcomeMediaTags,
+          extra: efeitoProps(bot.effectWelcome),
+        });
+
         const plans = listActivePlans(bot.id);
         const rows = buildPlanKeyboardRows(bot, plans, { moeda: "USD", prefix: "buy_intl_" });
         if (rows.length === 0) {
           await sendTelegramMessage(bot.botToken, String(message.chat.id), t.noPlan);
         } else {
           await sendTelegramMessage(bot.botToken, String(message.chat.id), t.choosePlan, {
+            reply_markup: { inline_keyboard: rows },
+          });
+        }
+
+        // PROVA SOCIAL traduzida — mesmos números reais, mesmos marcadores.
+        if (bot.pixSocialProof && rows.length > 0) {
+          const hoje = overview(bot.profileId).today.paidCount;
+          const assinantes = countActiveSubscriptions(bot.id);
+          if (hoje > 0 || assinantes > 0) {
+            const provaBase =
+              (idioma === "en" ? bot.pixSocialProofTextEn : bot.pixSocialProofTextEs)?.trim() ||
+              PROVA_SOCIAL_INTL_DEFAULTS[idioma];
+            const linha = provaBase.replace(/{vendas_hoje}/gi, String(hoje)).replace(/{assinantes}/gi, String(assinantes));
+            await sendTelegramMessage(bot.botToken, String(message.chat.id), linha);
+          }
+        }
+        return NextResponse.json({ ok: true });
+      }
+
+      // ---- "Prefere pagar no cartão?" (lead BRASILEIRO, Stripe em BRL) ----
+      // Mesmo catálogo, mesmo preço do PIX — só troca `buy_plan_` (SyncPay)
+      // por `buy_card_` (Stripe). Botão só existe com `acceptCardBr` ligado
+      // (ver `enviarAberturaBrasil`), então chegar aqui sem plano nenhum é
+      // caso raro (planos desativados depois do botão já ter saído).
+      if (data === "card_menu") {
+        const plans = listActivePlans(bot.id);
+        const rows = buildPlanKeyboardRows(bot, plans, { moeda: "BRL", prefix: "buy_card_" });
+        if (rows.length === 0) {
+          await sendTelegramMessage(bot.botToken, String(message.chat.id), "⚠️ Nenhum plano disponível no momento.");
+        } else {
+          await sendTelegramMessage(bot.botToken, String(message.chat.id), "💳 Escolha seu plano (cobrado no cartão):", {
             reply_markup: { inline_keyboard: rows },
           });
         }
@@ -453,8 +586,19 @@ export async function POST(
         const [, subId] = manageAcao;
         const sub = getSubscription(subId);
         const chatId = String(message.chat.id);
-        // Só existe pra assinatura Stripe (nunca PIX) — sempre EN/ES.
-        const tManage = CHECKOUT_INTL_TEXTS[getTelegramUser(`${bot.id}_${from.id}`)?.language || "en"];
+        // Só existe pra assinatura Stripe (nunca PIX/SyncPay) — a maioria é
+        // internacional (EN/ES), mas o cartão no Brasil também gera
+        // assinatura Stripe e esse lead nunca escolheu idioma nenhum.
+        const idiomaManage = getTelegramUser(`${bot.id}_${from.id}`)?.language;
+        const tManage =
+          idiomaManage === "en" || idiomaManage === "es"
+            ? CHECKOUT_INTL_TEXTS[idiomaManage]
+            : {
+                subNotFound: "⚠️ Assinatura não encontrada.",
+                portalFailed: "⚠️ Não consegui abrir o portal agora. Tente novamente em instantes.",
+                managePortal: "⚙️ Gerencie sua assinatura (cancelar, ver cobranças):",
+                openPortal: "Abrir portal 👉",
+              };
         if (!sub || sub.telegramUserId !== from.id || !sub.stripeCustomerId) {
           await sendTelegramMessage(bot.botToken, chatId, tManage.subNotFound);
           return NextResponse.json({ ok: true });
@@ -484,6 +628,11 @@ export async function POST(
       // botão do bump só é oferecido a partir de `buy_plan_` (isPlanBuy),
       // então um clique em `buy_intl_` nunca entra naquele fluxo.
       const isIntlBuy = typeof data === "string" && data.startsWith("buy_intl_");
+      // Compra no CARTÃO, lead BRASILEIRO (Stripe, em BRL) — MESMO plano do
+      // catálogo, MESMO preço em reais do PIX (`priceCents`), só o método de
+      // pagamento muda. Nasce do botão extra "Prefere pagar no cartão?"
+      // (`card_menu`, ver `enviarAberturaBrasil`).
+      const isCardBrBuy = typeof data === "string" && data.startsWith("buy_card_");
       // Idioma gravado quando o lead escolheu no menu internacional (D.2).
       // Sem escolha registrada (ex.: link antigo), cai em inglês — era o
       // único idioma do fluxo intl antes do menu de idioma existir.
@@ -508,7 +657,7 @@ export async function POST(
 
       const isPlanBuyEfetivo = typeof dataEfetivo === "string" && dataEfetivo.startsWith("buy_plan_");
 
-      if (isPlanBuyEfetivo || isOfferBuy || isIntlBuy) {
+      if (isPlanBuyEfetivo || isOfferBuy || isIntlBuy || isCardBrBuy) {
         let planId = "";
         let offerId = "";
         let itemName = "";
@@ -547,6 +696,20 @@ export async function POST(
           }
           itemName = plan.name;
           basePriceCents = plan.priceUsdCents!;
+        } else if (isCardBrBuy) {
+          // Mesmo formato de callback (`<id>[_<desconto>]`), mesmo catálogo —
+          // só o método de pagamento (cartão via Stripe, não PIX) e a moeda
+          // (BRL, não USD) mudam em relação ao `isIntlBuy`.
+          const parts = data.replace("buy_card_", "").split("_");
+          planId = parts[0];
+          discountPercent = parseInt(parts[1]) || 0;
+          const plan = getPlan(planId);
+          if (!plan) {
+            await sendTelegramMessage(bot.botToken, String(message.chat.id), "⚠️ Plano não encontrado ou inativo.");
+            return NextResponse.json({ ok: true });
+          }
+          itemName = plan.name;
+          basePriceCents = plan.priceCents;
         } else {
           // Mesmo sufixo de desconto do plano (`_<percentual>`) — o Downsell de
           // PIX gerado manda esse botão quando o lead escolheu a oferta de um
@@ -629,7 +792,7 @@ export async function POST(
           }
         }
 
-        const provider = isIntlBuy ? getProvider("stripe") : activeProvider();
+        const provider = isIntlBuy || isCardBrBuy ? getProvider("stripe") : activeProvider();
         if (!provider) {
           await sendTelegramMessage(
             bot.botToken,
@@ -642,8 +805,8 @@ export async function POST(
         }
 
         // Informa que a cobrança está sendo gerada (texto configurável — só
-        // faz sentido em PT para o PIX; o intl usa um dos textos fixos D.3,
-        // no idioma que o lead escolheu no menu internacional).
+        // faz sentido em PT para o PIX/cartão BR; o intl usa um dos textos
+        // fixos D.3, no idioma que o lead escolheu no menu internacional).
         await sendTelegramMessage(
           bot.botToken,
           String(message.chat.id),
@@ -664,7 +827,7 @@ export async function POST(
         // A Stripe casa o pagamento pelo `session.id` (providerRef), não pelo
         // VALOR — a variação de centavos existe só para o PIX, que não tem
         // outra forma de saber quem pagou.
-        if (!isIntlBuy) amountCents = applyDynamicPrice(bot, amountCents, from.id);
+        if (!isIntlBuy && !isCardBrBuy) amountCents = applyDynamicPrice(bot, amountCents, from.id);
         // Usa o token gerenciado (o mesmo mostrado na UI e aceito pelo webhook),
         // não o SESSION_SECRET — assim a confirmação autentica mesmo sem a env.
         // E usa a origem PÚBLICA: atrás de proxy/EasyPanel, req.nextUrl.origin
@@ -676,7 +839,9 @@ export async function POST(
         // Dashboard, não por cobrança — mas não custa nada calcular também.)
         const postbackUrl = `${publicOrigin(req)}/w/${ensureSyncpayWebhookShortToken()}`;
 
-        // RENOVAÇÃO AUTOMÁTICA: só no checkout internacional, só plano de
+        // RENOVAÇÃO AUTOMÁTICA: em qualquer cobrança no CARTÃO via Stripe
+        // (internacional ou brasileira — decisão: "só o cartão vira
+        // automático", o PIX/SyncPay nunca tem esse conceito), só plano de
         // assinatura (pacote/vitalício não fazem sentido cobrar de novo
         // sozinho), e só SEM desconto — a Stripe cobra o MESMO valor todo
         // ciclo, então um desconto "só desta compra" (funil de recuperação)
@@ -684,17 +849,24 @@ export async function POST(
         // que não mapeia num ciclo da Stripe (recurringFromDurationDays)
         // também cai pra avulso — nenhum desses casos precisa de ação da
         // modelo, o fallback é automático.
-        const planIntl = isIntlBuy ? getPlan(planId) : null;
+        const isStripeBuy = isIntlBuy || isCardBrBuy;
+        const planStripe = isStripeBuy ? getPlan(planId) : null;
         const recurring =
-          isIntlBuy && planIntl?.kind === "subscription" && discountPercent === 0
-            ? recurringFromDurationDays(planIntl.durationDays)
+          isStripeBuy && planStripe?.kind === "subscription" && discountPercent === 0
+            ? recurringFromDurationDays(planStripe.durationDays)
             : null;
 
         // Cria a cobrança — PIX na SyncPay, Checkout Session na Stripe
         // (avulsa ou assinatura, conforme `recurring`).
         const charge = await provider.createCharge({
           amountCents,
-          currency: isIntlBuy ? "USD" : undefined,
+          // A Stripe (isIntlBuy/isCardBrBuy) precisa da moeda EXPLÍCITA —
+          // sem ela o `createCharge` da Stripe cai pro padrão dele (USD), o
+          // que cobraria em dólar um lead brasileiro. SyncPay/PIX ignora
+          // este campo (sempre BRL), então `undefined` nunca importou até
+          // agora — mas com o cartão no Brasil passando pela Stripe também,
+          // precisa ser explícito.
+          currency: isIntlBuy ? "USD" : isCardBrBuy ? "BRL" : undefined,
           description: `Assinatura ${itemName}`,
           recurring: recurring || undefined,
           postbackUrl,
@@ -705,7 +877,7 @@ export async function POST(
           // Rede de segurança do webhook da Stripe: se por algum motivo a
           // transação `pending` não for encontrada pelo `providerRef`, esses
           // dados ainda identificam o pedido (ver deliverPayment.ts).
-          metadata: isIntlBuy ? { botId: bot.id, telegramUserId: String(from.id), planId } : undefined,
+          metadata: isStripeBuy ? { botId: bot.id, telegramUserId: String(from.id), planId } : undefined,
         });
 
         // Registra transação
@@ -733,7 +905,7 @@ export async function POST(
             : (amountCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
           await sendPushEvent(
             "pix",
-            `⏳ ${isIntlBuy ? "Cobrança internacional gerada" : "Pix gerado"} — ${valStr}`,
+            `⏳ ${isIntlBuy ? "Cobrança internacional gerada" : isCardBrBuy ? "Cobrança no cartão gerada" : "Pix gerado"} — ${valStr}`,
             `${itemName} · ${from.first_name} (bot de vendas)`,
             "/dashboard/payments",
           );
@@ -763,24 +935,35 @@ export async function POST(
           bumpCents: bumpAceito?.priceCents || 0,
         });
 
-        // ---- Checkout internacional (Stripe): link, não PIX ----
-        // Sem código copia-e-cola nem QR — não existem pra Stripe. O "Check
-        // payment status" reaproveita o MESMO handler `pix_check_`: ele já é
-        // agnóstico de provedor, só olha `sub.status`.
-        if (isIntlBuy) {
+        // ---- Checkout no cartão (Stripe): link, não PIX — internacional OU
+        // cartão no Brasil. Sem código copia-e-cola nem QR — não existem pra
+        // Stripe. O "Verificar status"/"Check payment status" reaproveita o
+        // MESMO handler `pix_check_`: ele já é agnóstico de provedor, só
+        // olha `sub.status`.
+        if (isStripeBuy) {
           if (!charge.checkoutUrl) {
-            await sendTelegramMessage(bot.botToken, String(message.chat.id), tIntl.linkFailed);
+            await sendTelegramMessage(
+              bot.botToken,
+              String(message.chat.id),
+              isIntlBuy ? tIntl.linkFailed : "⚠️ Não consegui gerar o link de pagamento. Tente novamente em instantes.",
+            );
             return NextResponse.json({ ok: true });
           }
           await sendTelegramMessage(
             bot.botToken,
             String(message.chat.id),
-            tIntl.finishPayment,
+            isIntlBuy ? tIntl.finishPayment : "Finalize o pagamento pelo link abaixo.",
             {
               reply_markup: {
                 inline_keyboard: [
-                  [{ text: tIntl.makePayment, url: charge.checkoutUrl }],
-                  [{ text: tIntl.checkStatus, callback_data: `pix_check_${subId}`, ...buttonStyleProps(bot, "pixCheck") }],
+                  [{ text: isIntlBuy ? tIntl.makePayment : "Pagar 👉", url: charge.checkoutUrl }],
+                  [
+                    {
+                      text: isIntlBuy ? tIntl.checkStatus : "Verificar status",
+                      callback_data: `pix_check_${subId}`,
+                      ...buttonStyleProps(bot, "pixCheck"),
+                    },
+                  ],
                 ],
               },
               ...efeitoProps(bot.effectPix),

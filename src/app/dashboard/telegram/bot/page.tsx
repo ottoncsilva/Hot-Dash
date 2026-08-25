@@ -2256,18 +2256,30 @@ function rotuloDoTempo(min: number): string {
 function TempoDoPasso({
   minutos,
   onChange,
+  dailyTime,
+  onChangeDailyTime,
   rotulo,
+  permiteHorarioFixo = true,
 }: {
   minutos: number;
   onChange: (v: number) => void;
+  /** Horário fixo do dia (ex.: "16:00") — ver o comentário em telegramCron.ts. */
+  dailyTime?: string;
+  onChangeDailyTime?: (v: string | undefined) => void;
   /** Padrão "Tempo de espera" — o Alerta de Renovação usa outro, já que aqui
    *  a contagem é regressiva até o vencimento, não progressiva desde um evento. */
   rotulo?: string;
+  /** "Horário marcado" só existe nos funis que o motor sabe ler esse campo
+   *  (downsell, upsell, aprovação) — o Alerta de Renovação conta REGRESSIVO
+   *  até o vencimento por outro caminho e ignora `dailyTime`, então a opção
+   *  fica escondida lá pra não prometer algo que não funciona. */
+  permiteHorarioFixo?: boolean;
 }) {
   const naLista = TEMPOS.some((t) => t.min === minutos);
-  const [personalizado, setPersonalizado] = useState(!naLista);
+  const modoInicial: "lista" | "custom" | "horario" = dailyTime ? "horario" : naLista ? "lista" : "custom";
+  const [modo, setModo] = useState<"lista" | "custom" | "horario">(modoInicial);
   const inicial = decompoeMinutos(minutos);
-  const [valor, setValor] = useState(inicial.valor);
+  const [valor, setValor] = useState(inicial.valor || 1);
   const [unidade, setUnidade] = useState<"min" | "h" | "d">(inicial.unidade);
 
   return (
@@ -2275,16 +2287,23 @@ function TempoDoPasso({
       <label className="eyebrow block">{rotulo || "Tempo de espera"}</label>
       <select
         className="input mt-1 h-9 py-0 text-xs"
-        value={personalizado ? "custom" : String(minutos)}
+        value={modo === "lista" ? String(minutos) : modo}
         onChange={(e) => {
-          if (e.target.value === "custom") {
-            setPersonalizado(true);
+          const v = e.target.value;
+          if (v === "custom") {
+            setModo("custom");
+            onChangeDailyTime?.(undefined);
             const d = decompoeMinutos(minutos);
-            setValor(d.valor);
+            setValor(d.valor || 1);
             setUnidade(d.unidade);
+          } else if (v === "horario") {
+            setModo("horario");
+            onChange(0);
+            onChangeDailyTime?.(dailyTime || "12:00");
           } else {
-            setPersonalizado(false);
-            onChange(Number(e.target.value));
+            setModo("lista");
+            onChangeDailyTime?.(undefined);
+            onChange(Number(v));
           }
         }}
       >
@@ -2294,9 +2313,10 @@ function TempoDoPasso({
           </option>
         ))}
         <option value="custom">Personalizado…</option>
+        {permiteHorarioFixo && <option value="horario">Horário marcado…</option>}
       </select>
 
-      {personalizado && (
+      {modo === "custom" && (
         <div className="mt-1.5 flex gap-1.5">
           <input
             type="number"
@@ -2324,7 +2344,21 @@ function TempoDoPasso({
           </select>
         </div>
       )}
-      <p className="mt-1 text-[11px] text-zinc-500">Envia {rotuloDoTempo(minutos)} depois da anterior.</p>
+
+      {modo === "horario" && (
+        <input
+          type="time"
+          className="input mt-1.5 h-9 py-0 text-xs"
+          value={dailyTime || "12:00"}
+          onChange={(e) => onChangeDailyTime?.(e.target.value)}
+        />
+      )}
+
+      <p className="mt-1 text-[11px] text-zinc-500">
+        {modo === "horario"
+          ? `Envia TODO DIA às ${dailyTime || "12:00"}, até a pessoa sair do funil.`
+          : `Envia ${rotuloDoTempo(minutos)} depois da anterior.`}
+      </p>
     </div>
   );
 }
@@ -2598,7 +2632,10 @@ function FunnelEditor({
                 <TempoDoPasso
                   minutos={s.delayMinutes ?? 60}
                   onChange={(v) => update(i, { delayMinutes: v })}
+                  dailyTime={s.dailyTime}
+                  onChangeDailyTime={(v) => update(i, { dailyTime: v })}
                   rotulo={modoRenovacao ? "Quanto tempo ANTES de vencer" : undefined}
+                  permiteHorarioFixo={!modoRenovacao}
                 />
                 <DescontoDoPasso
                   valor={desconto}

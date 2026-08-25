@@ -58,9 +58,10 @@ const FRAMING_TIPO: Record<TipoFunilDownsell, { contexto: string; contaTempoComo
 };
 
 function resumoPasso(p: FunnelStep, i: number, tipo: TipoFunilDownsell): string {
-  const tempo = p.delayMinutes >= 60 ? `${(p.delayMinutes / 60).toFixed(1)}h` : `${p.delayMinutes}min`;
   const percentual = p.discountPercent || 0;
   const desconto = percentual > 0 ? `${percentual}% de desconto` : "sem desconto";
+  if (p.dailyTime) return `passo ${i + 1}: dispara TODO DIA às ${p.dailyTime}, ${desconto}`;
+  const tempo = p.delayMinutes >= 60 ? `${(p.delayMinutes / 60).toFixed(1)}h` : `${p.delayMinutes}min`;
   const quando =
     FRAMING_TIPO[tipo].contaTempoComo === "faltam"
       ? `dispara quando faltam ${tempo} para vencer`
@@ -185,6 +186,12 @@ export async function montarPromptDownsell({
     ? `\nRASCUNHO DE REFERÊNCIA PRA ESTE PASSO (é uma ideia genérica de ângulo/piada, sem nenhuma característica de ${nome} — REESCREVA do zero na voz e persona dela, sem copiar frase por frase, adaptando pro jeito dela falar):\n"""\n${rascunho}\n"""\n`
     : "";
 
+  // Passo com horário fixo REPETE todo dia — uma urgência de "só hoje" ou
+  // "última chance" soaria falsa se a mesma mensagem voltar amanhã igual.
+  const horarioFixoTexto = passoAtual.dailyTime
+    ? `\nESTA MENSAGEM SE REPETE TODO DIA, sempre às ${passoAtual.dailyTime} — NÃO use urgência de "só hoje"/"última chance do dia", porque ela vai chegar de novo amanhã no mesmo horário. Trate como um lembrete recorrente, não um evento único.\n`
+    : "";
+
   const dicaAbertura = DICAS_ABERTURA[indice % DICAS_ABERTURA.length];
 
   const gatilhos =
@@ -207,7 +214,7 @@ ${FRAMING_TIPO[tipo].contexto}
 
 ESTE PASSO
 Passo ${indice + 1} de ${passos.length} da sequência. ${descontoTexto}
-${rascunhoTexto}
+${horarioFixoTexto}${rascunhoTexto}
 OS OUTROS PASSOS DA SEQUÊNCIA (só os números, pra você calibrar a escalada e não repetir o mesmo ângulo em dois passos seguidos):
 ${irmaos}
 

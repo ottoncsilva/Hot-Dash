@@ -68,7 +68,16 @@ export function videoThumbRelPath(relPath: string): string {
  */
 export async function ensureVideoThumbnail(relPath: string): Promise<string | null> {
   const thumbPath = videoThumbRelPath(relPath);
-  if (await fileExists(thumbPath)) return thumbPath;
+  if (await fileExists(thumbPath)) {
+    // Mesma autocura do lado das imagens (ver `miniaturaParecePilhaDeQuadros`)
+    // — o `ffmpeg -frames:v 1` já é o extrator certo, mas não custa nada
+    // proteger contra um arquivo velho gerado antes dessa garantia existir.
+    if (await miniaturaParecePilhaDeQuadros(thumbPath)) {
+      await deleteFile(thumbPath).catch(() => {});
+    } else {
+      return thumbPath;
+    }
+  }
   try {
     const buf = await readBuffer(relPath);
     const thumb = await extractVideoThumbnail(buf, extname(relPath));
@@ -85,6 +94,29 @@ export function imageThumbRelPath(relPath: string): string {
 }
 
 /**
+ * Detecta uma miniatura CORROMPIDA pelo bug do `pages` (ver `ensureImageThumbnail`):
+ * todo quadro de um GIF/WEBP animado empilhado verticalmente numa imagem só
+ * deixa a proporção bem mais alta do que qualquer foto de verdade tira —
+ * mesmo uma vertical em pé (retrato) não passa de ~2:1 altura/largura; uma
+ * pilha de 4+ quadros passa fácil de 4:1. A checagem é barata: a miniatura
+ * já É pequena (até 480px), então ler só o cabeçalho dela não pesa nada —
+ * bem diferente de reabrir o arquivo original (que pode ter vários MB).
+ */
+async function miniaturaParecePilhaDeQuadros(thumbPath: string): Promise<boolean> {
+  try {
+    const sharp = (await import("sharp")).default;
+    const buf = await readBuffer(thumbPath);
+    const meta = await sharp(buf).metadata();
+    if (!meta.width || !meta.height) return false;
+    return meta.height / meta.width > 2.2;
+  } catch {
+    // Sem conseguir ler a miniatura, não dá pra saber — mais seguro manter
+    // o que já existe do que apagar por engano.
+    return false;
+  }
+}
+
+/**
  * Garante que existe uma miniatura pequena (máx. 480px, JPEG) da imagem no
  * disco, gerando-a sob demanda na primeira vez com o sharp. Serve para a
  * galeria não baixar o arquivo em resolução cheia (vários MB) só para mostrar
@@ -94,11 +126,30 @@ export function imageThumbRelPath(relPath: string): string {
 export async function ensureImageThumbnail(relPath: string): Promise<string | null> {
   const thumbPath = imageThumbRelPath(relPath);
   if (thumbPath === relPath) return null; // sem extensão reconhecida
-  if (await fileExists(thumbPath)) return thumbPath;
+  if (await fileExists(thumbPath)) {
+    // AUTOCURA: miniaturas geradas ANTES do `{ pages: 1 }` acima ficaram
+    // presas para sempre com todos os quadros de um GIF/WEBP animado
+    // empilhados numa imagem só — bem mais alta que uma foto de verdade.
+    // Uma checagem barata (só lê o cabeçalho da miniatura JÁ pequena, não o
+    // arquivo original) detecta essa proporção absurda e refaz do zero com
+    // o código corrigido, sem precisar de nenhuma limpeza manual.
+    if (await miniaturaParecePilhaDeQuadros(thumbPath)) {
+      await deleteFile(thumbPath).catch(() => {});
+    } else {
+      return thumbPath;
+    }
+  }
   try {
     const sharp = (await import("sharp")).default;
     const buf = await readBuffer(relPath);
-    const thumb = await sharp(buf)
+    // `{ pages: 1 }` é OBRIGATÓRIO para formato com múltiplas páginas (GIF
+    // animado, WEBP animado, TIFF): sem isto o sharp/libvips lê TODAS as
+    // páginas empilhadas numa imagem só, gigante e vertical — e o resize +
+    // recorte 3:4 da miniatura vira um "filme" de vários quadros diferentes
+    // amassados numa caixinha só. `pages: 1` (a partir da página 0, padrão)
+    // garante só o primeiro quadro, do mesmo jeito que já se espera de uma
+    // "foto".
+    const thumb = await sharp(buf, { pages: 1 })
       .rotate() // respeita orientação EXIF
       .resize(480, 480, { fit: "inside", withoutEnlargement: true })
       .jpeg({ quality: 70, mozjpeg: true })
@@ -123,7 +174,11 @@ export async function renderVisionImageBase64(relPath: string): Promise<string |
   try {
     const sharp = (await import("sharp")).default;
     const buf = await readBuffer(relPath);
-    const out = await sharp(buf)
+    // Mesmo motivo do `ensureImageThumbnail`: sem `{ pages: 1 }`, um GIF/WEBP
+    // animado vira todas as páginas empilhadas numa imagem só — e a IA de
+    // visão "enxergaria" um quadro-a-quadro amassado em vez da foto de
+    // verdade.
+    const out = await sharp(buf, { pages: 1 })
       .rotate() // respeita orientação EXIF
       .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
       .jpeg({ quality: 82, mozjpeg: true })

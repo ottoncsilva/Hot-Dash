@@ -357,8 +357,15 @@ function montarPrompt(
 
   partes.push(
     temAmostras
-      ? 'Você tem FOTOS DE AMOSTRA cadastradas. Use tipo "amostra" para mandar uma prévia e esquentar o lead — o sistema escolhe qual foto mandar, você só decide QUANDO usar esse tipo.'
-      : 'VOCÊ NÃO TEM FOTOS DE AMOSTRA CADASTRADAS: nunca use tipo "amostra".',
+      ? [
+          'Você tem FOTOS DE AMOSTRA cadastradas. Use tipo "amostra" para mandar uma prévia e esquentar o',
+          "lead — o sistema escolhe qual foto mandar, você só decide QUANDO usar esse tipo. REGRA CRÍTICA:",
+          'toda vez que a "resposta" disser (ou der a entender) que você mandou, tirou ou vai mandar uma foto',
+          '— \"te mandei uma provinha\", \"olha o que tirei pra você\", \"[foto]\", etc. — o \"tipo\" daquela',
+          'mesma mensagem TEM que ser "amostra" de verdade. Nunca escreva no texto que enviou uma foto sem',
+          "realmente enviar — pro lead isso chega como só texto, sem imagem nenhuma, e quebra a ilusão.",
+        ].join(" ")
+      : 'VOCÊ NÃO TEM FOTOS DE AMOSTRA CADASTRADAS: nunca use tipo "amostra", e nunca escreva que mandou ou vai mandar uma foto — fale só do que ela mostra, sem prometer o envio.',
   );
 
   const contextos = audios.map((a) => a.context).filter(Boolean);
@@ -370,7 +377,12 @@ function montarPrompt(
 
   partes.push(
     produtos.length
-      ? 'Use tipo "pix" SÓ quando o lead já decidiu comprar. O sistema gera a cobrança e manda o código; na "resposta" fale como quem está mandando o PIX, sem inventar código nenhum.'
+      ? [
+          'Use tipo "pix" SÓ quando o lead já decidiu comprar E você já disse a ele, claramente, QUAL produto',
+          "e por QUANTO — nunca gere cobrança de algo que você não ofereceu antes na conversa. O sistema já",
+          'manda uma confirmação de produto e valor automaticamente antes do código, então na "resposta" você',
+          "não precisa repetir número — fale como quem está mandando o PIX combinado, sem inventar código nenhum.",
+        ].join(" ")
       : "",
   );
 
@@ -557,19 +569,32 @@ async function executarAcao(
     // A SyncPay pode estar fora do ar ou recusar a cobrança. Isso não pode
     // virar silêncio: o lead acabou de dizer que quer comprar, e sumir aí é
     // perder a venda que já estava fechada.
-    let pixCode: string | null = null;
+    let cobranca: CobrancaPix | null = null;
     try {
-      pixCode = await cobrarPix(chat, conta, produto, acao.desconto_pct, agente.maxDiscountPct);
+      cobranca = await cobrarPix(chat, conta, produto, acao.desconto_pct, agente.maxDiscountPct);
     } catch (e) {
       console.error("LTV: falha gerando a cobrança na SyncPay:", e);
     }
-    if (pixCode) {
+    if (cobranca) {
       await mandarBolhas(adaptador, textos, chat.id, conta.id);
+      // CONFIRMAÇÃO OBRIGATÓRIA DE PRODUTO + VALOR — proteção de SISTEMA,
+      // não confia só no prompt: a IA já foi flagrada gerando PIX sem NUNCA
+      // ter dito o que estava vendendo nem por quanto (o lead recebia só o
+      // código, sem contexto nenhum). Esta linha sai SEMPRE, exatamente
+      // como o cobrado de verdade, não importa o que `textos` contém ou
+      // deixou de conter.
+      const confirmacao =
+        cobranca.descontoPct > 0
+          ? `${cobranca.nomeProduto} (-${cobranca.descontoPct}%) — R$ ${(cobranca.cents / 100).toFixed(2).replace(".", ",")}`
+          : `${cobranca.nomeProduto} — R$ ${(cobranca.cents / 100).toFixed(2).replace(".", ",")}`;
+      await adaptador.texto(confirmacao);
+      insertMessage({ chatId: chat.id, role: "assistant", content: confirmacao, type: "text" });
+      contarEnvio(conta.id);
       // O código vai SOZINHO numa mensagem, em monoespaçado: no Telegram um
       // toque copia. Misturado com a conversa, o lead copiaria junto o "toca
       // aqui pra copiar amor" e o banco recusaria o código.
-      await adaptador.codigo(pixCode);
-      insertMessage({ chatId: chat.id, role: "assistant", content: pixCode, type: "pix" });
+      await adaptador.codigo(cobranca.pixCode);
+      insertMessage({ chatId: chat.id, role: "assistant", content: cobranca.pixCode, type: "pix" });
       contarEnvio(conta.id);
       return;
     }
@@ -636,6 +661,11 @@ function precoComDesconto(
   };
 }
 
+/** O que a cobrança gerou — devolve o suficiente pra montar a confirmação
+ *  OBRIGATÓRIA de produto+valor que sempre acompanha o código (ver
+ *  `executarAcao`, tipo "pix"). */
+type CobrancaPix = { pixCode: string; cents: number; nomeProduto: string; descontoPct: number };
+
 /** Gera a cobrança e devolve o texto do copia-e-cola para mandar ao lead. */
 async function cobrarPix(
   chat: LtvChat,
@@ -643,7 +673,7 @@ async function cobrarPix(
   produto: LtvProduct,
   descontoPedido: number | string | undefined,
   tetoDescontoPct: number,
-): Promise<string | null> {
+): Promise<CobrancaPix | null> {
   const provider = activeProvider();
   if (!provider) {
     console.error("LTV: PIX pedido sem provedor de pagamento configurado.");
@@ -659,6 +689,7 @@ async function cobrarPix(
     customer: { name: chat.peerName || "Lead do LTV" },
     postbackUrl,
   });
+  if (!cobranca.pixCode) return null;
   const tx = recordTransaction({
     provider: provider.key,
     providerRef: cobranca.providerRef,
@@ -678,7 +709,7 @@ async function cobrarPix(
     listPriceCents: produto.priceCents,
     source: "ia",
   });
-  return cobranca.pixCode || null;
+  return { pixCode: cobranca.pixCode, cents, nomeProduto: produto.name, descontoPct };
 }
 
 /**

@@ -298,6 +298,37 @@ export async function enviarTexto(
 }
 
 /**
+ * O código PIX em destaque — o mais perto de um "botão verde" que uma CONTA
+ * REAL alcança no Telegram (teclado inline é recurso de bot, e a cor exata do
+ * destaque não dá pra escolher: cada cliente pinta a citação com a cor de
+ * acento dele, não um valor fixo que a gente manda).
+ *
+ * Duas entidades no MESMO trecho: a citação desenha um contêiner com barra e
+ * fundo diferentes do resto da conversa, e o monoespaçado por cima é o que
+ * copia sozinho com um toque. O aviso vem ANTES, fora do contêiner, pra ficar
+ * claro o que fazer antes do lead nem olhar pro código.
+ */
+export async function enviarCodigoPix(
+  accountId: string,
+  peerRef: string,
+  codigo: string,
+  accessHash?: string,
+): Promise<void> {
+  const client = await clienteDe(accountId);
+  const alvo = await destino(client, peerRef, accessHash);
+  const aviso = "👉 é só tocar no código abaixo que ele copia sozinho";
+  const texto = `${aviso}\n\n${codigo}`;
+  const offset = aviso.length + 2; // pula o aviso + "\n\n"
+  await client.sendMessage(alvo, {
+    message: texto,
+    formattingEntities: [
+      new Api.MessageEntityBlockquote({ offset, length: codigo.length, collapsed: false }),
+      new Api.MessageEntityCode({ offset, length: codigo.length }),
+    ],
+  });
+}
+
+/**
  * Manda o arquivo lendo direto do disco. Rodando dentro do painel, o arquivo
  * está do lado — buscar por HTTP seria o processo pedindo a si mesmo, e ainda
  * obrigava a abrir uma rota autenticada só para isso.

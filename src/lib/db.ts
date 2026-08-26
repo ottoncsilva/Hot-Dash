@@ -1174,6 +1174,10 @@ function migrate(d: Database.Database) {
   // no downsell quando o lead está em en/es. Vazio cai no nome em PT (mesmo
   // fallback dos outros campos `*_en`).
   ensureColumn(d, "telegram_plans", "name_en", "TEXT");
+  // Qual mídia da Galeria virou aquela amostra/áudio enviado — sem isso não dá
+  // pra saber quais prévias um lead JÁ viu, e a IA repetia a mesma foto (ver
+  // `amostrasEnviadas`/`sortearAmostra` no motor do LTV).
+  ensureColumn(d, "ltv_messages", "media_id", "TEXT");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);

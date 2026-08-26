@@ -12,6 +12,7 @@ import * as uazapi from "./uazapi";
 import * as chip from "./telegramChip";
 import { decryptSecret } from "./crypto";
 import {
+  amostrasEnviadas,
   comprasDoLead,
   contarEnvio,
   getAccountSession,
@@ -173,7 +174,7 @@ function adaptadorTelegram(
       await chip.enviarTexto(conta.id, peerRef, t, acessoDoLead);
     },
     async codigo(t) {
-      await chip.enviarTexto(conta.id, peerRef, t, acessoDoLead, { comoCodigo: true });
+      await chip.enviarCodigoPix(conta.id, peerRef, t, acessoDoLead);
     },
     async midia(mediaId, legenda) {
       const row = getMediaRow(mediaId);
@@ -241,7 +242,7 @@ function montarPrompt(
   agente: LtvAgentSettings,
   produtos: LtvProduct[],
   audios: LtvAudio[],
-  temAmostras: boolean,
+  statusAmostras: StatusAmostras,
   compras: { nome: string; cents: number; quando: number }[] = [],
   /** true = esta NÃO é uma resposta a algo que o lead disse — é a IA
    *  puxando de volta um lead que sumiu no meio do papo (ver
@@ -356,7 +357,7 @@ function montarPrompt(
   );
 
   partes.push(
-    temAmostras
+    statusAmostras === "disponivel"
       ? [
           'Você tem FOTOS DE AMOSTRA cadastradas. Use tipo "amostra" para mandar uma prévia e esquentar o',
           "lead — o sistema escolhe qual foto mandar, você só decide QUANDO usar esse tipo. REGRA CRÍTICA:",
@@ -365,7 +366,16 @@ function montarPrompt(
           'mesma mensagem TEM que ser "amostra" de verdade. Nunca escreva no texto que enviou uma foto sem',
           "realmente enviar — pro lead isso chega como só texto, sem imagem nenhuma, e quebra a ilusão.",
         ].join(" ")
-      : 'VOCÊ NÃO TEM FOTOS DE AMOSTRA CADASTRADAS: nunca use tipo "amostra", e nunca escreva que mandou ou vai mandar uma foto — fale só do que ela mostra, sem prometer o envio.',
+      : statusAmostras === "esgotada"
+        ? [
+            'Você JÁ MANDOU TODAS AS PRÉVIAS que tinha pra ESSE lead — nunca use tipo "amostra" com ele de',
+            "novo, e nunca escreva que vai mandar mais uma foto (mentira derruba a confiança na hora). Se",
+            "ele pedir mais prévia, NÃO repita nem invente que mandou: jogue a conversa pra frente com",
+            "texto, criando uma correlação com o assunto — descreva no detalhe o que ele já viu, aumente o",
+            "clima só com palavras, ou puxe pro fechamento (\"essas fotos foram só um gostinho, o resto é",
+            'no pacote"). Sempre tipo "texto" com ele a partir daqui.',
+          ].join(" ")
+        : 'VOCÊ NÃO TEM FOTOS DE AMOSTRA CADASTRADAS: nunca use tipo "amostra", e nunca escreva que mandou ou vai mandar uma foto — fale só do que ela mostra, sem prometer o envio.',
   );
 
   const contextos = audios.map((a) => a.context).filter(Boolean);
@@ -502,11 +512,24 @@ function parseAcao(bruto: string): Acao {
   }
 }
 
-/** Sorteia uma amostra entre as escolhidas na tela — cada lead vê uma foto
- *  diferente, para não denunciar o roteiro mandando sempre a mesma prévia. */
-function sortearAmostra(sampleMediaIds: string[]): string | null {
-  if (!sampleMediaIds.length) return null;
-  return sampleMediaIds[Math.floor(Math.random() * sampleMediaIds.length)];
+/**
+ * Sorteia uma amostra entre as escolhidas na tela, PULANDO as que esse lead
+ * já recebeu — repetir a mesma foto denuncia o roteiro e quebra o charme.
+ * Sem nenhuma sobrando (já mandou todas), volta `null` e quem chamou cai
+ * pro texto puro (ver `executarAcao`).
+ */
+function sortearAmostra(sampleMediaIds: string[], jaVistas: Set<string>): string | null {
+  const restantes = sampleMediaIds.filter((id) => !jaVistas.has(id));
+  if (!restantes.length) return null;
+  return restantes[Math.floor(Math.random() * restantes.length)];
+}
+
+/** Pra que status usar no prompt: sem nenhuma cadastrada, com prévia nova pra
+ *  mandar, ou já mandou todas as que tinha pra ESSE lead. */
+type StatusAmostras = "nenhuma" | "disponivel" | "esgotada";
+function statusDasAmostras(sampleMediaIds: string[], jaVistas: Set<string>): StatusAmostras {
+  if (!sampleMediaIds.length) return "nenhuma";
+  return sampleMediaIds.some((id) => !jaVistas.has(id)) ? "disponivel" : "esgotada";
 }
 
 /** `Acao.resposta` normalizado: sempre um array, vazio-filtrado. Aceita o
@@ -556,6 +579,7 @@ async function executarAcao(
   produtos: LtvProduct[],
   amostras: string[],
   audios: LtvAudio[],
+  amostrasJaVistas: Set<string>,
 ): Promise<void> {
   let textos = normalizarTextos(acao.resposta);
 
@@ -605,11 +629,11 @@ async function executarAcao(
   }
 
   if (tipo === "amostra") {
-    const mediaId = sortearAmostra(amostras);
+    const mediaId = sortearAmostra(amostras, amostrasJaVistas);
     if (mediaId) {
       const legenda = textos[0] || "";
       await adaptador.midia(mediaId, legenda);
-      insertMessage({ chatId: chat.id, role: "assistant", content: legenda, type: "imagem" });
+      insertMessage({ chatId: chat.id, role: "assistant", content: legenda, type: "imagem", mediaId });
       contarEnvio(conta.id);
       // Sobrou mais de 1 mensagem no array — o resto vira bolha(s) depois da mídia.
       await mandarBolhas(adaptador, textos.slice(1), chat.id, conta.id);
@@ -816,6 +840,7 @@ export async function responderLead(chatId: string): Promise<void> {
     const produtos = listProducts(conta.id);
     const audios = listAudios(conta.id);
     const amostras = amostrasValidas(conta.profileId, agente.sampleMediaIds);
+    const amostrasJaVistas = amostrasEnviadas(chat.id);
     const compras = comprasDoLead(chat.id);
 
     // Mensagens de PAPEL DE VERDADE — não mais um JSON.stringify de tudo
@@ -828,7 +853,13 @@ export async function responderLead(chatId: string): Promise<void> {
     const mensagens: ChatMessage[] = [
       {
         role: "system",
-        content: montarPrompt(agente, produtos, audios, amostras.length > 0, compras),
+        content: montarPrompt(
+          agente,
+          produtos,
+          audios,
+          statusDasAmostras(amostras, amostrasJaVistas),
+          compras,
+        ),
       },
       ...historico.map((m) => ({ role: m.role, content: m.content }) as ChatMessage),
     ];
@@ -848,7 +879,7 @@ export async function responderLead(chatId: string): Promise<void> {
     // uma pessoa assumiu a conversa, a resposta da IA já não deve sair.
     if (getChat(chat.id)?.state === "paused") return;
 
-    await executarAcao(adaptador, chat, conta, agente, acao, produtos, amostras, audios);
+    await executarAcao(adaptador, chat, conta, agente, acao, produtos, amostras, audios, amostrasJaVistas);
   } catch (err) {
     console.error("LTV: erro respondendo o lead:", err);
   }
@@ -867,12 +898,20 @@ async function reengajarChat(chat: LtvChat, conta: LtvAccount, agente: LtvAgentS
   const produtos = listProducts(conta.id);
   const audios = listAudios(conta.id);
   const amostras = amostrasValidas(conta.profileId, agente.sampleMediaIds);
+  const amostrasJaVistas = amostrasEnviadas(chat.id);
   const compras = comprasDoLead(chat.id);
 
   const mensagens: ChatMessage[] = [
     {
       role: "system",
-      content: montarPrompt(agente, produtos, audios, amostras.length > 0, compras, true),
+      content: montarPrompt(
+        agente,
+        produtos,
+        audios,
+        statusDasAmostras(amostras, amostrasJaVistas),
+        compras,
+        true,
+      ),
     },
     ...historico.map((m) => ({ role: m.role, content: m.content }) as ChatMessage),
   ];
@@ -892,7 +931,7 @@ async function reengajarChat(chat: LtvChat, conta: LtvAccount, agente: LtvAgentS
 
   if (getChat(chat.id)?.state === "paused") return;
 
-  await executarAcao(adaptador, chat, conta, agente, acao, produtos, amostras, audios);
+  await executarAcao(adaptador, chat, conta, agente, acao, produtos, amostras, audios, amostrasJaVistas);
 }
 
 /**

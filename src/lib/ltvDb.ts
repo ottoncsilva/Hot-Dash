@@ -103,6 +103,9 @@ export type LtvMessage = {
   role: "user" | "assistant";
   content: string;
   type: string;
+  /** Id da mídia na Galeria, quando `type` é "imagem" ou "audio" — de onde
+   *  `amostrasEnviadas` sabe o que esse lead já viu. */
+  mediaId?: string | null;
   createdAt: number;
 };
 
@@ -636,6 +639,7 @@ export function insertMessage(input: {
   role: "user" | "assistant";
   content: string;
   type?: string;
+  mediaId?: string;
 }): LtvMessage {
   const msg: LtvMessage = {
     id: uuidv4(),
@@ -643,14 +647,15 @@ export function insertMessage(input: {
     role: input.role,
     content: input.content,
     type: input.type || "text",
+    mediaId: input.mediaId || null,
     createdAt: Date.now(),
   };
   getDb()
     .prepare(
-      `INSERT INTO ltv_messages (id, chat_id, role, content, type, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO ltv_messages (id, chat_id, role, content, type, media_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(msg.id, msg.chatId, msg.role, msg.content, msg.type, msg.createdAt);
+    .run(msg.id, msg.chatId, msg.role, msg.content, msg.type, msg.mediaId, msg.createdAt);
   touchChat(input.chatId);
   // O lead voltou a falar sozinho — zera a contagem de retomadas: se ele
   // sumir de novo depois disso, é um silêncio NOVO, com direito às mesmas
@@ -674,9 +679,25 @@ export function listMessages(chatId: string, limite = 200): LtvMessage[] {
       role: r.role,
       content: r.content,
       type: r.type || "text",
+      mediaId: r.media_id || null,
       createdAt: r.created_at,
     }))
     .reverse();
+}
+
+/**
+ * Amostras/prévias que ESSE lead já recebeu — pra `sortearAmostra` (motor do
+ * LTV) nunca repetir a mesma foto pra quem já viu. Sem isso o lead recebe a
+ * "prévia" de novo, o que denuncia o script e mata o clima.
+ */
+export function amostrasEnviadas(chatId: string): Set<string> {
+  const rows = getDb()
+    .prepare(
+      `SELECT DISTINCT media_id FROM ltv_messages
+        WHERE chat_id = ? AND type = 'imagem' AND media_id IS NOT NULL`,
+    )
+    .all(chatId) as { media_id: string }[];
+  return new Set(rows.map((r) => r.media_id));
 }
 
 /**

@@ -458,6 +458,15 @@ export type FunnelStep = {
    * inteiramente; ver `passoPronto`. Só faz sentido junto de `isLoop: true`.
    */
   dailyTime?: string;
+  /**
+   * "Só a partir do dia seguinte": sem isto, se o passo anterior (o último
+   * mandado por tempo, depois do fato gerador) sair ANTES do `dailyTime` de
+   * hoje, o horário marcado fura a fila e dispara ainda hoje — às vezes
+   * minutos depois do passo anterior, quando o objetivo era um ciclo diário
+   * de verdade. Ligado, a PRIMEIRA ocorrência do loop pula pro dia seguinte
+   * sempre, garantindo o intervalo de um dia inteiro; ver `proximoHorarioFixo`.
+   */
+  dailyTimeNextDay?: boolean;
   /** Tradução GRAVADA deste passo — mesmo mecanismo de `successMessageEn/Es`:
    *  populada sozinha quando o funil é salvo em PT (ver `/api/telegram`
    *  route), usada quando o lead está em en/es (`telegram_users.language`).
@@ -627,14 +636,20 @@ function resolveStepIndex(funnel: FunnelStep[], counter: number): number | null 
  * de `apos`, no fuso da operação. Se o horário de hoje já passou, cai pro
  * mesmo horário amanhã — é o que faz um passo com `dailyTime` repetir todo
  * dia, sempre na mesma hora de parede, em vez de andar com o relógio UTC.
+ *
+ * `pularHoje` (de `FunnelStep.dailyTimeNextDay`) força ir direto pro dia
+ * seguinte mesmo quando o horário de hoje ainda não passou — é o que evita
+ * o passo furar a fila: sem isso, um `apos` recente (o passo anterior
+ * acabou de sair) e um `dailyTime` ainda por vir HOJE fariam o disparo cair
+ * minutos depois do anterior, em vez de esperar o ciclo diário de verdade.
  */
-function proximoHorarioFixo(hhmm: string, apos: number, tz: string): number {
+function proximoHorarioFixo(hhmm: string, apos: number, tz: string, pularHoje = false): number {
   const [h, m] = hhmm.split(":").map((n) => parseInt(n, 10) || 0);
   const p = partsInTimeZone(apos, tz);
   const candidatoHoje = zonedWallTimeToUtcMs(p.year, p.month, p.day, h, m, tz);
-  if (candidatoHoje > apos) return candidatoHoje;
-  const meiaNoiteAmanha = addDaysInTimeZone(apos, 1, tz);
-  const pa = partsInTimeZone(meiaNoiteAmanha, tz);
+  if (!pularHoje && candidatoHoje > apos) return candidatoHoje;
+  const proximoDia = addDaysInTimeZone(apos, 1, tz);
+  const pa = partsInTimeZone(proximoDia, tz);
   return zonedWallTimeToUtcMs(pa.year, pa.month, pa.day, h, m, tz);
 }
 
@@ -658,7 +673,9 @@ function passoPronto(
   now: number,
   tz: string,
 ): boolean {
-  if (step.dailyTime) return now >= proximoHorarioFixo(step.dailyTime, tempos.ultimoEnvio, tz);
+  if (step.dailyTime) {
+    return now >= proximoHorarioFixo(step.dailyTime, tempos.ultimoEnvio, tz, step.dailyTimeNextDay);
+  }
   return (now - tempos.fatoGerador) / 60000 >= step.delayMinutes;
 }
 

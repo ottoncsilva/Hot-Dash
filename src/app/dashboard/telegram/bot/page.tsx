@@ -211,6 +211,8 @@ type FunnelStep = {
   isLoop?: boolean;
   /** Horário fixo do dia (ex.: "16:00") — ver o comentário em telegramCron.ts. */
   dailyTime?: string;
+  /** "Só a partir do dia seguinte" — evita furar a fila; ver telegramCron.ts. */
+  dailyTimeNextDay?: boolean;
 };
 
 /** Um botão como o preview desenha. Mesmo formato do BotPreview. */
@@ -2892,6 +2894,8 @@ function TempoDoPasso({
   onChange,
   dailyTime,
   onChangeDailyTime,
+  dailyTimeNextDay,
+  onChangeDailyTimeNextDay,
   rotulo,
   permiteHorarioFixo = true,
   modoRenovacao,
@@ -2902,6 +2906,11 @@ function TempoDoPasso({
   /** Horário fixo do dia (ex.: "16:00") — ver o comentário em telegramCron.ts. */
   dailyTime?: string;
   onChangeDailyTime?: (v: string | undefined) => void;
+  /** "Só a partir do dia seguinte" — ver o comentário em telegramCron.ts
+   *  (`FunnelStep.dailyTimeNextDay`). Evita o passo furar a fila quando o
+   *  passo anterior sai perto do horário marcado no mesmo dia. */
+  dailyTimeNextDay?: boolean;
+  onChangeDailyTimeNextDay?: (v: boolean) => void;
   /** Padrão "Tempo de espera" — o Alerta de Renovação usa outro, já que aqui
    *  a contagem é regressiva até o vencimento, não progressiva desde um evento. */
   rotulo?: string;
@@ -2990,17 +2999,30 @@ function TempoDoPasso({
       )}
 
       {modo === "horario" && (
-        <input
-          type="time"
-          className="input mt-1.5 h-9 py-0 text-xs"
-          value={dailyTime || "12:00"}
-          onChange={(e) => onChangeDailyTime?.(e.target.value)}
-        />
+        <>
+          <input
+            type="time"
+            className="input mt-1.5 h-9 py-0 text-xs"
+            value={dailyTime || "12:00"}
+            onChange={(e) => onChangeDailyTime?.(e.target.value)}
+          />
+          <label className="mt-1.5 flex items-center gap-1 text-[11px] text-zinc-400">
+            <input
+              type="checkbox"
+              className="accent-white"
+              checked={Boolean(dailyTimeNextDay)}
+              onChange={(e) => onChangeDailyTimeNextDay?.(e.target.checked)}
+            />
+            só a partir do dia seguinte (não fura a fila)
+          </label>
+        </>
       )}
 
       <p className="mt-1 text-[11px] text-zinc-500">
         {modo === "horario"
-          ? `Envia TODO DIA às ${dailyTime || "12:00"}, até a pessoa sair do funil.`
+          ? dailyTimeNextDay
+            ? `Envia a partir de AMANHÃ às ${dailyTime || "12:00"}, e depois todo dia nesse horário, até a pessoa sair do funil.`
+            : `Envia TODO DIA às ${dailyTime || "12:00"}, até a pessoa sair do funil.`
           : modoRenovacao
             ? `Envia quando faltam ${rotuloDoTempo(minutos)} para o vencimento.`
             : `Envia ${rotuloDoTempo(minutos)} ${ancoraTexto}.`}
@@ -3284,6 +3306,8 @@ function FunnelEditor({
                   onChange={(v) => update(i, { delayMinutes: v })}
                   dailyTime={s.dailyTime}
                   onChangeDailyTime={(v) => update(i, { dailyTime: v })}
+                  dailyTimeNextDay={s.dailyTimeNextDay}
+                  onChangeDailyTimeNextDay={(v) => update(i, { dailyTimeNextDay: v })}
                   rotulo={modoRenovacao ? "Quanto tempo ANTES de vencer" : undefined}
                   permiteHorarioFixo={!modoRenovacao}
                   modoRenovacao={modoRenovacao}

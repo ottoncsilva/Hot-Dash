@@ -97,14 +97,13 @@ async function enviarAberturaBrasil(
     inlineKeyboard.push(...buildPlanKeyboardRows(bot, plans, { moeda: "BRL", prefix: "buy_plan_" }));
   }
 
-  // "Not from Brazil?" — só faz sentido pra quem NÃO ligou a pergunta upfront
-  // (`intlAskFirst`): quem já perguntou Brasil/International não precisa de
-  // um segundo caminho pro mesmo destino no meio do funil.
-  if (
-    !bot.intlAskFirst &&
-    bot.intlEnabled &&
-    plans.some((p) => (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false)
-  ) {
+  // "Not from Brazil?" — os dois toggles de Configurações internacionais são
+  // INDEPENDENTES: este some/aparece só com o interruptor DELE
+  // (`intlEnabled`), sem depender de `intlAskFirst` estar ligado também. Quem
+  // chegou aqui respondeu "🇧🇷 Brasil" na pergunta upfront (quando ela existe)
+  // ou nunca viu pergunta nenhuma — nos dois casos o botão continua sendo uma
+  // saída válida pra quem clicou errado ou muda de ideia.
+  if (bot.intlEnabled && plans.some((p) => (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false)) {
     inlineKeyboard.push([
       { text: "🌎 Not from Brazil?", callback_data: "intl_menu", ...buttonStyleProps(bot, "redirect") },
     ]);
@@ -365,9 +364,12 @@ export async function POST(
         // qualificado em USD), pergunta Brasil/International ANTES de
         // qualquer conteúdo — 2 botões, mensagem própria. Sem isso (padrão),
         // segue direto pra abertura brasileira de sempre, sem mudar nada.
+        // Independente de `intlEnabled` (o toggle do botão "Not from
+        // Brazil?", só dele) — os dois interruptores de Configurações
+        // internacionais ligam funcionalidades separadas, nenhum é
+        // pré-requisito do outro.
         const plansParaGate = listActivePlans(bot.id);
-        const temIntl =
-          bot.intlEnabled && plansParaGate.some((p) => (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false);
+        const temIntl = plansParaGate.some((p) => (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false);
         if (bot.intlAskFirst && temIntl) {
           await sendTelegramMessage(bot.botToken, String(chat.id), "🌎 Brasil ou fora do Brasil? / From Brazil or international?", {
             reply_markup: {

@@ -241,6 +241,15 @@ export default function BotVendasPage() {
   // Boas-vindas do ramo internacional — tradução GRAVADA (mesmo padrão da
   // mensagem de sucesso), populada sozinha a cada save do texto em PT.
   const [welcomeEn, setWelcomeEn] = useState("");
+  // Os 3 interruptores internacionais — moram aqui (não dentro do
+  // IntlConfigCard) pelo mesmo motivo: o preview precisa acompanhar o
+  // clique antes de salvar.
+  const [intlOn, setIntlOn] = useState(true);
+  const [askFirstOn, setAskFirstOn] = useState(false);
+  const [cardBrOn, setCardBrOn] = useState(false);
+  /** Qual ramo o preview do funil está mostrando — só existe visualmente
+   *  quando há um plano elegível pra venda internacional (ver `podeMostrarIntl`). */
+  const [ramoPreview, setRamoPreview] = useState<"br" | "intl">("br");
   const [welcomeEs, setWelcomeEs] = useState("");
   // Efeitos de mensagem — editados aqui porque o preview precisa acompanhar.
   const [efeitoWelcome, setEfeitoWelcome] = useState("");
@@ -309,6 +318,9 @@ export default function BotVendasPage() {
       setWelcomeMode(d.bot?.welcomeMediaMode || "album");
       setWelcomeEn(d.bot?.welcomeMessageEn || "");
       setWelcomeEs(d.bot?.welcomeMessageEs || "");
+      setIntlOn(d.bot?.intlEnabled !== false);
+      setAskFirstOn(Boolean(d.bot?.intlAskFirst));
+      setCardBrOn(Boolean(d.bot?.acceptCardBr));
       setEfeitoWelcome(d.bot?.effectWelcome || "");
       setEfeitoPix(d.bot?.effectPix || "");
       setEfeitoSuccess(d.bot?.effectSuccess || "");
@@ -351,6 +363,15 @@ export default function BotVendasPage() {
   // a cor do plano manda; sem ela, vale o estilo do papel "plans".
   const CORES_DO_PLANO: ButtonStyles = { green: "success", blue: "primary", red: "danger" };
   const corDo = (v: string | undefined): PreviewStyle => (v as PreviewStyle) || "";
+  // Plano ativo com preço em USD cadastrado e liberado pra outras moedas —
+  // mesmo critério do /start de verdade. Usa os interruptores AO VIVO
+  // (intlOn/askFirstOn), não o `bot` salvo, senão o preview ficaria um
+  // clique atrasado do que o operador está configurando agora.
+  const planosUsd = plans.filter(
+    (p) => p.active !== false && (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false,
+  );
+  const podeMostrarIntl = intlOn && planosUsd.length > 0;
+
   const previewButtons = [
     ...plans
       .filter((p) => p.active !== false)
@@ -359,11 +380,10 @@ export default function BotVendasPage() {
         kind: "plan" as const,
         style: corDo((p.highlight && CORES_DO_PLANO[p.highlight]) || bot?.buttonStyles?.plans),
       })),
-    // "Not from Brazil?" — mesmo critério do /start de verdade: interruptor
-    // geral ligado (aba Planos) E pelo menos um plano ativo, com preço em
-    // USD, disponível pra outras moedas (interruptor por plano).
-    ...(bot?.intlEnabled !== false &&
-    plans.some((p) => p.active !== false && (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false)
+    // "Not from Brazil?" — some do meio do funil quando o modo bilíngue
+    // pergunta lá na frente (ver `intlAskFirst` no webhook): os dois nunca
+    // aparecem juntos pro mesmo lead.
+    ...(podeMostrarIntl && !askFirstOn
       ? [{ text: "🌎 Not from Brazil?", kind: "custom" as const, style: corDo(bot?.buttonStyles?.redirect) }]
       : []),
     ...buttons.map((b) => ({ text: b.text, kind: "custom" as const, style: corDo(bot?.buttonStyles?.redirect) })),
@@ -371,6 +391,21 @@ export default function BotVendasPage() {
       ? [{ text: "💬 Suporte / Dúvidas", kind: "support" as const, style: corDo(bot?.buttonStyles?.redirect) }]
       : []),
   ];
+
+  // MESMA lista, em USD — o que o lead vê no ramo internacional do preview.
+  // Nome em inglês quando cadastrado (aba Planos), senão o nome em PT mesmo
+  // (é exatamente o fallback que o bot de verdade usa).
+  const previewButtonsUsd = planosUsd.map((p) => ({
+    text: `${p.nameEn?.trim() || p.name} - ${((p.priceUsdCents || 0) / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })}`,
+    kind: "plan" as const,
+    style: corDo((p.highlight && CORES_DO_PLANO[p.highlight]) || bot?.buttonStyles?.plans),
+  }));
+
+  // Botão extra "prefere pagar no cartão", em SEQUÊNCIA depois dos planos em
+  // PIX — mesmo texto do webhook (`enviarAberturaBrasil`).
+  const cardBrBotoes = cardBrOn
+    ? [{ text: "💳 Pagar no cartão", kind: "custom" as const, style: corDo(bot?.buttonStyles?.redirect) }]
+    : [];
 
   // Plano de EXEMPLO para o funil (o primeiro ativo) — é o que substitui
   // {plano} e {valor} na legenda do PIX, igual ao webhook faz de verdade.
@@ -390,6 +425,31 @@ export default function BotVendasPage() {
   const successButtons = [
     { text: sucessoBotao.trim() || "🔒 Acessar Conteúdo", kind: "custom" as const, style: corDo(bot?.buttonStyles?.access) },
   ];
+
+  // ---- Ramo INTERNACIONAL do preview — mesmos fallbacks do webhook de
+  // verdade (welcomeEn/Es vazio cai num texto padrão em inglês; mensagem/
+  // botão de sucesso vazios caem no texto em PT, igual `deliverPayment.ts`). ----
+  const WELCOME_INTL_PADRAO = "Hi {nome}! 🔥 Choose your VIP access below 👇";
+  const PROVA_SOCIAL_INTL_PADRAO = "🔥 {vendas_hoje} people joined today · {assinantes} active subscribers";
+  const welcomeIntlEfetivo = welcomeEn.trim() || WELCOME_INTL_PADRAO;
+  const provaSocialIntlEfetivo = pixProvaTextoEn.trim() || PROVA_SOCIAL_INTL_PADRAO;
+  const sucessoTextoIntlEfetivo = sucessoTextoEn.trim() || sucessoTexto;
+  const successButtonsIntl = [
+    {
+      text: sucessoBotaoEn.trim() || sucessoBotao.trim() || "🔒 Access content",
+      kind: "custom" as const,
+      style: corDo(bot?.buttonStyles?.access),
+    },
+  ];
+  const planoNomeUsd = planosUsd[0]?.nameEn?.trim() || planosUsd[0]?.name || "Plan";
+  const planoValorUsd = ((planosUsd[0]?.priceUsdCents ?? 990) / 100).toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+  });
+
+  // Só existe "ramo internacional" de verdade quando há plano elegível — sem
+  // isso, o preview sempre lê como Brasil, do mesmo jeito que o bot real.
+  const ramoIntlAtivo = ramoPreview === "intl" && podeMostrarIntl;
 
   useEffect(() => {
     load();
@@ -486,7 +546,17 @@ export default function BotVendasPage() {
                     setWelcomeEs={setWelcomeEs}
                     onSaved={load}
                   />
-                  <IntlConfigCard profileId={profileId} bot={bot} onSaved={load} />
+                  <IntlConfigCard
+                    profileId={profileId}
+                    bot={bot}
+                    intlOn={intlOn}
+                    setIntlOn={setIntlOn}
+                    askFirstOn={askFirstOn}
+                    setAskFirstOn={setAskFirstOn}
+                    cardBrOn={cardBrOn}
+                    setCardBrOn={setCardBrOn}
+                    onSaved={load}
+                  />
                   <PixRow
                     profileId={profileId}
                     bot={bot}
@@ -630,25 +700,60 @@ export default function BotVendasPage() {
                 // pagamento confirmado. Mesma prévia nas duas abas que mexem
                 // nessa conversa (Planos e Configuração) — o que muda é só o
                 // formulário ao lado, a leitura da conversa é sempre a mesma.
+                //
+                // Com plano internacional cadastrado, ganha o mesmo seletor
+                // Brasil/International do Prévias/VIP acima — sem ele, o
+                // preview nunca mostrava o que o modo bilíngue ou o cartão no
+                // Brasil realmente mudam na conversa.
                 <FunnelPreview
                   botUsername={bot.botUsername}
-                  welcomeMessage={welcome}
+                  welcomeMessage={ramoIntlAtivo ? welcomeIntlEfetivo : welcome}
                   welcomeMediaIds={welcomeIds}
                   welcomeMediaMode={welcomeMode}
                   effectWelcome={efeitoWelcome}
-                  buttons={previewButtons}
-                  planoNome={planoNome}
-                  planoValor={planoValor}
+                  buttons={ramoIntlAtivo ? previewButtonsUsd : previewButtons}
+                  planoNome={ramoIntlAtivo ? planoNomeUsd : planoNome}
+                  planoValor={ramoIntlAtivo ? planoValorUsd : planoValor}
                   pixGeneratingMessage={pixGerando}
                   pixCaption={pixLegenda}
                   pixSocialProof={pixProva}
-                  pixSocialProofText={pixProvaTexto}
+                  pixSocialProofText={ramoIntlAtivo ? provaSocialIntlEfetivo : pixProvaTexto}
                   pixButtons={pixButtons}
                   pixAudioUrl={pixAudio}
                   effectPix={efeitoPix}
-                  successMessage={sucessoTexto}
-                  successButtons={successButtons}
+                  successMessage={ramoIntlAtivo ? sucessoTextoIntlEfetivo : sucessoTexto}
+                  successButtons={ramoIntlAtivo ? successButtonsIntl : successButtons}
                   effectSuccess={efeitoSuccess}
+                  ramo={ramoIntlAtivo ? "intl" : "br"}
+                  intlAskFirst={askFirstOn && podeMostrarIntl}
+                  cardBrButtons={cardBrBotoes}
+                  redirectStyle={corDo(bot?.buttonStyles?.redirect)}
+                  pixCheckStyle={corDo(bot?.buttonStyles?.pixCheck)}
+                  cabecalho={
+                    podeMostrarIntl ? (
+                      <div className="mb-2 flex w-full max-w-[300px] gap-1 rounded-lg bg-white/5 p-1">
+                        {(
+                          [
+                            ["br", "🇧🇷 Brasil"],
+                            ["intl", "🌎 International"],
+                          ] as const
+                        ).map(([k, label]) => (
+                          <button
+                            key={k}
+                            type="button"
+                            onClick={() => setRamoPreview(k)}
+                            className={`flex-1 rounded-md px-2 py-1 text-xs transition-colors ${
+                              ramoPreview === k
+                                ? "bg-white/10 font-semibold text-white"
+                                : "text-zinc-400 hover:text-zinc-200"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : undefined
+                  }
                 />
               ))}
           </div>
@@ -1238,15 +1343,27 @@ function WelcomeRow({
 function IntlConfigCard({
   profileId,
   bot,
+  intlOn,
+  setIntlOn,
+  askFirstOn,
+  setAskFirstOn,
+  cardBrOn,
+  setCardBrOn,
   onSaved,
 }: {
   profileId: string;
   bot: Bot;
+  // Os 3 interruptores vivem no componente PAI (não aqui dentro) pelo mesmo
+  // motivo da boas-vindas: o preview ao vivo é irmão deste formulário, não
+  // filho, e precisa acompanhar o clique ANTES de salvar.
+  intlOn: boolean;
+  setIntlOn: (v: boolean) => void;
+  askFirstOn: boolean;
+  setAskFirstOn: (v: boolean) => void;
+  cardBrOn: boolean;
+  setCardBrOn: (v: boolean) => void;
   onSaved: () => void;
 }) {
-  const [intlOn, setIntlOn] = useState(bot?.intlEnabled !== false);
-  const [askFirstOn, setAskFirstOn] = useState(Boolean(bot?.intlAskFirst));
-  const [cardBrOn, setCardBrOn] = useState(Boolean(bot?.acceptCardBr));
   const [busy, setBusy] = useState(false);
   const [busyTraduzir, setBusyTraduzir] = useState(false);
 

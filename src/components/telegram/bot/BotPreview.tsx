@@ -169,6 +169,12 @@ export function FunnelPreview({
   successMessage,
   successButtons,
   effectSuccess,
+  ramo = "br",
+  intlAskFirst,
+  cardBrButtons,
+  redirectStyle,
+  pixCheckStyle,
+  cabecalho,
 }: {
   botUsername?: string;
   welcomeMessage: string;
@@ -190,6 +196,28 @@ export function FunnelPreview({
   successMessage: string;
   successButtons: Btn[];
   effectSuccess?: string;
+  /** Qual leitura está sendo mostrada — decide se o meio do funil é a tela
+   *  do PIX ("br") ou o link de pagamento da Stripe ("intl"). O resto dos
+   *  textos (boas-vindas, planos, prova social, sucesso) já vem trocado de
+   *  fora, pra este componente não precisar saber de onde vieram. */
+  ramo?: "br" | "intl";
+  /** Modo internacional bilíngue LIGADO — mostra a pergunta "Brasil ou
+   *  International?" como a PRIMEIRA coisa da conversa, antes da
+   *  boas-vindas, do jeito que o /start de verdade faz. */
+  intlAskFirst?: boolean;
+  /** Botão extra "pagar no cartão" — só no ramo "br" (é uma opção A MAIS pro
+   *  brasileiro, não existe do lado internacional). */
+  cardBrButtons?: Btn[];
+  /** Cor dos botões de redirecionamento (papel "redirect") — aplica na
+   *  pergunta Brasil/International, no "pagar no cartão" e no "Make
+   *  payment" da Stripe, mesma cor que o bot de verdade usa nesses botões. */
+  redirectStyle?: PreviewStyle;
+  /** Cor do botão "Verificar status"/"Check payment status" (papel
+   *  "pixCheck") — mesmo botão nos dois provedores. */
+  pixCheckStyle?: PreviewStyle;
+  /** Seletor Brasil/International, desenhado acima do aparelho (mesmo slot
+   *  que o Prévias/VIP do preview de aprovação). */
+  cabecalho?: React.ReactNode;
 }) {
   const welcomeIds = welcomeMediaIds || [];
   const { conversaRef, passaDaTela, medir, cortados, marcarCorte } = useMedidas([
@@ -205,7 +233,12 @@ export function FunnelPreview({
     Boolean(pixAudioUrl),
     successMessage,
     JSON.stringify(successButtons),
+    ramo,
+    Boolean(intlAskFirst),
+    JSON.stringify(cardBrButtons),
   ]);
+
+  const intl = ramo === "intl";
 
   // Mesma montagem do webhook (ver app/api/webhooks/telegram/[botId]/route.ts):
   // {plano}/{valor} primeiro, depois {pix_code} (ou o código no fim, se o
@@ -236,11 +269,31 @@ export function FunnelPreview({
       }
       rodapeAlerta={passaDaTela}
       aviso={avisoDeCorte(cortados)}
+      cabecalho={cabecalho}
     >
       <div ref={conversaRef} className="h-full overflow-y-auto px-3 py-3" onLoad={medir}>
         <p className="mx-auto mb-2 w-fit rounded-full bg-white/10 px-2 py-0.5 text-[12px] text-zinc-300">
           /start
         </p>
+
+        {/* Modo internacional bilíngue: a PRIMEIRA coisa que qualquer lead
+            vê, antes de qualquer conteúdo — os dois ramos passam por aqui. */}
+        {intlAskFirst && (
+          <>
+            <PreviewBalao
+              mediaIds={[]}
+              text="🌎 Brasil ou fora do Brasil? / From Brazil or international?"
+              buttons={[
+                { text: "🇧🇷 Brasil", kind: "custom", style: redirectStyle },
+                { text: "🌎 International", kind: "custom", style: redirectStyle },
+              ]}
+              vazio=""
+              onMedia={medir}
+              onCortado={marcarCorte}
+            />
+            <Momento label={`Lead toca em "${intl ? "🌎 International" : "🇧🇷 Brasil"}"`} />
+          </>
+        )}
 
         <PreviewBalao
           mediaIds={welcomeIds}
@@ -254,12 +307,27 @@ export function FunnelPreview({
         />
 
         {/* Prova social — mensagem PRÓPRIA logo abaixo dos planos, não mais
-            embutida na tela do PIX: pesa na hora de escolher, não depois. */}
+            embutida na tela do PIX: pesa na hora de escolher, não depois.
+            Fonte menor: é um aviso de canto, não parte da conversa. */}
         {provaSocialLinha && (
           <PreviewBalao
             mediaIds={[]}
             text={provaSocialLinha}
             buttons={[]}
+            vazio=""
+            pequeno
+            onMedia={medir}
+            onCortado={marcarCorte}
+          />
+        )}
+
+        {/* Cartão no Brasil — botão EXTRA, em mensagem PRÓPRIA depois dos
+            planos em PIX. Só existe do lado brasileiro. */}
+        {!intl && cardBrButtons && cardBrButtons.length > 0 && (
+          <PreviewBalao
+            mediaIds={[]}
+            text="💳 Prefere pagar no cartão?"
+            buttons={cardBrButtons}
             vazio=""
             onMedia={medir}
             onCortado={marcarCorte}
@@ -268,34 +336,63 @@ export function FunnelPreview({
 
         <Momento label={`Lead toca em "${planoNome}"`} />
 
-        {pixGeneratingMessage.trim() && (
-          <PreviewBalao
-            mediaIds={[]}
-            text={pixGeneratingMessage}
-            buttons={[]}
-            vazio=""
-            onMedia={medir}
-            onCortado={marcarCorte}
-          />
+        {intl ? (
+          // Checkout internacional: link da Stripe, sem código nem QR — ver
+          // CHECKOUT_INTL_TEXTS no webhook (mesma mecânica, texto ilustrativo).
+          <>
+            <PreviewBalao
+              mediaIds={[]}
+              text="⏳ Generating your payment link..."
+              buttons={[]}
+              vazio=""
+              onMedia={medir}
+              onCortado={marcarCorte}
+            />
+            <PreviewBalao
+              mediaIds={[]}
+              text="Finish the payment through the link below."
+              buttons={[
+                { text: "Make payment 👉", kind: "custom", style: redirectStyle },
+                { text: "Check payment status", kind: "custom", style: pixCheckStyle },
+              ]}
+              effect={effectPix}
+              vazio=""
+              onMedia={medir}
+              onCortado={marcarCorte}
+            />
+          </>
+        ) : (
+          <>
+            {pixGeneratingMessage.trim() && (
+              <PreviewBalao
+                mediaIds={[]}
+                text={pixGeneratingMessage}
+                buttons={[]}
+                vazio=""
+                onMedia={medir}
+                onCortado={marcarCorte}
+              />
+            )}
+
+            <PreviewBalao
+              mediaIds={[]}
+              text={legenda}
+              buttons={pixButtons}
+              effect={effectPix}
+              vazio="(sem legenda do PIX)"
+              onMedia={medir}
+              onCortado={marcarCorte}
+            />
+
+            {pixAudioUrl?.trim() && (
+              <div className="mt-1.5 flex w-fit items-center gap-1.5 rounded-2xl rounded-tl-md bg-[#182533] px-3 py-2 text-[13px] text-zinc-300">
+                🎤 <span>Áudio</span>
+              </div>
+            )}
+          </>
         )}
 
-        <PreviewBalao
-          mediaIds={[]}
-          text={legenda}
-          buttons={pixButtons}
-          effect={effectPix}
-          vazio="(sem legenda do PIX)"
-          onMedia={medir}
-          onCortado={marcarCorte}
-        />
-
-        {pixAudioUrl?.trim() && (
-          <div className="mt-1.5 flex w-fit items-center gap-1.5 rounded-2xl rounded-tl-md bg-[#182533] px-3 py-2 text-[13px] text-zinc-300">
-            🎤 <span>Áudio</span>
-          </div>
-        )}
-
-        <Momento label="Pagamento confirmado" />
+        <Momento label={intl ? "Payment confirmed" : "Pagamento confirmado"} />
 
         <PreviewBalao
           mediaIds={[]}
@@ -795,6 +892,7 @@ export function PreviewBalao({
   buttons,
   effect,
   vazio = "(mensagem vazia)",
+  pequeno,
   onMedia,
   onCortado,
 }: {
@@ -804,6 +902,9 @@ export function PreviewBalao({
   buttons: Btn[];
   effect?: string;
   vazio?: string;
+  /** Fonte menor e cor mais apagada — pra um aviso de canto (prova social)
+   *  se diferenciar visualmente de uma fala de verdade da conversa. */
+  pequeno?: boolean;
   /** Avisa quem mede a altura de que uma miniatura acabou de carregar. */
   onMedia?: () => void;
   /** Avisa que um botão não coube numa linha e vai sair cortado. */
@@ -857,8 +958,11 @@ export function PreviewBalao({
         {/* `whitespace-pre-wrap` porque a quebra de linha do campo é a mesma que
             o app mostra. */}
         <p
-          className="whitespace-pre-wrap break-words text-white"
-          style={{ fontSize: fontes.texto, lineHeight: `${fontes.linha}px` }}
+          className={`whitespace-pre-wrap break-words ${pequeno ? "text-zinc-400" : "text-white"}`}
+          style={{
+            fontSize: pequeno ? Math.round(fontes.texto * 0.82) : fontes.texto,
+            lineHeight: `${Math.round((pequeno ? fontes.linha * 0.82 : fontes.linha))}px`,
+          }}
         >
           {texto || <span className="text-zinc-500">{vazio}</span>}
         </p>

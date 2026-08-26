@@ -3270,17 +3270,42 @@ function FunnelEditor({
                     mensagem "ad infinitum" aqui significaria mandá-la de novo
                     a CADA MINUTO depois de cruzar o limiar — a contagem é
                     regressiva até um vencimento fixo, não avança sozinha como
-                    nos outros funis. */}
+                    nos outros funis.
+                    Fora daqui, "repetir" só pode ligar com "Horário marcado"
+                    (dailyTime) escolhido no tempo do passo: o tempo AQUI
+                    embaixo sempre conta do fato gerador fixo (/start, PIX
+                    gerado) e nunca do último envio — um passo que repete
+                    com tempo comum ficaria pronto pra sempre depois da 1ª
+                    vez e disparava a cada minuto (bug já visto e corrigido).
+                    Só o horário marcado tem uma referência que avança pra
+                    repetir de verdade. */}
                 {!modoRenovacao && (
-                  <label className="flex items-center gap-1 text-[11px] text-zinc-400">
+                  <label
+                    className={`flex items-center gap-1 text-[11px] ${s.dailyTime ? "text-zinc-400" : "text-zinc-600"}`}
+                    title={
+                      s.dailyTime
+                        ? undefined
+                        : 'Escolha "Horário marcado…" no tempo do passo antes de repetir — sem isso a mensagem dispararia a cada minuto depois do prazo, sem parar.'
+                    }
+                  >
                     <input
                       type="checkbox"
                       className="accent-white"
                       checked={Boolean(s.isLoop)}
+                      disabled={!s.dailyTime}
                       onChange={(e) => update(i, { isLoop: e.target.checked })}
                     />
                     repetir (loop)
                   </label>
+                )}
+                {/* Config antiga (de antes desta trava existir) com loop
+                    ligado mas sem horário marcado — ainda pode estar salva
+                    no banco. Sinaliza pra o operador trocar pra "Horário
+                    marcado", em vez de deixar o problema invisível. */}
+                {!modoRenovacao && s.isLoop && !s.dailyTime && (
+                  <span className="chip border border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-300">
+                    ⚠️ repete sem horário marcado — troque o tempo pra "Horário marcado…"
+                  </span>
                 )}
                 {/* Puxa a persona da modelo + a mensagem real de /start dela
                     (mesma voz) e escreve por cima do texto deste passo,
@@ -3331,7 +3356,12 @@ function FunnelEditor({
                   minutos={s.delayMinutes ?? 60}
                   onChange={(v) => update(i, { delayMinutes: v })}
                   dailyTime={s.dailyTime}
-                  onChangeDailyTime={(v) => update(i, { dailyTime: v })}
+                  onChangeDailyTime={(v) =>
+                    // Tirar o horário marcado desliga o loop junto — "repetir"
+                    // só é seguro com uma referência que avança (ver o aviso
+                    // no checkbox), então não pode sobreviver sozinho aqui.
+                    update(i, { dailyTime: v, isLoop: v ? s.isLoop : false })
+                  }
                   dailyTimeNextDay={s.dailyTimeNextDay}
                   onChangeDailyTimeNextDay={(v) => update(i, { dailyTimeNextDay: v })}
                   rotulo={modoRenovacao ? "Quanto tempo ANTES de vencer" : undefined}

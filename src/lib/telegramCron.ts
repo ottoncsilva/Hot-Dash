@@ -7,6 +7,7 @@ import { partsInTimeZone, zonedWallTimeToUtcMs, addDaysInTimeZone } from "@/lib/
 import {
   getBotConfigByProfile,
   getBotConfig,
+  getTelegramLead,
   listLeadsForDownsell,
   findActiveSubscription,
   findPendingSubscription,
@@ -657,17 +658,20 @@ function proximoHorarioFixo(hhmm: string, apos: number, tz: string, pularHoje = 
  * Decide se É HORA de mandar este passo — e o "desde quando" depende do
  * TIPO do passo, de propósito:
  *
- *   - Passo comum FORA do loop (`delayMinutes`): conta do FATO GERADOR do
- *     funil inteiro — o /start no Downsell geral, a criação da cobrança no
- *     Downsell de PIX gerado — e NUNCA reinicia a cada mensagem enviada. É
- *     assim que "chega a 50% em 24h" significa 24h de verdade desde que o
- *     lead entrou no funil, e não 24h desde a ÚLTIMA mensagem.
- *   - Passo EM LOOP (`isLoop`, com ou sem `dailyTime`): PRECISA de uma
- *     referência que ANDA (o último envio), nunca do fato gerador fixo —
- *     sem isso, uma vez cruzado o delay uma única vez ele fica "pronto" PARA
- *     SEMPRE (o fato gerador nunca muda), e o catch-up de
- *     `passoMaisAvancado` dispararia a cada tick do cron pra sempre, em vez
- *     de esperar um ciclo de verdade a cada repetição.
+ *   - Passo comum (`delayMinutes`), em loop ou não: conta SEMPRE do FATO
+ *     GERADOR do funil inteiro — o /start no Downsell geral, a criação da
+ *     cobrança no Downsell de PIX gerado — e NUNCA reinicia a cada mensagem
+ *     enviada, nunca conta "de uma mensagem a partir da outra". É assim que
+ *     "chega a 50% em 24h" significa 24h de verdade desde que o lead entrou
+ *     no funil, e não 24h desde a ÚLTIMA mensagem.
+ *   - Passo de horário fixo (`dailyTime`): PRECISA de uma referência que
+ *     ANDA (o último envio), senão "às 16h" resolveria sempre para o mesmo
+ *     instante fixo no passado e disparava a cada tick do cron pra sempre,
+ *     em vez de uma vez por dia. É por isso que TODO passo que repete de
+ *     verdade (`isLoop`) tem que usar `dailyTime` — repetir com `delayMinutes`
+ *     puro e fato gerador fixo ficaria "pronto" pra sempre depois da 1ª vez
+ *     (o motivo do bug anterior); a tela (`page.tsx`) já trava essa
+ *     combinação: `isLoop` só liga quando o passo tem horário marcado.
  */
 function passoPronto(
   step: FunnelStep,
@@ -678,8 +682,7 @@ function passoPronto(
   if (step.dailyTime) {
     return now >= proximoHorarioFixo(step.dailyTime, tempos.ultimoEnvio, tz, step.dailyTimeNextDay);
   }
-  const desde = step.isLoop ? tempos.ultimoEnvio : tempos.fatoGerador;
-  return (now - desde) / 60000 >= step.delayMinutes;
+  return (now - tempos.fatoGerador) / 60000 >= step.delayMinutes;
 }
 
 /**
@@ -835,8 +838,14 @@ async function runTelegramFunnelsImpl(): Promise<{
 
         // Gerou o PIX: sai do Downsell geral e passa a ser cuidado pelo
         // Downsell de PIX gerado (bloco 1b) — os dois nunca correm juntos
-        // pro mesmo lead, senão ele levaria mensagem dobrada.
-        if (findPendingSubscription(bot.id, Number(lead.chatId))) continue;
+        // pro mesmo lead, senão ele levaria mensagem dobrada. MAS só conta
+        // um PIX gerado DEPOIS do /start atual: um PIX abandonado de uma
+        // visita ANTERIOR não pode travar um recomeço 100% novo (a linha
+        // continua existindo — se aquele PIX antigo for pago do nada, a
+        // entrega funciona igual —, só para de bloquear/de puxar o Downsell
+        // geral e o de PIX gerado pra ele).
+        const pixPendente = findPendingSubscription(bot.id, Number(lead.chatId));
+        if (pixPendente && pixPendente.createdAt >= (lead.downsellStartedAt || lead.createdAt)) continue;
 
         const idx = resolveStepIndex(downsellFunnel, lead.downsellStepIndex);
         if (idx === null) continue; // Acabou e não repete
@@ -923,6 +932,18 @@ async function runTelegramFunnelsImpl(): Promise<{
       for (const row of pendentes) {
         // Pagou por outra cobrança no meio do caminho: sai da recuperação.
         if (findActiveSubscription(bot.id, row.telegram_user_id)) continue;
+
+        // PIX ABANDONADO de uma visita ANTERIOR: se o lead deu /start de
+        // novo depois de gerar este PIX e nunca pagar, o recomeço tem que
+        // ser 100% novo — sem ficar nagueando (nem contando o tempo) por um
+        // pagamento que ele já esqueceu, e sem prender o Downsell de PIX no
+        // plano que ele tinha escolhido daquela vez. A LINHA continua
+        // intacta: se esse PIX antigo for pago do nada, a entrega funciona
+        // igual (`findSubscriptionByTransaction` não olha pra isto) — só
+        // para de gerar mensagem nova pra ele.
+        const leadDoPix = getTelegramLead(`${bot.id}_${row.telegram_user_id}`);
+        const inicioAtual = leadDoPix?.downsellStartedAt || leadDoPix?.createdAt;
+        if (inicioAtual && row.created_at < inicioAtual) continue;
 
         const counter = row.pix_step_index || 0;
         // O FATO GERADOR é a CRIAÇÃO DA COBRANÇA (`row.created_at`), fixo pra

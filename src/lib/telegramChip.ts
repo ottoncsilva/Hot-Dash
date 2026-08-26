@@ -327,18 +327,41 @@ export async function enviarMidia(
   });
 }
 
-/** "Digitando…" é enfeite: nunca pode derrubar o envio que vem depois. */
+/** O Telegram esquece o "digitando…" sozinho se ninguém renovar — por isso o
+ *  loop reenvia o aviso nesse intervalo, sempre ANTES do indicador sumir. */
+const RENOVAR_DIGITANDO_MS = 4500;
+
+/**
+ * "Digitando…" é enfeite: nunca pode derrubar o envio que vem depois.
+ *
+ * Sem `ms`, dispara UM aviso só (o Telegram mostra por ~5-6s sozinho e some —
+ * suficiente pra um "vi sua mensagem" antes de uma espera longa e silenciosa,
+ * ver `esperaMs` no motor do LTV). Com `ms`, RENOVA o aviso a cada poucos
+ * segundos até completar a duração pedida — é o que faz o indicador durar o
+ * tempo de verdade que uma mensagem daquele tamanho levaria pra ser digitada,
+ * em vez de sumir no meio e deixar a mensagem "aparecer do nada".
+ */
 export async function mostrarDigitando(
   accountId: string,
   peerRef: string,
   accessHash?: string,
+  ms?: number,
 ): Promise<void> {
   try {
     const client = await clienteDe(accountId);
     const alvo = await destino(client, peerRef, accessHash);
-    await client.invoke(
-      new Api.messages.SetTyping({ peer: alvo, action: new Api.SendMessageTypingAction() }),
-    );
+    const acao = new Api.messages.SetTyping({ peer: alvo, action: new Api.SendMessageTypingAction() });
+    if (!ms || ms <= RENOVAR_DIGITANDO_MS) {
+      await client.invoke(acao);
+      return;
+    }
+    let restante = ms;
+    while (restante > 0) {
+      await client.invoke(acao);
+      const passo = Math.min(RENOVAR_DIGITANDO_MS, restante);
+      await new Promise((r) => setTimeout(r, passo));
+      restante -= passo;
+    }
   } catch {
     /* sem problema */
   }

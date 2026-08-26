@@ -64,7 +64,7 @@ type Adaptador = {
   codigo(t: string): Promise<void>;
   midia(mediaId: string, legenda: string): Promise<void>;
   audio(audio: LtvAudio): Promise<void>;
-  digitando(): Promise<void>;
+  digitando(ms?: number): Promise<void>;
 };
 
 /**
@@ -96,14 +96,14 @@ function urlPublicaDaMidia(mediaId: string): string | null {
  *
  * O tempo é PROPORCIONAL ao tamanho, porque é isso que denuncia ou disfarça:
  * um textão que aparece instantaneamente não foi digitado por ninguém. ~55ms
- * por caractere é a velocidade de quem digita rápido no celular. O teto de 10
+ * por caractere é a velocidade de quem digita rápido no celular. O teto de 15
  * segundos existe porque acima disso o lead acha que travou e sai da conversa
  * — a espera longa de verdade é o ritmo humano, que acontece ANTES, em
  * silêncio.
  */
 const MS_POR_CARACTERE = 55;
 const DIGITANDO_MIN_MS = 800;
-const DIGITANDO_MAX_MS = 10_000;
+const DIGITANDO_MAX_MS = 15_000;
 
 export function tempoDigitando(texto: string): number {
   const bruto = (texto || "").length * MS_POR_CARACTERE;
@@ -157,7 +157,7 @@ function adaptadorWhatsapp(conta: LtvAccount, peerRef: string): Adaptador {
         { delay: 3000 },
       );
     },
-    async digitando() {
+    async digitando(_ms) {
       // Nada a fazer: a presença acompanha o `delay` de cada envio.
     },
   };
@@ -193,8 +193,8 @@ function adaptadorTelegram(
         accessHash: acessoDoLead,
       });
     },
-    async digitando() {
-      await chip.mostrarDigitando(conta.id, peerRef, acessoDoLead);
+    async digitando(ms) {
+      await chip.mostrarDigitando(conta.id, peerRef, acessoDoLead, ms);
     },
   };
 }
@@ -531,8 +531,9 @@ async function mandarBolhas(
 ): Promise<void> {
   for (let i = 0; i < textos.length; i++) {
     if (i > 0) {
-      await adaptador.digitando();
-      await dormir(entre(900, 2400));
+      const dur = tempoDigitando(textos[i]);
+      await adaptador.digitando(dur);
+      await dormir(dur);
     }
     await adaptador.texto(textos[i]);
     insertMessage({ chatId, role: "assistant", content: textos[i], type: "text" });

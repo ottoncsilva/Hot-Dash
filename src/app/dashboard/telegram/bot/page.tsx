@@ -2699,7 +2699,7 @@ function FunnelCard({
                   confirmLabel: "Puxar padrão",
                 });
                 if (ok) {
-                  atual.setSteps(atual.padrao.map((s) => ({ ...s })));
+                  atual.setSteps(aplicarPadraoMantendoFotos(atual.padrao, atual.steps));
                   setVersaoPadrao((v) => v + 1);
                 }
               }}
@@ -2861,6 +2861,26 @@ const PUBLICOS: { key: NonNullable<FunnelStep["audience"]>; label: string; hint:
   { key: "expirados", label: "Expirados", hint: "Já comprou e o acesso venceu." },
   { key: "todos", label: "Todos", hint: "Leads e expirados." },
 ];
+
+/**
+ * Aplica o modelo pronto ("Puxar padrão") SEM apagar as fotos que a modelo já
+ * tinha colocado em cada mensagem — os modelos prontos (`DOWNSELL_GERAL_PADRAO`
+ * etc.) nunca vêm com mídia própria (é sempre texto/tempo/desconto), então dá
+ * pra herdar sem risco de sobrescrever uma mídia "oficial" do padrão.
+ *
+ * Só herda pelo ÍNDICE: se a mensagem daquele número JÁ EXISTIA na sequência
+ * antiga, a foto dela continua; se o padrão tem mais mensagens do que a
+ * sequência tinha antes, as novas (que não existiam) nascem sem mídia, como
+ * sempre.
+ */
+function aplicarPadraoMantendoFotos(padrao: FunnelStep[], antigos: FunnelStep[]): FunnelStep[] {
+  return padrao.map((s, i) => {
+    const antiga = antigos[i];
+    return antiga?.mediaIds?.length
+      ? { ...s, mediaIds: antiga.mediaIds, mediaMode: antiga.mediaMode }
+      : { ...s };
+  });
+}
 
 /** Minutos → a maior unidade inteira, para o campo personalizado abrir certo. */
 function decompoeMinutos(min: number): { valor: number; unidade: "min" | "h" | "d" } {
@@ -3236,8 +3256,14 @@ function FunnelEditor({
           const ativos = todosAtivos.filter((p) =>
             modo === "subs" ? p.kind !== "package" : modo === "packages" ? p.kind === "package" : true,
           );
+          // A chave inclui `steps.length`: "Duplicar"/"Excluir" também
+          // deslocam o índice de toda mensagem depois do ponto mexido, e sem
+          // isso o React reaproveitava a linha da posição (mesma chave, dado
+          // novo) em vez de remontar — o mesmo motivo que já exigia
+          // `versaoPadrao` pro "Puxar padrão" (ver comentário acima), só que
+          // pra esses dois botões também.
           return (
-            <div key={`${versaoPadrao ?? 0}-${i}`} className="panel p-3">
+            <div key={`${versaoPadrao ?? 0}-${steps.length}-${i}`} className="panel p-3">
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <span className="chip">Mensagem {i + 1}</span>
                 {/* Loop não existe no Alerta de Renovação: repetir a última
@@ -3323,22 +3349,38 @@ function FunnelEditor({
                   valor={desconto}
                   onChange={(v) => update(i, { discountPercent: v })}
                 />
-                <div>
-                  <label className="eyebrow block">Modo dos botões</label>
-                  <select
-                    className="input mt-1 h-9 py-0 text-xs"
-                    value={s.planMode || "all"}
-                    onChange={(e) =>
-                      update(i, { planMode: e.target.value as FunnelStep["planMode"] })
-                    }
-                  >
-                    {MODOS_BOTAO.map((m) => (
-                      <option key={m.key} value={m.key}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {/* No Downsell de PIX gerado o botão NUNCA reabre a lista de
+                    planos — o lead já escolheu um item na hora que gerou o
+                    PIX, e o passo só reoferece ESSE mesmo item com o
+                    desconto configurado aqui (ver `buildPixDownsellMarkup`
+                    em telegramCron.ts). Mostrar o seletor de "Modo dos
+                    botões" aqui prometia um comportamento que o motor não
+                    faz — por isso fica escondido, com uma nota no lugar. */}
+                {funnelType === "pix" ? (
+                  <div>
+                    <label className="eyebrow block">Botão</label>
+                    <p className="input mt-1 flex h-9 items-center py-0 text-xs text-zinc-500">
+                      O item que ele já escolheu, com desconto
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="eyebrow block">Modo dos botões</label>
+                    <select
+                      className="input mt-1 h-9 py-0 text-xs"
+                      value={s.planMode || "all"}
+                      onChange={(e) =>
+                        update(i, { planMode: e.target.value as FunnelStep["planMode"] })
+                      }
+                    >
+                      {MODOS_BOTAO.map((m) => (
+                        <option key={m.key} value={m.key}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 {/* Destinatários (leads/expirados/todos) é do público de quem
                     NÃO tem assinatura ativa — não se aplica aqui: este funil
                     já fala só com quem ESTÁ VIP e vencendo. */}
@@ -3365,10 +3407,21 @@ function FunnelEditor({
                 )}
               </div>
 
-              {ativos.length > 0 && s.planMode !== "none" && (
+              {funnelType === "pix" ? (
                 <div className="mt-3 rounded-xl border border-dashed border-white/10 p-2.5">
-                  <p className="eyebrow mb-1.5">Planos enviados</p>
-                  <div className="space-y-1">
+                  <p className="eyebrow mb-1.5">Botão enviado</p>
+                  <p className="text-xs text-zinc-400">
+                    O plano (ou oferta) que o lead já escolheu na hora que gerou o PIX, com{" "}
+                    {desconto > 0 ? `${desconto}% de desconto` : "o preço cheio"} aplicado só nele —
+                    nunca a lista inteira de novo.
+                  </p>
+                </div>
+              ) : (
+                ativos.length > 0 &&
+                s.planMode !== "none" && (
+                  <div className="mt-3 rounded-xl border border-dashed border-white/10 p-2.5">
+                    <p className="eyebrow mb-1.5">Planos enviados</p>
+                    <div className="space-y-1">
                     {ativos.map((p) => {
                       const cheio = p.priceCents;
                       const comDesconto =
@@ -3393,8 +3446,9 @@ function FunnelEditor({
                         </div>
                       );
                     })}
+                    </div>
                   </div>
-                </div>
+                )
               )}
             </div>
           );
@@ -4453,7 +4507,7 @@ function FunilRetratil({
                 confirmLabel: "Puxar padrão",
               });
               if (ok && padrao) {
-                setSteps(padrao.map((s) => ({ ...s })));
+                setSteps(aplicarPadraoMantendoFotos(padrao, steps));
                 setVersaoPadrao((v) => v + 1);
               }
             }}

@@ -657,15 +657,17 @@ function proximoHorarioFixo(hhmm: string, apos: number, tz: string, pularHoje = 
  * Decide se É HORA de mandar este passo — e o "desde quando" depende do
  * TIPO do passo, de propósito:
  *
- *   - Passo comum (`delayMinutes`): conta do FATO GERADOR do funil inteiro
- *     — o /start no Downsell geral, a criação da cobrança no Downsell de
- *     PIX gerado — e NUNCA reinicia a cada mensagem enviada. É assim que
- *     "chega a 50% em 24h" significa 24h de verdade desde que o lead entrou
- *     no funil, e não 24h desde a ÚLTIMA mensagem (que somaria muito mais).
- *   - Passo de horário fixo (`dailyTime`): PRECISA de uma referência que
- *     ANDA (o último envio), senão "às 16h" resolveria sempre para o mesmo
- *     instante fixo no passado e disparava a cada tick do cron pra sempre,
- *     em vez de uma vez por dia.
+ *   - Passo comum FORA do loop (`delayMinutes`): conta do FATO GERADOR do
+ *     funil inteiro — o /start no Downsell geral, a criação da cobrança no
+ *     Downsell de PIX gerado — e NUNCA reinicia a cada mensagem enviada. É
+ *     assim que "chega a 50% em 24h" significa 24h de verdade desde que o
+ *     lead entrou no funil, e não 24h desde a ÚLTIMA mensagem.
+ *   - Passo EM LOOP (`isLoop`, com ou sem `dailyTime`): PRECISA de uma
+ *     referência que ANDA (o último envio), nunca do fato gerador fixo —
+ *     sem isso, uma vez cruzado o delay uma única vez ele fica "pronto" PARA
+ *     SEMPRE (o fato gerador nunca muda), e o catch-up de
+ *     `passoMaisAvancado` dispararia a cada tick do cron pra sempre, em vez
+ *     de esperar um ciclo de verdade a cada repetição.
  */
 function passoPronto(
   step: FunnelStep,
@@ -676,7 +678,8 @@ function passoPronto(
   if (step.dailyTime) {
     return now >= proximoHorarioFixo(step.dailyTime, tempos.ultimoEnvio, tz, step.dailyTimeNextDay);
   }
-  return (now - tempos.fatoGerador) / 60000 >= step.delayMinutes;
+  const desde = step.isLoop ? tempos.ultimoEnvio : tempos.fatoGerador;
+  return (now - desde) / 60000 >= step.delayMinutes;
 }
 
 /**
@@ -691,11 +694,22 @@ function passoPronto(
  * estiver pronto (`pronto`). No caso normal (nada atrasado), o passo
  * seguinte nunca está pronto ainda — o resultado é idêntico a mandar só o
  * passo atual, como sempre foi.
+ *
+ * `loopStart` (o índice físico de onde começa o rabo em loop — ver
+ * `loopStartIndex`) trava esse avanço ao ENTRAR no rabo: uma vez lá dentro,
+ * pára SEMPRE no primeiro passo pronto, nunca soma um segundo (ou terceiro)
+ * passo do próprio loop no mesmo tick. Sem essa trava, dois passos em loop
+ * com o mesmo atraso (ou menos) contando do mesmo ponto ficam prontos ao
+ * mesmo tempo, e o catch-up (feito pra pular BACKLOG de verdade) atropelava
+ * o primeiro e mandava sempre o segundo — quem tinha "todos os planos"
+ * nunca saía, só a variante seguinte. Fora do loop (a sequência linear de
+ * sempre) o catch-up continua andando normalmente.
  */
 function passoMaisAvancado(
   indiceAtual: number,
   resolveIndice: (i: number) => number | null,
   pronto: (i: number) => boolean,
+  loopStart = Infinity,
 ): { enviar: number; proximo: number } | null {
   const idx = resolveIndice(indiceAtual);
   if (idx === null || !pronto(idx)) return null;
@@ -703,6 +717,7 @@ function passoMaisAvancado(
   // Trava de segurança contra loop infinito por config quebrada (ex.: delay
   // 0 num passo em loop) — nunca deve ser atingida em uso normal.
   for (let guard = 0; guard < 500; guard++) {
+    if (enviar >= loopStart) break; // já entrou no rabo em loop — só um por tick
     const seguinte = resolveIndice(enviar + 1);
     if (seguinte === null || !pronto(seguinte)) break;
     enviar = seguinte;
@@ -847,9 +862,10 @@ async function runTelegramFunnelsImpl(): Promise<{
         // já esgotado) por causa da vez em que apareceu pela primeira vez.
         // Sem valor salvo (lead de antes desta coluna existir), cai pro
         // `createdAt` — mesmo comportamento de hoje até o próximo /start dele.
-        // `lastInteractionAt` segue de referência só pro rabo em horário
-        // fixo (`passoPronto`), que precisa de um ponto que ANDA a cada
-        // envio pra repetir uma vez por dia, não do começo do funil.
+        // `lastInteractionAt` segue de referência pro rabo em LOOP inteiro
+        // (`passoPronto`, horário fixo OU delay normal) — precisa de um
+        // ponto que ANDA a cada envio pra repetir de verdade, não do
+        // começo do funil (senão fica pronto pra sempre depois da 1ª vez).
         //
         // `passoMaisAvancado` evita a rajada quando o processamento ficou
         // atrasado (cron parado, deploy): em vez de mandar SÓ o passo atual
@@ -869,6 +885,7 @@ async function runTelegramFunnelsImpl(): Promise<{
           (i) =>
             encaixaNoPublico(bot.id, Number(lead.chatId), downsellFunnel[i].audience) &&
             passoPronto(downsellFunnel[i], tempos, now, tz),
+          loopStartIndex(downsellFunnel),
         );
         if (alvo) {
           const stepFinal = downsellFunnel[alvo.enviar];
@@ -910,9 +927,10 @@ async function runTelegramFunnelsImpl(): Promise<{
         const counter = row.pix_step_index || 0;
         // O FATO GERADOR é a CRIAÇÃO DA COBRANÇA (`row.created_at`), fixo pra
         // sempre — é o momento em que ele viu o PIX e não pagou. O último
-        // envio (`last_pix_step_at`) só serve de referência pro rabo em
-        // horário fixo, que precisa andar a cada disparo pra repetir uma vez
-        // por dia.
+        // envio (`last_pix_step_at`) serve de referência pro rabo em LOOP
+        // inteiro (horário fixo OU delay normal), que precisa andar a cada
+        // disparo pra repetir de verdade — sem isso, uma vez pronto fica
+        // pronto pra sempre e o catch-up dispara a cada tick do cron.
         const ultimoEnvio = row.last_pix_step_at || row.created_at;
         const tempos = { fatoGerador: row.created_at, ultimoEnvio };
         // `passoMaisAvancado` evita a rajada quando o processamento ficou
@@ -925,6 +943,7 @@ async function runTelegramFunnelsImpl(): Promise<{
           counter,
           (i) => resolveStepIndex(pixFunnel, i),
           (i) => passoPronto(pixFunnel[i], tempos, now, tz),
+          loopStartIndex(pixFunnel),
         );
         if (!alvo) continue;
         const step = pixFunnel[alvo.enviar];

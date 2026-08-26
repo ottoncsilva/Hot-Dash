@@ -42,6 +42,11 @@ export type LtvAgentSettings = {
   delayMaxS: number;
   dailyLimit: number;
   onlyReplyFirst: boolean;
+  /** Manda uma mensagem ESPONTÂNEA (sem o lead ter falado) pra retomar quem
+   *  sumiu no meio da conversa — desligado por padrão: é o tipo de
+   *  automação que mais derruba conta no WhatsApp/Telegram, então precisa
+   *  ser ligado conscientemente (mesmo espírito de `onlyReplyFirst`). */
+  reengageEnabled: boolean;
   /**
    * Teto do desconto que a IA pode dar sozinha, em %. Zero = ela nunca baixa
    * do preço de tabela. Existe porque uma IA sem teto entrega o pacote por
@@ -114,6 +119,7 @@ const AGENT_PADRAO: Omit<LtvAgentSettings, "accountId"> = {
   delayMaxS: 90,
   dailyLimit: 80,
   onlyReplyFirst: true,
+  reengageEnabled: false,
   maxDiscountPct: 0,
   sampleMediaIds: [],
 };
@@ -325,6 +331,7 @@ export function getAgent(accountId: string): LtvAgentSettings {
     delayMaxS: r.delay_max_s,
     dailyLimit: r.daily_limit,
     onlyReplyFirst: Boolean(r.only_reply_first),
+    reengageEnabled: Boolean(r.reengage_enabled),
     maxDiscountPct: r.max_discount_pct ?? 0,
     sampleMediaIds,
   };
@@ -349,9 +356,9 @@ export function saveAgent(accountId: string, patch: Partial<LtvAgentSettings>): 
     .prepare(
       `INSERT INTO ltv_agent_settings
          (account_id, enabled, approach, rhythm, delay_min_s, delay_max_s, daily_limit,
-          only_reply_first, max_discount_pct, sample_media_ids)
+          only_reply_first, reengage_enabled, max_discount_pct, sample_media_ids)
        VALUES (@accountId, @enabled, @approach, @rhythm, @delayMinS, @delayMaxS, @dailyLimit,
-               @onlyReplyFirst, @maxDiscountPct, @sampleMediaIds)
+               @onlyReplyFirst, @reengageEnabled, @maxDiscountPct, @sampleMediaIds)
        ON CONFLICT(account_id) DO UPDATE SET
          enabled = excluded.enabled,
          approach = excluded.approach,
@@ -360,6 +367,7 @@ export function saveAgent(accountId: string, patch: Partial<LtvAgentSettings>): 
          delay_max_s = excluded.delay_max_s,
          daily_limit = excluded.daily_limit,
          only_reply_first = excluded.only_reply_first,
+         reengage_enabled = excluded.reengage_enabled,
          max_discount_pct = excluded.max_discount_pct,
          sample_media_ids = excluded.sample_media_ids`,
     )
@@ -372,6 +380,7 @@ export function saveAgent(accountId: string, patch: Partial<LtvAgentSettings>): 
       delayMaxS: novo.delayMaxS,
       dailyLimit: novo.dailyLimit,
       onlyReplyFirst: novo.onlyReplyFirst ? 1 : 0,
+      reengageEnabled: novo.reengageEnabled ? 1 : 0,
       maxDiscountPct: novo.maxDiscountPct,
       sampleMediaIds: JSON.stringify(novo.sampleMediaIds || []),
     });
@@ -643,6 +652,12 @@ export function insertMessage(input: {
     )
     .run(msg.id, msg.chatId, msg.role, msg.content, msg.type, msg.createdAt);
   touchChat(input.chatId);
+  // O lead voltou a falar sozinho — zera a contagem de retomadas: se ele
+  // sumir de novo depois disso, é um silêncio NOVO, com direito às mesmas
+  // tentativas de novo (ver `listChatsParaReengajar`).
+  if (input.role === "user") {
+    getDb().prepare(`UPDATE ltv_chats SET reengage_count = 0 WHERE id = ?`).run(input.chatId);
+  }
   return msg;
 }
 
@@ -893,4 +908,45 @@ export function contarEnvio(accountId: string): void {
        ON CONFLICT(account_id, dia) DO UPDATE SET sent = sent + 1`,
     )
     .run(accountId, diaDeHoje());
+}
+
+/* ------------------------------------------------------- retomar quem sumiu */
+
+/** Toda conta LTV conectada e ativa, de QUALQUER modelo — é quem o cron de
+ *  retomada percorre (mesmo padrão de "varre todo mundo" do cron de funis
+ *  do Telegram, que percorre `profiles` inteiro). */
+export function listAllActiveAccounts(): LtvAccount[] {
+  const rows = getDb()
+    .prepare(`SELECT * FROM ltv_accounts WHERE active = 1 AND status = 'connected'`)
+    .all() as any[];
+  return rows.map(mapAccount);
+}
+
+/**
+ * Chats desta conta onde o LEAD sumiu: a ÚLTIMA mensagem foi NOSSA (estamos
+ * esperando resposta), já passou `cutoff` (silêncio comprido o bastante pra
+ * não parecer que a modelo está grudada no celular), e ainda não estourou o
+ * teto de tentativas pra este silêncio. `last_interaction_at` serve de
+ * relógio porque É tocado a cada mensagem (nossa ou dele) — se a última
+ * mensagem é nossa, o valor já É o instante dela.
+ */
+export function listChatsParaReengajar(accountId: string, cutoff: number, maxTentativas: number): LtvChat[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM ltv_chats c
+        WHERE c.account_id = ?
+          AND c.state = 'active'
+          AND c.last_interaction_at <= ?
+          AND c.reengage_count < ?
+          AND (SELECT m.role FROM ltv_messages m
+                WHERE m.chat_id = c.id
+                ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1) = 'assistant'
+        ORDER BY c.last_interaction_at ASC`,
+    )
+    .all(accountId, cutoff, maxTentativas) as any[];
+  return rows.map(mapChat);
+}
+
+export function incrementarReengage(chatId: string): void {
+  getDb().prepare(`UPDATE ltv_chats SET reengage_count = reengage_count + 1 WHERE id = ?`).run(chatId);
 }

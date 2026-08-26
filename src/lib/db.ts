@@ -1116,6 +1116,16 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "ltv_orders", "list_price_cents", "INTEGER");
   ensureColumn(d, "ltv_chats", "peer_access_hash", "TEXT");
   ensureColumn(d, "ltv_accounts", "provider_ref", "TEXT");
+  // RETOMAR QUEM SUMIU: quantas vezes já mandamos uma mensagem espontânea
+  // pra puxar de volta um lead que parou de responder, SEM ele ter falado
+  // de novo — zera sozinho assim que ele responde (ver `insertMessage`).
+  // Existe pra ter um teto (`runLtvReengajamento` não insiste pra sempre).
+  ensureColumn(d, "ltv_chats", "reengage_count", "INTEGER NOT NULL DEFAULT 0");
+  // Liga/desliga da retomada espontânea, por CONTA — desligado por padrão:
+  // mandar mensagem sem o lead ter falado primeiro é o tipo de automação
+  // que mais derruba conta no WhatsApp/Telegram, então é opt-in consciente
+  // (mesmo espírito do "Só responder quem falar primeiro").
+  ensureColumn(d, "ltv_agent_settings", "reengage_enabled", "INTEGER NOT NULL DEFAULT 0");
   // Liga/desliga do botão "Not from Brazil?" (checkout internacional via
   // Stripe), independente de haver plano com preço em USD cadastrado — antes
   // só existia o critério implícito (aparece se algum plano tem priceUsdCents),

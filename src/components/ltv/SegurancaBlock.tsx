@@ -100,6 +100,24 @@ export default function SegurancaBlock({
           </p>
         </div>
       </div>
+
+      <div className="flex items-start gap-3 border-t border-white/[0.06] pt-4">
+        <Switch
+          checked={agente.reengageEnabled}
+          onChange={(v) => onChange({ reengageEnabled: v })}
+          ariaLabel="Retomar contato com quem sumiu"
+        />
+        <div>
+          <p className="font-semibold text-white">Retomar contato com quem sumiu</p>
+          <p className="text-xs text-zinc-500">
+            Se o lead parar de responder por um tempo (algumas horas), a IA manda sozinha uma
+            mensagem puxando o papo de volta — no máximo 2 tentativas por silêncio, e para até
+            ele voltar a falar. <b>Desligado por padrão</b>: mandar mensagem sem o lead ter
+            falado primeiro é o tipo de automação que mais chama atenção do WhatsApp/Telegram —
+            ligue só se souber que a conta aguenta.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

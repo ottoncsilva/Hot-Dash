@@ -19,8 +19,11 @@ import {
   getAccount,
   getAgent,
   getChat,
+  incrementarReengage,
   insertMessage,
+  listAllActiveAccounts,
   listAudios,
+  listChatsParaReengajar,
   listMessages,
   listProducts,
   podeEnviar,
@@ -240,6 +243,11 @@ function montarPrompt(
   audios: LtvAudio[],
   temAmostras: boolean,
   compras: { nome: string; cents: number; quando: number }[] = [],
+  /** true = esta NÃO é uma resposta a algo que o lead disse — é a IA
+   *  puxando de volta um lead que sumiu no meio do papo (ver
+   *  `runLtvReengajamento`). Some das REGRAS o "responda ao que ele disse"
+   *  (não tem o que responder) e entra uma instrução própria no fim. */
+  retomando = false,
 ): string {
   const partes: string[] = [];
 
@@ -256,10 +264,26 @@ function montarPrompt(
   if (agente.limits) partes.push(`O QUE VOCÊ NUNCA FAZ: ${agente.limits}`);
   partes.push(ABORDAGEM[agente.approach]);
 
+  // HUMANIZAÇÃO — o que faz o lead esquecer que está falando com um
+  // sistema. Não é só "seja curta": é variar, reagir, lembrar, puxar
+  // assunto — o oposto de responder sempre do mesmo jeito, no mesmo
+  // tamanho, começando com "oi amor" toda vez.
   partes.push(
     [
       "REGRAS DE CONVERSA:",
-      "- Mensagens CURTAS, como gente digitando no celular. Nada de parágrafo.",
+      "- Digite como gente de verdade no celular: minúsculas soltas, pontuação",
+      "  relaxada, sem parecer texto revisado. Nada de parágrafo — mensagens",
+      "  curtas são a regra, mas VARIE o tamanho: às vezes 2 palavras, às vezes",
+      "  uma frase inteira. Sempre do mesmo tamanho denuncia robô.",
+      "- REAJA de verdade ao que ele disse antes de continuar o papo — surpresa,",
+      "  riso, ciúme leve, curiosidade — não só responda a pergunta e siga",
+      "  reto. Puxe assunto sobre o que ele contou; faça pergunta de volta com",
+      "  frequência, não só quando ele perguntar algo.",
+      "- LEMBRE de detalhes que ele já contou na conversa (nome, o que gosta,",
+      "  o que estava fazendo) e cite de volta em momentos naturais — é isso",
+      "  que prova, pra ele, que não é um script.",
+      "- Não comece toda mensagem com a mesma saudação ('oi amor', 'e aí'). Varie",
+      "  a abertura, incluindo não abrir com nada às vezes.",
       "- Nunca diga que é uma IA, um bot ou um sistema, nem fale do painel.",
       "- Não prometa nada que não esteja na lista de produtos.",
     ].join("\n"),
@@ -317,11 +341,17 @@ function montarPrompt(
       "FORMATO OBRIGATÓRIO DA RESPOSTA — só JSON, nada fora dele:",
       "{",
       '  "tipo": "texto" | "amostra" | "audio" | "pix",',
-      '  "resposta": "o que você diz ao lead",',
+      '  "resposta": ["primeira mensagem", "segunda mensagem"],',
       '  "audio_contexto": "quando tipo=audio, UM contexto exato da lista",',
       '  "produto": "quando tipo=pix, o NOME EXATO de um produto da lista",',
       '  "desconto_pct": "quando tipo=pix e você combinou desconto, só o número (ex: 20)"',
       "}",
+      "",
+      '"resposta" é um ARRAY de 1 a 3 mensagens CURTAS — cada item vira uma bolha',
+      "separada, do jeito que gente manda várias mensagens seguidas em vez de uma",
+      'só (ex.: ["oi amor", "sumiu que susto rs", "tava com saudade"]). 1 item só',
+      "também é válido, quando fizer sentido. NUNCA junte tudo numa mensagem só",
+      "longa — se tem mais de uma ideia, é mais de um item no array.",
     ].join("\n"),
   );
 
@@ -343,6 +373,19 @@ function montarPrompt(
       ? 'Use tipo "pix" SÓ quando o lead já decidiu comprar. O sistema gera a cobrança e manda o código; na "resposta" fale como quem está mandando o PIX, sem inventar código nenhum.'
       : "",
   );
+
+  if (retomando) {
+    partes.push(
+      [
+        "AGORA: o lead SUMIU — não respondeu sua última mensagem há um tempo. Você",
+        "está retomando o papo por conta própria, ele não disse nada novo. Mande",
+        "algo curto (pode ser 1 mensagem só) que encaixe no que vocês estavam",
+        "falando — puxando o fio de onde parou, ou comentando que sumiu, com",
+        "leveza. NUNCA cobre ele por ter sumido, nunca soe carente ou",
+        "desesperada, e nunca repita a mesma pergunta que já fez.",
+      ].join(" "),
+    );
+  }
 
   return partes.filter(Boolean).join("\n\n");
 }
@@ -417,7 +460,11 @@ const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Acao = {
   tipo?: string;
-  resposta?: string;
+  /** 1 a 3 mensagens — cada item vira uma bolha separada (ver `mandarBolhas`).
+   *  Aceita array (formato pedido no prompt) ou string única (o que a IA
+   *  às vezes manda mesmo assim, ou o fallback de `parseAcao` quando o JSON
+   *  não fecha). */
+  resposta?: string | string[];
   audio_contexto?: string;
   produto?: string;
   desconto_pct?: number | string;
@@ -448,6 +495,122 @@ function parseAcao(bruto: string): Acao {
 function sortearAmostra(sampleMediaIds: string[]): string | null {
   if (!sampleMediaIds.length) return null;
   return sampleMediaIds[Math.floor(Math.random() * sampleMediaIds.length)];
+}
+
+/** `Acao.resposta` normalizado: sempre um array, vazio-filtrado. Aceita o
+ *  array que o prompt pede e a string única que às vezes ainda chega. */
+function normalizarTextos(resposta: Acao["resposta"]): string[] {
+  const bruto = Array.isArray(resposta) ? resposta : [resposta];
+  return bruto.map((t) => String(t ?? "").trim()).filter(Boolean);
+}
+
+/**
+ * Manda uma sequência de mensagens de TEXTO como bolhas SEPARADAS — um
+ * respiro curto (+ "digitando" de novo) entre cada uma, pra virar várias
+ * mensagens de verdade chegando uma depois da outra, não um parágrafo
+ * cortado em pedaços que chegam juntos. Cada bolha entra na história e conta
+ * pro limite diário igual a uma mensagem normal.
+ */
+async function mandarBolhas(
+  adaptador: Adaptador,
+  textos: string[],
+  chatId: string,
+  accountId: string,
+): Promise<void> {
+  for (let i = 0; i < textos.length; i++) {
+    if (i > 0) {
+      await adaptador.digitando();
+      await dormir(entre(900, 2400));
+    }
+    await adaptador.texto(textos[i]);
+    insertMessage({ chatId, role: "assistant", content: textos[i], type: "text" });
+    contarEnvio(accountId);
+  }
+}
+
+/**
+ * Executa a AÇÃO que a IA decidiu (texto/amostra/áudio/pix) — o MESMO
+ * caminho pra uma resposta normal (`responderLead`) e pra uma retomada de
+ * quem sumiu (`reengajarChat`), pra nunca divergir em como cada tipo é
+ * mandado dependendo de quem chamou.
+ */
+async function executarAcao(
+  adaptador: Adaptador,
+  chat: LtvChat,
+  conta: LtvAccount,
+  agente: LtvAgentSettings,
+  acao: Acao,
+  produtos: LtvProduct[],
+  amostras: string[],
+  audios: LtvAudio[],
+): Promise<void> {
+  let textos = normalizarTextos(acao.resposta);
+
+  let tipo = acao.tipo || "texto";
+  if (tipo === "amostra" && !amostras.length) tipo = "texto";
+  if (tipo === "audio" && !audios.length) tipo = "texto";
+  if (tipo === "pix" && !produtos.length) tipo = "texto";
+
+  if (tipo === "pix") {
+    const produto =
+      produtos.find((p) => p.name.toLowerCase() === (acao.produto || "").toLowerCase()) || produtos[0];
+    // A SyncPay pode estar fora do ar ou recusar a cobrança. Isso não pode
+    // virar silêncio: o lead acabou de dizer que quer comprar, e sumir aí é
+    // perder a venda que já estava fechada.
+    let pixCode: string | null = null;
+    try {
+      pixCode = await cobrarPix(chat, conta, produto, acao.desconto_pct, agente.maxDiscountPct);
+    } catch (e) {
+      console.error("LTV: falha gerando a cobrança na SyncPay:", e);
+    }
+    if (pixCode) {
+      await mandarBolhas(adaptador, textos, chat.id, conta.id);
+      // O código vai SOZINHO numa mensagem, em monoespaçado: no Telegram um
+      // toque copia. Misturado com a conversa, o lead copiaria junto o "toca
+      // aqui pra copiar amor" e o banco recusaria o código.
+      await adaptador.codigo(pixCode);
+      insertMessage({ chatId: chat.id, role: "assistant", content: pixCode, type: "pix" });
+      contarEnvio(conta.id);
+      return;
+    }
+    // Sem cobrança não há o que mandar — mas a IA não inventa código.
+    tipo = "texto";
+    if (!textos.length) textos = ["Peraí amor, já te mando o pix 😘"];
+  }
+
+  if (tipo === "amostra") {
+    const mediaId = sortearAmostra(amostras);
+    if (mediaId) {
+      const legenda = textos[0] || "";
+      await adaptador.midia(mediaId, legenda);
+      insertMessage({ chatId: chat.id, role: "assistant", content: legenda, type: "imagem" });
+      contarEnvio(conta.id);
+      // Sobrou mais de 1 mensagem no array — o resto vira bolha(s) depois da mídia.
+      await mandarBolhas(adaptador, textos.slice(1), chat.id, conta.id);
+      return;
+    }
+    tipo = "texto";
+  }
+
+  if (tipo === "audio") {
+    const alvo =
+      audios.find((a) => a.context.toLowerCase() === (acao.audio_contexto || "").toLowerCase()) || audios[0];
+    if (alvo) {
+      await adaptador.audio(alvo);
+      insertMessage({
+        chatId: chat.id,
+        role: "assistant",
+        content: textos[0] || `🎤 ${alvo.context || "áudio"}`,
+        type: "audio",
+      });
+      contarEnvio(conta.id);
+      await mandarBolhas(adaptador, textos.slice(1), chat.id, conta.id);
+      return;
+    }
+    tipo = "texto";
+  }
+
+  await mandarBolhas(adaptador, textos, chat.id, conta.id);
 }
 
 /**
@@ -644,7 +807,6 @@ export async function responderLead(chatId: string): Promise<void> {
     });
     if (!bruto) return;
     const acao = parseAcao(bruto);
-    let texto = (acao.resposta || "").trim();
 
     const adaptador = adaptadorDe(conta, chat);
     await adaptador.digitando();
@@ -654,80 +816,81 @@ export async function responderLead(chatId: string): Promise<void> {
     // uma pessoa assumiu a conversa, a resposta da IA já não deve sair.
     if (getChat(chat.id)?.state === "paused") return;
 
-    let tipo = acao.tipo || "texto";
-    if (tipo === "amostra" && !amostras.length) tipo = "texto";
-    if (tipo === "audio" && !audios.length) tipo = "texto";
-    if (tipo === "pix" && !produtos.length) tipo = "texto";
-
-    if (tipo === "pix") {
-      const produto =
-        produtos.find((p) => p.name.toLowerCase() === (acao.produto || "").toLowerCase()) ||
-        produtos[0];
-      // A SyncPay pode estar fora do ar ou recusar a cobrança. Isso não pode
-      // virar silêncio: o lead acabou de dizer que quer comprar, e sumir aí é
-      // perder a venda que já estava fechada.
-      let pixCode: string | null = null;
-      try {
-        pixCode = await cobrarPix(chat, conta, produto, acao.desconto_pct, agente.maxDiscountPct);
-      } catch (e) {
-        console.error("LTV: falha gerando a cobrança na SyncPay:", e);
-      }
-      if (pixCode) {
-        if (texto) {
-          await adaptador.texto(texto);
-          insertMessage({ chatId: chat.id, role: "assistant", content: texto, type: "text" });
-          contarEnvio(conta.id);
-        }
-        // O código vai SOZINHO numa mensagem, em monoespaçado: no Telegram um
-        // toque copia. Misturado com a conversa, o lead copiaria junto o "toca
-        // aqui pra copiar amor" e o banco recusaria o código.
-        await adaptador.codigo(pixCode);
-        insertMessage({ chatId: chat.id, role: "assistant", content: pixCode, type: "pix" });
-        contarEnvio(conta.id);
-        return;
-      }
-      // Sem cobrança não há o que mandar — mas a IA não inventa código.
-      tipo = "texto";
-      if (!texto) texto = "Peraí amor, já te mando o pix 😘";
-    }
-
-    if (tipo === "amostra") {
-      const mediaId = sortearAmostra(amostras);
-      if (mediaId) {
-        await adaptador.midia(mediaId, texto);
-        insertMessage({ chatId: chat.id, role: "assistant", content: texto, type: "imagem" });
-        contarEnvio(conta.id);
-        return;
-      }
-      tipo = "texto";
-    }
-
-    if (tipo === "audio") {
-      const alvo =
-        audios.find(
-          (a) => a.context.toLowerCase() === (acao.audio_contexto || "").toLowerCase(),
-        ) || audios[0];
-      if (alvo) {
-        await adaptador.audio(alvo);
-        insertMessage({
-          chatId: chat.id,
-          role: "assistant",
-          content: texto || `🎤 ${alvo.context || "áudio"}`,
-          type: "audio",
-        });
-        contarEnvio(conta.id);
-        return;
-      }
-      tipo = "texto";
-    }
-
-    if (!texto) return;
-    await adaptador.texto(texto);
-    insertMessage({ chatId: chat.id, role: "assistant", content: texto, type: "text" });
-    contarEnvio(conta.id);
+    await executarAcao(adaptador, chat, conta, agente, acao, produtos, amostras, audios);
   } catch (err) {
     console.error("LTV: erro respondendo o lead:", err);
   }
+}
+
+/** Quanto tempo de silêncio (última mensagem foi NOSSA) até valer a pena
+ *  puxar o lead de volta, e quantas vezes tentar por silêncio antes de
+ *  desistir e esperar ele voltar a falar sozinho. */
+const REENGAJAR_APOS_MS = 4 * 60 * 60 * 1000; // 4h
+const REENGAJAR_MAX_TENTATIVAS = 2;
+
+/** Retoma UM chat que sumiu — mesmo motor de `responderLead`, só que a IA
+ *  não está respondendo a nada novo (ver `retomando` em `montarPrompt`). */
+async function reengajarChat(chat: LtvChat, conta: LtvAccount, agente: LtvAgentSettings): Promise<void> {
+  const historico = listMessages(chat.id, 200);
+  const produtos = listProducts(conta.id);
+  const audios = listAudios(conta.id);
+  const amostras = amostrasValidas(conta.profileId, agente.sampleMediaIds);
+  const compras = comprasDoLead(chat.id);
+
+  const mensagens: ChatMessage[] = [
+    {
+      role: "system",
+      content: montarPrompt(agente, produtos, audios, amostras.length > 0, compras, true),
+    },
+    ...historico.map((m) => ({ role: m.role, content: m.content }) as ChatMessage),
+  ];
+
+  const bruto = await callAiChat(mensagens, PROVEDOR_IA, { maxTokens: 500, activity: "whatsapp" });
+  // Conta a tentativa MESMO sem resposta da IA — sem isso, uma IA fora do ar
+  // faria o cron tentar de novo no próximo tick, sem parar nunca.
+  incrementarReengage(chat.id);
+  if (!bruto) return;
+  const acao = parseAcao(bruto);
+
+  const adaptador = adaptadorDe(conta, chat);
+  await adaptador.digitando();
+  // Sem o `esperaMs` de conversa ao vivo: o silêncio já durou horas — o
+  // atraso aqui é só pra não sair no mesmo instante do tick do cron.
+  await dormir(entre(1500, 4000));
+
+  if (getChat(chat.id)?.state === "paused") return;
+
+  await executarAcao(adaptador, chat, conta, agente, acao, produtos, amostras, audios);
+}
+
+/**
+ * Retoma quem sumiu, em TODAS as contas com a retomada ligada. Roda no
+ * mesmo tick de 1 minuto dos outros crons (`instrumentation.ts`) — como o
+ * silêncio se mede em horas, não faz diferença prática rodar a cada minuto
+ * ou a cada dez; o que importa é nunca deixar passar despercebido.
+ */
+export async function runLtvReengajamento(): Promise<number> {
+  let total = 0;
+  const cutoff = Date.now() - REENGAJAR_APOS_MS;
+  for (const conta of listAllActiveAccounts()) {
+    const agente = getAgent(conta.id);
+    if (!agente.enabled || !agente.reengageEnabled) continue;
+    if (!podeEnviar(conta.id, agente.dailyLimit)) continue;
+    const chats = listChatsParaReengajar(conta.id, cutoff, REENGAJAR_MAX_TENTATIVAS);
+    for (const chat of chats) {
+      try {
+        await reengajarChat(chat, conta, agente);
+        total++;
+      } catch (err) {
+        console.error(`LTV: erro retomando o chat ${chat.id}:`, err);
+      }
+      // Respeita o limite diário TAMBÉM entre um chat e outro da mesma
+      // conta — sem isso, uma conta com muitos chats silenciosos estouraria
+      // o limite de uma vez só neste laço.
+      if (!podeEnviar(conta.id, agente.dailyLimit)) break;
+    }
+  }
+  return total;
 }
 
 /**

@@ -47,6 +47,9 @@ export async function register() {
     const { runTelegramWebhookWatch } = await import("@/lib/telegramWebhookWatch");
     // Faxina da memória do LTV: guarda 40 dias por lead e apaga o resto.
     const { runLtvRetencao } = await import("@/lib/ltvRetencao");
+    // Retoma quem sumiu no meio do papo do LTV (só nas contas com isso
+    // ligado — ver SegurancaBlock).
+    const { runLtvReengajamento } = await import("@/lib/ltvAgent");
     // Geração do Método MK (Prévias e VIP), em lotes: a rota só enfileira (a
     // copy de um dia inteiro não cabe no maxDuration de uma requisição). Os dois
     // dividem UMA fila e um lote por tick — ver generationJobs.ts.
@@ -112,6 +115,12 @@ export async function register() {
           }
         } catch (err) {
           console.error("[hotdash] Erro no cron (memória do LTV):", err);
+        }
+        try {
+          const retomados = await runLtvReengajamento();
+          if (retomados > 0) console.log(`[hotdash] LTV: ${retomados} lead(s) retomado(s) após silêncio.`);
+        } catch (err) {
+          console.error("[hotdash] Erro no cron (retomada do LTV):", err);
         }
       } finally {
         running = false;

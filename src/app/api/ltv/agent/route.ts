@@ -40,6 +40,7 @@ export async function PATCH(req: NextRequest) {
     if (Number.isFinite(body.delayMaxS)) patch.delayMaxS = Number(body.delayMaxS);
     if (Number.isFinite(body.dailyLimit)) patch.dailyLimit = Number(body.dailyLimit);
     if (typeof body.onlyReplyFirst === "boolean") patch.onlyReplyFirst = body.onlyReplyFirst;
+    if (typeof body.reengageEnabled === "boolean") patch.reengageEnabled = body.reengageEnabled;
     if (Number.isFinite(body.maxDiscountPct)) patch.maxDiscountPct = Number(body.maxDiscountPct);
     if (Array.isArray(body.sampleMediaIds)) {
       patch.sampleMediaIds = body.sampleMediaIds.filter((t: unknown) => typeof t === "string");

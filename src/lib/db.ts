@@ -394,6 +394,20 @@ function migrate(d: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_telegram_users_bot ON telegram_users(bot_id);
 
+    -- IDEMPOTÊNCIA DO WEBHOOK: o Telegram REENVIA o mesmo update se a nossa
+    -- resposta demorar ou falhar (timeout, deploy no meio, instabilidade de
+    -- rede) — sem marcar quem já foi processado, um /start (ou uma compra!)
+    -- reprocessado manda a boas-vindas de novo, reinicia o timer do downsell
+    -- de novo, e no pior caso (clique de compra reentregue) chega a gerar
+    -- cobrança em dobro. update_id é sequencial POR BOT (a doc do Telegram
+    -- garante isso), então a chave é o par (bot_id, update_id).
+    CREATE TABLE IF NOT EXISTS telegram_webhook_updates (
+      bot_id     TEXT NOT NULL,
+      update_id  INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (bot_id, update_id)
+    );
+
     -- FILA DA SEQUÊNCIA DE BOAS-VINDAS de quem foi aprovado num grupo.
     --
     -- A aprovação enviava UMA mensagem, na hora. Uma sequência com atrasos

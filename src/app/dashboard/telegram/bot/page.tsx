@@ -27,6 +27,7 @@ import {
   IconChevronUp,
   IconChevronDown,
   IconSparkle,
+  IconLink,
 } from "@/components/icons";
 import PageHeader from "@/components/PageHeader";
 import SectionRow, { resumo } from "@/components/telegram/bot/SectionRow";
@@ -485,6 +486,7 @@ export default function BotVendasPage() {
                     setWelcomeEs={setWelcomeEs}
                     onSaved={load}
                   />
+                  <IntlConfigCard profileId={profileId} bot={bot} onSaved={load} />
                   <PixRow
                     profileId={profileId}
                     bot={bot}
@@ -549,14 +551,7 @@ export default function BotVendasPage() {
                 </>
               )}
               {tab === "planos" && (
-                <PlansCard
-                  profileId={profileId}
-                  plans={plans}
-                  intlEnabled={bot?.intlEnabled !== false}
-                  intlAskFirst={Boolean(bot?.intlAskFirst)}
-                  acceptCardBr={Boolean(bot?.acceptCardBr)}
-                  onSaved={load}
-                />
+                <PlansCard profileId={profileId} plans={plans} onSaved={load} />
               )}
               {tab === "recuperacao" && (
                 <FunnelCard profileId={profileId} bot={bot} planos={plans} onSaved={load} confirm={confirm} />
@@ -1230,6 +1225,135 @@ function WelcomeRow({
   );
 }
 
+/**
+ * Configurações internacionais — os 3 interruptores (Not from Brazil?, modo
+ * bilíngue, cartão no Brasil) MORAVAM na aba Planos; agora moram aqui, logo
+ * abaixo da boas-vindas, como uma categoria própria. "Traduzir tudo" força
+ * uma tradução nova (IA, Grok primeiro na fila) de TODO campo traduzível do
+ * bot de uma vez — boas-vindas, aprovação, botão de acesso, prova social,
+ * nome de cada plano e cada passo dos dois funis de recuperação — em vez de
+ * esperar o operador salvar cada um manualmente pra disparar a tradução
+ * automática.
+ */
+function IntlConfigCard({
+  profileId,
+  bot,
+  onSaved,
+}: {
+  profileId: string;
+  bot: Bot;
+  onSaved: () => void;
+}) {
+  const [intlOn, setIntlOn] = useState(bot?.intlEnabled !== false);
+  const [askFirstOn, setAskFirstOn] = useState(Boolean(bot?.intlAskFirst));
+  const [cardBrOn, setCardBrOn] = useState(Boolean(bot?.acceptCardBr));
+  const [busy, setBusy] = useState(false);
+  const [busyTraduzir, setBusyTraduzir] = useState(false);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await apiSend("/api/telegram", "POST", {
+        action: "save-intl-config",
+        profileId,
+        intlEnabled: intlOn,
+        intlAskFirst: askFirstOn,
+        acceptCardBr: cardBrOn,
+      });
+      showToast("Configurações internacionais salvas.", "success");
+      onSaved();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function traduzirTudo() {
+    setBusyTraduzir(true);
+    try {
+      await apiSend("/api/telegram", "POST", { action: "translate-all", profileId });
+      showToast("Tudo traduzido — boas-vindas, aprovação, planos e funis atualizados.", "success");
+      onSaved();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha ao traduzir.", "error");
+    } finally {
+      setBusyTraduzir(false);
+    }
+  }
+
+  const resumoTexto = [
+    intlOn ? "Not from Brazil? ligado" : null,
+    askFirstOn ? "modo bilíngue ligado" : null,
+    cardBrOn ? "cartão no Brasil ligado" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <SectionRow
+      icon={<IconLink size={16} />}
+      title="Configurações internacionais"
+      summary={resumoTexto || "Tudo desligado (só português/PIX)"}
+    >
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-ink-850 p-3.5">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-white">🌎 Botão &quot;Not from Brazil?&quot;</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
+            Abre o checkout internacional (cartão, via Stripe) pra quem não usa PIX. Só aparece
+            de verdade com o interruptor LIGADO <i>e</i> pelo menos um plano com preço em USD
+            cadastrado (aba Planos) — desligar aqui pausa o botão sem apagar preço nenhum.
+          </p>
+        </div>
+        <Switch checked={intlOn} onChange={setIntlOn} ariaLabel='Ativar botão "Not from Brazil?"' />
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-ink-850 p-3.5">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-white">🌐 Modo internacional (bilíngue)</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
+            No <code>/start</code> o lead escolhe <b>🇧🇷 Brasil</b> ou <b>🌎 International</b> ANTES de ver
+            qualquer coisa — em vez do botão &quot;Not from Brazil?&quot; no meio do funil (que continua
+            existindo se preferir deixar desligado). O gringo segue em inglês/espanhol, na sua moeda,
+            pagando no cartão. O brasileiro segue igual (PT + PIX). Requer o interruptor de cima ligado
+            e algum plano com preço em USD.
+          </p>
+        </div>
+        <Switch checked={askFirstOn} onChange={setAskFirstOn} ariaLabel="Ativar modo internacional bilíngue" />
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-ink-850 p-3.5">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-white">💳 Aceitar cartão no Brasil também</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
+            Manda um botão extra, numa mensagem em sequência depois dos planos em PIX, pro lead
+            brasileiro pagar no cartão em vez de PIX — mesmo catálogo, mesmo preço em reais, via
+            Stripe. Requer a Stripe conectada na aba Pagamentos.
+          </p>
+        </div>
+        <Switch checked={cardBrOn} onChange={setCardBrOn} ariaLabel="Aceitar cartão no Brasil também" />
+      </div>
+
+      <button onClick={save} disabled={busy} className="btn-primary mt-4">
+        {busy ? "Salvando..." : "Salvar"}
+      </button>
+
+      <div className="mt-6 border-t border-white/10 pt-4">
+        <p className="eyebrow">tradução automática</p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Boas-vindas, aprovação, botão de acesso e prova social já traduzem sozinhos (EN/ES) a
+          cada vez que o texto em português é salvo em cada aba. Nome de plano (EN) e passos dos
+          funis de recuperação (EN/ES) também. Use o botão abaixo pra forçar TUDO de novo agora,
+          de uma vez — útil depois de trocar a IA configurada, ou pra recalibrar traduções antigas.
+        </p>
+        <button onClick={traduzirTudo} disabled={busyTraduzir} className="btn-ghost mt-3 text-xs">
+          <IconSparkle size={13} /> {busyTraduzir ? "Traduzindo tudo..." : "Traduzir tudo"}
+        </button>
+      </div>
+    </SectionRow>
+  );
+}
+
 function SuccessRow({
   profileId,
   bot,
@@ -1828,27 +1952,12 @@ type PlanRow = {
 function PlansCard({
   profileId,
   plans,
-  intlEnabled,
-  intlAskFirst,
-  acceptCardBr,
   onSaved,
 }: {
   profileId: string;
   plans: Plan[];
-  /** Interruptor do botão "Not from Brazil?" — independente de preço em USD
-   *  cadastrado (esse continua sendo exigido, mas assim dá pra pausar o
-   *  checkout internacional sem apagar preço de plano nenhum). */
-  intlEnabled: boolean;
-  /** Pergunta Brasil/International logo no /start (em vez do botão no meio
-   *  do funil). Só tem efeito de verdade com `intlEnabled` também ligado. */
-  intlAskFirst: boolean;
-  /** Botão extra pro brasileiro pagar no cartão (Stripe, em BRL). */
-  acceptCardBr: boolean;
   onSaved: () => void;
 }) {
-  const [intlOn, setIntlOn] = useState(intlEnabled);
-  const [askFirstOn, setAskFirstOn] = useState(intlAskFirst);
-  const [cardBrOn, setCardBrOn] = useState(acceptCardBr);
   const [rows, setRows] = useState<PlanRow[]>(
     plans.map((p) => ({
       id: p.id,
@@ -1918,9 +2027,6 @@ function PlansCard({
         action: "save-plans",
         profileId,
         plans: payload,
-        intlEnabled: intlOn,
-        intlAskFirst: askFirstOn,
-        acceptCardBr: cardBrOn,
       });
       showToast("Ofertas salvas.", "success");
       if (res.plans) {
@@ -1973,43 +2079,11 @@ function PlansCard({
         </div>
       </div>
 
-      <div className="card flex items-center justify-between gap-3 p-4">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-white">🌎 Botão &quot;Not from Brazil?&quot;</p>
-          <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
-            Abre o checkout internacional (cartão, via Stripe) pra quem não usa PIX. Só aparece
-            de verdade com o interruptor LIGADO <i>e</i> pelo menos um plano com preço em USD
-            preenchido abaixo — desligar aqui pausa o botão sem apagar preço nenhum.
-          </p>
-        </div>
-        <Switch checked={intlOn} onChange={setIntlOn} ariaLabel='Ativar botão "Not from Brazil?"' />
-      </div>
-
-      <div className="card flex items-center justify-between gap-3 p-4">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-white">🌐 Modo internacional (bilíngue)</p>
-          <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
-            No <code>/start</code> o lead escolhe <b>🇧🇷 Brasil</b> ou <b>🌎 International</b> ANTES de ver
-            qualquer coisa — em vez do botão &quot;Not from Brazil?&quot; no meio do funil (que continua
-            existindo se preferir deixar desligado). O gringo segue em inglês/espanhol, na sua moeda,
-            pagando no cartão. O brasileiro segue igual (PT + PIX). Requer o interruptor de cima ligado
-            e algum plano com preço em USD.
-          </p>
-        </div>
-        <Switch checked={askFirstOn} onChange={setAskFirstOn} ariaLabel="Ativar modo internacional bilíngue" />
-      </div>
-
-      <div className="card flex items-center justify-between gap-3 p-4">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-white">💳 Aceitar cartão no Brasil também</p>
-          <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
-            Manda um botão extra, numa mensagem em sequência depois dos planos em PIX, pro lead
-            brasileiro pagar no cartão em vez de PIX — mesmo catálogo, mesmo preço em reais, via
-            Stripe. Requer a Stripe conectada na aba Pagamentos.
-          </p>
-        </div>
-        <Switch checked={cardBrOn} onChange={setCardBrOn} ariaLabel="Aceitar cartão no Brasil também" />
-      </div>
+      <p className="text-[11px] text-zinc-500">
+        🌎 O botão &quot;Not from Brazil?&quot;, o modo internacional bilíngue e o cartão no Brasil
+        mudaram de lugar — agora ficam em <b>Configuração → Configurações internacionais</b>,
+        logo abaixo da mensagem de boas-vindas.
+      </p>
 
       <div className="space-y-2">
         {rows.map((r, i) => {

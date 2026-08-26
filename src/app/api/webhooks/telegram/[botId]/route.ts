@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { TelegramPlan, TelegramBotConfig } from "@/lib/telegramDb";
-import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, recurringFromDurationDays, BUMP_DEFAULTS, PIX_DEFAULTS } from "@/lib/telegramDb";
+import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, recurringFromDurationDays, primeiraVezQueVejoEsteUpdate, BUMP_DEFAULTS, PIX_DEFAULTS } from "@/lib/telegramDb";
 import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser, setTelegramUserLanguage } from "@/lib/telegramUsers";
 import { recordGroupMembershipChange } from "@/lib/telegramMonitor";
 import { getMailingOffer } from "@/lib/telegramMailing";
@@ -243,6 +243,15 @@ export async function POST(
     }
 
     const update = await req.json().catch(() => ({}));
+
+    // IDEMPOTÊNCIA: o Telegram reenvia o MESMO update se a nossa resposta
+    // demorar ou falhar — sem isso, um /start (ou pior, um clique de compra)
+    // reprocessado manda tudo de novo: boas-vindas duplicada, timer do
+    // downsell reiniciado à toa, e no caso da compra, cobrança em dobro. Sai
+    // ANTES de qualquer efeito colateral (inclusive `recordSeenChat` abaixo).
+    if (!primeiraVezQueVejoEsteUpdate(bot.id, update.update_id)) {
+      return NextResponse.json({ ok: true, duplicate: true });
+    }
 
     // Anota TODO grupo/canal que aparecer, venha por onde vier. É a única
     // forma de o painel saber em que grupos o bot está: a API do Telegram não

@@ -185,6 +185,9 @@ async function registerBotWebhook(
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// "translate-all" chama a IA várias vezes em paralelo (mensagens + planos +
+// passos de funil) — o padrão da plataforma pode cortar antes de terminar.
+export const maxDuration = 120;
 
 export async function GET(req: NextRequest) {
   try {
@@ -583,10 +586,12 @@ export async function POST(req: NextRequest) {
     // ---- Planos/ofertas — substitui a lista inteira do bot ----
     if (action === "save-plans") {
       const bot = requireBot(body.profileId);
-      // Interruptor do "Not from Brazil?" (e os dois novos, modo bilíngue e
-      // cartão no Brasil) moram nesta aba (junto do preço em USD, que é o
-      // outro requisito pro primeiro aparecer) — só grava o que a tela
-      // mandou, pra não desligar à toa em chamadas antigas.
+      // Os 3 interruptores internacionais MORAVAM aqui (junto do preço em
+      // USD); agora vivem em "Configurações internacionais" na aba
+      // Configuração, salvos pela action `save-intl-config` abaixo. Este
+      // bloco fica só de rede de segurança, pra uma chamada antiga (ou um
+      // script) que ainda mande esses campos junto do save de planos não
+      // silenciosamente ignorar o valor.
       if (body.intlEnabled !== undefined || body.intlAskFirst !== undefined || body.acceptCardBr !== undefined) {
         saveBotConfig({
           ...bot,
@@ -688,6 +693,111 @@ export async function POST(req: NextRequest) {
       // Remove os que sumiram da lista.
       for (const old of existing) if (!keepIds.has(old.id)) deletePlan(old.id);
       return NextResponse.json({ ok: true, plans: comStats(bot.id) });
+    }
+
+    // ---- Configurações internacionais (aba Configuração) — os 3 interruptores
+    // sozinhos, sem mexer em plano nenhum. ----
+    if (action === "save-intl-config") {
+      const bot = requireBot(body.profileId);
+      saveBotConfig({
+        ...bot,
+        intlEnabled: body.intlEnabled !== undefined ? Boolean(body.intlEnabled) : bot.intlEnabled,
+        intlAskFirst: body.intlAskFirst !== undefined ? Boolean(body.intlAskFirst) : bot.intlAskFirst,
+        acceptCardBr: body.acceptCardBr !== undefined ? Boolean(body.acceptCardBr) : bot.acceptCardBr,
+      });
+      return NextResponse.json({ ok: true });
+    }
+
+    // ---- "Traduzir tudo" — força a tradução (EN/ES) de TODO campo
+    // traduzível do bot de uma vez: boas-vindas, mensagem de aprovação,
+    // botão de acesso, prova social, nome de cada plano, e cada passo dos
+    // dois funis de recuperação (geral e PIX gerado). Ao contrário do save
+    // automático (que só traduz o que MUDOU), este ignora o que já existe e
+    // força tudo de novo — é o botão pra quando a modelo troca a IA, quer
+    // recalibrar tudo de uma vez, ou desconfia que alguma tradução ficou
+    // velha. Mesma cadeia de provedores de sempre (Grok primeiro).
+    if (action === "translate-all") {
+      const bot = requireBot(body.profileId);
+      const traduzDois = async (texto: string | undefined, contexto: string) => {
+        const t = (texto || "").trim();
+        if (!t) return { en: undefined as string | undefined, es: undefined as string | undefined };
+        const [en, es] = await Promise.all([
+          traduzirTexto(t, "en", bot.profileId, contexto).catch(() => undefined),
+          traduzirTexto(t, "es", bot.profileId, contexto).catch(() => undefined),
+        ]);
+        return { en, es };
+      };
+
+      const [welcomeT, successT, botaoT, provaT] = await Promise.all([
+        traduzDois(bot.welcomeMessage, "the welcome message she sends when someone starts a conversation with her on Telegram"),
+        traduzDois(bot.successMessage, "the message she sends on Telegram to a subscriber right after their payment was approved"),
+        traduzDois(bot.successButtonText, "the SHORT label of a button (not a full message) that unlocks her VIP content after payment"),
+        traduzDois(
+          bot.pixSocialProofText,
+          "a short social-proof line shown above the plans (e.g. how many people already subscribed today) — keep any placeholder like {vendas_hoje} or {assinantes} exactly as written",
+        ),
+      ]);
+      saveBotConfig({
+        ...bot,
+        welcomeMessageEn: welcomeT.en ?? bot.welcomeMessageEn,
+        welcomeMessageEs: welcomeT.es ?? bot.welcomeMessageEs,
+        successMessageEn: successT.en ?? bot.successMessageEn,
+        successMessageEs: successT.es ?? bot.successMessageEs,
+        successButtonTextEn: botaoT.en ?? bot.successButtonTextEn,
+        successButtonTextEs: botaoT.es ?? bot.successButtonTextEs,
+        pixSocialProofTextEn: provaT.en ?? bot.pixSocialProofTextEn,
+        pixSocialProofTextEs: provaT.es ?? bot.pixSocialProofTextEs,
+      });
+
+      // Planos — só o nome, só EN (mesmo escopo do resto da feature).
+      const planos = listPlans(bot.id);
+      await Promise.all(
+        planos.map(async (p) => {
+          if (!p.name.trim()) return;
+          const nameEn = await traduzirTexto(
+            p.name,
+            "en",
+            bot.profileId,
+            "the SHORT name of a subscription plan/product shown on a button — not a full message, just a product name",
+          ).catch(() => undefined);
+          if (nameEn) savePlan({ ...p, nameEn });
+        }),
+      );
+
+      // Funis — cada passo, dos dois funis de recuperação.
+      const traduzFunil = async (raw: string | undefined, contexto: string): Promise<string | undefined> => {
+        if (!raw) return raw;
+        let passos: FunnelStep[];
+        try {
+          const v = JSON.parse(raw);
+          if (!Array.isArray(v)) return raw;
+          passos = v;
+        } catch {
+          return raw;
+        }
+        const traduzidos = await Promise.all(
+          passos.map(async (passo) => {
+            if (!passo.text?.trim()) return passo;
+            const { en, es } = await traduzDois(passo.text, contexto);
+            return { ...passo, textEn: en ?? passo.textEn, textEs: es ?? passo.textEs };
+          }),
+        );
+        return JSON.stringify(traduzidos);
+      };
+      const [downsellFunnel, pixDownsellFunnel] = await Promise.all([
+        traduzFunil(
+          bot.downsellFunnel,
+          "one step of a re-engagement sequence sent to a lead who started a chat but hasn't bought anything yet",
+        ),
+        traduzFunil(
+          bot.pixDownsellFunnel,
+          "one step of a recovery sequence sent to a lead who already picked a plan and generated a payment but hasn't paid yet",
+        ),
+      ]);
+      const botAtual = getBotConfigByProfile(bot.profileId)!;
+      saveBotConfig({ ...botAtual, downsellFunnel, pixDownsellFunnel });
+
+      return NextResponse.json({ ok: true });
     }
 
     // ---- Botões personalizados — substitui a lista inteira ----

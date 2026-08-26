@@ -1060,6 +1060,35 @@ export function recordSeenChat(
     .run(botId, String(chat.id), chat.title || null, chat.type, Date.now());
 }
 
+/**
+ * IDEMPOTÊNCIA DO WEBHOOK — marca este `update_id` como processado e devolve
+ * `true` se era a PRIMEIRA vez (o chamador deve seguir com o processamento);
+ * `false` se já tinha sido visto antes (o chamador deve responder 200 e não
+ * fazer nada de novo). `INSERT OR IGNORE` é atômico: mesmo duas requisições
+ * concorrentes pro MESMO update (reenvio do Telegram chegando quase junto)
+ * nunca passam as duas — só a que grava primeiro ganha `changes > 0`.
+ *
+ * Sem `updateId` (update sem o campo, nunca deveria acontecer de verdade),
+ * deixa passar — mais seguro processar de mais do que travar o bot inteiro
+ * por um formato inesperado.
+ */
+export function primeiraVezQueVejoEsteUpdate(botId: string, updateId: unknown): boolean {
+  const id = Number(updateId);
+  if (!Number.isFinite(id)) return true;
+  const info = getDb()
+    .prepare(`INSERT OR IGNORE INTO telegram_webhook_updates (bot_id, update_id, created_at) VALUES (?, ?, ?)`)
+    .run(botId, id, Date.now());
+  return info.changes > 0;
+}
+
+/** Faxina dos updates antigos — chamada uma vez por tick do cron de funis
+ *  (a cada minuto), não a cada webhook. Só precisa reter updates recentes o
+ *  bastante pra cobrir o reenvio do Telegram, que acontece em minutos, não
+ *  em dias. */
+export function limparUpdatesAntigos(maxIdadeMs = 24 * 60 * 60 * 1000): void {
+  getDb().prepare(`DELETE FROM telegram_webhook_updates WHERE created_at < ?`).run(Date.now() - maxIdadeMs);
+}
+
 /** Canais/grupos que o MONITOR já consultou. Fonte extra para o "Detectar":
  *  ele roda com a operação desligada, então às vezes sabe de um chat que o
  *  webhook nunca viu. */

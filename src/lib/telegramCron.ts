@@ -19,6 +19,7 @@ import {
   getSubscription,
   getPlan,
   buildPlanKeyboardRows,
+  limparUpdatesAntigos,
 } from "@/lib/telegramDb";
 import {
   sendTelegramMedia,
@@ -769,6 +770,11 @@ async function runTelegramFunnelsImpl(): Promise<{
   const db = getDb();
   const profiles = db.prepare("SELECT id FROM profiles").all() as { id: string }[];
   const tz = getAppTimeZone();
+
+  // Faxina da idempotência do webhook — não precisa reter updates com mais
+  // de 1 dia (o Telegram reenvia em minutos, nunca em dias), e este cron já
+  // roda a cada minuto de qualquer jeito.
+  limparUpdatesAntigos();
 
   let downsellCount = 0;
   let upsellCount = 0;

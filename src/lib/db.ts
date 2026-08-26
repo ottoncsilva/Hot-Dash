@@ -1178,6 +1178,19 @@ function migrate(d: Database.Database) {
   // pra saber quais prévias um lead JÁ viu, e a IA repetia a mesma foto (ver
   // `amostrasEnviadas`/`sortearAmostra` no motor do LTV).
   ensureColumn(d, "ltv_messages", "media_id", "TEXT");
+  // Botões do checkout no cartão (Stripe, internacional ou "Aceitar cartão no
+  // Brasil"): antes eram texto fixo ("Make payment"/"Pagar", "Check payment
+  // status"/"Verificar status") direto no código do webhook. Agora dá pra
+  // editar (mesmo padrão *_en/*_es dos campos vizinhos) e pra esconder o
+  // botão de verificar status, quando a modelo preferir deixar só o link.
+  ensureColumn(d, "telegram_bots", "checkout_generating_message", "TEXT");
+  ensureColumn(d, "telegram_bots", "checkout_pay_button_text", "TEXT");
+  ensureColumn(d, "telegram_bots", "checkout_pay_button_text_en", "TEXT");
+  ensureColumn(d, "telegram_bots", "checkout_pay_button_text_es", "TEXT");
+  ensureColumn(d, "telegram_bots", "checkout_check_button_text", "TEXT");
+  ensureColumn(d, "telegram_bots", "checkout_check_button_text_en", "TEXT");
+  ensureColumn(d, "telegram_bots", "checkout_check_button_text_es", "TEXT");
+  ensureColumn(d, "telegram_bots", "checkout_show_check_button", "INTEGER NOT NULL DEFAULT 1");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);

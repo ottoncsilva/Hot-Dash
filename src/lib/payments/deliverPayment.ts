@@ -58,7 +58,10 @@ export async function deliverPaidTransaction(
     await import("@/lib/telegramDb");
   const sub = ehVendaDeLtv ? null : findSubscriptionByTransaction(transaction.id);
 
-  if (sub && sub.status === "pending") {
+  // "abandoned" é um PIX pendente que um /start mais novo do mesmo lead
+  // superou (ver `abandonPendingSubscriptions`) — parou de nagear, mas se for
+  // pago do nada a entrega continua valendo, exatamente como um "pending".
+  if (sub && (sub.status === "pending" || sub.status === "abandoned")) {
     const bot = getBotConfig(sub.botId);
     if (bot) {
       const { createTelegramInviteLink, sendTelegramMessage } = await import("@/lib/telegramApi");

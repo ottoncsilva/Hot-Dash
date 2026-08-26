@@ -111,6 +111,25 @@ export type TelegramBotConfig = {
   /** Prova social traduzida — mesmos marcadores {vendas_hoje}/{assinantes}. */
   pixSocialProofTextEn?: string;
   pixSocialProofTextEs?: string;
+  /** "Gerando cobrança..." do checkout no CARTÃO (Stripe) — separado de
+   *  `pixGeneratingMessage`: antes o cartão usava o texto do PIX ("Gerando
+   *  cobrança PIX...") mesmo pra quem pagava com cartão, o que é errado. Só
+   *  PT: o intl usa o texto fixo já traduzido (`CHECKOUT_INTL_TEXTS`), isto
+   *  aqui é só pro brasileiro que escolheu "Aceitar cartão no Brasil". */
+  checkoutGeneratingMessage?: string;
+  /** Botão que abre o link de pagamento no checkout Stripe (internacional ou
+   *  "Aceitar cartão no Brasil") — antes era "Make payment"/"Pagar 👉" fixo
+   *  no código. Vazio cai no texto padrão de sempre, em cada idioma. */
+  checkoutPayButtonText?: string;
+  checkoutPayButtonTextEn?: string;
+  checkoutPayButtonTextEs?: string;
+  /** Botão "Verificar Status do Pagamento" do MESMO checkout Stripe — antes
+   *  "Check payment status" fixo. `checkoutShowCheckButton` desligado tira o
+   *  botão inteiro (só fica o link de pagamento). */
+  checkoutCheckButtonText?: string;
+  checkoutCheckButtonTextEn?: string;
+  checkoutCheckButtonTextEs?: string;
+  checkoutShowCheckButton?: boolean;
 };
 
 /** Textos padrão da tela de pagamento — os mesmos que antes viviam fixos no
@@ -148,6 +167,16 @@ export const PIX_DEFAULTS = {
   /** Resposta do "Verificar Status" quando a confirmação ainda não chegou. */
   notPaidMessage:
     "Ainda não identificamos seu pagamento. Se você já pagou, aguarde alguns instantes e tente novamente.",
+} as const;
+
+/** Textos padrão do checkout NO CARTÃO (Stripe) — mesmo espírito de
+ *  `PIX_DEFAULTS`: ficam aqui pra UI mostrar como placeholder e restaurar. Só
+ *  o texto em PT ("Aceitar cartão no Brasil"); o internacional já tem os
+ *  seus fixos, traduzidos, no webhook. */
+export const CHECKOUT_DEFAULTS = {
+  generatingMessage: "⏳ Gerando cobrança no cartão...",
+  payButton: "Pagar 👉",
+  checkButton: "Verificar status",
 } as const;
 
 /**
@@ -391,7 +420,13 @@ export type TelegramSubscription = {
   telegramUserId: number;
   telegramUsername?: string;
   inviteLink?: string;
-  status: "pending" | "active" | "expired" | "blocked";
+  /** "abandoned": um PIX/cobrança que ficou pendente e foi SUPERADO por um
+   *  novo /start do mesmo lead (ver `abandonPendingSubscriptions`) — não
+   *  conta mais pra nada (não bloqueia o Downsell geral, não recebe
+   *  mensagem do Downsell de cobrança), mas a linha continua existindo: se
+   *  esse PIX antigo for pago do nada, a entrega ainda funciona (ver
+   *  `deliverPaidTransaction`), só não volta a nagear ninguém. */
+  status: "pending" | "active" | "expired" | "blocked" | "abandoned";
   expiresAt: number;
   lastUpsellAt?: number;
   upsellStepIndex: number;
@@ -487,6 +522,17 @@ function toBotConfig(row: any): TelegramBotConfig {
     successButtonTextEs: row.success_button_text_es || undefined,
     pixSocialProofTextEn: row.pix_social_proof_text_en || undefined,
     pixSocialProofTextEs: row.pix_social_proof_text_es || undefined,
+    checkoutGeneratingMessage: row.checkout_generating_message || undefined,
+    checkoutPayButtonText: row.checkout_pay_button_text || undefined,
+    checkoutPayButtonTextEn: row.checkout_pay_button_text_en || undefined,
+    checkoutPayButtonTextEs: row.checkout_pay_button_text_es || undefined,
+    checkoutCheckButtonText: row.checkout_check_button_text || undefined,
+    checkoutCheckButtonTextEn: row.checkout_check_button_text_en || undefined,
+    checkoutCheckButtonTextEs: row.checkout_check_button_text_es || undefined,
+    checkoutShowCheckButton:
+      row.checkout_show_check_button === undefined || row.checkout_show_check_button === null
+        ? true
+        : !!row.checkout_show_check_button,
   };
 }
 
@@ -530,8 +576,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, success_message_en, success_message_es, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, renewal_funnel, renewal_enabled, intl_enabled, intl_ask_first, accept_card_br, welcome_message_en, welcome_message_es, success_button_text_en, success_button_text_es, pix_social_proof_text_en, pix_social_proof_text_es, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, success_message_en, success_message_es, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, renewal_funnel, renewal_enabled, intl_enabled, intl_ask_first, accept_card_br, welcome_message_en, welcome_message_es, success_button_text_en, success_button_text_es, pix_social_proof_text_en, pix_social_proof_text_es, checkout_generating_message, checkout_pay_button_text, checkout_pay_button_text_en, checkout_pay_button_text_es, checkout_check_button_text, checkout_check_button_text_en, checkout_check_button_text_es, checkout_show_check_button, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -587,7 +633,15 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        success_button_text_en = excluded.success_button_text_en,
        success_button_text_es = excluded.success_button_text_es,
        pix_social_proof_text_en = excluded.pix_social_proof_text_en,
-       pix_social_proof_text_es = excluded.pix_social_proof_text_es`
+       pix_social_proof_text_es = excluded.pix_social_proof_text_es,
+       checkout_generating_message = excluded.checkout_generating_message,
+       checkout_pay_button_text = excluded.checkout_pay_button_text,
+       checkout_pay_button_text_en = excluded.checkout_pay_button_text_en,
+       checkout_pay_button_text_es = excluded.checkout_pay_button_text_es,
+       checkout_check_button_text = excluded.checkout_check_button_text,
+       checkout_check_button_text_en = excluded.checkout_check_button_text_en,
+       checkout_check_button_text_es = excluded.checkout_check_button_text_es,
+       checkout_show_check_button = excluded.checkout_show_check_button`
   ).run(
     id,
     config.profileId,
@@ -648,6 +702,14 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.successButtonTextEs?.trim() || null,
     config.pixSocialProofTextEn?.trim() || null,
     config.pixSocialProofTextEs?.trim() || null,
+    config.checkoutGeneratingMessage?.trim() || null,
+    config.checkoutPayButtonText?.trim() || null,
+    config.checkoutPayButtonTextEn?.trim() || null,
+    config.checkoutPayButtonTextEs?.trim() || null,
+    config.checkoutCheckButtonText?.trim() || null,
+    config.checkoutCheckButtonTextEn?.trim() || null,
+    config.checkoutCheckButtonTextEs?.trim() || null,
+    config.checkoutShowCheckButton === false ? 0 : 1,
     now
   );
   // Lê PELO PERFIL, não pelo `id` que acabou de ser passado. O INSERT resolve
@@ -918,6 +980,23 @@ export function findPendingSubscription(botId: string, telegramUserId: number): 
     )
     .get(botId, telegramUserId) as any;
   return row ? toSubscription(row) : null;
+}
+
+/**
+ * Dá /start de novo com um PIX pendente na mão: aquele PIX vira "abandoned",
+ * nunca mais "pending" — chamado a CADA /start, pra o lead recomeçar 100%
+ * novo (Downsell geral E Downsell de cobrança nunca correm juntos, um
+ * recomeço nunca herda o funil da tentativa anterior). A linha em si NUNCA é
+ * apagada: se esse PIX velho for pago do nada, `deliverPaidTransaction`
+ * ainda entrega (aceita "pending" OU "abandoned"), só que sem gerar nenhuma
+ * mensagem nova de cobrança daqui pra frente.
+ */
+export function abandonPendingSubscriptions(botId: string, telegramUserId: number): void {
+  getDb()
+    .prepare(
+      "UPDATE telegram_subscriptions SET status = 'abandoned' WHERE bot_id = ? AND telegram_user_id = ? AND status = 'pending'",
+    )
+    .run(botId, telegramUserId);
 }
 
 /** Quantos assinantes ativos o bot tem AGORA (alimenta a prova social real).

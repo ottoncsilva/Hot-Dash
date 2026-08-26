@@ -804,6 +804,7 @@ export type ButtonRole =
   | "redirect"
   | "plans"
   | "confirmPurchase"
+  | "checkoutPay"
   | "pixCheck"
   | "pixCopy"
   | "pixQr"
@@ -825,6 +826,7 @@ export const BUTTON_ROLES: { key: ButtonRole; label: string; hint: string }[] = 
   { key: "redirect", label: "Botões de redirect", hint: "Links extras do /start (canal grátis, suporte…)" },
   { key: "plans", label: "Lista de planos", hint: "Botões de escolha de plano (/start, funis, mailing). Um plano com cor própria ignora esta." },
   { key: "confirmPurchase", label: "Confirmar compra", hint: 'Botão "Pagar com Pix", quando houver escolha de método' },
+  { key: "checkoutPay", label: "Pagar no cartão", hint: 'Botão que abre o link de pagamento no checkout Stripe (internacional ou cartão no Brasil)' },
   { key: "pixCheck", label: "Verificar pagamento", hint: 'Botão "Verificar Status do Pagamento"' },
   { key: "pixCopy", label: "Copiar chave Pix", hint: "Botão que reenvia só o código" },
   { key: "pixQr", label: "Mostrar QR Code", hint: "Botão que envia a imagem do QR" },

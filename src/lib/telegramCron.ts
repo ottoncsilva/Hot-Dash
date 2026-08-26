@@ -7,7 +7,6 @@ import { partsInTimeZone, zonedWallTimeToUtcMs, addDaysInTimeZone } from "@/lib/
 import {
   getBotConfigByProfile,
   getBotConfig,
-  getTelegramLead,
   listLeadsForDownsell,
   findActiveSubscription,
   findPendingSubscription,
@@ -836,16 +835,12 @@ async function runTelegramFunnelsImpl(): Promise<{
         const activeSub = findActiveSubscription(bot.id, Number(lead.chatId));
         if (activeSub) continue; // Pagou, sai do remarketing
 
-        // Gerou o PIX: sai do Downsell geral e passa a ser cuidado pelo
-        // Downsell de PIX gerado (bloco 1b) — os dois nunca correm juntos
-        // pro mesmo lead, senão ele levaria mensagem dobrada. MAS só conta
-        // um PIX gerado DEPOIS do /start atual: um PIX abandonado de uma
-        // visita ANTERIOR não pode travar um recomeço 100% novo (a linha
-        // continua existindo — se aquele PIX antigo for pago do nada, a
-        // entrega funciona igual —, só para de bloquear/de puxar o Downsell
-        // geral e o de PIX gerado pra ele).
-        const pixPendente = findPendingSubscription(bot.id, Number(lead.chatId));
-        if (pixPendente && pixPendente.createdAt >= (lead.downsellStartedAt || lead.createdAt)) continue;
+        // Gerou uma cobrança: sai do Downsell geral e passa a ser cuidado
+        // pelo Downsell de cobrança (bloco 1b) — os dois NUNCA correm juntos
+        // pro mesmo lead. Um /start novo já abandona qualquer cobrança
+        // pendente da visita anterior (ver `abandonPendingSubscriptions`),
+        // então só existe "pending" de verdade aqui se for da visita ATUAL.
+        if (findPendingSubscription(bot.id, Number(lead.chatId))) continue;
 
         const idx = resolveStepIndex(downsellFunnel, lead.downsellStepIndex);
         if (idx === null) continue; // Acabou e não repete
@@ -933,17 +928,10 @@ async function runTelegramFunnelsImpl(): Promise<{
         // Pagou por outra cobrança no meio do caminho: sai da recuperação.
         if (findActiveSubscription(bot.id, row.telegram_user_id)) continue;
 
-        // PIX ABANDONADO de uma visita ANTERIOR: se o lead deu /start de
-        // novo depois de gerar este PIX e nunca pagar, o recomeço tem que
-        // ser 100% novo — sem ficar nagueando (nem contando o tempo) por um
-        // pagamento que ele já esqueceu, e sem prender o Downsell de PIX no
-        // plano que ele tinha escolhido daquela vez. A LINHA continua
-        // intacta: se esse PIX antigo for pago do nada, a entrega funciona
-        // igual (`findSubscriptionByTransaction` não olha pra isto) — só
-        // para de gerar mensagem nova pra ele.
-        const leadDoPix = getTelegramLead(`${bot.id}_${row.telegram_user_id}`);
-        const inicioAtual = leadDoPix?.downsellStartedAt || leadDoPix?.createdAt;
-        if (inicioAtual && row.created_at < inicioAtual) continue;
+        // Cobrança de uma visita ANTERIOR que um /start novo já superou não
+        // aparece mais aqui: essa consulta só pega `status = 'pending'`, e
+        // `abandonPendingSubscriptions` (chamado a cada /start) já virou
+        // essas em "abandoned" — sem precisar comparar datas na mão.
 
         const counter = row.pix_step_index || 0;
         // O FATO GERADOR é a CRIAÇÃO DA COBRANÇA (`row.created_at`), fixo pra

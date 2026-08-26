@@ -21,6 +21,7 @@ import {
   recordSeenChat,
   buildAccessMessage,
   PIX_DEFAULTS,
+  CHECKOUT_DEFAULTS,
   MESSAGE_DEFAULTS,
   RENEWAL_DEFAULT_STEPS,
 } from "@/lib/telegramDb";
@@ -240,6 +241,7 @@ export async function GET(req: NextRequest) {
       subscriptions,
       metrics,
       pixDefaults: PIX_DEFAULTS,
+      checkoutDefaults: CHECKOUT_DEFAULTS,
       // Passos-modelo do Alerta de Renovação, para o botão "Puxar padrão" —
       // mesmo conteúdo que já vem pré-carregado em bot novo (ver POST
       // save-credentials), só que aqui para reaplicar em quem já apagou ou
@@ -538,6 +540,49 @@ export async function POST(req: NextRequest) {
               bot.pixSocialProofTextEn,
               bot.pixSocialProofTextEs,
             );
+      // Botões do checkout no cartão (Stripe) — mesmo padrão de tradução
+      // gravada da prova social acima, só que pros dois botões do link de
+      // pagamento internacional.
+      const checkoutPayButtonTextNovo =
+        body.checkoutPayButtonText !== undefined ? String(body.checkoutPayButtonText) : bot.checkoutPayButtonText || "";
+      const traducaoPayButton =
+        body.checkoutPayButtonTextEn !== undefined || body.checkoutPayButtonTextEs !== undefined
+          ? {
+              en: body.checkoutPayButtonTextEn !== undefined ? String(body.checkoutPayButtonTextEn) : bot.checkoutPayButtonTextEn,
+              es: body.checkoutPayButtonTextEs !== undefined ? String(body.checkoutPayButtonTextEs) : bot.checkoutPayButtonTextEs,
+            }
+          : await traduzirSeMudou(
+              bot.profileId,
+              'the label of a BUTTON (not a message), the one that opens the payment link — short, like "Pay now" or "Make payment"',
+              checkoutPayButtonTextNovo,
+              bot.checkoutPayButtonText,
+              bot.checkoutPayButtonTextEn,
+              bot.checkoutPayButtonTextEs,
+            );
+      const checkoutCheckButtonTextNovo =
+        body.checkoutCheckButtonText !== undefined
+          ? String(body.checkoutCheckButtonText)
+          : bot.checkoutCheckButtonText || "";
+      const traducaoCheckButton =
+        body.checkoutCheckButtonTextEn !== undefined || body.checkoutCheckButtonTextEs !== undefined
+          ? {
+              en:
+                body.checkoutCheckButtonTextEn !== undefined
+                  ? String(body.checkoutCheckButtonTextEn)
+                  : bot.checkoutCheckButtonTextEn,
+              es:
+                body.checkoutCheckButtonTextEs !== undefined
+                  ? String(body.checkoutCheckButtonTextEs)
+                  : bot.checkoutCheckButtonTextEs,
+            }
+          : await traduzirSeMudou(
+              bot.profileId,
+              'the label of a BUTTON (not a message), the one the buyer taps to check whether their payment already went through — short, like "Check payment status"',
+              checkoutCheckButtonTextNovo,
+              bot.checkoutCheckButtonText,
+              bot.checkoutCheckButtonTextEn,
+              bot.checkoutCheckButtonTextEs,
+            );
       saveBotConfig({
         ...bot,
         pixGeneratingMessage:
@@ -557,6 +602,20 @@ export async function POST(req: NextRequest) {
         pixNotPaidMessage:
           body.pixNotPaidMessage !== undefined ? String(body.pixNotPaidMessage) : bot.pixNotPaidMessage,
         effectPix: efeitoValido(body.effectPix, bot.effectPix),
+        checkoutGeneratingMessage:
+          body.checkoutGeneratingMessage !== undefined
+            ? String(body.checkoutGeneratingMessage)
+            : bot.checkoutGeneratingMessage,
+        checkoutPayButtonText: checkoutPayButtonTextNovo,
+        checkoutPayButtonTextEn: traducaoPayButton.en,
+        checkoutPayButtonTextEs: traducaoPayButton.es,
+        checkoutCheckButtonText: checkoutCheckButtonTextNovo,
+        checkoutCheckButtonTextEn: traducaoCheckButton.en,
+        checkoutCheckButtonTextEs: traducaoCheckButton.es,
+        checkoutShowCheckButton:
+          body.checkoutShowCheckButton !== undefined
+            ? Boolean(body.checkoutShowCheckButton)
+            : bot.checkoutShowCheckButton,
       });
       return NextResponse.json({ ok: true });
     }

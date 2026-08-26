@@ -108,6 +108,21 @@ type Bot = {
    *  de `successMessageEn/Es`). Vazio cai num texto padrão em inglês/espanhol. */
   welcomeMessageEn?: string;
   welcomeMessageEs?: string;
+  /** "Gerando cobrança..." do checkout no CARTÃO (Stripe) — separado do texto
+   *  do PIX, senão quem paga com cartão via "Aceitar cartão no Brasil" via
+   *  "Gerando cobrança PIX..." por engano. */
+  checkoutGeneratingMessage?: string;
+  /** Botão que abre o link de pagamento (Stripe) — tradução GRAVADA mesmo
+   *  padrão dos outros campos *_en/*_es. */
+  checkoutPayButtonText?: string;
+  checkoutPayButtonTextEn?: string;
+  checkoutPayButtonTextEs?: string;
+  /** Botão "Verificar status" do MESMO checkout — `checkoutShowCheckButton`
+   *  desligado some com ele, ficando só o link de pagamento. */
+  checkoutCheckButtonText?: string;
+  checkoutCheckButtonTextEn?: string;
+  checkoutCheckButtonTextEs?: string;
+  checkoutShowCheckButton?: boolean;
 };
 /** Cores dos botões DESTA modelo (não do painel). O preview usa as mesmas. */
 type ButtonStyles = Record<string, "" | "primary" | "success" | "danger">;
@@ -148,6 +163,11 @@ type PixDefaults = {
   btnQr: string;
   btnCopy: string;
   notPaidMessage: string;
+};
+type CheckoutDefaults = {
+  generatingMessage: string;
+  payButton: string;
+  checkButton: string;
 };
 type Plan = {
   id: string;
@@ -229,6 +249,7 @@ export default function BotVendasPage() {
   const [buttons, setButtons] = useState<CustomButton[]>([]);
   const [subs, setSubs] = useState<Sub[]>([]);
   const [pixDefaults, setPixDefaults] = useState<PixDefaults | null>(null);
+  const [checkoutDefaults, setCheckoutDefaults] = useState<CheckoutDefaults | null>(null);
   // Passos-modelo do "Puxar padrão" no Alerta de Renovação. Os três gatilhos
   // de Recuperação ainda não têm o deles — nascem vazios até serem definidos.
   const [renewalDefaults, setRenewalDefaults] = useState<FunnelStep[]>([]);
@@ -271,6 +292,17 @@ export default function BotVendasPage() {
   const [pixBtnQr, setPixBtnQr] = useState("");
   const [pixBtnCopy, setPixBtnCopy] = useState("");
   const [pixAudio, setPixAudio] = useState("");
+  // Checkout no CARTÃO (Stripe) — lifted (não pro preview, que não simula
+  // essa tela; é só pra receber de volta a tradução EN/ES gravada pelo
+  // servidor ao salvar, mesmo mecanismo de pixProvaTextoEn/Es acima).
+  const [checkoutGerando, setCheckoutGerando] = useState("");
+  const [checkoutPay, setCheckoutPay] = useState("");
+  const [checkoutPayEn, setCheckoutPayEn] = useState("");
+  const [checkoutPayEs, setCheckoutPayEs] = useState("");
+  const [checkoutShowCheck, setCheckoutShowCheck] = useState(true);
+  const [checkoutCheck, setCheckoutCheck] = useState("");
+  const [checkoutCheckEn, setCheckoutCheckEn] = useState("");
+  const [checkoutCheckEs, setCheckoutCheckEs] = useState("");
   const [sucessoTexto, setSucessoTexto] = useState("");
   const [sucessoBotao, setSucessoBotao] = useState("");
   // Traduções GUARDADAS da mensagem de sucesso (botão "Traduzir" — fluxo
@@ -306,6 +338,7 @@ export default function BotVendasPage() {
         customButtons: CustomButton[];
         subscriptions: Sub[];
         pixDefaults: PixDefaults;
+        checkoutDefaults: CheckoutDefaults;
         renewalDefaults: FunnelStep[];
         buttonRoles: ButtonRoleInfo[];
       }>(`/api/telegram?profileId=${profileId}`);
@@ -314,6 +347,7 @@ export default function BotVendasPage() {
       setButtons(d.customButtons || []);
       setSubs(d.subscriptions || []);
       setPixDefaults(d.pixDefaults || null);
+      setCheckoutDefaults(d.checkoutDefaults || null);
       setRenewalDefaults(d.renewalDefaults || []);
       setWelcome(d.bot?.welcomeMessage || "");
       setWelcomeIds(d.bot?.welcomeMediaIds || []);
@@ -340,6 +374,14 @@ export default function BotVendasPage() {
       setPixBtnQr(d.bot?.pixBtnQr || d.pixDefaults?.btnQr || "");
       setPixBtnCopy(d.bot?.pixBtnCopy || d.pixDefaults?.btnCopy || "");
       setPixAudio(d.bot?.pixAudioUrl || "");
+      setCheckoutGerando(d.bot?.checkoutGeneratingMessage || d.checkoutDefaults?.generatingMessage || "");
+      setCheckoutPay(d.bot?.checkoutPayButtonText || d.checkoutDefaults?.payButton || "");
+      setCheckoutPayEn(d.bot?.checkoutPayButtonTextEn || "");
+      setCheckoutPayEs(d.bot?.checkoutPayButtonTextEs || "");
+      setCheckoutShowCheck(d.bot?.checkoutShowCheckButton !== false);
+      setCheckoutCheck(d.bot?.checkoutCheckButtonText || d.checkoutDefaults?.checkButton || "");
+      setCheckoutCheckEn(d.bot?.checkoutCheckButtonTextEn || "");
+      setCheckoutCheckEs(d.bot?.checkoutCheckButtonTextEs || "");
       setSucessoTexto(d.bot?.successMessage || "");
       setSucessoBotao(d.bot?.successButtonText || "");
       setSucessoTextoEn(d.bot?.successMessageEn || "");
@@ -563,6 +605,7 @@ export default function BotVendasPage() {
                     profileId={profileId}
                     bot={bot}
                     pixDefaults={pixDefaults}
+                    checkoutDefaults={checkoutDefaults}
                     gerando={pixGerando}
                     setGerando={setPixGerando}
                     legenda={pixLegenda}
@@ -585,6 +628,22 @@ export default function BotVendasPage() {
                     setBtnCopy={setPixBtnCopy}
                     efeito={efeitoPix}
                     setEfeito={setEfeitoPix}
+                    checkoutGerando={checkoutGerando}
+                    setCheckoutGerando={setCheckoutGerando}
+                    checkoutPay={checkoutPay}
+                    setCheckoutPay={setCheckoutPay}
+                    checkoutPayEn={checkoutPayEn}
+                    setCheckoutPayEn={setCheckoutPayEn}
+                    checkoutPayEs={checkoutPayEs}
+                    setCheckoutPayEs={setCheckoutPayEs}
+                    checkoutShowCheck={checkoutShowCheck}
+                    setCheckoutShowCheck={setCheckoutShowCheck}
+                    checkoutCheck={checkoutCheck}
+                    setCheckoutCheck={setCheckoutCheck}
+                    checkoutCheckEn={checkoutCheckEn}
+                    setCheckoutCheckEn={setCheckoutCheckEn}
+                    checkoutCheckEs={checkoutCheckEs}
+                    setCheckoutCheckEs={setCheckoutCheckEs}
                     onSaved={load}
                   />
                   <SuccessRow
@@ -1672,6 +1731,7 @@ function PixRow({
   profileId,
   bot,
   pixDefaults,
+  checkoutDefaults,
   gerando,
   setGerando,
   legenda,
@@ -1694,11 +1754,28 @@ function PixRow({
   setBtnCopy,
   efeito,
   setEfeito,
+  checkoutGerando,
+  setCheckoutGerando,
+  checkoutPay,
+  setCheckoutPay,
+  checkoutPayEn,
+  setCheckoutPayEn,
+  checkoutPayEs,
+  setCheckoutPayEs,
+  checkoutShowCheck,
+  setCheckoutShowCheck,
+  checkoutCheck,
+  setCheckoutCheck,
+  checkoutCheckEn,
+  setCheckoutCheckEn,
+  checkoutCheckEs,
+  setCheckoutCheckEs,
   onSaved,
 }: {
   profileId: string;
   bot: Bot;
   pixDefaults: PixDefaults | null;
+  checkoutDefaults: CheckoutDefaults | null;
   gerando: string;
   setGerando: (v: string) => void;
   legenda: string;
@@ -1721,6 +1798,22 @@ function PixRow({
   setBtnCopy: (v: string) => void;
   efeito: string;
   setEfeito: (v: string) => void;
+  checkoutGerando: string;
+  setCheckoutGerando: (v: string) => void;
+  checkoutPay: string;
+  setCheckoutPay: (v: string) => void;
+  checkoutPayEn: string;
+  setCheckoutPayEn: (v: string) => void;
+  checkoutPayEs: string;
+  setCheckoutPayEs: (v: string) => void;
+  checkoutShowCheck: boolean;
+  setCheckoutShowCheck: (v: boolean) => void;
+  checkoutCheck: string;
+  setCheckoutCheck: (v: string) => void;
+  checkoutCheckEn: string;
+  setCheckoutCheckEn: (v: string) => void;
+  checkoutCheckEs: string;
+  setCheckoutCheckEs: (v: string) => void;
   onSaved: () => void;
 }) {
   // A resposta de "ainda não pago" não entra no preview do funil (só aparece
@@ -1749,6 +1842,14 @@ function PixRow({
         pixBtnCopy: btnCopy,
         pixNotPaidMessage: naoPago,
         effectPix: efeito,
+        checkoutGeneratingMessage: checkoutGerando,
+        checkoutPayButtonText: checkoutPay,
+        checkoutPayButtonTextEn: checkoutPayEn,
+        checkoutPayButtonTextEs: checkoutPayEs,
+        checkoutCheckButtonText: checkoutCheck,
+        checkoutCheckButtonTextEn: checkoutCheckEn,
+        checkoutCheckButtonTextEs: checkoutCheckEs,
+        checkoutShowCheckButton: checkoutShowCheck,
       });
       showToast("Tela de pagamento salva.", "success");
       onSaved();
@@ -1833,6 +1934,88 @@ function PixRow({
           value={btnCopy}
           onChange={(e) => setBtnCopy(e.target.value)}
         />
+      </div>
+
+      {/* Checkout no CARTÃO (Stripe) — internacional (plano em USD) ou
+          "Aceitar cartão no Brasil" (Configurações internacionais). Link e
+          botão de status são SEMPRE deste checkout; o PIX acima nunca passa
+          por aqui. */}
+      <div className="mt-5 rounded-xl border border-white/10 bg-ink-850 p-3.5">
+        <p className="text-sm font-semibold text-white">Checkout no cartão (Stripe)</p>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+          Tela que aparece depois de escolher um plano em dólar, ou "pagar no cartão" no Brasil — link de
+          pagamento, não PIX.
+        </p>
+
+        <label className="eyebrow mt-3 block">Aviso enquanto a cobrança é criada</label>
+        <input
+          className="input mt-1.5"
+          placeholder={checkoutDefaults?.generatingMessage}
+          value={checkoutGerando}
+          onChange={(e) => setCheckoutGerando(e.target.value)}
+        />
+
+        <label className="eyebrow mt-3 block">Botão "Pagar" (abre o link)</label>
+        <input
+          className="input mt-1.5 text-xs"
+          placeholder={checkoutDefaults?.payButton}
+          value={checkoutPay}
+          onChange={(e) => setCheckoutPay(e.target.value)}
+        />
+        <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2">
+          <input
+            className="input text-xs"
+            placeholder="🇬🇧 English — vazio cai num padrão em inglês"
+            value={checkoutPayEn}
+            onChange={(e) => setCheckoutPayEn(e.target.value)}
+          />
+          <input
+            className="input text-xs"
+            placeholder="🇪🇸 Español — vazio cai num padrão em español"
+            value={checkoutPayEs}
+            onChange={(e) => setCheckoutPayEs(e.target.value)}
+          />
+        </div>
+
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-white">Botão "Verificar status"</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+              Desligado, o cliente fica só com o link de pagamento — sem um segundo botão pra conferir se
+              já caiu.
+            </p>
+          </div>
+          <Switch checked={checkoutShowCheck} onChange={setCheckoutShowCheck} ariaLabel='Mostrar botão "Verificar status"' />
+        </div>
+        {checkoutShowCheck && (
+          <>
+            <input
+              className="input mt-2 text-xs"
+              placeholder={checkoutDefaults?.checkButton}
+              value={checkoutCheck}
+              onChange={(e) => setCheckoutCheck(e.target.value)}
+            />
+            <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2">
+              <input
+                className="input text-xs"
+                placeholder="🇬🇧 English — vazio cai num padrão em inglês"
+                value={checkoutCheckEn}
+                onChange={(e) => setCheckoutCheckEn(e.target.value)}
+              />
+              <input
+                className="input text-xs"
+                placeholder="🇪🇸 Español — vazio cai num padrão em español"
+                value={checkoutCheckEs}
+                onChange={(e) => setCheckoutCheckEs(e.target.value)}
+              />
+            </div>
+          </>
+        )}
+        <p className="mt-2 text-[11px] text-zinc-500">
+          Tradução EN/ES: em branco, é gravada sozinha ao salvar — edite por cima se quiser algo diferente
+          do automático. Cor dos dois botões: aba "Cores dos botões", papéis "Pagar no cartão" e
+          "Verificar pagamento".
+        </p>
       </div>
 
       {/* Prova social — números REAIS, e só isso. Não existe campo para
@@ -1944,6 +2127,14 @@ function PixRow({
             setBtnCopy("");
             setNaoPago("");
             setEfeito("");
+            setCheckoutGerando("");
+            setCheckoutPay("");
+            setCheckoutPayEn("");
+            setCheckoutPayEs("");
+            setCheckoutShowCheck(true);
+            setCheckoutCheck("");
+            setCheckoutCheckEn("");
+            setCheckoutCheckEs("");
           }}
           className="btn-ghost"
         >

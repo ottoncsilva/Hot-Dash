@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { TelegramPlan, TelegramBotConfig } from "@/lib/telegramDb";
-import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, recurringFromDurationDays, primeiraVezQueVejoEsteUpdate, BUMP_DEFAULTS, PIX_DEFAULTS } from "@/lib/telegramDb";
+import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, abandonPendingSubscriptions, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, recurringFromDurationDays, primeiraVezQueVejoEsteUpdate, BUMP_DEFAULTS, PIX_DEFAULTS, CHECKOUT_DEFAULTS } from "@/lib/telegramDb";
 import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser, setTelegramUserLanguage } from "@/lib/telegramUsers";
 import { recordGroupMembershipChange } from "@/lib/telegramMonitor";
 import { getMailingOffer } from "@/lib/telegramMailing";
@@ -343,6 +343,12 @@ export async function POST(
           downsellStartedAt: Date.now(),
           sourceCode: sourceCode || undefined,
         });
+        // Qualquer cobrança pendente de uma visita ANTERIOR vira "abandoned"
+        // — nunca mais nageia nem bloqueia o Downsell geral (ver o comentário
+        // em `abandonPendingSubscriptions`). Sem isto, dar /start de novo com
+        // um PIX/cartão pendente na mão fazia os DOIS funis de recuperação
+        // rodarem juntos pro mesmo lead.
+        abandonPendingSubscriptions(bot.id, from.id);
         // O mesmo código de origem também fica no usuário, para a lista mostrar
         // por qual link cada pessoa chegou.
         if (sourceCode) {
@@ -647,9 +653,12 @@ export async function POST(
       // Idioma gravado quando o lead escolheu no menu internacional (D.2).
       // Sem escolha registrada (ex.: link antigo), cai em inglês — era o
       // único idioma do fluxo intl antes do menu de idioma existir.
-      const tIntl = CHECKOUT_INTL_TEXTS[
-        isIntlBuy ? getTelegramUser(`${bot.id}_${from.id}`)?.language || "en" : "en"
-      ];
+      const idiomaIntl: "en" | "es" = isIntlBuy
+        ? getTelegramUser(`${bot.id}_${from.id}`)?.language === "es"
+          ? "es"
+          : "en"
+        : "en";
+      const tIntl = CHECKOUT_INTL_TEXTS[idiomaIntl];
 
       // ---- Order Bump: a oferta que aparece entre escolher o plano e gerar
       // o PIX. `bump_yes_` / `bump_no_` carregam o mesmo par (plano, desconto)
@@ -815,13 +824,19 @@ export async function POST(
           return NextResponse.json({ ok: true });
         }
 
-        // Informa que a cobrança está sendo gerada (texto configurável — só
-        // faz sentido em PT para o PIX/cartão BR; o intl usa um dos textos
-        // fixos D.3, no idioma que o lead escolheu no menu internacional).
+        // Informa que a cobrança está sendo gerada — três textos, um por
+        // método: PIX é PIX, cartão (mesmo brasileiro, `isCardBrBuy`) NUNCA
+        // pode mostrar "Gerando cobrança PIX..." (bug visto e corrigido: o
+        // cartão caía no texto do PIX por engano), e o intl usa o texto fixo
+        // já traduzido no idioma que o lead escolheu.
         await sendTelegramMessage(
           bot.botToken,
           String(message.chat.id),
-          isIntlBuy ? tIntl.generating : (bot.pixGeneratingMessage?.trim() || PIX_DEFAULTS.generatingMessage),
+          isIntlBuy
+            ? tIntl.generating
+            : isCardBrBuy
+              ? bot.checkoutGeneratingMessage?.trim() || CHECKOUT_DEFAULTS.generatingMessage
+              : bot.pixGeneratingMessage?.trim() || PIX_DEFAULTS.generatingMessage,
         );
 
         let amountCents = basePriceCents;
@@ -960,23 +975,38 @@ export async function POST(
             );
             return NextResponse.json({ ok: true });
           }
+          // Texto do botão: configurável (PT direto, EN/ES gravados — mesmo
+          // padrão de `successButtonTextEn/Es`), com o fixo de sempre como
+          // fallback. `checkoutShowCheckButton` desligado tira a segunda
+          // linha inteira, ficando só o link de pagamento.
+          const payButtonText =
+            (isIntlBuy
+              ? idiomaIntl === "es"
+                ? bot.checkoutPayButtonTextEs
+                : bot.checkoutPayButtonTextEn
+              : bot.checkoutPayButtonText
+            )?.trim() || (isIntlBuy ? tIntl.makePayment : CHECKOUT_DEFAULTS.payButton);
+          const checkButtonText =
+            (isIntlBuy
+              ? idiomaIntl === "es"
+                ? bot.checkoutCheckButtonTextEs
+                : bot.checkoutCheckButtonTextEn
+              : bot.checkoutCheckButtonText
+            )?.trim() || (isIntlBuy ? tIntl.checkStatus : CHECKOUT_DEFAULTS.checkButton);
+          const inlineKeyboard: any[] = [
+            [{ text: payButtonText, url: charge.checkoutUrl, ...buttonStyleProps(bot, "checkoutPay") }],
+          ];
+          if (bot.checkoutShowCheckButton !== false) {
+            inlineKeyboard.push([
+              { text: checkButtonText, callback_data: `pix_check_${subId}`, ...buttonStyleProps(bot, "pixCheck") },
+            ]);
+          }
           await sendTelegramMessage(
             bot.botToken,
             String(message.chat.id),
             isIntlBuy ? tIntl.finishPayment : "Finalize o pagamento pelo link abaixo.",
             {
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: isIntlBuy ? tIntl.makePayment : "Pagar 👉", url: charge.checkoutUrl }],
-                  [
-                    {
-                      text: isIntlBuy ? tIntl.checkStatus : "Verificar status",
-                      callback_data: `pix_check_${subId}`,
-                      ...buttonStyleProps(bot, "pixCheck"),
-                    },
-                  ],
-                ],
-              },
+              reply_markup: { inline_keyboard: inlineKeyboard },
               ...efeitoProps(bot.effectPix),
             },
           );

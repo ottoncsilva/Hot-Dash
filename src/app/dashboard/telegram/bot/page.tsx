@@ -917,6 +917,11 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
   const active = bot.operationActive;
   const ingestActive = Boolean(bot.passiveIngestActive);
   const [ingestBusy, setIngestBusy] = useState(false);
+  // Confirmação antes de LIGAR o controle total — é a única das duas ações
+  // desta tela que TOMA o bot de qualquer sistema que esteja rodando ele
+  // agora (a Recepção nunca faz isso; no pior caso ela repassa tudo de
+  // volta). Um clique errado aqui derruba quem estiver operando de verdade.
+  const { confirm, ConfirmDialog } = useConfirm();
   // Segredo do repasse — só relevante no modo "relay", só quando o sistema
   // de origem exige o header `X-Telegram-Bot-Api-Secret-Token`. Editável a
   // qualquer momento (religa o repasse com o valor novo).
@@ -980,6 +985,19 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
   }, [checkStatus, active]);
 
   async function setOperation(next: boolean) {
+    // Só confirma ao LIGAR — desligar é sempre a direção segura (devolve o
+    // bot pra quem estava com ele).
+    if (next) {
+      const ok = await confirm({
+        title: "Assumir o bot?",
+        message:
+          "Isso faz o Hot-Dash MANDAR as mensagens deste bot a partir de agora (funil, PIX, aprovação) — " +
+          "quem estiver operando ele hoje (outro sistema, ou a Recepção em modo repasse) para de receber " +
+          "qualquer coisa na hora. Só ligue se a intenção é essa.",
+        confirmLabel: "Sim, assumir o bot",
+      });
+      if (!ok) return;
+    }
     setToggling(true);
     try {
       const r = await apiSend<{ ok: boolean; message?: string }>("/api/telegram", "POST", {
@@ -1063,23 +1081,35 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
         </div>
       )}
 
-      {/* Liga/desliga da operação (cutover do sistema atual → Hot-Dash) */}
+      <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
+        Dois interruptores INDEPENDENTES, cada um com um efeito bem diferente — leia o rótulo de cada um
+        antes de ligar.
+      </p>
+
+      {/* Liga/desliga da operação (cutover do sistema atual → Hot-Dash). É a
+          ação PERIGOSA das duas: toma o bot de qualquer sistema que esteja
+          rodando ele agora, e por isso pede confirmação (ver setOperation). */}
       <div
-        className={`mt-3 flex items-center justify-between gap-3 rounded-xl border p-3.5 ${
-          active ? "border-emerald-500/30 bg-emerald-500/[0.06]" : "border-white/10 bg-ink-850"
+        className={`mt-3 rounded-xl border-2 p-3.5 ${
+          active ? "border-emerald-500/40 bg-emerald-500/[0.08]" : "border-amber-500/30 bg-amber-500/[0.04]"
         }`}
       >
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-white">
-            {active ? "Ligada — o Hot-Dash controla o bot" : "Desligada — outro sistema controla o bot"}
-          </p>
-          <p className="mt-0.5 text-xs text-zinc-500">
-            {active
-              ? "O bot recebe leads, gera PIX e aprova entradas pelo Hot-Dash."
-              : "Ligue para fazer o cutover: o Hot-Dash assume o webhook do bot na hora."}
-          </p>
+        <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-amber-400">
+          1 · Controle total — o Hot-Dash MANDA as mensagens
+        </p>
+        <div className="mt-1.5 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white">
+              {active ? "LIGADO — o Hot-Dash está no comando" : "Desligado"}
+            </p>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {active
+                ? "O bot recebe leads, gera PIX e aprova entradas pelo Hot-Dash. Ninguém mais manda mensagem por ele."
+                : "Ligar isto TOMA o bot na hora de quem estiver operando ele agora (outro sistema, ou a Recepção abaixo)."}
+            </p>
+          </div>
+          <Switch checked={active} onChange={setOperation} disabled={toggling} ariaLabel="Controle total do bot" />
         </div>
-        <Switch checked={active} onChange={setOperation} disabled={toggling} ariaLabel="Operação do bot" />
       </div>
 
       {/* RECEPÇÃO DE INFORMAÇÕES — 2º interruptor, independente do de cima:
@@ -1088,18 +1118,21 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
           ponta. Nunca manda mensagem nenhuma. Mutuamente exclusivo com
           "controle total" — os dois juntos não fazem sentido. */}
       <div
-        className={`mt-2 rounded-xl border p-3.5 ${
-          ingestActive ? "border-sky-500/30 bg-sky-500/[0.06]" : "border-white/10 bg-ink-850"
+        className={`mt-2 rounded-xl border-2 p-3.5 ${
+          ingestActive ? "border-sky-500/40 bg-sky-500/[0.08]" : "border-white/10 bg-ink-850"
         } ${active ? "opacity-50" : ""}`}
       >
-        <div className="flex items-center justify-between gap-3">
+        <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-sky-400">
+          2 · Recepção — o Hot-Dash só LÊ, nunca manda nada
+        </p>
+        <div className="mt-1.5 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white">
-              {ingestActive ? "Recepção ligada — só grava, quem opera é o outro sistema" : "Recepção de informações"}
+              {ingestActive ? "LIGADO — só leitura, quem opera continua sendo o outro sistema" : "Desligado"}
             </p>
             <p className="mt-0.5 text-xs text-zinc-500">
               {active
-                ? "Desligue o controle total pra poder ligar isto — os dois não podem ficar juntos."
+                ? "Desligue o Controle total (acima) pra poder ligar isto — os dois não podem ficar juntos."
                 : ingestActive
                   ? bot.ingestMode === "poll"
                     ? "Modo espiada: o bot não tinha webhook (o outro sistema usa long polling). Melhor-esforço — pode não captar 100% dos eventos."
@@ -1218,6 +1251,7 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
           {status.error}
         </p>
       )}
+      {ConfirmDialog}
     </div>
   );
 }

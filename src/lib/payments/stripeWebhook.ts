@@ -12,6 +12,8 @@ import {
 } from "@/lib/telegramDb";
 import { getTelegramUser } from "@/lib/telegramUsers";
 import { sendTelegramMessage } from "@/lib/telegramApi";
+import { getStripeCredentials } from "@/lib/settings";
+import { getDb } from "@/lib/db";
 
 export type ResultadoWebhookStripe = { ok: true; ignored?: boolean; reason?: string };
 
@@ -57,7 +59,7 @@ function idiomaDoLead(botId: string, telegramUserId: number): "pt" | "en" | "es"
  * `/api/webhooks/stripe/route.ts`, que faz `stripe.webhooks.constructEvent`
  * sobre o corpo cru antes de chegar aqui).
  *
- * Cinco eventos importam agora — os quatro primeiros cobrem TODO o ciclo de
+ * Seis eventos importam agora — os quatro primeiros cobrem TODO o ciclo de
  * vida de uma assinatura automática (checkout internacional, `mode:
  * "subscription"` — ver `src/lib/payments/stripe.ts`); pagamento avulso
  * (PIX e Stripe `mode: "payment"`) só usa o primeiro:
@@ -68,6 +70,11 @@ function idiomaDoLead(botId: string, telegramUserId: number): "pt" | "en" | "es"
  *     NOVO sozinha (renovação automática).
  *   • invoice.payment_failed → tentativa de renovação que não passou.
  *   • customer.subscription.deleted → assinatura cancelada/encerrada.
+ *   • payment_intent.succeeded → REDE DE SEGURANÇA: cobrança paga nesta
+ *     MESMA conta Stripe que não passou pelo checkout do Hot-Dash (ex.: um
+ *     sistema externo, tipo o Bobz, usando a conta pra cobrar por fora do
+ *     nosso fluxo). Sem isso, essa venda simplesmente não aparecia em lugar
+ *     nenhum do Financeiro — ver `processarPaymentIntentSucedido`.
  */
 export async function processarWebhookStripe(event: Stripe.Event): Promise<ResultadoWebhookStripe> {
   const registra = (decision: string) =>
@@ -90,6 +97,9 @@ export async function processarWebhookStripe(event: Stripe.Event): Promise<Resul
   if (event.type === "customer.subscription.deleted") {
     registra("assinatura cancelada/encerrada · acesso segue até o vencimento já gravado");
     return { ok: true };
+  }
+  if (event.type === "payment_intent.succeeded") {
+    return processarPaymentIntentSucedido(event.data.object as Stripe.PaymentIntent, registra);
   }
 
   registra("ignorado · evento sem tratamento");
@@ -275,5 +285,89 @@ async function processarRenovacaoFalhou(
     /* push é aviso, não pode derrubar o processamento */
   }
 
+  return { ok: true };
+}
+
+/**
+ * REDE DE SEGURANÇA para cobrança que a Stripe aprovou nesta conta SEM
+ * passar pelo checkout do Hot-Dash — o caso concreto é um sistema externo
+ * (o Bobz, hoje) que opera alguns bots por fora e usa a MESMA conta Stripe
+ * pra cobrar. Sem isso, essa venda não aparecia em canto nenhum do
+ * Financeiro: `checkout.session.completed` só dispara pra quem passa pelo
+ * checkout hospedado da Stripe, e um `PaymentIntent` criado direto pela API
+ * (sem Checkout Session) nunca gera esse evento.
+ *
+ * Só é tratada como venda NOVA quando as 3 checagens abaixo passam — cada
+ * uma existe pra NÃO duplicar uma venda que já é nossa e já está sendo
+ * contada por outro caminho:
+ *
+ *  1. Ainda não tem transação gravada pra este PaymentIntent (reenvio do
+ *     mesmo evento, ou já foi gravada pelo `checkout.session.completed`
+ *     usando o MESMO id — ver 3).
+ *  2. Não pertence a um cliente que já tem assinatura Stripe local — nesse
+ *     caso é uma renovação automática, e quem contabiliza é
+ *     `processarRenovacaoPaga` (via `invoice.paid`), não aqui. (O SDK desta
+ *     versão da Stripe nem expõe mais `payment_intent.invoice` — perguntar
+ *     pro cliente local é o jeito confiável de saber.)
+ *  3. Não existe um Checkout Session associado a este PaymentIntent — se
+ *     existir, é uma venda que passou pelo NOSSO checkout (ou o do Bobz, se
+ *     ele também usar Checkout Sessions) e `checkout.session.completed` já
+ *     cuida dela (gravada sob o id da SESSÃO, não do PaymentIntent — os dois
+ *     eventos disparam pra mesma cobrança, cada um com sua própria
+ *     referência).
+ */
+async function processarPaymentIntentSucedido(
+  pi: Stripe.PaymentIntent,
+  registra: (s: string) => void,
+): Promise<ResultadoWebhookStripe> {
+  if (findByProviderRef("stripe", pi.id)) {
+    registra("ignorado · já registrada");
+    return { ok: true, ignored: true, reason: "already_recorded" };
+  }
+
+  const customerId = typeof pi.customer === "string" ? pi.customer : pi.customer?.id;
+  if (customerId) {
+    const jaAssinante = getDb()
+      .prepare("SELECT 1 FROM telegram_subscriptions WHERE stripe_customer_id = ? LIMIT 1")
+      .get(customerId);
+    if (jaAssinante) {
+      registra("ignorado · cliente já é assinante Stripe local (renovação, contada via invoice.paid)");
+      return { ok: true, ignored: true, reason: "known_subscriber" };
+    }
+  }
+
+  const creds = getStripeCredentials();
+  if (creds) {
+    try {
+      const stripe = new Stripe(creds.secretKey);
+      const sessions = await stripe.checkout.sessions.list({ payment_intent: pi.id, limit: 1 });
+      if (sessions.data.length > 0) {
+        registra("ignorado · veio de um Checkout Session (checkout.session.completed cuida dela)");
+        return { ok: true, ignored: true, reason: "has_checkout_session" };
+      }
+    } catch (e) {
+      // Consulta à Stripe falhou (rede, chave) — não dá pra confirmar que
+      // NÃO é duplicata. Mais seguro não gravar agora do que arriscar
+      // duplicar: o próximo reenvio do Telegram/Stripe tenta de novo.
+      registra(`ignorado · falha ao checar Checkout Session (${e instanceof Error ? e.message : "erro"})`);
+      return { ok: true, ignored: true, reason: "check_failed" };
+    }
+  }
+
+  // Passou pelas 3 checagens: cobrança de verdade, desta conta, que o
+  // Hot-Dash não iniciou e não é renovação de assinatura conhecida — grava
+  // como venda nova, SEM modelo atribuída ainda (mesma regra de sempre pra
+  // venda "fria" chegando só pelo webhook — corrige na tela de Financeiro).
+  recordTransaction({
+    provider: "stripe",
+    providerRef: pi.id,
+    description: "Venda Stripe (fora do checkout do Hot-Dash)",
+    customer: pi.receipt_email || undefined,
+    amountCents: pi.amount_received || pi.amount,
+    currency: (pi.currency || "usd").toUpperCase(),
+    method: "card",
+    status: normalizeStatus("paid"),
+  });
+  registra("venda nova (PaymentIntent fora do checkout) · paid");
   return { ok: true };
 }

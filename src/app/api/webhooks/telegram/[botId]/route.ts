@@ -153,22 +153,6 @@ async function enviarAberturaBrasil(
     extra: efeitoProps(bot.effectWelcome),
   });
 
-  // PROVA SOCIAL, logo abaixo dos planos — pesa na hora de decidir, não
-  // depois que o lead já escolheu (por isso saiu da tela do PIX, onde
-  // morava antes). Números REAIS desta modelo, nunca inventados: se o
-  // dia ainda estiver zerado, a mensagem simplesmente não sai — dizer
-  // "0 pessoas hoje" seria pior que não dizer nada.
-  if (bot.pixSocialProof && plans.length > 0) {
-    const hoje = overview(bot.profileId).today.paidCount;
-    const assinantes = countActiveSubscriptions(bot.id);
-    if (hoje > 0 || assinantes > 0) {
-      const linha = (bot.pixSocialProofText?.trim() || PIX_DEFAULTS.socialProofText)
-        .replace(/{vendas_hoje}/gi, String(hoje))
-        .replace(/{assinantes}/gi, String(assinantes));
-      await sendTelegramMessage(bot.botToken, String(chat.id), linha);
-    }
-  }
-
   // Cartão no Brasil — botão EXTRA, numa mensagem em SEQUÊNCIA (não editada
   // na de cima): o lead brasileiro que preferir cartão a PIX abre o mesmo
   // catálogo, cobrado em BRL pela Stripe (`card_menu` → `buy_card_`). Só
@@ -182,6 +166,23 @@ async function enviarAberturaBrasil(
           inline_keyboard: [[{ text: "💳 Pagar no cartão", callback_data: "card_menu", ...buttonStyleProps(bot, "redirect") }]],
         },
       });
+    }
+  }
+
+  // PROVA SOCIAL — sempre por ÚLTIMO: depois dos planos, do "Not from
+  // Brazil?" (que já vem junto da mensagem de boas-vindas) e do "pagar no
+  // cartão" acima. É o fechamento da abertura, não o meio dela. Números
+  // REAIS desta modelo, nunca inventados: se o dia ainda estiver zerado, a
+  // mensagem simplesmente não sai — dizer "0 pessoas hoje" seria pior que
+  // não dizer nada.
+  if (bot.pixSocialProof && plans.length > 0) {
+    const hoje = overview(bot.profileId).today.paidCount;
+    const assinantes = countActiveSubscriptions(bot.id);
+    if (hoje > 0 || assinantes > 0) {
+      const linha = (bot.pixSocialProofText?.trim() || PIX_DEFAULTS.socialProofText)
+        .replace(/{vendas_hoje}/gi, String(hoje))
+        .replace(/{assinantes}/gi, String(assinantes));
+      await sendTelegramMessage(bot.botToken, String(chat.id), linha);
     }
   }
 }
@@ -421,8 +422,8 @@ export async function POST(
             reply_markup: {
               inline_keyboard: [
                 [
-                  { text: "🇬🇧 English", callback_data: "lang_en" },
-                  { text: "🇪🇸 Español", callback_data: "lang_es" },
+                  { text: "🇬🇧 English", callback_data: "lang_en", ...buttonStyleProps(bot, "redirect") },
+                  { text: "🇪🇸 Español", callback_data: "lang_es", ...buttonStyleProps(bot, "redirect") },
                 ],
               ],
             },
@@ -631,7 +632,7 @@ export async function POST(
           return NextResponse.json({ ok: true });
         }
         await sendTelegramMessage(bot.botToken, chatId, tManage.managePortal, {
-          reply_markup: { inline_keyboard: [[{ text: tManage.openPortal, url }]] },
+          reply_markup: { inline_keyboard: [[{ text: tManage.openPortal, url, ...buttonStyleProps(bot, "managePortal") }]] },
         });
         return NextResponse.json({ ok: true });
       }

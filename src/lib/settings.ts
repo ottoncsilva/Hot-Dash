@@ -810,7 +810,8 @@ export type ButtonRole =
   | "pixQr"
   | "bumpAccept"
   | "bumpDecline"
-  | "access";
+  | "access"
+  | "managePortal";
 
 /**
  * Cor de partida de cada papel. Aceitar/recusar do Order Bump nascem verde e
@@ -823,7 +824,7 @@ const BUTTON_STYLE_DEFAULTS: Partial<Record<ButtonRole, ButtonStyle>> = {
 };
 
 export const BUTTON_ROLES: { key: ButtonRole; label: string; hint: string }[] = [
-  { key: "redirect", label: "Botões de redirect", hint: "Links extras do /start (canal grátis, suporte…)" },
+  { key: "redirect", label: "Botões de redirect", hint: "Links extras (suporte, idioma, entregável, mailing…) — qualquer botão que só leva pra outro lugar" },
   { key: "plans", label: "Lista de planos", hint: "Botões de escolha de plano (/start, funis, mailing). Um plano com cor própria ignora esta." },
   { key: "confirmPurchase", label: "Confirmar compra", hint: 'Botão "Pagar com Pix", quando houver escolha de método' },
   { key: "checkoutPay", label: "Pagar no cartão", hint: 'Botão que abre o link de pagamento no checkout Stripe (internacional ou cartão no Brasil)' },
@@ -833,6 +834,7 @@ export const BUTTON_ROLES: { key: ButtonRole; label: string; hint: string }[] = 
   { key: "bumpAccept", label: "Aceitar bump", hint: "Botão de aceite da oferta adicional" },
   { key: "bumpDecline", label: "Recusar bump", hint: "Botão de recusa da oferta adicional" },
   { key: "access", label: "Acessar conteúdo", hint: "Botão de acesso ao VIP depois do pagamento" },
+  { key: "managePortal", label: "Gerenciar assinatura", hint: 'Botões "Gerenciar assinatura" e "Abrir portal" (renovação automática via Stripe)' },
 ];
 
 export type ButtonStyles = Partial<Record<ButtonRole, ButtonStyle>>;

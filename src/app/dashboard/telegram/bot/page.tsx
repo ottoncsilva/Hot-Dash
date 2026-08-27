@@ -271,7 +271,7 @@ export default function BotVendasPage() {
   const [askFirstOn, setAskFirstOn] = useState(false);
   const [cardBrOn, setCardBrOn] = useState(false);
   /** Qual ramo o preview do funil está mostrando — só existe visualmente
-   *  quando há um plano elegível pra venda internacional (ver `podeMostrarIntl`). */
+   *  quando há um plano elegível pra venda internacional (ver `temPlanoUsd`). */
   const [ramoPreview, setRamoPreview] = useState<"br" | "intl">("br");
   const [welcomeEs, setWelcomeEs] = useState("");
   // Efeitos de mensagem — editados aqui porque o preview precisa acompanhar.
@@ -414,7 +414,14 @@ export default function BotVendasPage() {
   const planosUsd = plans.filter(
     (p) => p.active !== false && (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false,
   );
-  const podeMostrarIntl = intlOn && planosUsd.length > 0;
+  // Ter plano em USD é o único requisito pra existir "ramo internacional" —
+  // pergunta upfront (intlAskFirst) e botão "Not from Brazil?" são DOIS
+  // caminhos INDEPENDENTES pra chegar nele (ver o comentário do webhook),
+  // nenhum depende do outro estar ligado.
+  const temPlanoUsd = planosUsd.length > 0;
+  // Só o BOTÃO "Not from Brazil?" (meio do funil) depende de `intlOn` — a
+  // pergunta upfront e a simulação do ramo intl no preview não.
+  const podeMostrarBotaoNotFromBrazil = intlOn && temPlanoUsd;
 
   const previewButtons = [
     ...plans
@@ -427,7 +434,7 @@ export default function BotVendasPage() {
     // "Not from Brazil?" — some do meio do funil quando o modo bilíngue
     // pergunta lá na frente (ver `intlAskFirst` no webhook): os dois nunca
     // aparecem juntos pro mesmo lead.
-    ...(podeMostrarIntl && !askFirstOn
+    ...(podeMostrarBotaoNotFromBrazil
       ? [{ text: "🌎 Not from Brazil?", kind: "custom" as const, style: corDo(bot?.buttonStyles?.redirect) }]
       : []),
     ...buttons.map((b) => ({ text: b.text, kind: "custom" as const, style: corDo(bot?.buttonStyles?.redirect) })),
@@ -493,7 +500,7 @@ export default function BotVendasPage() {
 
   // Só existe "ramo internacional" de verdade quando há plano elegível — sem
   // isso, o preview sempre lê como Brasil, do mesmo jeito que o bot real.
-  const ramoIntlAtivo = ramoPreview === "intl" && podeMostrarIntl;
+  const ramoIntlAtivo = ramoPreview === "intl" && temPlanoUsd;
 
   useEffect(() => {
     load();
@@ -786,12 +793,16 @@ export default function BotVendasPage() {
                   successButtons={ramoIntlAtivo ? successButtonsIntl : successButtons}
                   effectSuccess={efeitoSuccess}
                   ramo={ramoIntlAtivo ? "intl" : "br"}
-                  intlAskFirst={askFirstOn && podeMostrarIntl}
+                  intlAskFirst={askFirstOn && temPlanoUsd}
                   cardBrButtons={cardBrBotoes}
                   redirectStyle={corDo(bot?.buttonStyles?.redirect)}
                   pixCheckStyle={corDo(bot?.buttonStyles?.pixCheck)}
+                  checkoutPayStyle={corDo(bot?.buttonStyles?.checkoutPay)}
+                  checkoutPayTexto={checkoutPayEn}
+                  checkoutCheckTexto={checkoutCheckEn}
+                  checkoutShowCheck={checkoutShowCheck}
                   cabecalho={
-                    podeMostrarIntl ? (
+                    temPlanoUsd ? (
                       <div className="mb-2 flex w-full max-w-[300px] gap-1 rounded-lg bg-white/5 p-1">
                         {(
                           [
@@ -1863,7 +1874,7 @@ function PixRow({
   return (
     <SectionRow
       icon={<IconPayments size={16} />}
-      title="Tela de pagamento (PIX)"
+      title="Tela de pagamento"
       summary={
         bot.pixCaption || bot.pixGeneratingMessage
           ? resumo(bot.pixCaption || bot.pixGeneratingMessage)
@@ -1871,76 +1882,98 @@ function PixRow({
       }
     >
       <p className="text-xs text-zinc-500">
-        O que o lead vê entre clicar no plano e pagar. Deixe em branco para usar o texto padrão.
+        O que o lead vê entre clicar no plano e pagar — PIX e cartão são telas diferentes, cada uma no seu
+        quadro abaixo. Deixe em branco para usar o texto padrão.
       </p>
 
-      <div className="mt-4 flex items-center justify-between gap-2">
-        <label className="eyebrow block">Aviso enquanto a cobrança é criada</label>
-        <BotaoGerarMensagem profileId={profileId} campo="pixGenerating" rascunho={gerando} onGerado={setGerando} />
-      </div>
-      <input
-        className="input mt-1.5"
-        placeholder={pixDefaults?.generatingMessage}
-        value={gerando}
-        onChange={(e) => setGerando(e.target.value)}
-      />
+      {/* PIX — código copia-e-cola + QR. Nunca aparece pra quem paga no
+          cartão (seção própria logo abaixo). */}
+      <div className="mt-4 rounded-xl border border-white/10 bg-ink-850 p-3.5">
+        <p className="text-sm font-semibold text-white">PIX</p>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+          Copia-e-cola + QR Code — o caminho de sempre pro pagamento em reais.
+        </p>
 
-      <div className="mt-4 flex items-center justify-between gap-2">
-        <label className="eyebrow block">Legenda do PIX (vai junto do QR Code)</label>
-        <BotaoGerarMensagem profileId={profileId} campo="pixCaption" rascunho={legenda} onGerado={setLegenda} />
-      </div>
-      <textarea
-        ref={areaRef}
-        className="input mt-1.5 min-h-[140px] font-mono text-xs"
-        placeholder={pixDefaults?.caption}
-        value={legenda}
-        onChange={(e) => setLegenda(e.target.value)}
-      />
-      <VarChips
-        vars={[
-          ["{pix_code}", "o código copia-e-cola — sem ele o cliente não tem o que copiar"],
-          ["{plano}", "nome do plano ou da oferta comprada"],
-          ["{valor}", "valor já com o desconto aplicado"],
-        ]}
-        targetRef={areaRef}
-        onChange={setLegenda}
-      />
-      <p className="mt-1 text-[11px] text-zinc-500">
-        Aceita <code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;code&gt;</code>. Sem{" "}
-        <b>{"{pix_code}"}</b>, o código entra no fim mesmo assim.
-      </p>
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <label className="eyebrow block">Aviso enquanto a cobrança é criada</label>
+          <BotaoGerarMensagem profileId={profileId} campo="pixGenerating" rascunho={gerando} onGerado={setGerando} />
+        </div>
+        <input
+          className="input mt-1.5"
+          placeholder={pixDefaults?.generatingMessage}
+          value={gerando}
+          onChange={(e) => setGerando(e.target.value)}
+        />
 
-      <label className="eyebrow mt-5 block">Botões que acompanham o PIX</label>
-      <p className="mb-1.5 mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-        Vai como <b>texto</b>, não legenda de foto — só assim o Telegram faz &quot;toque para copiar&quot;
-        no código. O QR fica atrás do botão.
-      </p>
-      <div className="grid gap-2 sm:grid-cols-3">
-        <input
-          className="input text-xs"
-          placeholder={pixDefaults?.btnCheck}
-          value={btnCheck}
-          onChange={(e) => setBtnCheck(e.target.value)}
+        <div className="mt-4 flex items-center justify-between gap-2">
+          <label className="eyebrow block">Legenda do PIX (vai junto do QR Code)</label>
+          <BotaoGerarMensagem profileId={profileId} campo="pixCaption" rascunho={legenda} onGerado={setLegenda} />
+        </div>
+        <textarea
+          ref={areaRef}
+          className="input mt-1.5 min-h-[140px] font-mono text-xs"
+          placeholder={pixDefaults?.caption}
+          value={legenda}
+          onChange={(e) => setLegenda(e.target.value)}
         />
-        <input
-          className="input text-xs"
-          placeholder={pixDefaults?.btnQr}
-          value={btnQr}
-          onChange={(e) => setBtnQr(e.target.value)}
+        <VarChips
+          vars={[
+            ["{pix_code}", "o código copia-e-cola — sem ele o cliente não tem o que copiar"],
+            ["{plano}", "nome do plano ou da oferta comprada"],
+            ["{valor}", "valor já com o desconto aplicado"],
+          ]}
+          targetRef={areaRef}
+          onChange={setLegenda}
         />
+        <p className="mt-1 text-[11px] text-zinc-500">
+          Aceita <code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;code&gt;</code>. Sem{" "}
+          <b>{"{pix_code}"}</b>, o código entra no fim mesmo assim.
+        </p>
+
+        <label className="eyebrow mt-4 block">Botões que acompanham o PIX</label>
+        <p className="mb-1.5 mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+          Vai como <b>texto</b>, não legenda de foto — só assim o Telegram faz &quot;toque para copiar&quot;
+          no código. O QR fica atrás do botão.
+        </p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <input
+            className="input text-xs"
+            placeholder={pixDefaults?.btnCheck}
+            value={btnCheck}
+            onChange={(e) => setBtnCheck(e.target.value)}
+          />
+          <input
+            className="input text-xs"
+            placeholder={pixDefaults?.btnQr}
+            value={btnQr}
+            onChange={(e) => setBtnQr(e.target.value)}
+          />
+          <input
+            className="input text-xs"
+            placeholder={pixDefaults?.btnCopy}
+            value={btnCopy}
+            onChange={(e) => setBtnCopy(e.target.value)}
+          />
+        </div>
+
+        <label className="eyebrow mt-4 block">Áudio do PIX (URL pública .ogg)</label>
         <input
-          className="input text-xs"
-          placeholder={pixDefaults?.btnCopy}
-          value={btnCopy}
-          onChange={(e) => setBtnCopy(e.target.value)}
+          className="input mt-1.5 font-mono text-xs"
+          placeholder="https://... .ogg"
+          value={audio}
+          onChange={(e) => setAudio(e.target.value)}
         />
+        <p className="mt-1 text-[11px] text-zinc-500">
+          Vai como voz <b>depois</b> do PIX. A URL precisa ser alcançável da internet; fora de OGG/OPUS o
+          Telegram entrega como arquivo comum, sem a bolha de áudio.
+        </p>
       </div>
 
       {/* Checkout no CARTÃO (Stripe) — internacional (plano em USD) ou
           "Aceitar cartão no Brasil" (Configurações internacionais). Link e
           botão de status são SEMPRE deste checkout; o PIX acima nunca passa
           por aqui. */}
-      <div className="mt-5 rounded-xl border border-white/10 bg-ink-850 p-3.5">
+      <div className="mt-4 rounded-xl border border-white/10 bg-ink-850 p-3.5">
         <p className="text-sm font-semibold text-white">Checkout no cartão (Stripe)</p>
         <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
           Tela que aparece depois de escolher um plano em dólar, ou "pagar no cartão" no Brasil — link de
@@ -2022,13 +2055,13 @@ function PixRow({
           inventar quantidade: é a primeira coisa que o lead vê depois dos
           planos, e um número falso ali é propaganda enganosa por quem
           opera, não pelo painel. */}
-      <div className="mt-5 rounded-xl border border-white/10 bg-ink-850 p-3.5">
+      <div className="mt-4 rounded-xl border border-white/10 bg-ink-850 p-3.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white">Prova social</p>
             <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-              Uma mensagem logo abaixo dos planos no <code>/start</code>, com os números{" "}
-              <b>reais</b> desta modelo — pesa na hora de escolher, não depois. Zerado, não é enviada.
+              Última mensagem do <code>/start</code> — depois dos planos, do "Not from Brazil?" e do
+              "pagar no cartão" — com os números <b>reais</b> desta modelo. Zerado, não é enviada.
             </p>
           </div>
           <Switch checked={prova} onChange={setProva} ariaLabel="Prova social" />
@@ -2080,7 +2113,13 @@ function PixRow({
         )}
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-2">
+      {/* Compartilhado entre PIX e cartão: os dois botões "Verificar status"
+          (o do PIX e o do checkout Stripe) caem no MESMO handler e usam a
+          mesma resposta de "ainda não pago"; o efeito de chegada também vale
+          pras duas telas — por isso ficam fora dos quadros de cima. */}
+      <p className="mt-5 text-[11px] uppercase tracking-wide text-zinc-500">Vale pros dois — PIX e cartão</p>
+
+      <div className="mt-2 flex items-center justify-between gap-2">
         <label className="eyebrow block">Resposta quando o pagamento ainda não consta</label>
         <BotaoGerarMensagem profileId={profileId} campo="pixNotPaid" rascunho={naoPago} onGerado={setNaoPago} />
       </div>
@@ -2091,20 +2130,8 @@ function PixRow({
         onChange={(e) => setNaoPago(e.target.value)}
       />
       <p className="mt-1 text-[11px] text-zinc-500">
-        Enviada quando o cliente toca em <b>Verificar Status</b> e o pagamento ainda não consta. Se já
-        constar pago, o bot reenvia o acesso.
-      </p>
-
-      <label className="eyebrow mt-4 block">Áudio do PIX (URL pública .ogg)</label>
-      <input
-        className="input mt-1.5 font-mono text-xs"
-        placeholder="https://... .ogg"
-        value={audio}
-        onChange={(e) => setAudio(e.target.value)}
-      />
-      <p className="mt-1 text-[11px] text-zinc-500">
-        Vai como voz <b>depois</b> do PIX. A URL precisa ser alcançável da internet; fora de OGG/OPUS o
-        Telegram entrega como arquivo comum, sem a bolha de áudio.
+        Enviada quando o cliente toca em <b>Verificar Status</b> (PIX ou cartão) e o pagamento ainda não
+        consta. Se já constar pago, o bot reenvia o acesso.
       </p>
 
       <EfeitoPicker

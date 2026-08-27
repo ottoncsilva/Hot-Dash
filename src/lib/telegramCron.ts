@@ -1157,17 +1157,20 @@ function classifySendError(err: unknown): { kind: "blocked" | "failed" | "flood"
 }
 
 /** Botões do disparo: ofertas (compra) + links personalizados. */
-function buildMailingMarkup(mailing: Mailing) {
-  const rows: { text: string; url?: string; callback_data?: string }[][] = [];
+function buildMailingMarkup(mailing: Mailing, bot: { buttonStyles?: ButtonStyles }) {
+  const rows: { text: string; url?: string; callback_data?: string; style?: string }[][] = [];
   for (const offer of mailing.offers) {
     const priceStr = (offer.priceCents / 100).toLocaleString("pt-BR", {
       style: "currency",
       currency: "BRL",
     });
-    rows.push([{ text: `${offer.name} - ${priceStr}`, callback_data: `buy_offer_${offer.id}` }]);
+    rows.push([
+      { text: `${offer.name} - ${priceStr}`, callback_data: `buy_offer_${offer.id}`, ...buttonStyleProps(bot, "plans") },
+    ]);
   }
   for (const btn of mailing.buttons) {
-    if (btn.text.trim() && btn.url.trim()) rows.push([{ text: btn.text, url: btn.url }]);
+    if (btn.text.trim() && btn.url.trim())
+      rows.push([{ text: btn.text, url: btn.url, ...buttonStyleProps(bot, "redirect") }]);
   }
   return rows.length > 0 ? { inline_keyboard: rows } : undefined;
 }
@@ -1216,7 +1219,7 @@ async function runTelegramMailingsImpl(): Promise<{ sent: number; failed: number
         mailing.botId,
         batch.map((b) => b.telegramUserId),
       );
-      const replyMarkup = buildMailingMarkup(mailing);
+      const replyMarkup = buildMailingMarkup(mailing, bot);
 
       for (const item of batch) {
         const user = users.get(item.telegramUserId);

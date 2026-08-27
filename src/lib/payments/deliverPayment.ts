@@ -96,7 +96,9 @@ export async function deliverPaidTransaction(
       const botoesEntregavel = plan?.deliverableButtons?.length
         ? {
             reply_markup: {
-              inline_keyboard: plan.deliverableButtons.map((b) => [{ text: b.text, url: b.url }]),
+              inline_keyboard: plan.deliverableButtons.map((b) => [
+                { text: b.text, url: b.url, ...buttonStyleProps(bot, "redirect") },
+              ]),
             },
           }
         : {};
@@ -248,7 +250,11 @@ export async function deliverPaidTransaction(
             const botaoManage =
               idiomaLead === "es" ? "⚙️ Gestionar suscripción" : idiomaLead === "en" ? "⚙️ Manage subscription" : "⚙️ Gerenciar assinatura";
             await sendTelegramMessage(bot.botToken, String(sub.telegramUserId), textoManage, {
-              reply_markup: { inline_keyboard: [[{ text: botaoManage, callback_data: `manage_sub_${sub.id}` }]] },
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: botaoManage, callback_data: `manage_sub_${sub.id}`, ...buttonStyleProps(bot, "managePortal") }],
+                ],
+              },
             }).catch(() => {});
           }
         }
@@ -271,7 +277,7 @@ export async function deliverPaidTransaction(
               ? {
                   reply_markup: {
                     inline_keyboard: b.deliverableButtons.map((x) => [
-                      { text: x.text, url: x.url },
+                      { text: x.text, url: x.url, ...buttonStyleProps(bot, "redirect") },
                     ]),
                   },
                 }

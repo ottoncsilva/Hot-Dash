@@ -174,6 +174,11 @@ export function FunnelPreview({
   cardBrButtons,
   redirectStyle,
   pixCheckStyle,
+  checkoutPayStyle,
+  checkoutGerando,
+  checkoutPayTexto,
+  checkoutCheckTexto,
+  checkoutShowCheck = true,
   cabecalho,
 }: {
   botUsername?: string;
@@ -209,12 +214,26 @@ export function FunnelPreview({
    *  brasileiro, não existe do lado internacional). */
   cardBrButtons?: Btn[];
   /** Cor dos botões de redirecionamento (papel "redirect") — aplica na
-   *  pergunta Brasil/International, no "pagar no cartão" e no "Make
-   *  payment" da Stripe, mesma cor que o bot de verdade usa nesses botões. */
+   *  pergunta Brasil/International e no "pagar no cartão". */
   redirectStyle?: PreviewStyle;
   /** Cor do botão "Verificar status"/"Check payment status" (papel
    *  "pixCheck") — mesmo botão nos dois provedores. */
   pixCheckStyle?: PreviewStyle;
+  /** Cor do botão "Make payment"/"Pagar" do checkout Stripe (papel
+   *  "checkoutPay") — botão que abre o link, separado do "Verificar status". */
+  checkoutPayStyle?: PreviewStyle;
+  /** "Gerando cobrança..." do checkout — o intl usa sempre o texto fixo já
+   *  traduzido (não é editável, por isso este prop normalmente fica vazio
+   *  aqui); existe pra quando o preview também simular o "pagar no cartão"
+   *  brasileiro, que É editável (`checkoutGeneratingMessage`). */
+  checkoutGerando?: string;
+  /** Texto do botão que abre o link de pagamento — vazio cai no ilustrativo. */
+  checkoutPayTexto?: string;
+  /** Texto do botão "Verificar status" do checkout — vazio cai no ilustrativo. */
+  checkoutCheckTexto?: string;
+  /** Espelha `checkoutShowCheckButton` do bot — desligado, o botão de
+   *  verificar status some da tela, ficando só o link de pagamento. */
+  checkoutShowCheck?: boolean;
   /** Seletor Brasil/International, desenhado acima do aparelho (mesmo slot
    *  que o Prévias/VIP do preview de aprovação). */
   cabecalho?: React.ReactNode;
@@ -236,6 +255,10 @@ export function FunnelPreview({
     ramo,
     Boolean(intlAskFirst),
     JSON.stringify(cardBrButtons),
+    checkoutGerando,
+    checkoutPayTexto,
+    checkoutCheckTexto,
+    checkoutShowCheck,
   ]);
 
   const intl = ramo === "intl";
@@ -306,21 +329,6 @@ export function FunnelPreview({
           onCortado={marcarCorte}
         />
 
-        {/* Prova social — mensagem PRÓPRIA logo abaixo dos planos, não mais
-            embutida na tela do PIX: pesa na hora de escolher, não depois.
-            Fonte menor: é um aviso de canto, não parte da conversa. */}
-        {provaSocialLinha && (
-          <PreviewBalao
-            mediaIds={[]}
-            text={provaSocialLinha}
-            buttons={[]}
-            vazio=""
-            pequeno
-            onMedia={medir}
-            onCortado={marcarCorte}
-          />
-        )}
-
         {/* Cartão no Brasil — botão EXTRA, em mensagem PRÓPRIA depois dos
             planos em PIX. Só existe do lado brasileiro. */}
         {!intl && cardBrButtons && cardBrButtons.length > 0 && (
@@ -334,15 +342,32 @@ export function FunnelPreview({
           />
         )}
 
+        {/* Prova social — SEMPRE por último: depois dos planos, do "Not from
+            Brazil?" (já embutido na mensagem de boas-vindas, em `buttons`) e
+            do "pagar no cartão" acima. Fecha a abertura, não fica no meio
+            dela. Fonte menor: é um aviso de canto, não parte da conversa. */}
+        {provaSocialLinha && (
+          <PreviewBalao
+            mediaIds={[]}
+            text={provaSocialLinha}
+            buttons={[]}
+            vazio=""
+            pequeno
+            onMedia={medir}
+            onCortado={marcarCorte}
+          />
+        )}
+
         <Momento label={`Lead toca em "${planoNome}"`} />
 
         {intl ? (
           // Checkout internacional: link da Stripe, sem código nem QR — ver
-          // CHECKOUT_INTL_TEXTS no webhook (mesma mecânica, texto ilustrativo).
+          // CHECKOUT_INTL_TEXTS no webhook. Textos vêm de fora (o operador
+          // pode ter editado); só cai no ilustrativo em inglês quando vazio.
           <>
             <PreviewBalao
               mediaIds={[]}
-              text="⏳ Generating your payment link..."
+              text={checkoutGerando?.trim() || "⏳ Generating your payment link..."}
               buttons={[]}
               vazio=""
               onMedia={medir}
@@ -352,8 +377,16 @@ export function FunnelPreview({
               mediaIds={[]}
               text="Finish the payment through the link below."
               buttons={[
-                { text: "Make payment 👉", kind: "custom", style: redirectStyle },
-                { text: "Check payment status", kind: "custom", style: pixCheckStyle },
+                { text: checkoutPayTexto?.trim() || "Make payment 👉", kind: "custom", style: checkoutPayStyle },
+                ...(checkoutShowCheck
+                  ? [
+                      {
+                        text: checkoutCheckTexto?.trim() || "Check payment status",
+                        kind: "custom" as const,
+                        style: pixCheckStyle,
+                      },
+                    ]
+                  : []),
               ]}
               effect={effectPix}
               vazio=""

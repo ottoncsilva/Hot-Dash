@@ -122,6 +122,10 @@ export function topPlans(
 
 /** Métricas completas do funil de UM recorte (todos os modelos ou um só). */
 export type FunilMetricas = {
+  /** As duas de cima do funil, do SLT (link na bio) — ver `sltViewsClicks`.
+   *  Sem chave do SLT configurada, ficam zeradas (não é erro, é "sem dado"). */
+  views: number;
+  clicks: number;
   totalStarts: number;
   pixGenerated: number;
   pixPaid: number;
@@ -133,10 +137,54 @@ export type FunilMetricas = {
   pendingCents: number;
   pendingCount: number;
   avgTicketCents: number;
+  viewToClick: number | null;
+  clickToStart: number | null;
   startToPix: number | null;
   pixToPaid: number | null;
   startToPaid: number | null;
 };
+
+/**
+ * Views/cliques do SLT pro RECORTE do funil — as duas etapas ANTES do
+ * /start (view da página, clique no link que leva pro bot).
+ *
+ * Com `profileId`, casa pelo `page_id` em `slt_page_profiles` (atribuição
+ * manual, feita na tela de Links) — ao contrário de `trafficSources`, não
+ * depende do operador ter renomeado o código do `/start` pra bater com o
+ * slug da página: a atribuição já resolve isso sozinha. Sem `profileId`
+ * (visão geral), soma TUDO — mesmo critério de `totalStarts`/`pixGenerated`
+ * sem filtro. "Sem modelo" (`semModelo`) não tem como que uma página do SLT
+ * ainda sem atribuição pertença a ele — fica zerado.
+ */
+function sltViewsClicks(
+  sinceMs: number | null,
+  untilMs: number | null,
+  profileId: string | null,
+  semModelo: boolean,
+): { views: number; clicks: number } {
+  if (semModelo) return { views: 0, clicks: 0 };
+  const db = getDb();
+  const { clauses, params } = range(sinceMs, untilMs);
+  const where = clauses.map((c) => `e.${c}`);
+  const finalParams = [...params];
+  let join = "";
+  if (profileId) {
+    join = "JOIN slt_page_profiles m ON m.page_id = e.page_id";
+    where.push("m.profile_id = ?");
+    finalParams.push(profileId);
+  }
+  const row = db
+    .prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN e.event_type = 'page_viewed' THEN 1 ELSE 0 END), 0) views,
+         COALESCE(SUM(CASE WHEN e.event_type = 'link_clicked' THEN 1 ELSE 0 END), 0) clicks
+       FROM slt_events e
+       ${join}
+       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`,
+    )
+    .get(...finalParams) as { views: number; clicks: number };
+  return row;
+}
 
 function metricas(
   sinceMs: number | null,
@@ -196,7 +244,11 @@ function metricas(
     pend_cents: number;
   };
 
+  const { views, clicks } = sltViewsClicks(sinceMs, untilMs, profileId, semModelo);
+
   return {
+    views,
+    clicks,
     totalStarts,
     pixGenerated: geral.gerados,
     pixPaid: geral.pagos,
@@ -205,6 +257,8 @@ function metricas(
     pendingCents: geral.pend_cents,
     pendingCount: geral.pendentes,
     avgTicketCents: geral.pagos > 0 ? Math.round(geral.pago_cents / geral.pagos) : 0,
+    viewToClick: views > 0 ? clicks / views : null,
+    clickToStart: clicks > 0 ? totalStarts / clicks : null,
     startToPix: totalStarts > 0 ? geral.gerados / totalStarts : null,
     pixToPaid: geral.gerados > 0 ? geral.pagos / geral.gerados : null,
     startToPaid: totalStarts > 0 ? geral.pagos / totalStarts : null,

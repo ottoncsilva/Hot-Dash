@@ -5,6 +5,7 @@ import Link from "next/link";
 import { apiGet, apiSend } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { showToast } from "@/lib/toast";
+import { SLT_NETWORKS } from "@/lib/sltNetworks";
 
 type LinkRow = { id: string; label: string; url: string; platform: string };
 type PageRow = {
@@ -18,6 +19,7 @@ type PageRow = {
   views: number;
   clicks: number;
   profileId: string | null;
+  trafficSource: string | null;
 };
 type Group = { profileId: string; profileName: string; pages: PageRow[] };
 type Data = {
@@ -53,10 +55,10 @@ export default function LinksPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dias]);
 
-  async function atribuir(pageId: string, profileId: string) {
+  async function atribuir(pageId: string, patch: { profileId?: string; trafficSource?: string }) {
     setSalvandoId(pageId);
     try {
-      await apiSend("/api/links", "POST", { pageId, profileId });
+      await apiSend("/api/links", "POST", { pageId, ...patch });
       load(dias);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha ao atribuir.", "error");
@@ -69,7 +71,7 @@ export default function LinksPage() {
     <div className="page">
       <PageHeader
         title="Links (bio)"
-        description="Páginas e links do SLT, agrupados por modelo — visualização e clique dos últimos dias."
+        description="Páginas e links do SLT, agrupados por modelo e por rede — visualização e clique dos últimos dias."
         actions={
           <select
             className="input h-8 w-auto py-0 text-xs"
@@ -116,7 +118,7 @@ export default function LinksPage() {
                     pagina={p}
                     profiles={data.profiles || []}
                     salvando={salvandoId === p.pageId}
-                    onAtribuir={(profileId) => atribuir(p.pageId, profileId)}
+                    onAtribuir={(patch) => atribuir(p.pageId, patch)}
                   />
                 ))}
               </div>
@@ -139,7 +141,7 @@ export default function LinksPage() {
                     pagina={p}
                     profiles={data.profiles || []}
                     salvando={salvandoId === p.pageId}
-                    onAtribuir={(profileId) => atribuir(p.pageId, profileId)}
+                    onAtribuir={(patch) => atribuir(p.pageId, patch)}
                   />
                 ))}
               </div>
@@ -160,7 +162,7 @@ function PaginaCard({
   pagina: PageRow;
   profiles: { id: string; name: string }[];
   salvando: boolean;
-  onAtribuir: (profileId: string) => void;
+  onAtribuir: (patch: { profileId?: string; trafficSource?: string }) => void;
 }) {
   return (
     <div className="card p-4">
@@ -173,25 +175,47 @@ function PaginaCard({
                 despublicada
               </span>
             )}
+            {!pagina.trafficSource && (
+              <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                sem rede
+              </span>
+            )}
           </div>
           {pagina.label && <p className="mt-0.5 truncate text-xs text-zinc-500">{pagina.label}</p>}
           <p className="mt-0.5 font-mono text-[11px] text-zinc-600">
             {pagina.activeDomain || "slt.bio"}/{pagina.slug}
           </p>
         </div>
-        <select
-          className="input h-8 w-auto shrink-0 py-0 text-xs"
-          value={pagina.profileId || ""}
-          disabled={salvando}
-          onChange={(e) => onAtribuir(e.target.value)}
-        >
-          <option value="">Sem modelo</option>
-          {profiles.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+        <div className="flex shrink-0 flex-col gap-1.5">
+          <select
+            className="input h-8 w-auto py-0 text-xs"
+            value={pagina.profileId || ""}
+            disabled={salvando}
+            onChange={(e) => onAtribuir({ profileId: e.target.value })}
+            aria-label="Modelo"
+          >
+            <option value="">Sem modelo</option>
+            {profiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <select
+            className="input h-8 w-auto py-0 text-xs"
+            value={pagina.trafficSource || ""}
+            disabled={salvando}
+            onChange={(e) => onAtribuir({ trafficSource: e.target.value })}
+            aria-label="Rede de tráfego"
+          >
+            <option value="">Sem rede</option>
+            {SLT_NETWORKS.map((n) => (
+              <option key={n.key} value={n.key}>
+                {n.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="mt-3 flex gap-4 text-xs">

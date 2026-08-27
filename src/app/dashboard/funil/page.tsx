@@ -67,6 +67,9 @@ function porVenda(de: number, vendas: number): number | null {
 }
 
 type Metricas = {
+  /** Do SLT (link na bio) — zerado sem a chave configurada. */
+  views: number;
+  clicks: number;
   totalStarts: number;
   pixGenerated: number;
   pixPaid: number;
@@ -75,6 +78,8 @@ type Metricas = {
   pendingCents: number;
   pendingCount: number;
   avgTicketCents: number;
+  viewToClick: number | null;
+  clickToStart: number | null;
   startToPix: number | null;
   pixToPaid: number | null;
   startToPaid: number | null;
@@ -180,7 +185,13 @@ export default function FunilPage() {
       <div className="mt-6 card p-5">
         <p className="eyebrow">jornada do usuário até a compra</p>
         <FunilVisual m={m} />
-        <div className="mt-4 grid gap-3 border-t border-white/[0.06] pt-4 sm:grid-cols-3">
+        <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/[0.06] pt-4 sm:grid-cols-3 lg:grid-cols-5">
+          {m && (m.views > 0 || m.clicks > 0) && (
+            <>
+              <Conversao label="View → Clique" valor={pctFunil(m.viewToClick)} detalhe={`${m.clicks} de ${m.views}`} />
+              <Conversao label="Clique → Start" valor={pctFunil(m.clickToStart)} detalhe={`${m.totalStarts} de ${m.clicks}`} />
+            </>
+          )}
           <Conversao label="Start → PIX" valor={m ? pctFunil(m.startToPix) : null} detalhe={m ? `${m.pixGenerated} de ${m.totalStarts}` : ""} />
           <Conversao label="PIX → Pago" valor={m ? pctFunil(m.pixToPaid) : null} detalhe={m ? `${m.pixPaid} de ${m.pixGenerated}` : ""} accent />
           <Conversao label="Start → Pago" valor={m ? pctFunil(m.startToPaid) : null} detalhe={m ? `${m.pixPaid} de ${m.totalStarts}` : ""} />
@@ -479,24 +490,41 @@ export default function FunilPage() {
 function FunilVisual({ m }: { m?: Metricas }) {
   if (!m) return <div className="mt-4 h-40 animate-pulse rounded-lg bg-white/5" />;
 
-  // A base é a MAIOR etapa, não o /start. Numa janela curta é comum haver mais
-  // venda que start (gente que entrou antes e comprou agora): com o /start de
-  // base, as faixas seguintes estourariam a largura e o funil viraria três
-  // retângulos iguais, deixando de ser funil.
-  const base = Math.max(m.totalStarts, m.pixGenerated, m.pixPaid, 1);
+  // SLT (link na bio) só entra quando tem dado de verdade — sem isso
+  // conectado, views/clicks vêm zerados, e um funil de 5 etapas com as duas
+  // primeiras em 0 pareceria quebrado em vez de "não configurado".
+  const temSlt = m.views > 0 || m.clicks > 0;
+
+  // A base é a MAIOR etapa, não a primeira. Numa janela curta é comum haver
+  // mais venda que /start (gente que entrou antes e comprou agora): com a
+  // primeira etapa de base, as faixas seguintes estourariam a largura e o
+  // funil viraria retângulos iguais, deixando de ser funil.
+  const base = Math.max(m.views, m.clicks, m.totalStarts, m.pixGenerated, m.pixPaid, 1);
   // Taxa acima de 100% não é conversão: é venda de lead de outro dia. Melhor
-  // não mostrar número nenhum do que anunciar "175% do /start".
+  // não mostrar número nenhum do que anunciar "175% da etapa anterior".
   const taxaOuNada = (r: number | null) => (r !== null && r <= 1 ? r : null);
   const etapas = [
-    { rotulo: "/start", valor: m.totalStarts, taxa: null as number | null, topo: true },
-    { rotulo: "PIX gerado", valor: m.pixGenerated, taxa: taxaOuNada(m.startToPix), topo: false },
-    { rotulo: "Pago", valor: m.pixPaid, taxa: taxaOuNada(m.startToPaid), topo: false },
+    ...(temSlt
+      ? [
+          { rotulo: "Views", valor: m.views, taxa: null as number | null, topo: true, base: "" },
+          { rotulo: "Cliques", valor: m.clicks, taxa: taxaOuNada(m.viewToClick), topo: false, base: "das views" },
+        ]
+      : []),
+    {
+      rotulo: "/start",
+      valor: m.totalStarts,
+      taxa: temSlt ? taxaOuNada(m.clickToStart) : null,
+      topo: !temSlt,
+      base: "dos cliques",
+    },
+    { rotulo: "PIX gerado", valor: m.pixGenerated, taxa: taxaOuNada(m.startToPix), topo: false, base: "do /start" },
+    { rotulo: "Pago", valor: m.pixPaid, taxa: taxaOuNada(m.startToPaid), topo: false, base: "do /start" },
   ];
 
   const W = 100;
   const H = 44;
   const meia = (v: number) => (H / 2) * Math.min(1, Math.max(0.2, v / base));
-  const x = (i: number) => (W / 3) * i;
+  const x = (i: number) => (W / etapas.length) * i;
 
   return (
     <div className="mt-4">
@@ -505,7 +533,7 @@ function FunilVisual({ m }: { m?: Metricas }) {
         preserveAspectRatio="none"
         className="h-32 w-full"
         role="img"
-        aria-label={`Funil: ${m.totalStarts} starts, ${m.pixGenerated} PIX gerados, ${m.pixPaid} pagos`}
+        aria-label={etapas.map((e) => `${e.valor} ${e.rotulo}`).join(", ")}
       >
         {etapas.map((e, i) => {
           const proximo = etapas[i + 1];
@@ -526,14 +554,17 @@ function FunilVisual({ m }: { m?: Metricas }) {
 
       {/* Os números por baixo do desenho: é aqui que está a verdade exata, já
           que a largura das faixas tem piso. */}
-      <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+      <div
+        className="mt-2 grid gap-2 text-center"
+        style={{ gridTemplateColumns: `repeat(${etapas.length}, minmax(0, 1fr))` }}
+      >
         {etapas.map((e, i) => (
           <div key={e.rotulo} className="min-w-0">
             <p className="truncate font-mono text-[10px] uppercase tracking-wider text-zinc-500">
               {e.rotulo}
             </p>
             <p
-              className={`font-display text-2xl font-semibold ${i === 2 ? "text-emerald-400" : "text-white"}`}
+              className={`font-display text-2xl font-semibold ${i === etapas.length - 1 ? "text-emerald-400" : "text-white"}`}
             >
               {e.valor}
             </p>
@@ -541,8 +572,8 @@ function FunilVisual({ m }: { m?: Metricas }) {
               {e.topo
                 ? "topo do funil"
                 : e.taxa === null
-                  ? "leads de outros dias"
-                  : `${pct(e.taxa)} do /start`}
+                  ? "acima da etapa anterior"
+                  : `${pct(e.taxa)} ${e.base}`}
             </p>
           </div>
         ))}

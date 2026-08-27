@@ -110,8 +110,8 @@ function gravarEventos(eventos: SltEvent[]): number {
   const agora = Date.now();
   const stmt = db.prepare(
     `INSERT OR IGNORE INTO slt_events
-       (id, created_at, event_type, page_slug, page_display_name, link_label, link_url, link_platform, poplink_slug, referer, country, domain, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, created_at, event_type, page_id, page_slug, page_display_name, link_label, link_url, link_platform, poplink_slug, referer, country, domain, synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const inserir = db.transaction((linhas: SltEvent[]) => {
     let gravados = 0;
@@ -122,6 +122,7 @@ function gravarEventos(eventos: SltEvent[]): number {
         idDoEvento(e),
         ts,
         e.event_type,
+        e.page_id || null,
         e.page_slug || null,
         e.page_display_name || null,
         e.link_label || null,

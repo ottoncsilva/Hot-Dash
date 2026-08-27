@@ -95,6 +95,7 @@ function migrate(d: Database.Database) {
       id                 TEXT PRIMARY KEY,
       created_at         INTEGER NOT NULL,
       event_type         TEXT NOT NULL,
+      page_id            TEXT,
       page_slug          TEXT,
       page_display_name  TEXT,
       link_label         TEXT,
@@ -108,17 +109,26 @@ function migrate(d: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_slt_events_created ON slt_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_slt_events_page ON slt_events(page_slug);
+    CREATE INDEX IF NOT EXISTS idx_slt_events_page_id ON slt_events(page_id);
 
-    -- Qual MODELO cada página do SLT pertence — a API do SLT não sabe nada
-    -- sobre "perfil"/modelo, é um conceito só nosso. Sem essa amarração a
-    -- tela de Links não teria como agrupar por modelo; com uma conta SLT só
-    -- pra várias modelos, o operador atribui cada página uma vez (ver tela
-    -- de Links) e o resto (cliques, views, funil) já sai agrupado sozinho.
+    -- Qual MODELO (e qual REDE — instagram/telegram/tiktok/ads/outro) cada
+    -- página do SLT pertence — a API do SLT não sabe nada sobre "perfil"/
+    -- modelo, é um conceito só nosso, e nem sobre qual rede a página
+    -- representa (o operador organiza uma página por rede, mas isso também
+    -- é só convenção dele). Sem essa amarração a tela de Links não teria
+    -- como agrupar por modelo; com uma conta SLT só pra várias modelos, o
+    -- operador atribui cada página uma vez (ver tela de Links) e o resto
+    -- (cliques, views, funil) já sai agrupado sozinho. Os dois campos são
+    -- INDEPENDENTES um do outro — dá pra classificar a rede antes de saber
+    -- de qual modelo é, ou vice-versa — por isso nenhum dos dois é NOT
+    -- NULL: a linha existe assim que QUALQUER um dos dois é definido.
     CREATE TABLE IF NOT EXISTS slt_page_profiles (
-      page_id    TEXT PRIMARY KEY,
-      profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-      updated_at INTEGER NOT NULL
+      page_id        TEXT PRIMARY KEY,
+      profile_id     TEXT REFERENCES profiles(id) ON DELETE CASCADE,
+      traffic_source TEXT,
+      updated_at     INTEGER NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS idx_slt_page_profiles_profile ON slt_page_profiles(profile_id);
 
     -- Trava de execução dos crons que têm DOIS caminhos de disparo (o ticker
     -- interno de instrumentation.ts E uma rota HTTP externa) — sem isso, as

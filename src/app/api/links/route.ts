@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { listProfiles } from "@/lib/profiles";
 import { fetchSltCatalogue } from "@/lib/sltSync";
 import { sltPageStats } from "@/lib/salesFunnel";
+import { SLT_NETWORKS } from "@/lib/sltNetworks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,9 +33,10 @@ export async function GET(req: NextRequest) {
     const profiles = await listProfiles();
     const stats = new Map(sltPageStats(sinceMs, null).map((s) => [s.pageSlug, s]));
     const mapa = getDb()
-      .prepare("SELECT page_id, profile_id FROM slt_page_profiles")
-      .all() as { page_id: string; profile_id: string }[];
+      .prepare("SELECT page_id, profile_id, traffic_source FROM slt_page_profiles")
+      .all() as { page_id: string; profile_id: string | null; traffic_source: string | null }[];
     const profileDoPage = new Map(mapa.map((m) => [m.page_id, m.profile_id]));
+    const redeDoPage = new Map(mapa.map((m) => [m.page_id, m.traffic_source]));
 
     const linksPorPagina = new Map<string, typeof catalogo.links>();
     for (const l of catalogo.links) {
@@ -62,6 +64,7 @@ export async function GET(req: NextRequest) {
         views: s?.views || 0,
         clicks: s?.clicks || 0,
         profileId: profileDoPage.get(p.id) || null,
+        trafficSource: redeDoPage.get(p.id) || null,
       };
     });
 
@@ -88,30 +91,53 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** Atribui (ou reatribui) uma página do SLT a uma modelo do Hot-Dash. */
+/**
+ * Atribui (ou reatribui) uma página do SLT — modelo e/ou rede de tráfego,
+ * cada campo INDEPENDENTE do outro (manda só o que mudou; o campo ausente
+ * no corpo mantém o que já estava salvo — só uma string vazia LIMPA aquele
+ * campo específico).
+ */
 export async function POST(req: NextRequest) {
   try {
     await requireUser(req);
     const body = await req.json().catch(() => ({}));
     const pageId = typeof body.pageId === "string" ? body.pageId.trim() : "";
-    const profileId = typeof body.profileId === "string" ? body.profileId.trim() : "";
     if (!pageId) throw new ApiError(400, "Informe pageId.");
 
     const db = getDb();
-    if (!profileId) {
-      // profileId vazio = desatribuir (volta pra "sem modelo").
+    const atual = db
+      .prepare("SELECT profile_id, traffic_source FROM slt_page_profiles WHERE page_id = ?")
+      .get(pageId) as { profile_id: string | null; traffic_source: string | null } | undefined;
+
+    const profileId =
+      typeof body.profileId === "string" ? body.profileId.trim() || null : (atual?.profile_id ?? null);
+    const trafficSource =
+      typeof body.trafficSource === "string"
+        ? body.trafficSource.trim() || null
+        : (atual?.traffic_source ?? null);
+
+    if (profileId) {
+      const existe = db.prepare("SELECT id FROM profiles WHERE id = ?").get(profileId);
+      if (!existe) throw new ApiError(404, "Modelo não encontrada.");
+    }
+    if (trafficSource && !SLT_NETWORKS.some((n) => n.key === trafficSource)) {
+      throw new ApiError(400, "Rede desconhecida.");
+    }
+
+    if (!profileId && !trafficSource) {
+      // Os dois campos vazios: não há mais nada pra guardar sobre esta página.
       db.prepare("DELETE FROM slt_page_profiles WHERE page_id = ?").run(pageId);
       return NextResponse.json({ ok: true });
     }
 
-    const existe = db.prepare("SELECT id FROM profiles WHERE id = ?").get(profileId);
-    if (!existe) throw new ApiError(404, "Modelo não encontrada.");
-
     db.prepare(
-      `INSERT INTO slt_page_profiles (page_id, profile_id, updated_at)
-       VALUES (?, ?, ?)
-       ON CONFLICT(page_id) DO UPDATE SET profile_id = excluded.profile_id, updated_at = excluded.updated_at`,
-    ).run(pageId, profileId, Date.now());
+      `INSERT INTO slt_page_profiles (page_id, profile_id, traffic_source, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(page_id) DO UPDATE SET
+         profile_id = excluded.profile_id,
+         traffic_source = excluded.traffic_source,
+         updated_at = excluded.updated_at`,
+    ).run(pageId, profileId, trafficSource, Date.now());
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorResponse(err);

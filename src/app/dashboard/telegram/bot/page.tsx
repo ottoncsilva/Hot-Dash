@@ -292,9 +292,14 @@ export default function BotVendasPage() {
   const [pixBtnQr, setPixBtnQr] = useState("");
   const [pixBtnCopy, setPixBtnCopy] = useState("");
   const [pixAudio, setPixAudio] = useState("");
-  // Checkout no CARTÃO (Stripe) — lifted (não pro preview, que não simula
-  // essa tela; é só pra receber de volta a tradução EN/ES gravada pelo
-  // servidor ao salvar, mesmo mecanismo de pixProvaTextoEn/Es acima).
+  // Resposta de "ainda não pago" — lifted pra navegação clicável do preview
+  // conseguir mostrar ela quando o lead simulado toca em "Verificar Status"
+  // antes do "pagamento" (que no preview é sempre simulado).
+  const [pixNaoPago, setPixNaoPago] = useState("");
+  // Checkout no CARTÃO (Stripe) — lifted: a navegação clicável do preview
+  // simula essa tela também (ramo "pagar no cartão" e o internacional), e o
+  // campo em PT também recebe de volta a tradução EN/ES gravada pelo
+  // servidor ao salvar, mesmo mecanismo de pixProvaTextoEn/Es acima.
   const [checkoutGerando, setCheckoutGerando] = useState("");
   const [checkoutPay, setCheckoutPay] = useState("");
   const [checkoutPayEn, setCheckoutPayEn] = useState("");
@@ -374,6 +379,7 @@ export default function BotVendasPage() {
       setPixBtnQr(d.bot?.pixBtnQr || d.pixDefaults?.btnQr || "");
       setPixBtnCopy(d.bot?.pixBtnCopy || d.pixDefaults?.btnCopy || "");
       setPixAudio(d.bot?.pixAudioUrl || "");
+      setPixNaoPago(d.bot?.pixNotPaidMessage || d.pixDefaults?.notPaidMessage || "");
       setCheckoutGerando(d.bot?.checkoutGeneratingMessage || d.checkoutDefaults?.generatingMessage || "");
       setCheckoutPay(d.bot?.checkoutPayButtonText || d.checkoutDefaults?.payButton || "");
       setCheckoutPayEn(d.bot?.checkoutPayButtonTextEn || "");
@@ -633,6 +639,8 @@ export default function BotVendasPage() {
                     setBtnQr={setPixBtnQr}
                     btnCopy={pixBtnCopy}
                     setBtnCopy={setPixBtnCopy}
+                    naoPago={pixNaoPago}
+                    setNaoPago={setPixNaoPago}
                     efeito={efeitoPix}
                     setEfeito={setEfeitoPix}
                     checkoutGerando={checkoutGerando}
@@ -801,6 +809,11 @@ export default function BotVendasPage() {
                   checkoutPayTexto={checkoutPayEn}
                   checkoutCheckTexto={checkoutCheckEn}
                   checkoutShowCheck={checkoutShowCheck}
+                  checkoutGerandoBr={checkoutGerando}
+                  checkoutPayTextoBr={checkoutPay}
+                  checkoutCheckTextoBr={checkoutCheck}
+                  notPaidMessage={pixNaoPago}
+                  onEscolherOrigem={setRamoPreview}
                   cabecalho={
                     temPlanoUsd ? (
                       <div className="mb-2 flex w-full max-w-[300px] gap-1 rounded-lg bg-white/5 p-1">
@@ -1763,6 +1776,8 @@ function PixRow({
   setBtnQr,
   btnCopy,
   setBtnCopy,
+  naoPago,
+  setNaoPago,
   efeito,
   setEfeito,
   checkoutGerando,
@@ -1807,6 +1822,8 @@ function PixRow({
   setBtnQr: (v: string) => void;
   btnCopy: string;
   setBtnCopy: (v: string) => void;
+  naoPago: string;
+  setNaoPago: (v: string) => void;
   efeito: string;
   setEfeito: (v: string) => void;
   checkoutGerando: string;
@@ -1827,10 +1844,6 @@ function PixRow({
   setCheckoutCheckEs: (v: string) => void;
   onSaved: () => void;
 }) {
-  // A resposta de "ainda não pago" não entra no preview do funil (só aparece
-  // se o cliente tocar em "Verificar Status" antes de pagar), então continua
-  // local — não precisa subir para o irmão do formulário.
-  const [naoPago, setNaoPago] = useState(bot.pixNotPaidMessage || pixDefaults?.notPaidMessage || "");
   const [busy, setBusy] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const provaRef = useRef<HTMLTextAreaElement>(null);

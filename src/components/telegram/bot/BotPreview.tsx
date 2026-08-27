@@ -27,7 +27,14 @@ import {
 
 /** O estilo é o MESMO que vai para o Telegram (Bot API 9.4). */
 export type PreviewStyle = "" | "primary" | "success" | "danger";
-type Btn = { text: string; kind: "plan" | "custom" | "support"; style?: PreviewStyle };
+type Btn = {
+  text: string;
+  kind: "plan" | "custom" | "support";
+  style?: PreviewStyle;
+  /** Só existe no preview: o Telegram real não devolve isso. Quando setado,
+   *  o botão vira clicável (navegação simulada — ver `FunnelPreview`). */
+  onClick?: () => void;
+};
 
 /**
  * As cores do preview espelham o que o Telegram desenha para cada `style`:
@@ -138,6 +145,16 @@ const PIX_PADRAO_PREVIEW = {
   btnCheck: "Verificar Status do Pagamento",
   btnQr: "Mostrar QR Code",
   btnCopy: "Copiar Chave Pix",
+  notPaidMessage:
+    "Ainda não identificamos seu pagamento. Se você já pagou, aguarde alguns instantes e tente novamente.",
+};
+
+/** Espelha `CHECKOUT_DEFAULTS` de `telegramDb.ts` — mesmo motivo do
+ *  `PIX_PADRAO_PREVIEW` acima (evitar puxar `getDb()` para o navegador). */
+const CHECKOUT_PADRAO_PREVIEW = {
+  generatingMessage: "⏳ Gerando cobrança no cartão...",
+  payButton: "Pagar 👉",
+  checkButton: "Verificar status",
 };
 
 /** Código de exemplo — só para o preview ter algo para substituir {pix_code}. */
@@ -179,6 +196,11 @@ export function FunnelPreview({
   checkoutPayTexto,
   checkoutCheckTexto,
   checkoutShowCheck = true,
+  checkoutGerandoBr,
+  checkoutPayTextoBr,
+  checkoutCheckTextoBr,
+  notPaidMessage,
+  onEscolherOrigem,
   cabecalho,
 }: {
   botUsername?: string;
@@ -234,11 +256,60 @@ export function FunnelPreview({
   /** Espelha `checkoutShowCheckButton` do bot — desligado, o botão de
    *  verificar status some da tela, ficando só o link de pagamento. */
   checkoutShowCheck?: boolean;
+  /** Mesmo trio do checkout acima, mas em PT — usado quando o lead
+   *  brasileiro clica em "pagar no cartão" (`cardBrButtons`) na navegação
+   *  clicável: o cartão no Brasil abre o MESMO tipo de tela (link Stripe),
+   *  só que com os textos editáveis em português, não os traduzidos. */
+  checkoutGerandoBr?: string;
+  checkoutPayTextoBr?: string;
+  checkoutCheckTextoBr?: string;
+  /** Resposta de "Verificar status" quando ainda não consta pago — mesma
+   *  mensagem nos dois provedores (PIX e cartão). Vazio cai no padrão. */
+  notPaidMessage?: string;
+  /** NAVEGAÇÃO CLICÁVEL: avisa quem hospeda o preview que o lead simulado
+   *  escolheu Brasil/International DENTRO da conversa (pergunta
+   *  `intlAskFirst` ou botão "Not from Brazil?" no meio do funil) — assim o
+   *  seletor de fora (`cabecalho`) acompanha o clique em vez de ficar
+   *  parado numa leitura que já não é a que está na tela. */
+  onEscolherOrigem?: (ramo: "br" | "intl") => void;
   /** Seletor Brasil/International, desenhado acima do aparelho (mesmo slot
    *  que o Prévias/VIP do preview de aprovação). */
   cabecalho?: React.ReactNode;
 }) {
   const welcomeIds = welcomeMediaIds || [];
+
+  // ---- NAVEGAÇÃO CLICÁVEL --------------------------------------------------
+  // O preview passa a se comportar como o app de verdade: cada balão só
+  // ganha o próximo depois de um clique, e não antes. O conteúdo de cada
+  // tela continua vindo pronto por prop (de `page.tsx`) — nada de ramo,
+  // idioma ou preço é recalculado aqui, só QUANDO revelar cada um. Nenhum
+  // clique chama API real nem gera PIX de verdade; é tudo ilustrativo.
+  const [origemEscolhida, setOrigemEscolhida] = useState<"br" | "intl" | null>(null);
+  const [pagamento, setPagamento] = useState<{ via: "pix" | "cartaoIntl" | "cartaoBr"; label: string } | null>(null);
+  const [statusChecado, setStatusChecado] = useState(false);
+  const [pagamentoConfirmado, setPagamentoConfirmado] = useState(false);
+
+  function reiniciar() {
+    setOrigemEscolhida(null);
+    setPagamento(null);
+    setStatusChecado(false);
+    setPagamentoConfirmado(false);
+  }
+
+  function escolherOrigem(r: "br" | "intl") {
+    setOrigemEscolhida(r);
+    // Avisa quem hospeda o preview (o seletor Brasil/International de fora)
+    // pra ele acompanhar o clique, em vez de ficar mostrando um ramo que já
+    // não é o que está na tela.
+    onEscolherOrigem?.(r);
+    // Escolher de novo no meio da conversa ("Not from Brazil?") reabre o
+    // ramo internacional — o que vinha depois (tela de pagamento) não vale
+    // mais para esse ramo, então reinicia daqui pra frente.
+    setPagamento(null);
+    setStatusChecado(false);
+    setPagamentoConfirmado(false);
+  }
+
   const { conversaRef, passaDaTela, medir, cortados, marcarCorte } = useMedidas([
     welcomeMessage,
     welcomeIds.join(","),
@@ -259,9 +330,21 @@ export function FunnelPreview({
     checkoutPayTexto,
     checkoutCheckTexto,
     checkoutShowCheck,
+    checkoutGerandoBr,
+    checkoutPayTextoBr,
+    checkoutCheckTextoBr,
+    notPaidMessage,
+    origemEscolhida,
+    pagamento?.via,
+    statusChecado,
+    pagamentoConfirmado,
   ]);
 
   const intl = ramo === "intl";
+  // Com a pergunta Brasil/International ligada, nada depois dela existe até
+  // o lead simulado responder — igual ao /start de verdade.
+  const origemPronta = !intlAskFirst || origemEscolhida !== null;
+  const podeReiniciar = origemEscolhida !== null || pagamento !== null;
 
   // Mesma montagem do webhook (ver app/api/webhooks/telegram/[botId]/route.ts):
   // {plano}/{valor} primeiro, depois {pix_code} (ou o código no fim, se o
@@ -295,9 +378,22 @@ export function FunnelPreview({
       cabecalho={cabecalho}
     >
       <div ref={conversaRef} className="h-full overflow-y-auto px-3 py-3" onLoad={medir}>
-        <p className="mx-auto mb-2 w-fit rounded-full bg-white/10 px-2 py-0.5 text-[12px] text-zinc-300">
-          /start
-        </p>
+        <div className="mb-1 flex items-center justify-center gap-2">
+          <p className="w-fit rounded-full bg-white/10 px-2 py-0.5 text-[12px] text-zinc-300">/start</p>
+          {podeReiniciar && (
+            <button
+              type="button"
+              onClick={reiniciar}
+              title="Recomeçar a simulação deste funil"
+              className="rounded-full border border-white/15 px-2 py-0.5 text-[11px] text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-200"
+            >
+              ↺ Reiniciar
+            </button>
+          )}
+        </div>
+        {!podeReiniciar && (
+          <p className="mb-2 text-center text-[11px] text-zinc-500">👆 toque nos botões da conversa</p>
+        )}
 
         {/* Modo internacional bilíngue: a PRIMEIRA coisa que qualquer lead
             vê, antes de qualquer conteúdo — os dois ramos passam por aqui. */}
@@ -307,135 +403,222 @@ export function FunnelPreview({
               mediaIds={[]}
               text="🌎 Brasil ou fora do Brasil? / From Brazil or international?"
               buttons={[
-                { text: "🇧🇷 Brasil", kind: "custom", style: redirectStyle },
-                { text: "🌎 International", kind: "custom", style: redirectStyle },
+                {
+                  text: "🇧🇷 Brasil",
+                  kind: "custom",
+                  style: redirectStyle,
+                  onClick: origemEscolhida ? undefined : () => escolherOrigem("br"),
+                },
+                {
+                  text: "🌎 International",
+                  kind: "custom",
+                  style: redirectStyle,
+                  onClick: origemEscolhida ? undefined : () => escolherOrigem("intl"),
+                },
               ]}
               vazio=""
               onMedia={medir}
               onCortado={marcarCorte}
             />
-            <Momento label={`Lead toca em "${intl ? "🌎 International" : "🇧🇷 Brasil"}"`} />
+            {origemEscolhida && (
+              <Momento label={`Lead toca em "${origemEscolhida === "intl" ? "🌎 International" : "🇧🇷 Brasil"}"`} />
+            )}
           </>
         )}
 
-        <PreviewBalao
-          mediaIds={welcomeIds}
-          mode={welcomeMediaMode}
-          text={welcomeMessage}
-          buttons={buttons}
-          effect={effectWelcome}
-          vazio="(mensagem de boas-vindas vazia)"
-          onMedia={medir}
-          onCortado={marcarCorte}
-        />
-
-        {/* Cartão no Brasil — botão EXTRA, em mensagem PRÓPRIA depois dos
-            planos em PIX. Só existe do lado brasileiro. */}
-        {!intl && cardBrButtons && cardBrButtons.length > 0 && (
-          <PreviewBalao
-            mediaIds={[]}
-            text="💳 Prefere pagar no cartão?"
-            buttons={cardBrButtons}
-            vazio=""
-            onMedia={medir}
-            onCortado={marcarCorte}
-          />
-        )}
-
-        {/* Prova social — SEMPRE por último: depois dos planos, do "Not from
-            Brazil?" (já embutido na mensagem de boas-vindas, em `buttons`) e
-            do "pagar no cartão" acima. Fecha a abertura, não fica no meio
-            dela. Fonte menor: é um aviso de canto, não parte da conversa. */}
-        {provaSocialLinha && (
-          <PreviewBalao
-            mediaIds={[]}
-            text={provaSocialLinha}
-            buttons={[]}
-            vazio=""
-            pequeno
-            onMedia={medir}
-            onCortado={marcarCorte}
-          />
-        )}
-
-        <Momento label={`Lead toca em "${planoNome}"`} />
-
-        {intl ? (
-          // Checkout internacional: link da Stripe, sem código nem QR — ver
-          // CHECKOUT_INTL_TEXTS no webhook. Textos vêm de fora (o operador
-          // pode ter editado); só cai no ilustrativo em inglês quando vazio.
+        {origemPronta && (
           <>
             <PreviewBalao
-              mediaIds={[]}
-              text={checkoutGerando?.trim() || "⏳ Generating your payment link..."}
-              buttons={[]}
-              vazio=""
+              mediaIds={welcomeIds}
+              mode={welcomeMediaMode}
+              text={welcomeMessage}
+              buttons={buttons.map((b) => {
+                if (pagamento) return b;
+                if (b.kind === "plan") {
+                  return { ...b, onClick: () => setPagamento({ via: intl ? "cartaoIntl" : "pix", label: b.text }) };
+                }
+                if (b.kind === "custom" && /not from brazil/i.test(b.text)) {
+                  return { ...b, onClick: () => escolherOrigem("intl") };
+                }
+                // Links extras/suporte: não fazem parte do funil de
+                // pagamento, então não navegam a simulação — ficam quietos.
+                return b;
+              })}
+              effect={effectWelcome}
+              vazio="(mensagem de boas-vindas vazia)"
               onMedia={medir}
               onCortado={marcarCorte}
             />
-            <PreviewBalao
-              mediaIds={[]}
-              text="Finish the payment through the link below."
-              buttons={[
-                { text: checkoutPayTexto?.trim() || "Make payment 👉", kind: "custom", style: checkoutPayStyle },
-                ...(checkoutShowCheck
-                  ? [
-                      {
-                        text: checkoutCheckTexto?.trim() || "Check payment status",
-                        kind: "custom" as const,
-                        style: pixCheckStyle,
-                      },
-                    ]
-                  : []),
-              ]}
-              effect={effectPix}
-              vazio=""
-              onMedia={medir}
-              onCortado={marcarCorte}
-            />
-          </>
-        ) : (
-          <>
-            {pixGeneratingMessage.trim() && (
+
+            {/* Cartão no Brasil — botão EXTRA, em mensagem PRÓPRIA depois dos
+                planos em PIX. Só existe do lado brasileiro. */}
+            {!intl && cardBrButtons && cardBrButtons.length > 0 && (
               <PreviewBalao
                 mediaIds={[]}
-                text={pixGeneratingMessage}
-                buttons={[]}
+                text="💳 Prefere pagar no cartão?"
+                buttons={cardBrButtons.map((b) => ({
+                  ...b,
+                  onClick: pagamento ? undefined : () => setPagamento({ via: "cartaoBr", label: b.text }),
+                }))}
                 vazio=""
                 onMedia={medir}
                 onCortado={marcarCorte}
               />
             )}
 
-            <PreviewBalao
-              mediaIds={[]}
-              text={legenda}
-              buttons={pixButtons}
-              effect={effectPix}
-              vazio="(sem legenda do PIX)"
-              onMedia={medir}
-              onCortado={marcarCorte}
-            />
-
-            {pixAudioUrl?.trim() && (
-              <div className="mt-1.5 flex w-fit items-center gap-1.5 rounded-2xl rounded-tl-md bg-[#182533] px-3 py-2 text-[13px] text-zinc-300">
-                🎤 <span>Áudio</span>
-              </div>
+            {/* Prova social — SEMPRE por último: depois dos planos, do "Not
+                from Brazil?" (já embutido na mensagem de boas-vindas, em
+                `buttons`) e do "pagar no cartão" acima. Fecha a abertura,
+                não fica no meio dela. Fonte menor: é um aviso de canto, não
+                parte da conversa. */}
+            {provaSocialLinha && (
+              <PreviewBalao
+                mediaIds={[]}
+                text={provaSocialLinha}
+                buttons={[]}
+                vazio=""
+                pequeno
+                onMedia={medir}
+                onCortado={marcarCorte}
+              />
             )}
           </>
         )}
 
-        <Momento label={intl ? "Payment confirmed" : "Pagamento confirmado"} />
+        {pagamento && (
+          <>
+            <Momento label={`Lead toca em "${pagamento.label}"`} />
 
-        <PreviewBalao
-          mediaIds={[]}
-          text={successMessage}
-          buttons={successButtons}
-          effect={effectSuccess}
-          vazio="(mensagem vazia)"
-          onMedia={medir}
-          onCortado={marcarCorte}
-        />
+            {pagamento.via === "pix" ? (
+              <>
+                {pixGeneratingMessage.trim() && (
+                  <PreviewBalao
+                    mediaIds={[]}
+                    text={pixGeneratingMessage}
+                    buttons={[]}
+                    vazio=""
+                    onMedia={medir}
+                    onCortado={marcarCorte}
+                  />
+                )}
+
+                <PreviewBalao
+                  mediaIds={[]}
+                  text={legenda}
+                  buttons={pixButtons.map((b, i) => ({
+                    // Só "Verificar Status" (sempre o primeiro dos três)
+                    // avança a simulação — QR/Copiar continuam mostrando o
+                    // botão, sem revelar tela nenhuma depois deles.
+                    ...b,
+                    onClick: i === 0 && !statusChecado ? () => setStatusChecado(true) : undefined,
+                  }))}
+                  effect={effectPix}
+                  vazio="(sem legenda do PIX)"
+                  onMedia={medir}
+                  onCortado={marcarCorte}
+                />
+
+                {pixAudioUrl?.trim() && (
+                  <div className="mt-1.5 flex w-fit items-center gap-1.5 rounded-2xl rounded-tl-md bg-[#182533] px-3 py-2 text-[13px] text-zinc-300">
+                    🎤 <span>Áudio</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              // Checkout no cartão (Stripe) — internacional ou brasileiro
+              // (`acceptCardBr`): mesmo tipo de tela, o que muda é o idioma
+              // dos textos. Ver CHECKOUT_INTL_TEXTS no webhook pro lado intl.
+              <>
+                <PreviewBalao
+                  mediaIds={[]}
+                  text={
+                    pagamento.via === "cartaoIntl"
+                      ? checkoutGerando?.trim() || "⏳ Generating your payment link..."
+                      : checkoutGerandoBr?.trim() || CHECKOUT_PADRAO_PREVIEW.generatingMessage
+                  }
+                  buttons={[]}
+                  vazio=""
+                  onMedia={medir}
+                  onCortado={marcarCorte}
+                />
+                <PreviewBalao
+                  mediaIds={[]}
+                  text={
+                    pagamento.via === "cartaoIntl"
+                      ? "Finish the payment through the link below."
+                      : "Finalize o pagamento pelo link abaixo."
+                  }
+                  buttons={[
+                    {
+                      text:
+                        pagamento.via === "cartaoIntl"
+                          ? checkoutPayTexto?.trim() || "Make payment 👉"
+                          : checkoutPayTextoBr?.trim() || CHECKOUT_PADRAO_PREVIEW.payButton,
+                      kind: "custom",
+                      style: checkoutPayStyle,
+                    },
+                    ...(checkoutShowCheck
+                      ? [
+                          {
+                            text:
+                              pagamento.via === "cartaoIntl"
+                                ? checkoutCheckTexto?.trim() || "Check payment status"
+                                : checkoutCheckTextoBr?.trim() || CHECKOUT_PADRAO_PREVIEW.checkButton,
+                            kind: "custom" as const,
+                            style: pixCheckStyle,
+                            onClick: statusChecado ? undefined : () => setStatusChecado(true),
+                          },
+                        ]
+                      : []),
+                  ]}
+                  effect={effectPix}
+                  vazio=""
+                  onMedia={medir}
+                  onCortado={marcarCorte}
+                />
+              </>
+            )}
+
+            {statusChecado && !pagamentoConfirmado && (
+              <>
+                <PreviewBalao
+                  mediaIds={[]}
+                  text={notPaidMessage?.trim() || PIX_PADRAO_PREVIEW.notPaidMessage}
+                  buttons={[]}
+                  vazio=""
+                  onMedia={medir}
+                  onCortado={marcarCorte}
+                />
+                {/* Botão que só existe no PREVIEW — não tem como o lead de
+                    verdade "confirmar sozinho", isso vem do gateway. Estilo
+                    tracejado pra nunca ser confundido com um botão real do
+                    Telegram. */}
+                <button
+                  type="button"
+                  onClick={() => setPagamentoConfirmado(true)}
+                  className="mx-auto mt-1 block w-fit rounded-lg border border-dashed border-emerald-400/50 bg-emerald-500/10 px-3 py-1.5 text-[11px] text-emerald-300 transition-colors hover:bg-emerald-500/20"
+                >
+                  🧪 Simular pagamento confirmado (só no preview)
+                </button>
+              </>
+            )}
+
+            {pagamentoConfirmado && (
+              <>
+                <Momento label={pagamento.via === "cartaoIntl" ? "Payment confirmed" : "Pagamento confirmado"} />
+                <PreviewBalao
+                  mediaIds={[]}
+                  text={successMessage}
+                  buttons={successButtons}
+                  effect={effectSuccess}
+                  vazio="(mensagem vazia)"
+                  onMedia={medir}
+                  onCortado={marcarCorte}
+                />
+              </>
+            )}
+          </>
+        )}
       </div>
     </Celular>
   );
@@ -679,11 +862,26 @@ function BotaoDoTeclado({
     // e corta no Galaxy, então trocar de aparelho tem que remedir.
   }, [botao.text, onCortado, aparelho.id]);
 
+  const clicavel = Boolean(botao.onClick);
+
   return (
     <div
+      role={clicavel ? "button" : undefined}
+      tabIndex={clicavel ? 0 : undefined}
+      onClick={botao.onClick}
+      onKeyDown={
+        clicavel
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                botao.onClick?.();
+              }
+            }
+          : undefined
+      }
       className={`relative rounded-lg border px-3 py-2 ${CORES[botao.style || ""] || CORES[""]} ${
         cortado ? "ring-1 ring-amber-400/60" : ""
-      }`}
+      } ${clicavel ? "cursor-pointer transition-transform hover:brightness-125 active:scale-[0.98]" : ""}`}
       title={cortado ? `Cortado no Telegram: "${botao.text}"` : undefined}
     >
       <span

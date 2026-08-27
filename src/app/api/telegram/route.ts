@@ -268,7 +268,7 @@ export async function POST(req: NextRequest) {
     // modelo. Preserva os demais campos (mensagens, funis, vendas). Se a
     // operação já estiver ligada, re-registra o webhook (token/grupos mudaram).
     if (action === "save-bot-credentials") {
-      const { profileId, botToken, idVip, idAquecimento } = body;
+      const { profileId, botToken, idVip, idAquecimento, idVendas } = body;
       const existing = getBotConfigByProfile(profileId);
       // O token não volta mais para o navegador, então a tela manda o campo
       // VAZIO quando o operador não quer trocá-lo — nesse caso o que já está
@@ -342,6 +342,11 @@ export async function POST(req: NextRequest) {
         botUsername: usernameDoToken || existing?.botUsername,
         idVip: String(idVip).trim(),
         idAquecimento: String(idAquecimento).trim(),
+        // Grupo de Vendas é OPCIONAL — ao contrário de VIP/Prévias, campo
+        // vazio é uma escolha válida (bot sem relatório de vendas), não "não
+        // mudou nada". Só cai no que já estava salvo quando a tela não manda
+        // o campo (ex.: uma chamada antiga da API).
+        idVendas: idVendas !== undefined ? String(idVendas).trim() || undefined : existing?.idVendas,
       });
 
       let webhook: { ok: boolean; message?: string; username?: string } | undefined;
@@ -1099,6 +1104,10 @@ export async function POST(req: NextRequest) {
       const grupos = [
         await checar(bot.idVip, "Grupo VIP"),
         await checar(bot.idAquecimento, "Grupo de Prévias"),
+        // Opcional: só entra na checagem quando configurado — vazio não é
+        // problema nenhum aqui (ao contrário do VIP/Prévias, que são
+        // obrigatórios), então não teria sentido aparecer como "sem ID".
+        ...(bot.idVendas?.trim() ? [await checar(bot.idVendas.trim(), "Grupo de Vendas")] : []),
       ];
       return NextResponse.json({ ok: true, grupos });
     }

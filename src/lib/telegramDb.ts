@@ -9,6 +9,12 @@ export type TelegramBotConfig = {
   idVip: string;
   idAquecimento: string;
   idRegistro?: string;
+  /** GRUPO DE VENDAS — canal/grupo do Telegram OPCIONAL, terceiro ao lado do
+   *  VIP e das Prévias: recebe um relatório de CADA venda aprovada (ver
+   *  `buildSalesReportMessage` em `lib/payments/deliverPayment.ts`). Vazio =
+   *  o bot simplesmente não manda relatório nenhum — nunca bloqueia a
+   *  entrega do acesso ao cliente. */
+  idVendas?: string;
   supportUsername?: string;
   welcomeMessage: string;
   welcomeMediaTags?: string;
@@ -465,6 +471,7 @@ function toBotConfig(row: any): TelegramBotConfig {
     idVip: row.id_vip,
     idAquecimento: row.id_aquecimento,
     idRegistro: row.id_registro || undefined,
+    idVendas: row.id_vendas || undefined,
     supportUsername: row.support_username || undefined,
     welcomeMessage: row.welcome_message,
     welcomeMediaTags: row.welcome_media_tags || undefined,
@@ -576,8 +583,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, success_message_en, success_message_es, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, renewal_funnel, renewal_enabled, intl_enabled, intl_ask_first, accept_card_br, welcome_message_en, welcome_message_es, success_button_text_en, success_button_text_es, pix_social_proof_text_en, pix_social_proof_text_es, checkout_generating_message, checkout_pay_button_text, checkout_pay_button_text_en, checkout_pay_button_text_es, checkout_check_button_text, checkout_check_button_text_en, checkout_check_button_text_es, checkout_show_check_button, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, success_message_en, success_message_es, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, renewal_funnel, renewal_enabled, intl_enabled, intl_ask_first, accept_card_br, welcome_message_en, welcome_message_es, success_button_text_en, success_button_text_es, pix_social_proof_text_en, pix_social_proof_text_es, checkout_generating_message, checkout_pay_button_text, checkout_pay_button_text_en, checkout_pay_button_text_es, checkout_check_button_text, checkout_check_button_text_en, checkout_check_button_text_es, checkout_show_check_button, id_vendas, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -641,7 +648,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        checkout_check_button_text = excluded.checkout_check_button_text,
        checkout_check_button_text_en = excluded.checkout_check_button_text_en,
        checkout_check_button_text_es = excluded.checkout_check_button_text_es,
-       checkout_show_check_button = excluded.checkout_show_check_button`
+       checkout_show_check_button = excluded.checkout_show_check_button,
+       id_vendas = excluded.id_vendas`
   ).run(
     id,
     config.profileId,
@@ -710,6 +718,7 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.checkoutCheckButtonTextEn?.trim() || null,
     config.checkoutCheckButtonTextEs?.trim() || null,
     config.checkoutShowCheckButton === false ? 0 : 1,
+    config.idVendas?.trim() || null,
     now
   );
   // Lê PELO PERFIL, não pelo `id` que acabou de ser passado. O INSERT resolve

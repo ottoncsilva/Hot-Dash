@@ -54,7 +54,7 @@ export async function deliverPaidTransaction(
   }
 
   // Verifica se existe uma inscrição do Telegram pendente para esta transação
-  const { findSubscriptionByTransaction, saveSubscription, getBotConfig, getPlan, buildAccessMessage } =
+  const { findSubscriptionByTransaction, saveSubscription, getBotConfig, getPlan, buildAccessMessage, planPeriodLabel } =
     await import("@/lib/telegramDb");
   const sub = ehVendaDeLtv ? null : findSubscriptionByTransaction(transaction.id);
 
@@ -108,7 +108,8 @@ export async function deliverPaidTransaction(
       // Brazil?" E existe uma tradução salva para ele; sem isso, cai no
       // texto em português de sempre (comportamento de hoje, intacto).
       const { getTelegramUser } = await import("@/lib/telegramUsers");
-      const idiomaLead = getTelegramUser(`${bot.id}_${sub.telegramUserId}`)?.language;
+      const pessoa = getTelegramUser(`${bot.id}_${sub.telegramUserId}`);
+      const idiomaLead = pessoa?.language;
       const successMessageTraduzida =
         idiomaLead === "en"
           ? bot.successMessageEn?.trim()
@@ -259,11 +260,36 @@ export async function deliverPaidTransaction(
           }
         }
 
-        // O aviso de venda no CANAL DE REGISTRO saiu a pedido — o recurso
-        // não está em uso por ora, e o campo foi tirado da tela. A coluna
-        // `id_registro` continua no banco de propósito: reativar é devolver
-        // o campo na tela e este bloco. O alerta de venda no celular (push
-        // do PWA, logo abaixo) não depende disso e continua valendo.
+        // GRUPO DE VENDAS: relatório de CADA venda aprovada, no canal
+        // opcional configurado pela modelo (Modelos → editar → Bot do
+        // Telegram, terceiro campo ao lado do VIP e das Prévias). Sem ele
+        // configurado, não manda nada — nunca é obrigatório. Fica num
+        // try/catch PRÓPRIO: falha aqui é só um relatório perdido, nunca
+        // pode atrapalhar o acesso que o cliente já pagou por receber (o
+        // alerta de venda no celular, push do PWA logo abaixo, também não
+        // depende disto e continua valendo do mesmo jeito).
+        if (bot.idVendas?.trim()) {
+          try {
+            const relatorio = buildSalesReportMessage({
+              botUsername: bot.botUsername,
+              botToken: bot.botToken,
+              telegramUserId: sub.telegramUserId,
+              nomeCliente: pessoa?.firstName,
+              idioma: idiomaLead,
+              categoria: isPackage ? "Pacote Avulso" : "Plano Assinatura",
+              planoNome: plan?.name || "-",
+              duracaoLabel: plan ? planPeriodLabel(plan.durationDays) : "-",
+              sourceCode: pessoa?.sourceCode,
+              transaction,
+            });
+            // parse_mode HTML já é o padrão de `sendTelegramMessage` (é o
+            // que faz o <code>/<b> acima virarem formatação de verdade).
+            await sendTelegramMessage(bot.botToken, bot.idVendas.trim(), relatorio);
+          } catch (rErr) {
+            console.error("Erro ao mandar o relatório no Grupo de Vendas:", rErr);
+          }
+        }
+
         // ENTREGA DO ORDER BUMP. Vai por último, depois do acesso
         // principal: o cliente comprou os dois, mas veio pelo plano — o
         // extra não pode chegar antes do que ele foi buscar.
@@ -314,4 +340,69 @@ export async function deliverPaidTransaction(
   } catch (pErr) {
     console.error("Erro ao enviar push de venda:", pErr);
   }
+}
+
+/**
+ * Monta o relatório de UMA venda para o GRUPO DE VENDAS — texto fixo, mesmo
+ * formato pedido (rótulo + emoji por linha), com os IDs em `<code>` para
+ * copiar com um toque. `<b>`/`<code>` exigem `parse_mode: "HTML"` no envio.
+ *
+ * Puro de propósito: não fala com o banco nem com o Telegram, só formata o
+ * que já foi resolvido no chamador — fácil de testar isolado.
+ */
+function buildSalesReportMessage(o: {
+  botUsername?: string;
+  /** Token completo do bot — só a parte ANTES dos dois-pontos é o id numérico. */
+  botToken: string;
+  telegramUserId: number;
+  nomeCliente?: string;
+  idioma?: "en" | "es";
+  categoria: string;
+  planoNome: string;
+  duracaoLabel: string;
+  /** Código do deep-link que trouxe o lead (`t.me/<bot>?start=CODIGO`). Sem
+   *  código (start "seco"), cai em "start" — mesmo texto que o exemplo. */
+  sourceCode?: string;
+  transaction: Transaction;
+}): string {
+  const idBot = o.botToken.split(":")[0] || "?";
+  const idioma = o.idioma === "en" ? "en-us" : o.idioma === "es" ? "es-es" : "pt-br";
+  const valor = (o.transaction.amountCents / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: o.transaction.currency || "BRL",
+  });
+  // "Tempo Conversão": do instante em que a cobrança foi GERADA até o
+  // instante em que ela virou paga — o quão rápido o lead decidiu.
+  const tempoConversao = formatarDuracaoCurta(
+    (o.transaction.paidAt || o.transaction.updatedAt || Date.now()) - o.transaction.createdAt,
+  );
+  return [
+    "🎉 <b>Pagamento Aprovado!</b>",
+    `🤖 Bot: @${o.botUsername || "-"}`,
+    `⚙️ ID Bot: <code>${idBot}</code>`,
+    `🆔 ID Cliente: <code>${o.telegramUserId}</code>`,
+    `👤 Nome de Perfil: ${o.nomeCliente || "-"}`,
+    `🌐 Idioma: ${idioma}`,
+    `📦 Categoria: ${o.categoria}`,
+    `🎁 Plano: ${o.planoNome}`,
+    `📅 Duração: ${o.duracaoLabel}`,
+    `💰 Valor: ${valor}`,
+    `⏳ Tempo Conversão: ${tempoConversao}`,
+    `🏷️ Código de Venda: ${o.sourceCode || "start"}`,
+    `🔑 ID Transação Interna: <code>${o.transaction.id}</code>`,
+    `🏷️ ID Transação Gateway: <code>${o.transaction.providerRef || "-"}</code>`,
+    `💱 Tipo Moeda: ${o.transaction.currency || "-"}`,
+    `💳 Método Pagamento: ${o.transaction.method || "-"}`,
+    `🏦 Plataforma Pagamento: ${o.transaction.provider}`,
+  ].join("\n");
+}
+
+/** "0d 0h 4m 36s" — mesmo formato do exemplo, sempre com os 4 campos. */
+function formatarDuracaoCurta(ms: number): string {
+  const totalSeg = Math.max(0, Math.floor(ms / 1000));
+  const d = Math.floor(totalSeg / 86400);
+  const h = Math.floor((totalSeg % 86400) / 3600);
+  const m = Math.floor((totalSeg % 3600) / 60);
+  const s = totalSeg % 60;
+  return `${d}d ${h}h ${m}m ${s}s`;
 }

@@ -1191,6 +1191,13 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "telegram_bots", "checkout_check_button_text_en", "TEXT");
   ensureColumn(d, "telegram_bots", "checkout_check_button_text_es", "TEXT");
   ensureColumn(d, "telegram_bots", "checkout_show_check_button", "INTEGER NOT NULL DEFAULT 1");
+  // GRUPO DE VENDAS: canal (grupo/canal do Telegram) OPCIONAL, ao lado do
+  // VIP e das Prévias, onde o bot dispara um relatório de cada venda
+  // aprovada (ver `buildSalesReportMessage` em `lib/payments/deliverPayment.ts`).
+  // Ao contrário de `id_vip`/`id_aquecimento`, não é obrigatório: sem ele
+  // configurado, o bot simplesmente não manda o relatório — o resto da
+  // entrega (acesso do cliente) nunca depende disto.
+  ensureColumn(d, "telegram_bots", "id_vendas", "TEXT");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);

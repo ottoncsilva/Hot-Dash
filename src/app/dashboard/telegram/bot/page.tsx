@@ -52,6 +52,9 @@ type Bot = {
   idVip: string;
   idAquecimento: string;
   idRegistro?: string;
+  /** Grupo de Vendas — terceiro canal, opcional (editado na tela da modelo,
+   *  junto do VIP e das Prévias). Recebe um relatório de cada venda aprovada. */
+  idVendas?: string;
   supportUsername?: string;
   welcomeMessage: string;
   welcomeMediaTags?: string;
@@ -982,10 +985,11 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
         <Switch checked={active} onChange={setOperation} disabled={toggling} ariaLabel="Operação do bot" />
       </div>
 
-      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
         <Info label="Bot" value={bot.botUsername ? `@${bot.botUsername}` : "—"} />
         <Info label="Grupo VIP" value={bot.idVip || "—"} />
         <Info label="Grupo Prévias" value={bot.idAquecimento || "—"} />
+        <Info label="Grupo Vendas" value={bot.idVendas || "— (opcional)"} />
       </div>
       {/* Sem ser ADMIN do VIP o bot não gera o convite — e a falha só
           apareceria depois de alguém pagar. Por isso a checagem fica à vista. */}

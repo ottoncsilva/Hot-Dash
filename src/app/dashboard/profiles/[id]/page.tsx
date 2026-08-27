@@ -82,7 +82,10 @@ export default function ProfileDetailPage() {
   const [hasToken, setHasToken] = useState(false);
   const [botIdVip, setBotIdVip] = useState("");
   const [botIdPrevias, setBotIdPrevias] = useState("");
-  const [botOrig, setBotOrig] = useState({ token: "", vip: "", prev: "" });
+  // Grupo de Vendas — terceiro canal, OPCIONAL (ao contrário dos dois
+  // acima): sem ele, o bot simplesmente não manda o relatório de venda.
+  const [botIdVendas, setBotIdVendas] = useState("");
+  const [botOrig, setBotOrig] = useState({ token: "", vip: "", prev: "", vendas: "" });
   const [savingInfo, setSavingInfo] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarKey, setAvatarKey] = useState(0);
@@ -109,9 +112,9 @@ export default function ProfileDetailPage() {
       setBioTelegramButton(data.profile.bioTelegramButton || "");
       // Credenciais do bot (não bloqueia a tela se falhar).
       try {
-        const tg = await apiGet<{ bot: { hasToken?: boolean; idVip?: string; idAquecimento?: string } | null }>(
-          `/api/telegram?profileId=${id}`,
-        );
+        const tg = await apiGet<{
+          bot: { hasToken?: boolean; idVip?: string; idAquecimento?: string; idVendas?: string } | null;
+        }>(`/api/telegram?profileId=${id}`);
         // O token NÃO volta da API (ver a rota: ele dá controle total do bot).
         // O campo fica vazio e o placeholder avisa que já existe um salvo —
         // digitar algo aqui é o que troca o token.
@@ -119,6 +122,7 @@ export default function ProfileDetailPage() {
         setBotToken("");
         setBotIdVip(tg.bot?.idVip || "");
         setBotIdPrevias(tg.bot?.idAquecimento || "");
+        setBotIdVendas(tg.bot?.idVendas || "");
         // Descobre o link do VIP (com cache no servidor: só fala com o
         // Telegram na primeira vez).
         try {
@@ -132,7 +136,12 @@ export default function ProfileDetailPage() {
         } catch {
           setVipAuto(null);
         }
-        setBotOrig({ token: "", vip: tg.bot?.idVip || "", prev: tg.bot?.idAquecimento || "" });
+        setBotOrig({
+          token: "",
+          vip: tg.bot?.idVip || "",
+          prev: tg.bot?.idAquecimento || "",
+          vendas: tg.bot?.idVendas || "",
+        });
       } catch {
         /* sem bot ainda */
       }
@@ -181,10 +190,11 @@ export default function ProfileDetailPage() {
           botToken: botToken.trim(),
           idVip: botIdVip.trim(),
           idAquecimento: botIdPrevias.trim(),
+          idVendas: botIdVendas.trim(),
         });
         if (botToken.trim()) setHasToken(true);
         setBotToken("");
-        setBotOrig({ token: "", vip: botIdVip.trim(), prev: botIdPrevias.trim() });
+        setBotOrig({ token: "", vip: botIdVip.trim(), prev: botIdPrevias.trim(), vendas: botIdVendas.trim() });
       }
       showToast("Salvo!");
     } catch (err) {
@@ -262,7 +272,8 @@ export default function ProfileDetailPage() {
     bioTelegramButton !== (profile.bioTelegramButton || "") ||
     botToken !== botOrig.token ||
     botIdVip !== botOrig.vip ||
-    botIdPrevias !== botOrig.prev;
+    botIdPrevias !== botOrig.prev ||
+    botIdVendas !== botOrig.vendas;
 
   return (
     <div className="page-narrow">
@@ -588,6 +599,26 @@ export default function ProfileDetailPage() {
                     {hasToken && (
                       <div className="mt-1.5">
                         <DetectChat profileId={id} onPick={setBotIdPrevias} atual={botIdPrevias} />
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="eyebrow mb-1.5 block">
+                      ID Grupo Vendas <span className="font-normal text-zinc-500">(opcional)</span>
+                    </label>
+                    <input
+                      className="input font-mono"
+                      placeholder="-100..."
+                      value={botIdVendas}
+                      onChange={(e) => setBotIdVendas(e.target.value)}
+                    />
+                    <p className="mt-1 text-[11px] text-zinc-500">
+                      Canal só pra você acompanhar: o bot manda um relatório de CADA venda aprovada
+                      aqui (cliente, plano, valor, gateway). Vazio, o bot não manda nada.
+                    </p>
+                    {hasToken && (
+                      <div className="mt-1.5">
+                        <DetectChat profileId={id} onPick={setBotIdVendas} atual={botIdVendas} />
                       </div>
                     )}
                   </div>

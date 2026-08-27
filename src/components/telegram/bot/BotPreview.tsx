@@ -364,6 +364,28 @@ export function FunnelPreview({
     pagamentoConfirmado,
   ]);
 
+  // Rola pro FIM da conversa a cada passo revelado — é o que um app de
+  // verdade faz sozinho quando chega mensagem nova, e sem isso o lead
+  // simulado "clica no vazio": o balão novo nasce fora da tela, embaixo do
+  // que já tinha, e some da vista até o operador rolar na mão. Pula o
+  // PRIMEIRO render (nada foi clicado ainda, não há pra onde rolar) — só
+  // entra em ação depois de um clique de verdade.
+  const primeiraRenderizacao = useRef(true);
+  useEffect(() => {
+    if (primeiraRenderizacao.current) {
+      primeiraRenderizacao.current = false;
+      return;
+    }
+    // Um instante pro DOM assentar o balão novo (mesmo motivo do setTimeout
+    // de `useMedidas` — sem ele a rolagem mede a altura de ANTES do balão
+    // entrar e para curta).
+    const t = setTimeout(() => {
+      conversaRef.current?.scrollTo({ top: conversaRef.current.scrollHeight, behavior: "smooth" });
+    }, 60);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origemEscolhida, pagamento?.via, statusChecadas, abrindoPagamento, pagamentoConfirmado]);
+
   // Mesma montagem do webhook (ver app/api/webhooks/telegram/[botId]/route.ts):
   // {plano}/{valor} primeiro, depois {pix_code} (ou o código no fim, se o
   // operador apagou o marcador). PIX só existe do lado Brasil.

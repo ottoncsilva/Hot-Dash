@@ -771,6 +771,12 @@ export async function POST(req: NextRequest) {
         ...bot,
         intlEnabled: body.intlEnabled !== undefined ? Boolean(body.intlEnabled) : bot.intlEnabled,
         intlAskFirst: body.intlAskFirst !== undefined ? Boolean(body.intlAskFirst) : bot.intlAskFirst,
+        originGateMessage:
+          body.originGateMessage !== undefined ? String(body.originGateMessage) : bot.originGateMessage,
+        originGateBtnBr:
+          body.originGateBtnBr !== undefined ? String(body.originGateBtnBr) : bot.originGateBtnBr,
+        originGateBtnIntl:
+          body.originGateBtnIntl !== undefined ? String(body.originGateBtnIntl) : bot.originGateBtnIntl,
         acceptCardBr: body.acceptCardBr !== undefined ? Boolean(body.acceptCardBr) : bot.acceptCardBr,
       });
       return NextResponse.json({ ok: true });

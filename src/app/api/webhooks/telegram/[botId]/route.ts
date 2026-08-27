@@ -66,6 +66,15 @@ const WELCOME_INTL_DEFAULTS = {
   es: "¡Hola {nome}! 🔥 Elige tu acceso VIP abajo 👇",
 } as const;
 
+/** Pergunta Brasil/International (`intlAskFirst`) quando o operador não
+ *  editou nada em Configurações → Internacional — bilíngue PT/EN, mesmo
+ *  modelo de outros bots do mercado. */
+const ORIGIN_GATE_DEFAULT = {
+  message: "🌎 Choose your language · Escolha o idioma\n\nWhere are you talking to me from? / De onde você fala comigo?",
+  btnBr: "🇧🇷 Brasil (Português)",
+  btnIntl: "🌐 International (English)",
+} as const;
+
 /** Prova social do ramo internacional quando `pixSocialProofTextEn/Es` está
  *  vazio — mesmos marcadores {vendas_hoje}/{assinantes} do texto em PT. */
 const PROVA_SOCIAL_INTL_DEFAULTS = {
@@ -378,16 +387,29 @@ export async function POST(
         const plansParaGate = listActivePlans(bot.id);
         const temIntl = plansParaGate.some((p) => (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false);
         if (bot.intlAskFirst && temIntl) {
-          await sendTelegramMessage(bot.botToken, String(chat.id), "🌎 Brasil ou fora do Brasil? / From Brazil or international?", {
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: "🇧🇷 Brasil", callback_data: "origin_br", ...buttonStyleProps(bot, "originGate") },
-                  { text: "🌎 International", callback_data: "origin_intl", ...buttonStyleProps(bot, "originGate") },
+          await sendTelegramMessage(
+            bot.botToken,
+            String(chat.id),
+            bot.originGateMessage?.trim() || ORIGIN_GATE_DEFAULT.message,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: bot.originGateBtnBr?.trim() || ORIGIN_GATE_DEFAULT.btnBr,
+                      callback_data: "origin_br",
+                      ...buttonStyleProps(bot, "originGate"),
+                    },
+                    {
+                      text: bot.originGateBtnIntl?.trim() || ORIGIN_GATE_DEFAULT.btnIntl,
+                      callback_data: "origin_intl",
+                      ...buttonStyleProps(bot, "originGate"),
+                    },
+                  ],
                 ],
-              ],
+              },
             },
-          });
+          );
         } else {
           await enviarAberturaBrasil(bot, chat, from);
         }

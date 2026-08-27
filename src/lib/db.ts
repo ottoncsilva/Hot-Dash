@@ -1272,6 +1272,12 @@ function migrate(d: Database.Database) {
   // Desligado, toda cobrança no cartão vira avulsa — mesmo plano de
   // assinatura, o Alerta de Renovação cobra o próximo ciclo na mão.
   ensureColumn(d, "telegram_bots", "accept_card_recurring", "INTEGER NOT NULL DEFAULT 1");
+  // Pergunta Brasil/International (modo bilíngue, `intl_ask_first`) —
+  // mensagem e texto dos 2 botões editáveis, em vez de fixos no código.
+  // Vazio cai no texto padrão (ver `enviarPerguntaOrigem` no webhook).
+  ensureColumn(d, "telegram_bots", "origin_gate_message", "TEXT");
+  ensureColumn(d, "telegram_bots", "origin_gate_btn_br", "TEXT");
+  ensureColumn(d, "telegram_bots", "origin_gate_btn_intl", "TEXT");
   // `page_id` (junção estável com `slt_page_profiles`, mais confiável que o
   // slug) entrou depois de `slt_events` já estar em bancos existentes —
   // sem este ensureColumn, quem já tinha a tabela ficava com INSERT

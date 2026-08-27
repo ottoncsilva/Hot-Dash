@@ -104,6 +104,11 @@ type Bot = {
   /** Pergunta Brasil/International logo no /start, ANTES de mostrar
    *  qualquer coisa — em vez do botão "Not from Brazil?" no meio do funil. */
   intlAskFirst?: boolean;
+  /** Mensagem e texto dos 2 botões da pergunta Brasil/International — vazio
+   *  cai no texto padrão (bilíngue PT/EN). */
+  originGateMessage?: string;
+  originGateBtnBr?: string;
+  originGateBtnIntl?: string;
   /** Botão extra pro lead brasileiro pagar no cartão (Stripe, em BRL), numa
    *  mensagem em sequência depois dos planos em PIX. */
   acceptCardBr?: boolean;
@@ -1441,6 +1446,12 @@ function IntlConfigCard({
 }) {
   const [busy, setBusy] = useState(false);
   const [busyTraduzir, setBusyTraduzir] = useState(false);
+  // Mensagem e botões da pergunta Brasil/International — locais (não
+  // precisam de preview ao vivo como boas-vindas/PIX); `bot` já chega
+  // sempre fresco da modelo certa (a tela remonta este card ao trocar).
+  const [gateMsg, setGateMsg] = useState(bot.originGateMessage || "");
+  const [gateBtnBr, setGateBtnBr] = useState(bot.originGateBtnBr || "");
+  const [gateBtnIntl, setGateBtnIntl] = useState(bot.originGateBtnIntl || "");
 
   async function save() {
     setBusy(true);
@@ -1450,6 +1461,9 @@ function IntlConfigCard({
         profileId,
         intlEnabled: intlOn,
         intlAskFirst: askFirstOn,
+        originGateMessage: gateMsg,
+        originGateBtnBr: gateBtnBr,
+        originGateBtnIntl: gateBtnIntl,
         acceptCardBr: cardBrOn,
       });
       showToast("Configurações internacionais salvas.", "success");
@@ -1508,6 +1522,42 @@ function IntlConfigCard({
         </div>
         <Switch checked={askFirstOn} onChange={setAskFirstOn} ariaLabel="Ativar modo internacional bilíngue" />
       </div>
+
+      {askFirstOn && (
+        <div className="mt-3 rounded-xl border border-white/10 bg-ink-850 p-3.5">
+          <p className="text-sm font-medium text-white">✏️ Mensagem e botões da pergunta</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
+            O que o lead vê antes de tudo, com o modo bilíngue ligado. Em branco, usa o texto padrão.
+          </p>
+          <label className="eyebrow mb-1.5 mt-3 block">Mensagem</label>
+          <textarea
+            className="input min-h-[70px]"
+            placeholder="🌎 Choose your language · Escolha o idioma&#10;&#10;Where are you talking to me from? / De onde você fala comigo?"
+            value={gateMsg}
+            onChange={(e) => setGateMsg(e.target.value)}
+          />
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="eyebrow mb-1.5 block">Botão · Brasil</label>
+              <input
+                className="input"
+                placeholder="🇧🇷 Brasil (Português)"
+                value={gateBtnBr}
+                onChange={(e) => setGateBtnBr(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="eyebrow mb-1.5 block">Botão · International</label>
+              <input
+                className="input"
+                placeholder="🌐 International (English)"
+                value={gateBtnIntl}
+                onChange={(e) => setGateBtnIntl(e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-ink-850 p-3.5">
         <div className="min-w-0">

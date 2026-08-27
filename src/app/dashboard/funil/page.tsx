@@ -32,6 +32,16 @@ function pct(r: number | null) {
   return r === null ? "—" : `${(r * 100).toFixed(1)}%`;
 }
 
+/**
+ * Taxa de passagem do funil. Acima de 100% não existe como conversão — quer
+ * dizer que a janela tem venda de gente que deu /start antes dela. Nesse caso
+ * some com o número: o detalhe ("7 de 4") já conta o que aconteceu, e um
+ * "175%" só faria o operador desconfiar do painel inteiro.
+ */
+function pctFunil(r: number | null) {
+  return r === null || r > 1 ? "—" : `${(r * 100).toFixed(1)}%`;
+}
+
 /** Duração legível e curta, para caber na coluna estreita do celular. */
 function duracao(ms: number): string {
   if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1000))}s`;
@@ -171,14 +181,24 @@ export default function FunilPage() {
         </div>
       )}
 
-      {/* Funil: o desenho e as 4 legendas de conversão (uma por seta da
-          cadeia) são o MESMO componente agora — ver FunilVisual, que já
-          posiciona cada legenda na altura exata do trecho da curva que ela
-          descreve. "Start → Pago" (taxa geral) mora no card "Conversão de
-          usuário" logo abaixo, não aqui. */}
+      {/* Funil: o desenho (com o número de cada etapa grudado na própria
+          cintura) ao lado das 5 taxas de conversão — lado a lado a partir do
+          desktop/iPad (`lg:`, onde sobra largura), empilhado no celular.
+          `items-stretch` faz a coluna de taxas esticar pra MESMA altura do
+          desenho (sem sobrar espaço vazio embaixo) e `justify-between`
+          espalha as 5 igualmente por essa altura. */}
       <div className="mt-6 card p-5">
         <p className="eyebrow">jornada do usuário até a compra</p>
-        <FunilVisual m={m} />
+        <div className="lg:flex lg:items-stretch lg:gap-6">
+          <FunilVisual m={m} />
+          <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/[0.06] pt-4 sm:grid-cols-3 lg:mt-0 lg:flex lg:flex-1 lg:flex-col lg:justify-between lg:gap-0 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+            <Conversao label="View → Clique" valor={m ? pctFunil(m.viewToClick) : null} detalhe={m ? `${m.clicks} de ${m.views}` : ""} />
+            <Conversao label="Clique → Start" valor={m ? pctFunil(m.clickToStart) : null} detalhe={m ? `${m.totalStarts} de ${m.clicks}` : ""} />
+            <Conversao label="Start → PIX" valor={m ? pctFunil(m.startToPix) : null} detalhe={m ? `${m.pixGenerated} de ${m.totalStarts}` : ""} />
+            <Conversao label="PIX → Pago" valor={m ? pctFunil(m.pixToPaid) : null} detalhe={m ? `${m.pixPaid} de ${m.pixGenerated}` : ""} accent />
+            <Conversao label="Start → Pago" valor={m ? pctFunil(m.startToPaid) : null} detalhe={m ? `${m.pixPaid} de ${m.totalStarts}` : ""} accent />
+          </div>
+        </div>
         {m && m.pixGenerated > m.totalStarts && (
           <p className="mt-3 text-[11px] text-amber-400/80">
             {m.totalStarts === 0
@@ -478,15 +498,14 @@ const FUNIL_COR = "#34d399";
  * propósito — por isso o número absoluto vai escrito na legenda de cada
  * transição, e é ele que manda.
  *
- * As legendas de conversão (as 4 SETAS entre as 5 etapas — não 5 rótulos por
- * cintura) ficam à direita, cada uma na ALTURA EXATA do meio do trecho da
- * curva que ela descreve: mesmo ponto (`ymid`) que o caminho SVG já usa pra
- * curvar de uma cintura pra outra. Desenho e legenda são o MESMO sistema de
- * coordenadas (um `<div>` só, um H de referência só) — não duas escalas
- * aproximadas tentando bater.
+ * O número de cada etapa fica GRUDADO na própria cintura — não numa coluna
+ * fixa: a posição é calculada a partir da largura REAL daquela cintura
+ * (`cx - halfWidths[i] - vão`), então o rótulo sempre encosta perto da
+ * curva, sem invadi-la e sem sobrar longe dela numa etapa fina. Um fundo
+ * (chip) atrás do texto garante leitura mesmo quando a cintura é larga.
  */
 function FunilVisual({ m }: { m?: Metricas }) {
-  if (!m) return <div className="mt-4 h-80 animate-pulse rounded-lg bg-white/5" />;
+  if (!m) return <div className="h-80 w-full animate-pulse rounded-lg bg-white/5 lg:w-[420px]" />;
 
   // SEMPRE as 5 etapas — mesmo sem SLT conectado, mesmo período sem
   // nenhuma venda. Esconder etapa quando o número é 0 já escondeu dado de
@@ -494,15 +513,16 @@ function FunilVisual({ m }: { m?: Metricas }) {
   // resposta, não um "não configurado"); zero é informação, não motivo pra
   // sumir com o desenho.
   const base = Math.max(m.views, m.clicks, m.totalStarts, m.pixGenerated, m.pixPaid, 1);
+  const rotulos = ["Views", "Cliques", "/start", "PIX gerado", "Pago"];
   const valores = [m.views, m.clicks, m.totalStarts, m.pixGenerated, m.pixPaid];
   const N = valores.length;
 
   // Coordenadas em unidades "percentuais" (W/H = 100): 1 unidade = 1% do
-  // contêiner — desenho e legendas escalam juntos em qualquer tamanho.
+  // contêiner — desenho e rótulos escalam juntos em qualquer tamanho.
   const W = 100;
   const H = 100;
-  const cx = 27; // centro da FORMA — à esquerda; a legenda ocupa o resto à direita
-  const maxHalf = 24;
+  const cx = 50; // centro da forma — ela ocupa o contêiner inteiro agora (a legenda de conversão mora FORA, ao lado)
+  const maxHalf = 30;
   const topPad = 8;
   const bottomPad = 8;
   const halfWidths = valores.map((v) => maxHalf * Math.min(1, Math.max(0.035, v / base)));
@@ -528,32 +548,17 @@ function FunilVisual({ m }: { m?: Metricas }) {
   }
   d += " Z";
 
-  // Taxa acima de 100% não é conversão: é venda de lead de outro dia. Melhor
-  // não mostrar número nenhum do que anunciar "175%".
-  const taxaOuNada = (r: number | null) => (r !== null && r <= 1 ? r : null);
-  // As 4 SETAS da cadeia (View→Clique, Clique→Start, Start→PIX, PIX→Pago) —
-  // uma por trecho da curva, na altura exata do meio dele (`ymid`, o mesmo
-  // ponto do caminho SVG). "Start → Pago" (taxa geral, pula o PIX gerado)
-  // já mora no card "Conversão de usuário" logo abaixo — repeti-la aqui
-  // não tem trecho de curva próprio pra apontar.
-  const legendas = [
-    { label: "View → Clique", taxa: taxaOuNada(m.viewToClick), detalhe: `${m.clicks} de ${m.views}`, y: (centerYs[0] + centerYs[1]) / 2 },
-    { label: "Clique → Start", taxa: taxaOuNada(m.clickToStart), detalhe: `${m.totalStarts} de ${m.clicks}`, y: (centerYs[1] + centerYs[2]) / 2 },
-    { label: "Start → PIX", taxa: taxaOuNada(m.startToPix), detalhe: `${m.pixGenerated} de ${m.totalStarts}`, y: (centerYs[2] + centerYs[3]) / 2 },
-    { label: "PIX → Pago", taxa: taxaOuNada(m.pixToPaid), detalhe: `${m.pixPaid} de ${m.pixGenerated}`, y: (centerYs[3] + centerYs[4]) / 2, accent: true },
-  ];
-
   // Altura de referência casada com uma largura de referência: a RAZÃO
   // entre as duas vira `aspect-ratio` do contêiner, não um tamanho fixo em
   // pixel — o navegador escala os dois juntos conforme sobra espaço na
   // tela (cresce até o teto, encolhe no celular) sem esticar/achatar a
   // curva.
-  const alturaRef = Math.max(360, 82 * N + 70);
-  const larguraRef = 480;
+  const alturaRef = Math.max(340, 78 * N + 60);
+  const larguraRef = 300;
 
   return (
     <div
-      className="relative mx-auto mt-4 w-full max-w-[820px]"
+      className="relative mx-auto w-full max-w-[420px] lg:mx-0 lg:w-[420px] lg:shrink-0"
       style={{ aspectRatio: `${larguraRef} / ${alturaRef}` }}
     >
       <svg
@@ -561,26 +566,55 @@ function FunilVisual({ m }: { m?: Metricas }) {
         preserveAspectRatio="none"
         className="absolute inset-0 h-full w-full"
         role="img"
-        aria-label={valores.map((v, i) => `${["Views", "Cliques", "/start", "PIX gerado", "Pago"][i]} ${v}`).join(", ")}
+        aria-label={valores.map((v, i) => `${rotulos[i]} ${v}`).join(", ")}
       >
         {/* Cor sólida só, sem gradiente, sem stroke, sem blur — a borda é o
             próprio traçado do path, nítida por definição. */}
         <path d={d} fill={FUNIL_COR} />
       </svg>
 
-      {legendas.map((l) => (
+      {valores.map((v, i) => (
         <div
-          key={l.label}
-          className="absolute left-[58%] right-0 -translate-y-1/2"
-          style={{ top: `${(l.y / H) * 100}%` }}
+          key={rotulos[i]}
+          className="absolute -translate-y-1/2 -translate-x-full text-right"
+          style={{
+            top: `${(centerYs[i] / H) * 100}%`,
+            left: `${((cx - halfWidths[i] - 3) / W) * 100}%`,
+          }}
         >
-          <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">{l.label}</p>
-          <p className={`font-display text-xl font-semibold leading-tight ${l.accent ? "text-emerald-400" : "text-sky-400"}`}>
-            {l.taxa === null ? "—" : pct(l.taxa)}
-          </p>
-          <p className="text-[11px] text-zinc-600">{l.detalhe}</p>
+          <div className="rounded-md bg-ink-900/70 px-1.5 py-0.5">
+            <p className="font-mono text-[9px] uppercase tracking-wider text-zinc-400">{rotulos[i]}</p>
+            <p className={`font-display text-lg font-semibold leading-tight ${i === N - 1 ? "text-emerald-400" : "text-white"}`}>
+              {v}
+            </p>
+          </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Uma linha de conversão (rótulo, taxa, "X de Y") — usada na lista ao lado
+ *  do funil. Centralizada empilhada no celular; alinhada à esquerda numa
+ *  coluna ao lado do desenho a partir do desktop/iPad. */
+function Conversao({
+  label,
+  valor,
+  detalhe,
+  accent,
+}: {
+  label: string;
+  valor: string | null;
+  detalhe: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="text-center lg:text-left">
+      <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">{label}</p>
+      <p className={`mt-1 font-display text-xl font-semibold ${accent ? "text-emerald-400" : "text-sky-400"}`}>
+        {valor ?? <span className="inline-block h-6 w-14 animate-pulse rounded bg-white/5" />}
+      </p>
+      <p className="text-[11px] text-zinc-600">{detalhe}</p>
     </div>
   );
 }

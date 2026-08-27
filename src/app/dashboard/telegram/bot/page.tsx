@@ -1532,7 +1532,7 @@ function IntlConfigCard({
           <label className="eyebrow mb-1.5 mt-3 block">Mensagem</label>
           <textarea
             className="input min-h-[70px]"
-            placeholder="🌎 Choose your language · Escolha o idioma&#10;&#10;Where are you talking to me from? / De onde você fala comigo?"
+            placeholder={"🌎 Choose your language · Escolha o idioma\n\nWhere are you talking to me from? / De onde você fala comigo?"}
             value={gateMsg}
             onChange={(e) => setGateMsg(e.target.value)}
           />

@@ -109,7 +109,10 @@ function migrate(d: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_slt_events_created ON slt_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_slt_events_page ON slt_events(page_slug);
-    CREATE INDEX IF NOT EXISTS idx_slt_events_page_id ON slt_events(page_id);
+    -- O índice de page_id NÃO entra aqui: bancos criados antes dessa coluna
+    -- existir travariam este bloco inteiro (CREATE INDEX numa coluna que
+    -- ainda não existe é erro, não é ignorado). Ele nasce mais abaixo,
+    -- depois do ensureColumn que garante a coluna primeiro.
 
     -- Qual MODELO (e qual REDE — instagram/telegram/tiktok/ads/outro) cada
     -- página do SLT pertence — a API do SLT não sabe nada sobre "perfil"/
@@ -1247,6 +1250,14 @@ function migrate(d: Database.Database) {
   // Desligado, toda cobrança no cartão vira avulsa — mesmo plano de
   // assinatura, o Alerta de Renovação cobra o próximo ciclo na mão.
   ensureColumn(d, "telegram_bots", "accept_card_recurring", "INTEGER NOT NULL DEFAULT 1");
+  // `page_id` (junção estável com `slt_page_profiles`, mais confiável que o
+  // slug) entrou depois de `slt_events` já estar em bancos existentes —
+  // sem este ensureColumn, quem já tinha a tabela ficava com INSERT
+  // quebrado ("has no column named page_id") pra sempre, mesmo com a
+  // coluna no CREATE TABLE lá em cima (que só roda pra tabela nova). O
+  // índice correspondente também só pode nascer DEPOIS da coluna existir.
+  ensureColumn(d, "slt_events", "page_id", "TEXT");
+  d.exec(`CREATE INDEX IF NOT EXISTS idx_slt_events_page_id ON slt_events(page_id)`);
   // Sessão do SLT pra cada evento — o mesmo carregamento de página costuma
   // mandar VÁRIOS "page_viewed" (troca de aba, reload do navegador embutido
   // do Instagram/TikTok, pré-visualização de link), e sem isso a contagem
@@ -1256,6 +1267,7 @@ function migrate(d: Database.Database) {
   // não por ping — já os cliques continuam por evento (conferido contra
   // `/v1/summary` da SLT: bateu praticamente 1 a 1, sem esse problema).
   ensureColumn(d, "slt_events", "session_id", "TEXT");
+  ensureSltPageProfilesSchema(d);
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);
@@ -1848,6 +1860,31 @@ function ensureDefaultProfileStatuses(d: Database.Database) {
   insert.run("online", "Online", "#10b981", 0, now);
   insert.run("configuring", "Configurando", "#f59e0b", 1, now);
   insert.run("paused", "Pausado", "#71717a", 2, now);
+}
+
+/**
+ * Bancos criados antes de `traffic_source` existir têm `profile_id NOT
+ * NULL` — constraint que o SQLite também não relaxa com `ALTER TABLE` (só
+ * adiciona coluna). Recria a tabela preservando as linhas existentes, com
+ * `traffic_source` vazio nelas. Idempotente: só roda se a coluna ainda não
+ * existir.
+ */
+function ensureSltPageProfilesSchema(d: Database.Database) {
+  const cols = d.prepare(`PRAGMA table_info(slt_page_profiles)`).all() as { name: string }[];
+  if (cols.length === 0 || cols.some((c) => c.name === "traffic_source")) return;
+  d.exec(`
+    CREATE TABLE slt_page_profiles_new (
+      page_id        TEXT PRIMARY KEY,
+      profile_id     TEXT REFERENCES profiles(id) ON DELETE CASCADE,
+      traffic_source TEXT,
+      updated_at     INTEGER NOT NULL
+    );
+    INSERT INTO slt_page_profiles_new (page_id, profile_id, traffic_source, updated_at)
+      SELECT page_id, profile_id, NULL, updated_at FROM slt_page_profiles;
+    DROP TABLE slt_page_profiles;
+    ALTER TABLE slt_page_profiles_new RENAME TO slt_page_profiles;
+    CREATE INDEX IF NOT EXISTS idx_slt_page_profiles_profile ON slt_page_profiles(profile_id);
+  `);
 }
 
 /**

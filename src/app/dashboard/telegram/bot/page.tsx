@@ -1129,8 +1129,10 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
         )}
         {bot.relayLastError && bot.relayLastErrorAt && Date.now() - bot.relayLastErrorAt < 24 * 60 * 60 * 1000 && (
           <p className="mt-2 text-xs text-amber-400">
-            Falha recente no repasse ({new Date(bot.relayLastErrorAt).toLocaleTimeString("pt-BR")}):{" "}
+            Falha recente na recepção ({new Date(bot.relayLastErrorAt).toLocaleTimeString("pt-BR")}):{" "}
             {bot.relayLastError}
+            {bot.relayLastError.includes("webhook is active") &&
+              " — o sistema de origem passou a usar webhook; o Hot-Dash já tenta trocar sozinho pro modo repasse no próximo instante."}
           </p>
         )}
       </div>

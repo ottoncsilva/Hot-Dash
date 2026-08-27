@@ -1,8 +1,9 @@
 import "server-only";
 import { getDb } from "./db";
-import { getTelegramWebhookInfo, getTelegramUpdatesPeek } from "./telegramApi";
-import { primeiraVezQueVejoEsteUpdate, setRelayFailure, clearRelayFailure } from "./telegramDb";
+import { getTelegramWebhookInfo, getTelegramUpdatesPeek, setTelegramWebhook, telegramWebhookSecret, TelegramApiError } from "./telegramApi";
+import { primeiraVezQueVejoEsteUpdate, setRelayFailure, clearRelayFailure, getBotConfig, saveBotConfig } from "./telegramDb";
 import { registrarChegadaTelegram } from "./telegramIngest";
+import { publicOriginSemRequest, webhookOriginProblem } from "./publicOrigin";
 
 /**
  * RECEPÇÃO DE INFORMAÇÕES — segundo interruptor do bot de vendas,
@@ -30,6 +31,12 @@ import { registrarChegadaTelegram } from "./telegramIngest";
  *    ele processa muito rápido pode nunca aparecer pra nós. Webhook
  *    ("relay") continua sendo o caminho confiável; "poll" é o que sobra
  *    quando não existe outro jeito.
+ *
+ * AUTO-RECUPERAÇÃO: se um bot em "poll" passar a ter um webhook de verdade
+ * (o sistema de origem trocou de mecanismo sozinho, por conta própria), o
+ * Telegram passa a recusar `getUpdates` com erro 409 — nesse caso o próprio
+ * laço de espiada detecta e vira pro modo "relay" sozinho, sem o operador
+ * precisar desligar e religar (ver `tentarVirarRelay`).
  */
 
 export async function probeIngestMode(
@@ -77,6 +84,43 @@ export async function relayForward(targetUrl: string, secret: string | undefined
 type BotEspiado = { id: string; profile_id: string; bot_token: string; id_vip: string; id_aquecimento: string };
 
 /**
+ * O bot que estava em "poll" (sem webhook) passou a ter um webhook — o
+ * Telegram bloqueia `getUpdates` nesse caso (erro 409, "webhook is active";
+ * ver `runTelegramPassiveIngestPoll`). Em vez de deixar a recepção presa
+ * nesse erro pra sempre (o operador teria que perceber e desligar/religar
+ * manualmente), tenta virar "relay" sozinho: assume o webhook do Telegram e
+ * passa a repassar pro endereço que acabou de aparecer. Devolve `true` só
+ * quando a troca deu certo — qualquer motivo pra não trocar (base pública
+ * não configurada, o webhook novo já é o nosso próprio, falha ao registrar)
+ * devolve `false` e quem chama mantém o erro original.
+ */
+async function tentarVirarRelay(row: BotEspiado): Promise<boolean> {
+  let base: string;
+  try {
+    base = publicOriginSemRequest();
+  } catch {
+    return false;
+  }
+  if (webhookOriginProblem(base)) return false;
+
+  const probe = await probeIngestMode(row.bot_token).catch(() => null);
+  if (!probe || probe.mode !== "relay" || !probe.targetUrl) return false;
+
+  const nossoUrl = `${base}/api/webhooks/telegram/${row.id}`;
+  if (probe.targetUrl === nossoUrl) return false; // já é a gente — nada pra trocar
+
+  const bot = getBotConfig(row.id);
+  if (!bot) return false;
+
+  await setTelegramWebhook(row.bot_token, nossoUrl, telegramWebhookSecret(row.id));
+  saveBotConfig({ ...bot, passiveIngestActive: true, ingestMode: "relay", relayTargetUrl: probe.targetUrl });
+  console.log(
+    `[hotdash] recepção do bot ${row.id} virou "relay" sozinha (o sistema de origem passou a ter webhook: ${probe.targetUrl}).`,
+  );
+  return true;
+}
+
+/**
  * Um tick do modo "poll": espia a fila de cada bot em recepção passiva sem
  * webhook próprio, grava o que aparecer. Roda com intervalo PRÓPRIO (mais
  * curto que o tick geral de 1 minuto — ver `instrumentation.ts`), porque
@@ -107,6 +151,17 @@ export async function runTelegramPassiveIngestPoll(): Promise<void> {
       }
       clearRelayFailure(bot.id);
     } catch (err) {
+      // 409 = "Conflict: can't use getUpdates method while webhook is
+      // active" — o sistema de origem, que não tinha webhook quando a
+      // recepção foi ligada, passou a ter um. Em vez de ficar preso nesse
+      // erro, tenta virar "relay" sozinho (ver `tentarVirarRelay`).
+      if (err instanceof TelegramApiError && err.status === 409) {
+        const upgraded = await tentarVirarRelay(row).catch(() => false);
+        if (upgraded) {
+          clearRelayFailure(bot.id);
+          continue;
+        }
+      }
       // Token recusado, rede instável, Telegram fora do ar — fica no log,
       // sem alarme a cada tentativa (isto tenta de novo sozinho no próximo
       // tick, bem mais cedo que o vigia do webhook).

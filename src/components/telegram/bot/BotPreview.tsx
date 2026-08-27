@@ -186,24 +186,28 @@ export function FunnelPreview({
   successMessage,
   successButtons,
   effectSuccess,
-  ramo = "br",
   intlAskFirst,
+  welcomeMessageIntl,
+  welcomeButtonsIntl,
+  pixSocialProofTextIntl,
+  successMessageIntl,
+  successButtonsIntl,
   cardBrButtons,
   redirectStyle,
   pixCheckStyle,
   checkoutPayStyle,
-  checkoutGerando,
-  checkoutPayTexto,
-  checkoutCheckTexto,
+  checkoutGerandoIntl,
+  checkoutPayTextoIntl,
+  checkoutCheckTextoIntl,
   checkoutShowCheck = true,
   checkoutGerandoBr,
   checkoutPayTextoBr,
   checkoutCheckTextoBr,
   notPaidMessage,
-  onEscolherOrigem,
-  cabecalho,
 }: {
   botUsername?: string;
+  /** Conteúdo do ramo BRASIL — o que qualquer lead vê até (e a menos que)
+   *  escolher o internacional dentro da própria conversa. */
   welcomeMessage: string;
   welcomeMediaIds?: string[];
   welcomeMediaMode?: "album" | "separate";
@@ -223,17 +227,25 @@ export function FunnelPreview({
   successMessage: string;
   successButtons: Btn[];
   effectSuccess?: string;
-  /** Qual leitura está sendo mostrada — decide se o meio do funil é a tela
-   *  do PIX ("br") ou o link de pagamento da Stripe ("intl"). O resto dos
-   *  textos (boas-vindas, planos, prova social, sucesso) já vem trocado de
-   *  fora, pra este componente não precisar saber de onde vieram. */
-  ramo?: "br" | "intl";
   /** Modo internacional bilíngue LIGADO — mostra a pergunta "Brasil ou
    *  International?" como a PRIMEIRA coisa da conversa, antes da
-   *  boas-vindas, do jeito que o /start de verdade faz. */
+   *  boas-vindas, do jeito que o /start de verdade faz. Sem isso, o único
+   *  jeito de o lead simulado chegar no ramo internacional é o botão "Not
+   *  from Brazil?" (quando existe em `buttons`) — mesmas duas portas do
+   *  bot de verdade, nenhum seletor de fora precisa decidir por ele. */
   intlAskFirst?: boolean;
-  /** Botão extra "pagar no cartão" — só no ramo "br" (é uma opção A MAIS pro
-   *  brasileiro, não existe do lado internacional). */
+  /** Mesmo trio welcome/botões/plano acima, só que do ramo internacional —
+   *  só existem quando há plano elegível em USD (ver `temPlanoUsd` em
+   *  `page.tsx`); a navegação clicável troca de um pro outro sozinha
+   *  conforme o lead simulado responde a pergunta ou toca "Not from
+   *  Brazil?", sem precisar de nenhum seletor fora do aparelho. */
+  welcomeMessageIntl?: string;
+  welcomeButtonsIntl?: Btn[];
+  pixSocialProofTextIntl?: string;
+  successMessageIntl?: string;
+  successButtonsIntl?: Btn[];
+  /** Botão extra "pagar no cartão" — só no ramo Brasil (é uma opção A MAIS
+   *  pro brasileiro, não existe do lado internacional). */
   cardBrButtons?: Btn[];
   /** Cor dos botões de redirecionamento (papel "redirect") — aplica na
    *  pergunta Brasil/International e no "pagar no cartão". */
@@ -244,91 +256,102 @@ export function FunnelPreview({
   /** Cor do botão "Make payment"/"Pagar" do checkout Stripe (papel
    *  "checkoutPay") — botão que abre o link, separado do "Verificar status". */
   checkoutPayStyle?: PreviewStyle;
-  /** "Gerando cobrança..." do checkout — o intl usa sempre o texto fixo já
-   *  traduzido (não é editável, por isso este prop normalmente fica vazio
-   *  aqui); existe pra quando o preview também simular o "pagar no cartão"
-   *  brasileiro, que É editável (`checkoutGeneratingMessage`). */
-  checkoutGerando?: string;
-  /** Texto do botão que abre o link de pagamento — vazio cai no ilustrativo. */
-  checkoutPayTexto?: string;
-  /** Texto do botão "Verificar status" do checkout — vazio cai no ilustrativo. */
-  checkoutCheckTexto?: string;
+  /** Trio do checkout internacional (EN) — CHECKOUT_INTL_TEXTS no webhook.
+   *  Vazio cai no ilustrativo em inglês. */
+  checkoutGerandoIntl?: string;
+  checkoutPayTextoIntl?: string;
+  checkoutCheckTextoIntl?: string;
   /** Espelha `checkoutShowCheckButton` do bot — desligado, o botão de
    *  verificar status some da tela, ficando só o link de pagamento. */
   checkoutShowCheck?: boolean;
   /** Mesmo trio do checkout acima, mas em PT — usado quando o lead
-   *  brasileiro clica em "pagar no cartão" (`cardBrButtons`) na navegação
-   *  clicável: o cartão no Brasil abre o MESMO tipo de tela (link Stripe),
-   *  só que com os textos editáveis em português, não os traduzidos. */
+   *  brasileiro clica em "pagar no cartão" (`cardBrButtons`): o cartão no
+   *  Brasil abre o MESMO tipo de tela (link Stripe), só que com os textos
+   *  editáveis em português, não os traduzidos. */
   checkoutGerandoBr?: string;
   checkoutPayTextoBr?: string;
   checkoutCheckTextoBr?: string;
   /** Resposta de "Verificar status" quando ainda não consta pago — mesma
    *  mensagem nos dois provedores (PIX e cartão). Vazio cai no padrão. */
   notPaidMessage?: string;
-  /** NAVEGAÇÃO CLICÁVEL: avisa quem hospeda o preview que o lead simulado
-   *  escolheu Brasil/International DENTRO da conversa (pergunta
-   *  `intlAskFirst` ou botão "Not from Brazil?" no meio do funil) — assim o
-   *  seletor de fora (`cabecalho`) acompanha o clique em vez de ficar
-   *  parado numa leitura que já não é a que está na tela. */
-  onEscolherOrigem?: (ramo: "br" | "intl") => void;
-  /** Seletor Brasil/International, desenhado acima do aparelho (mesmo slot
-   *  que o Prévias/VIP do preview de aprovação). */
-  cabecalho?: React.ReactNode;
 }) {
   const welcomeIds = welcomeMediaIds || [];
+  const temRamoIntl = Boolean(welcomeMessageIntl || (welcomeButtonsIntl && welcomeButtonsIntl.length > 0));
 
   // ---- NAVEGAÇÃO CLICÁVEL --------------------------------------------------
   // O preview passa a se comportar como o app de verdade: cada balão só
-  // ganha o próximo depois de um clique, e não antes. O conteúdo de cada
-  // tela continua vindo pronto por prop (de `page.tsx`) — nada de ramo,
-  // idioma ou preço é recalculado aqui, só QUANDO revelar cada um. Nenhum
-  // clique chama API real nem gera PIX de verdade; é tudo ilustrativo.
+  // ganha o próximo depois de um clique, e não antes, e o ramo (Brasil ou
+  // International) só muda quando o LEAD SIMULADO toca num botão dentro da
+  // própria conversa — sem seletor nenhum do lado de fora, porque um lead de
+  // verdade também não tem um. O conteúdo de cada tela continua vindo pronto
+  // por prop (de `page.tsx`); aqui só se decide QUANDO revelar cada uma e
+  // QUAL ramo está em uso. Nenhum clique chama API real nem gera PIX de
+  // verdade — é tudo ilustrativo, inclusive a confirmação de pagamento.
   const [origemEscolhida, setOrigemEscolhida] = useState<"br" | "intl" | null>(null);
   const [pagamento, setPagamento] = useState<{ via: "pix" | "cartaoIntl" | "cartaoBr"; label: string } | null>(null);
-  const [statusChecado, setStatusChecado] = useState(false);
+  const [statusChecadas, setStatusChecadas] = useState(0);
+  const [abrindoPagamento, setAbrindoPagamento] = useState(false);
   const [pagamentoConfirmado, setPagamentoConfirmado] = useState(false);
 
   function reiniciar() {
     setOrigemEscolhida(null);
     setPagamento(null);
-    setStatusChecado(false);
+    setStatusChecadas(0);
+    setAbrindoPagamento(false);
     setPagamentoConfirmado(false);
   }
 
   function escolherOrigem(r: "br" | "intl") {
     setOrigemEscolhida(r);
-    // Avisa quem hospeda o preview (o seletor Brasil/International de fora)
-    // pra ele acompanhar o clique, em vez de ficar mostrando um ramo que já
-    // não é o que está na tela.
-    onEscolherOrigem?.(r);
     // Escolher de novo no meio da conversa ("Not from Brazil?") reabre o
     // ramo internacional — o que vinha depois (tela de pagamento) não vale
     // mais para esse ramo, então reinicia daqui pra frente.
     setPagamento(null);
-    setStatusChecado(false);
+    setStatusChecadas(0);
+    setAbrindoPagamento(false);
     setPagamentoConfirmado(false);
   }
 
+  // "Pagar" abre um link de verdade — aqui simula o lead saindo pro
+  // navegador e voltando já pago, depois de um instante (mesma sensação de
+  // "algo aconteceu" que o clique precisa dar, sem precisar de mais um
+  // clique manual pra "confirmar").
+  useEffect(() => {
+    if (!abrindoPagamento || pagamentoConfirmado) return;
+    const t = setTimeout(() => setPagamentoConfirmado(true), 1400);
+    return () => clearTimeout(t);
+  }, [abrindoPagamento, pagamentoConfirmado]);
+
+  const intl = origemEscolhida === "intl";
+  // Com a pergunta Brasil/International ligada, nada depois dela existe até
+  // o lead simulado responder — igual ao /start de verdade.
+  const origemPronta = !intlAskFirst || origemEscolhida !== null;
+  const podeReiniciar = origemEscolhida !== null || pagamento !== null;
+
+  const welcomeAtivo = intl ? welcomeMessageIntl || "" : welcomeMessage;
+  const welcomeBotoesAtivos = intl ? welcomeButtonsIntl || [] : buttons;
+  const pixSocialProofTextoAtivo = intl ? pixSocialProofTextIntl || "" : pixSocialProofText;
+  const successMessageAtivo = intl ? successMessageIntl || successMessage : successMessage;
+  const successButtonsAtivos = intl ? successButtonsIntl || successButtons : successButtons;
+
   const { conversaRef, passaDaTela, medir, cortados, marcarCorte } = useMedidas([
-    welcomeMessage,
+    welcomeAtivo,
     welcomeIds.join(","),
     welcomeMediaMode,
-    buttons.length,
+    JSON.stringify(welcomeBotoesAtivos.map((b) => b.text)),
     pixGeneratingMessage,
     pixCaption,
     pixSocialProof,
-    pixSocialProofText,
-    JSON.stringify(pixButtons),
+    pixSocialProofTextoAtivo,
+    JSON.stringify(pixButtons.map((b) => b.text)),
     Boolean(pixAudioUrl),
-    successMessage,
-    JSON.stringify(successButtons),
-    ramo,
+    successMessageAtivo,
+    JSON.stringify(successButtonsAtivos.map((b) => b.text)),
     Boolean(intlAskFirst),
-    JSON.stringify(cardBrButtons),
-    checkoutGerando,
-    checkoutPayTexto,
-    checkoutCheckTexto,
+    JSON.stringify((cardBrButtons || []).map((b) => b.text)),
+    checkoutGerandoIntl,
+    checkoutPayTextoIntl,
+    checkoutCheckTextoIntl,
     checkoutShowCheck,
     checkoutGerandoBr,
     checkoutPayTextoBr,
@@ -336,19 +359,14 @@ export function FunnelPreview({
     notPaidMessage,
     origemEscolhida,
     pagamento?.via,
-    statusChecado,
+    statusChecadas,
+    abrindoPagamento,
     pagamentoConfirmado,
   ]);
 
-  const intl = ramo === "intl";
-  // Com a pergunta Brasil/International ligada, nada depois dela existe até
-  // o lead simulado responder — igual ao /start de verdade.
-  const origemPronta = !intlAskFirst || origemEscolhida !== null;
-  const podeReiniciar = origemEscolhida !== null || pagamento !== null;
-
   // Mesma montagem do webhook (ver app/api/webhooks/telegram/[botId]/route.ts):
   // {plano}/{valor} primeiro, depois {pix_code} (ou o código no fim, se o
-  // operador apagou o marcador).
+  // operador apagou o marcador). PIX só existe do lado Brasil.
   let legenda = pixCaption.trim();
   if (legenda) {
     legenda = legenda.replace(/{plano}/gi, planoNome).replace(/{valor}/gi, planoValor);
@@ -359,10 +377,21 @@ export function FunnelPreview({
   // Números de EXEMPLO (3 vendas hoje, 128 assinantes) — só pra ilustrar
   // como a linha fica; o bot de verdade usa os números reais desta modelo.
   const provaSocialLinha = pixSocialProof
-    ? (pixSocialProofText.trim() || PIX_PADRAO_PREVIEW.socialProofText)
+    ? (pixSocialProofTextoAtivo.trim() || PIX_PADRAO_PREVIEW.socialProofText)
         .replace(/{vendas_hoje}/gi, "3")
         .replace(/{assinantes}/gi, "128")
     : "";
+
+  // "Verificar Status" confirma no SEGUNDO toque — mesma sensação de "toquei
+  // de novo depois de pagar de verdade" que o lead teria, sem precisar de um
+  // botão extra só de preview pra "forçar" a confirmação.
+  function verificarStatus() {
+    setStatusChecadas((n) => {
+      const proxima = n + 1;
+      if (proxima >= 2) setPagamentoConfirmado(true);
+      return proxima;
+    });
+  }
 
   return (
     <Celular
@@ -375,22 +404,25 @@ export function FunnelPreview({
       }
       rodapeAlerta={passaDaTela}
       aviso={avisoDeCorte(cortados)}
-      cabecalho={cabecalho}
+      acaoTopo={
+        <button
+          type="button"
+          onClick={reiniciar}
+          disabled={!podeReiniciar}
+          title="Reiniciar a simulação"
+          aria-label="Reiniciar a simulação"
+          className={`ml-auto grid h-7 w-7 shrink-0 place-items-center rounded-full text-[15px] transition-colors ${
+            podeReiniciar
+              ? "text-zinc-300 hover:bg-white/10 hover:text-white"
+              : "cursor-default text-zinc-600"
+          }`}
+        >
+          ↺
+        </button>
+      }
     >
       <div ref={conversaRef} className="h-full overflow-y-auto px-3 py-3" onLoad={medir}>
-        <div className="mb-1 flex items-center justify-center gap-2">
-          <p className="w-fit rounded-full bg-white/10 px-2 py-0.5 text-[12px] text-zinc-300">/start</p>
-          {podeReiniciar && (
-            <button
-              type="button"
-              onClick={reiniciar}
-              title="Recomeçar a simulação deste funil"
-              className="rounded-full border border-white/15 px-2 py-0.5 text-[11px] text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-200"
-            >
-              ↺ Reiniciar
-            </button>
-          )}
-        </div>
+        <p className="mx-auto mb-1 w-fit rounded-full bg-white/10 px-2 py-0.5 text-[12px] text-zinc-300">/start</p>
         {!podeReiniciar && (
           <p className="mb-2 text-center text-[11px] text-zinc-500">👆 toque nos botões da conversa</p>
         )}
@@ -431,13 +463,13 @@ export function FunnelPreview({
             <PreviewBalao
               mediaIds={welcomeIds}
               mode={welcomeMediaMode}
-              text={welcomeMessage}
-              buttons={buttons.map((b) => {
+              text={welcomeAtivo}
+              buttons={welcomeBotoesAtivos.map((b) => {
                 if (pagamento) return b;
                 if (b.kind === "plan") {
                   return { ...b, onClick: () => setPagamento({ via: intl ? "cartaoIntl" : "pix", label: b.text }) };
                 }
-                if (b.kind === "custom" && /not from brazil/i.test(b.text)) {
+                if (!intl && temRamoIntl && b.kind === "custom" && /not from brazil/i.test(b.text)) {
                   return { ...b, onClick: () => escolherOrigem("intl") };
                 }
                 // Links extras/suporte: não fazem parte do funil de
@@ -510,7 +542,7 @@ export function FunnelPreview({
                     // avança a simulação — QR/Copiar continuam mostrando o
                     // botão, sem revelar tela nenhuma depois deles.
                     ...b,
-                    onClick: i === 0 && !statusChecado ? () => setStatusChecado(true) : undefined,
+                    onClick: i === 0 && !pagamentoConfirmado ? verificarStatus : undefined,
                   }))}
                   effect={effectPix}
                   vazio="(sem legenda do PIX)"
@@ -533,7 +565,7 @@ export function FunnelPreview({
                   mediaIds={[]}
                   text={
                     pagamento.via === "cartaoIntl"
-                      ? checkoutGerando?.trim() || "⏳ Generating your payment link..."
+                      ? checkoutGerandoIntl?.trim() || "⏳ Generating your payment link..."
                       : checkoutGerandoBr?.trim() || CHECKOUT_PADRAO_PREVIEW.generatingMessage
                   }
                   buttons={[]}
@@ -552,21 +584,24 @@ export function FunnelPreview({
                     {
                       text:
                         pagamento.via === "cartaoIntl"
-                          ? checkoutPayTexto?.trim() || "Make payment 👉"
+                          ? checkoutPayTextoIntl?.trim() || "Make payment 👉"
                           : checkoutPayTextoBr?.trim() || CHECKOUT_PADRAO_PREVIEW.payButton,
                       kind: "custom",
                       style: checkoutPayStyle,
+                      // "Pagar" simula o lead saindo pro navegador e
+                      // voltando já pago — ver o useEffect de abrindoPagamento.
+                      onClick: pagamentoConfirmado || abrindoPagamento ? undefined : () => setAbrindoPagamento(true),
                     },
                     ...(checkoutShowCheck
                       ? [
                           {
                             text:
                               pagamento.via === "cartaoIntl"
-                                ? checkoutCheckTexto?.trim() || "Check payment status"
+                                ? checkoutCheckTextoIntl?.trim() || "Check payment status"
                                 : checkoutCheckTextoBr?.trim() || CHECKOUT_PADRAO_PREVIEW.checkButton,
                             kind: "custom" as const,
                             style: pixCheckStyle,
-                            onClick: statusChecado ? undefined : () => setStatusChecado(true),
+                            onClick: pagamentoConfirmado ? undefined : verificarStatus,
                           },
                         ]
                       : []),
@@ -579,28 +614,19 @@ export function FunnelPreview({
               </>
             )}
 
-            {statusChecado && !pagamentoConfirmado && (
-              <>
-                <PreviewBalao
-                  mediaIds={[]}
-                  text={notPaidMessage?.trim() || PIX_PADRAO_PREVIEW.notPaidMessage}
-                  buttons={[]}
-                  vazio=""
-                  onMedia={medir}
-                  onCortado={marcarCorte}
-                />
-                {/* Botão que só existe no PREVIEW — não tem como o lead de
-                    verdade "confirmar sozinho", isso vem do gateway. Estilo
-                    tracejado pra nunca ser confundido com um botão real do
-                    Telegram. */}
-                <button
-                  type="button"
-                  onClick={() => setPagamentoConfirmado(true)}
-                  className="mx-auto mt-1 block w-fit rounded-lg border border-dashed border-emerald-400/50 bg-emerald-500/10 px-3 py-1.5 text-[11px] text-emerald-300 transition-colors hover:bg-emerald-500/20"
-                >
-                  🧪 Simular pagamento confirmado (só no preview)
-                </button>
-              </>
+            {abrindoPagamento && !pagamentoConfirmado && (
+              <Momento label="🌐 Lead abre o link de pagamento no navegador..." />
+            )}
+
+            {statusChecadas > 0 && !pagamentoConfirmado && (
+              <PreviewBalao
+                mediaIds={[]}
+                text={notPaidMessage?.trim() || PIX_PADRAO_PREVIEW.notPaidMessage}
+                buttons={[]}
+                vazio=""
+                onMedia={medir}
+                onCortado={marcarCorte}
+              />
             )}
 
             {pagamentoConfirmado && (
@@ -608,8 +634,8 @@ export function FunnelPreview({
                 <Momento label={pagamento.via === "cartaoIntl" ? "Payment confirmed" : "Pagamento confirmado"} />
                 <PreviewBalao
                   mediaIds={[]}
-                  text={successMessage}
-                  buttons={successButtons}
+                  text={successMessageAtivo}
+                  buttons={successButtonsAtivos}
                   effect={effectSuccess}
                   vazio="(mensagem vazia)"
                   onMedia={medir}
@@ -910,6 +936,7 @@ function Celular({
   rodapeAlerta,
   aviso,
   cabecalho,
+  acaoTopo,
   children,
 }: {
   titulo: string;
@@ -920,6 +947,11 @@ function Celular({
   aviso?: string;
   /** Controle extra da tela que hospeda o preview (ex.: qual grupo mostrar). */
   cabecalho?: React.ReactNode;
+  /** Ação fixa no cabeçalho DA CONVERSA (dentro do aparelho, ao lado do nome
+   *  do bot) — sempre visível, no lugar de um ícone de app de verdade. Existe
+   *  pra coisas que precisam ser achadas sem rolar a conversa, como
+   *  "reiniciar a simulação" da navegação clicável. */
+  acaoTopo?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [aparelho, escolherAparelho] = useAparelho();
@@ -1009,6 +1041,7 @@ function Celular({
                       </p>
                       <p className="text-[12px] leading-tight text-zinc-400">bot</p>
                     </div>
+                    {acaoTopo}
                   </div>
 
                   {/* A conversa. Esta altura é a que decide o que cabe. */}

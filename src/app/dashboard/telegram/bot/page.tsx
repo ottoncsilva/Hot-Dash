@@ -270,9 +270,6 @@ export default function BotVendasPage() {
   const [intlOn, setIntlOn] = useState(true);
   const [askFirstOn, setAskFirstOn] = useState(false);
   const [cardBrOn, setCardBrOn] = useState(false);
-  /** Qual ramo o preview do funil está mostrando — só existe visualmente
-   *  quando há um plano elegível pra venda internacional (ver `temPlanoUsd`). */
-  const [ramoPreview, setRamoPreview] = useState<"br" | "intl">("br");
   const [welcomeEs, setWelcomeEs] = useState("");
   // Efeitos de mensagem — editados aqui porque o preview precisa acompanhar.
   const [efeitoWelcome, setEfeitoWelcome] = useState("");
@@ -498,16 +495,6 @@ export default function BotVendasPage() {
       style: corDo(bot?.buttonStyles?.access),
     },
   ];
-  const planoNomeUsd = planosUsd[0]?.nameEn?.trim() || planosUsd[0]?.name || "Plan";
-  const planoValorUsd = ((planosUsd[0]?.priceUsdCents ?? 990) / 100).toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-  });
-
-  // Só existe "ramo internacional" de verdade quando há plano elegível — sem
-  // isso, o preview sempre lê como Brasil, do mesmo jeito que o bot real.
-  const ramoIntlAtivo = ramoPreview === "intl" && temPlanoUsd;
-
   useEffect(() => {
     load();
   }, [load]);
@@ -777,68 +764,49 @@ export default function BotVendasPage() {
                 // nessa conversa (Planos e Configuração) — o que muda é só o
                 // formulário ao lado, a leitura da conversa é sempre a mesma.
                 //
-                // Com plano internacional cadastrado, ganha o mesmo seletor
-                // Brasil/International do Prévias/VIP acima — sem ele, o
-                // preview nunca mostrava o que o modo bilíngue ou o cartão no
-                // Brasil realmente mudam na conversa.
+                // Sem seletor Brasil/International aqui: com a navegação
+                // clicável, o RAMO é uma escolha do lead simulado, feita
+                // tocando os botões dentro da conversa (a pergunta, quando
+                // `intlAskFirst` está ligado, ou "Not from Brazil?" no meio
+                // do funil) — os dois conteúdos (Brasil e internacional) vão
+                // prontos por baixo, e o preview decide sozinho qual mostrar
+                // conforme o clique, do jeito que o bot de verdade decide.
                 <FunnelPreview
                   botUsername={bot.botUsername}
-                  welcomeMessage={ramoIntlAtivo ? welcomeIntlEfetivo : welcome}
+                  welcomeMessage={welcome}
                   welcomeMediaIds={welcomeIds}
                   welcomeMediaMode={welcomeMode}
                   effectWelcome={efeitoWelcome}
-                  buttons={ramoIntlAtivo ? previewButtonsUsd : previewButtons}
-                  planoNome={ramoIntlAtivo ? planoNomeUsd : planoNome}
-                  planoValor={ramoIntlAtivo ? planoValorUsd : planoValor}
+                  buttons={previewButtons}
+                  planoNome={planoNome}
+                  planoValor={planoValor}
                   pixGeneratingMessage={pixGerando}
                   pixCaption={pixLegenda}
                   pixSocialProof={pixProva}
-                  pixSocialProofText={ramoIntlAtivo ? provaSocialIntlEfetivo : pixProvaTexto}
+                  pixSocialProofText={pixProvaTexto}
                   pixButtons={pixButtons}
                   pixAudioUrl={pixAudio}
                   effectPix={efeitoPix}
-                  successMessage={ramoIntlAtivo ? sucessoTextoIntlEfetivo : sucessoTexto}
-                  successButtons={ramoIntlAtivo ? successButtonsIntl : successButtons}
+                  successMessage={sucessoTexto}
+                  successButtons={successButtons}
                   effectSuccess={efeitoSuccess}
-                  ramo={ramoIntlAtivo ? "intl" : "br"}
                   intlAskFirst={askFirstOn && temPlanoUsd}
+                  welcomeMessageIntl={temPlanoUsd ? welcomeIntlEfetivo : undefined}
+                  welcomeButtonsIntl={temPlanoUsd ? previewButtonsUsd : undefined}
+                  pixSocialProofTextIntl={temPlanoUsd ? provaSocialIntlEfetivo : undefined}
+                  successMessageIntl={temPlanoUsd ? sucessoTextoIntlEfetivo : undefined}
+                  successButtonsIntl={temPlanoUsd ? successButtonsIntl : undefined}
                   cardBrButtons={cardBrBotoes}
                   redirectStyle={corDo(bot?.buttonStyles?.redirect)}
                   pixCheckStyle={corDo(bot?.buttonStyles?.pixCheck)}
                   checkoutPayStyle={corDo(bot?.buttonStyles?.checkoutPay)}
-                  checkoutPayTexto={checkoutPayEn}
-                  checkoutCheckTexto={checkoutCheckEn}
+                  checkoutPayTextoIntl={checkoutPayEn}
+                  checkoutCheckTextoIntl={checkoutCheckEn}
                   checkoutShowCheck={checkoutShowCheck}
                   checkoutGerandoBr={checkoutGerando}
                   checkoutPayTextoBr={checkoutPay}
                   checkoutCheckTextoBr={checkoutCheck}
                   notPaidMessage={pixNaoPago}
-                  onEscolherOrigem={setRamoPreview}
-                  cabecalho={
-                    temPlanoUsd ? (
-                      <div className="mb-2 flex w-full max-w-[300px] gap-1 rounded-lg bg-white/5 p-1">
-                        {(
-                          [
-                            ["br", "🇧🇷 Brasil"],
-                            ["intl", "🌎 International"],
-                          ] as const
-                        ).map(([k, label]) => (
-                          <button
-                            key={k}
-                            type="button"
-                            onClick={() => setRamoPreview(k)}
-                            className={`flex-1 rounded-md px-2 py-1 text-xs transition-colors ${
-                              ramoPreview === k
-                                ? "bg-white/10 font-semibold text-white"
-                                : "text-zinc-400 hover:text-zinc-200"
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    ) : undefined
-                  }
                 />
               ))}
           </div>

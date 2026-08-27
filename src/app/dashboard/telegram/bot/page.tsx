@@ -501,6 +501,22 @@ export default function BotVendasPage() {
       style: corDo(bot?.buttonStyles?.access),
     },
   ];
+  // Trocar de modelo no menu tem que ZERAR `bot` — é o gatilho de
+  // `{bot && (...)}` logo abaixo, que desmonta TODOS os cards da aba
+  // "config" e das outras abas (Planos, Recuperação, Renovação, Preço
+  // dinâmico, Cores dos botões...). Vários desses cards semeiam o próprio
+  // estado local a partir das props NA MONTAGEM (`useState(plans...)`,
+  // `useState(bot.dynamicPrice...)` etc.) e não re-sincronizam sozinhos se
+  // as props mudarem por baixo — sem desmontar, trocar de modelo continuava
+  // mostrando os planos/preço/funil da modelo ANTERIOR até a pessoa clicar
+  // em algo que forçasse um novo mount. `load()` (efeito de baixo) nunca
+  // zera `bot` sozinho de propósito — é o que faz um "Salvar" não resetar a
+  // aba de Recuperação escolhida — mas aqui é troca de PERFIL, não save, e
+  // esses dois casos precisam de comportamentos diferentes.
+  useEffect(() => {
+    setBot(null);
+  }, [profileId]);
+
   useEffect(() => {
     load();
   }, [load]);

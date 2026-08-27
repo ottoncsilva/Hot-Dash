@@ -99,8 +99,8 @@ export default function LinksPage() {
       {data && !data.connected && (
         <div className="mt-4 card p-6 text-center text-sm text-zinc-400">
           SLT ainda não conectado. Configure a chave em{" "}
-          <Link href="/dashboard/settings/pagamentos" className="underline">
-            Configurações → Pagamentos → SLT
+          <Link href="/dashboard/settings/slt" className="underline">
+            Configurações → SLT (link na bio)
           </Link>
           .
         </div>

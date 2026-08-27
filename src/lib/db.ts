@@ -1247,6 +1247,15 @@ function migrate(d: Database.Database) {
   // Desligado, toda cobrança no cartão vira avulsa — mesmo plano de
   // assinatura, o Alerta de Renovação cobra o próximo ciclo na mão.
   ensureColumn(d, "telegram_bots", "accept_card_recurring", "INTEGER NOT NULL DEFAULT 1");
+  // Sessão do SLT pra cada evento — o mesmo carregamento de página costuma
+  // mandar VÁRIOS "page_viewed" (troca de aba, reload do navegador embutido
+  // do Instagram/TikTok, pré-visualização de link), e sem isso a contagem
+  // somava cada ping como uma visualização nova: bem mais alto que o
+  // "Views" que a própria SLT mostra no painel dela. Com a sessão gravada,
+  // `sltPageStats`/`sltViewsClicks` contam visualização por SESSÃO única,
+  // não por ping — já os cliques continuam por evento (conferido contra
+  // `/v1/summary` da SLT: bateu praticamente 1 a 1, sem esse problema).
+  ensureColumn(d, "slt_events", "session_id", "TEXT");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);

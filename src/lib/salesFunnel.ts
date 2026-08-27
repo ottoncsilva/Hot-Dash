@@ -176,7 +176,7 @@ function sltViewsClicks(
   const row = db
     .prepare(
       `SELECT
-         COALESCE(SUM(CASE WHEN e.event_type = 'page_viewed' THEN 1 ELSE 0 END), 0) views,
+         COUNT(DISTINCT CASE WHEN e.event_type = 'page_viewed' THEN COALESCE(e.session_id, e.id) END) views,
          COALESCE(SUM(CASE WHEN e.event_type = 'link_clicked' THEN 1 ELSE 0 END), 0) clicks
        FROM slt_events e
        ${join}
@@ -421,6 +421,11 @@ export type SltPageStat = {
  * `lib/sltSync.ts` — quem mantém essa tabela sincronizada). Sem relação com
  * modelo/perfil aqui: essa amarração é só da tela de Links
  * (`slt_page_profiles`), não do funil.
+ *
+ * Visualização conta por SESSÃO única (mesmo critério de `sltViewsClicks`,
+ * ver o comentário lá — o navegador embutido de Instagram/TikTok manda
+ * vários "page_viewed" pro mesmo carregamento). Clique conta por evento
+ * mesmo — bateu 1 a 1 contra o `/v1/summary` da própria SLT.
  */
 export function sltPageStats(sinceMs: number | null, untilMs: number | null = null): SltPageStat[] {
   const db = getDb();
@@ -429,7 +434,7 @@ export function sltPageStats(sinceMs: number | null, untilMs: number | null = nu
   const rows = db
     .prepare(
       `SELECT COALESCE(page_slug, '') page_slug,
-              SUM(CASE WHEN event_type = 'page_viewed' THEN 1 ELSE 0 END) views,
+              COUNT(DISTINCT CASE WHEN event_type = 'page_viewed' THEN COALESCE(session_id, id) END) views,
               SUM(CASE WHEN event_type = 'link_clicked' THEN 1 ELSE 0 END) clicks,
               SUM(CASE WHEN event_type = 'poplink_click' THEN 1 ELSE 0 END) poplink_clicks
        FROM slt_events

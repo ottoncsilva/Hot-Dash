@@ -48,6 +48,11 @@ export type SltEvent = {
   link_platform?: string | null;
   poplink_id?: string | null;
   poplink_slug?: string | null;
+  /** Uma sessão pode mandar VÁRIOS "page_viewed" pro mesmo carregamento de
+   *  página (reload do navegador embutido de Instagram/TikTok, troca de
+   *  aba) — é o que `sltPageStats`/`sltViewsClicks` usam pra contar
+   *  visualização por sessão única, não por ping. */
+  session_id?: string | null;
 };
 
 type SltLink = {
@@ -110,8 +115,8 @@ function gravarEventos(eventos: SltEvent[]): number {
   const agora = Date.now();
   const stmt = db.prepare(
     `INSERT OR IGNORE INTO slt_events
-       (id, created_at, event_type, page_id, page_slug, page_display_name, link_label, link_url, link_platform, poplink_slug, referer, country, domain, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, created_at, event_type, page_id, page_slug, page_display_name, link_label, link_url, link_platform, poplink_slug, referer, country, domain, synced_at, session_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const inserir = db.transaction((linhas: SltEvent[]) => {
     let gravados = 0;
@@ -133,6 +138,7 @@ function gravarEventos(eventos: SltEvent[]): number {
         e.country || null,
         e.domain || null,
         agora,
+        e.session_id || null,
       );
       if (info.changes > 0) gravados++;
     }

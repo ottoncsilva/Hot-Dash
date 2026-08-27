@@ -49,6 +49,7 @@ import { buttonStyleProps, sanitizeButtonStyles, BUTTON_ROLES } from "@/lib/sett
 import { MESSAGE_EFFECTS } from "@/lib/telegramEffects";
 import { resolverLinkDoVip, limparLinkDoVipAuto } from "@/lib/vipLink";
 import { traduzirTexto } from "@/lib/telegramDownsellAi";
+import { probeIngestMode } from "@/lib/telegramPassiveIngest";
 import type { FunnelStep } from "@/lib/telegramCron";
 
 import { randomUUID } from "node:crypto";
@@ -954,12 +955,130 @@ export async function POST(req: NextRequest) {
         if (!webhook.ok) {
           return NextResponse.json({ ok: false, message: webhook.message || "Falha ao registrar webhook." });
         }
-        saveBotConfig({ ...bot, botUsername: webhook.username || bot.botUsername, operationActive: true });
+        // Controle total e recepção são MUTUAMENTE EXCLUSIVOS (não faz
+        // sentido repassar pra si mesmo) — ligar este desliga aquele sozinho.
+        // Nada pra "devolver": o Hot-Dash já assume o webhook de qualquer
+        // jeito aqui embaixo.
+        saveBotConfig({
+          ...bot,
+          botUsername: webhook.username || bot.botUsername,
+          operationActive: true,
+          passiveIngestActive: false,
+          ingestMode: undefined,
+          relayTargetUrl: undefined,
+        });
         return NextResponse.json({ ok: true, active: true });
       }
       await deleteTelegramWebhook(bot.botToken).catch(() => {});
       saveBotConfig({ ...bot, operationActive: false });
       return NextResponse.json({ ok: true, active: false });
+    }
+
+    // ---- Recepção de informações (2º interruptor, independente do
+    // controle total) — ver `telegramPassiveIngest.ts` para a explicação
+    // completa dos dois modos ("relay"/"poll") e por que cada um existe. ----
+    if (action === "set-passive-ingest") {
+      const bot = requireBot(body.profileId);
+      const active = Boolean(body.active);
+      const secret = typeof body.relayTargetSecret === "string" ? body.relayTargetSecret.trim() : undefined;
+
+      if (!active) {
+        // Desligando: se estava em modo "relay", devolve o webhook pro
+        // endereço de origem — sem isso, o bot ficaria mudo (Telegram
+        // continuaria chamando o Hot-Dash, que agora não faz mais nada).
+        if (bot.ingestMode === "relay" && bot.relayTargetUrl) {
+          try {
+            await setTelegramWebhook(bot.botToken, bot.relayTargetUrl, secret || bot.relayTargetSecret || undefined);
+          } catch (e) {
+            return NextResponse.json({
+              ok: false,
+              message:
+                "Não consegui devolver o webhook pro endereço de origem (" +
+                (diagnosticoDoToken(e) || (e instanceof Error ? e.message : "falha desconhecida")) +
+                "). Religue manualmente no sistema de origem antes de desligar aqui, ou tente de novo.",
+            });
+          }
+        }
+        // Modo "poll" nunca mexeu no webhook do Telegram — só para o laço
+        // de espiada (o próprio filtro do laço já ignora bots desligados).
+        saveBotConfig({
+          ...bot,
+          passiveIngestActive: false,
+          ingestMode: undefined,
+          relayTargetUrl: undefined,
+          relayTargetSecret: undefined,
+          relayLastError: undefined,
+          relayLastErrorAt: undefined,
+        });
+        return NextResponse.json({ ok: true, active: false });
+      }
+
+      // Ligando: mutuamente exclusivo com controle total.
+      if (bot.operationActive) {
+        return NextResponse.json({
+          ok: false,
+          message: "Desligue o \"controle total\" antes de ligar a recepção — os dois não podem ficar juntos.",
+        });
+      }
+
+      let probe: { mode: "relay" | "poll"; targetUrl?: string };
+      try {
+        probe = await probeIngestMode(bot.botToken);
+      } catch (e) {
+        return NextResponse.json({
+          ok: false,
+          message: diagnosticoDoToken(e) || (e instanceof Error ? e.message : "Falha ao consultar o Telegram."),
+        });
+      }
+
+      if (probe.mode === "poll") {
+        // Sem webhook nenhum pra assumir — o outro sistema usa long
+        // polling. Não tem pra onde repassar; só liga o laço de espiada.
+        saveBotConfig({
+          ...bot,
+          passiveIngestActive: true,
+          ingestMode: "poll",
+          relayTargetUrl: undefined,
+          relayTargetSecret: secret || undefined,
+          relayLastError: undefined,
+          relayLastErrorAt: undefined,
+        });
+        return NextResponse.json({ ok: true, active: true, mode: "poll" });
+      }
+
+      // Modo "relay": o probe já pode estar vendo o NOSSO PRÓPRIO webhook
+      // (religando depois de já ter ligado antes) — nesse caso o alvo
+      // certo é o que já está guardado, não o nosso próprio endereço
+      // (senão o repasse viraria um loop infinito consigo mesmo).
+      const { url: nossoUrl, problem } = webhookUrlFor(req, bot.id);
+      if (problem) return NextResponse.json({ ok: false, message: problem });
+      const targetUrl = probe.targetUrl === nossoUrl ? bot.relayTargetUrl : probe.targetUrl;
+      if (!targetUrl) {
+        return NextResponse.json({
+          ok: false,
+          message:
+            "O webhook atual já aponta pro Hot-Dash, mas não sei mais pra onde repassar (endereço de origem perdido). Desligue e religue no sistema de origem antes de tentar de novo.",
+        });
+      }
+
+      try {
+        await setTelegramWebhook(bot.botToken, nossoUrl, telegramWebhookSecret(bot.id));
+      } catch (e) {
+        return NextResponse.json({
+          ok: false,
+          message: diagnosticoDoToken(e) || (e instanceof Error ? e.message : "Falha ao registrar o webhook."),
+        });
+      }
+      saveBotConfig({
+        ...bot,
+        passiveIngestActive: true,
+        ingestMode: "relay",
+        relayTargetUrl: targetUrl,
+        relayTargetSecret: secret || bot.relayTargetSecret || undefined,
+        relayLastError: undefined,
+        relayLastErrorAt: undefined,
+      });
+      return NextResponse.json({ ok: true, active: true, mode: "relay", targetUrl });
     }
 
     // ---- (Re)registrar o webhook manualmente (botão da UI) ----

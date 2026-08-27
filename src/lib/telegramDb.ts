@@ -107,6 +107,29 @@ export type TelegramBotConfig = {
   originGateMessage?: string;
   originGateBtnBr?: string;
   originGateBtnIntl?: string;
+  /** RECEPÇÃO DE INFORMAÇÕES — segundo interruptor, independente de
+   *  `operationActive` ("controle total"): recebe /start (e o que mais der
+   *  pra entender do update) de um bot que outro sistema continua operando
+   *  de ponta a ponta — funis, disparos, tudo dele. Nunca manda mensagem
+   *  nenhuma; só grava. */
+  passiveIngestActive?: boolean;
+  /** Decidido sozinho ao ligar (ver `probeIngestMode`): "relay" quando o bot
+   *  tinha um webhook de verdade (o Hot-Dash assume e repassa pro endereço
+   *  de antes); "poll" quando não tinha nenhum (o outro sistema usa long
+   *  polling — o Hot-Dash só espia a fila, sem confirmar nada). */
+  ingestMode?: "relay" | "poll";
+  /** Endereço do webhook de ANTES de ligar a recepção (modo "relay") — pra
+   *  onde cada update é repassado sem alteração nenhuma, byte a byte. */
+  relayTargetUrl?: string;
+  /** Opcional: só preenchido se o operador souber que o sistema de origem
+   *  exige o header `X-Telegram-Bot-Api-Secret-Token` no repasse — o
+   *  Telegram não devolve esse segredo em `getWebhookInfo` (write-only). */
+  relayTargetSecret?: string;
+  /** Última falha do REPASSE — visível na tela do bot, pra um repasse
+   *  quebrado não ficar em silêncio até sumirem vendas do sistema de
+   *  origem sem ninguém perceber por quê. */
+  relayLastError?: string;
+  relayLastErrorAt?: number;
   /** Libera um botão extra pro lead BRASILEIRO pagar no cartão (Stripe, em
    *  BRL) depois da lista de planos em PIX — mensagem separada, em sequência.
    *  Só aparece de verdade com a Stripe conectada. */
@@ -538,6 +561,12 @@ function toBotConfig(row: any): TelegramBotConfig {
     originGateMessage: row.origin_gate_message || undefined,
     originGateBtnBr: row.origin_gate_btn_br || undefined,
     originGateBtnIntl: row.origin_gate_btn_intl || undefined,
+    passiveIngestActive: !!row.passive_ingest_active,
+    ingestMode: row.ingest_mode === "relay" || row.ingest_mode === "poll" ? row.ingest_mode : undefined,
+    relayTargetUrl: row.relay_target_url || undefined,
+    relayTargetSecret: row.relay_target_secret || undefined,
+    relayLastError: row.relay_last_error || undefined,
+    relayLastErrorAt: row.relay_last_error_at || undefined,
     acceptCardBr: !!row.accept_card_br,
     welcomeMessageEn: row.welcome_message_en || undefined,
     welcomeMessageEs: row.welcome_message_es || undefined,
@@ -603,8 +632,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, success_message_en, success_message_es, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, renewal_funnel, renewal_enabled, intl_enabled, intl_ask_first, origin_gate_message, origin_gate_btn_br, origin_gate_btn_intl, accept_card_br, welcome_message_en, welcome_message_es, success_button_text_en, success_button_text_es, pix_social_proof_text_en, pix_social_proof_text_es, checkout_generating_message, checkout_pay_button_text, checkout_pay_button_text_en, checkout_pay_button_text_es, checkout_check_button_text, checkout_check_button_text_en, checkout_check_button_text_es, checkout_show_check_button, id_vendas, accept_card_recurring, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, success_message_en, success_message_es, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, renewal_funnel, renewal_enabled, intl_enabled, intl_ask_first, origin_gate_message, origin_gate_btn_br, origin_gate_btn_intl, accept_card_br, welcome_message_en, welcome_message_es, success_button_text_en, success_button_text_es, pix_social_proof_text_en, pix_social_proof_text_es, checkout_generating_message, checkout_pay_button_text, checkout_pay_button_text_en, checkout_pay_button_text_es, checkout_check_button_text, checkout_check_button_text_en, checkout_check_button_text_es, checkout_show_check_button, id_vendas, accept_card_recurring, passive_ingest_active, ingest_mode, relay_target_url, relay_target_secret, relay_last_error, relay_last_error_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -673,7 +702,13 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        checkout_check_button_text_es = excluded.checkout_check_button_text_es,
        checkout_show_check_button = excluded.checkout_show_check_button,
        id_vendas = excluded.id_vendas,
-       accept_card_recurring = excluded.accept_card_recurring`
+       accept_card_recurring = excluded.accept_card_recurring,
+       passive_ingest_active = excluded.passive_ingest_active,
+       ingest_mode = excluded.ingest_mode,
+       relay_target_url = excluded.relay_target_url,
+       relay_target_secret = excluded.relay_target_secret,
+       relay_last_error = excluded.relay_last_error,
+       relay_last_error_at = excluded.relay_last_error_at`
   ).run(
     id,
     config.profileId,
@@ -747,6 +782,12 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.checkoutShowCheckButton === false ? 0 : 1,
     config.idVendas?.trim() || null,
     config.acceptCardRecurring === false ? 0 : 1,
+    config.passiveIngestActive ? 1 : 0,
+    config.ingestMode === "relay" || config.ingestMode === "poll" ? config.ingestMode : null,
+    config.relayTargetUrl?.trim() || null,
+    config.relayTargetSecret?.trim() || null,
+    config.relayLastError?.trim() || null,
+    config.relayLastErrorAt || null,
     now
   );
   // Lê PELO PERFIL, não pelo `id` que acabou de ser passado. O INSERT resolve
@@ -1195,6 +1236,25 @@ export function primeiraVezQueVejoEsteUpdate(botId: string, updateId: unknown): 
     .prepare(`INSERT OR IGNORE INTO telegram_webhook_updates (bot_id, update_id, created_at) VALUES (?, ?, ?)`)
     .run(botId, id, Date.now());
   return info.changes > 0;
+}
+
+/** Registra que o REPASSE (modo "relay" da recepção) falhou para este bot —
+ *  visível na tela, pra não ficar em silêncio até sumirem vendas do sistema
+ *  de origem sem ninguém entender por quê. Chamada direta por `id` (não pelo
+ *  `saveBotConfig` inteiro): o caminho do webhook não tem o resto do config
+ *  em mãos, só o `id`. */
+export function setRelayFailure(botId: string, message: string): void {
+  getDb()
+    .prepare(`UPDATE telegram_bots SET relay_last_error = ?, relay_last_error_at = ? WHERE id = ?`)
+    .run(message.slice(0, 300), Date.now(), botId);
+}
+
+/** Limpa a marca de falha — chamada a cada repasse bem-sucedido, pra tela
+ *  refletir que voltou a funcionar (não só ficar acumulando erro velho). */
+export function clearRelayFailure(botId: string): void {
+  getDb()
+    .prepare(`UPDATE telegram_bots SET relay_last_error = NULL, relay_last_error_at = NULL WHERE id = ?`)
+    .run(botId);
 }
 
 /** Faxina dos updates antigos — chamada uma vez por tick do cron de funis

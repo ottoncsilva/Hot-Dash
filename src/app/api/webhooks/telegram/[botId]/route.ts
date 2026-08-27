@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { TelegramPlan, TelegramBotConfig } from "@/lib/telegramDb";
-import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, abandonPendingSubscriptions, upsertTelegramLead, getTelegramLead, recordSeenChat, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, recurringFromDurationDays, primeiraVezQueVejoEsteUpdate, BUMP_DEFAULTS, PIX_DEFAULTS, CHECKOUT_DEFAULTS } from "@/lib/telegramDb";
+import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, getTelegramLead, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, recurringFromDurationDays, primeiraVezQueVejoEsteUpdate, setRelayFailure, clearRelayFailure, BUMP_DEFAULTS, PIX_DEFAULTS, CHECKOUT_DEFAULTS } from "@/lib/telegramDb";
 import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser, setTelegramUserLanguage } from "@/lib/telegramUsers";
-import { recordGroupMembershipChange } from "@/lib/telegramMonitor";
+import { registrarChegadaTelegram, registraMudancaDeGrupo } from "@/lib/telegramIngest";
+import { relayForward } from "@/lib/telegramPassiveIngest";
 import { getMailingOffer } from "@/lib/telegramMailing";
 import { sendTelegramMessage, sendTelegramMedia, sendTelegramMediaGroup, sendTelegramVoiceUrl, sendTelegramPhotoBuffer, approveTelegramJoinRequest, declineTelegramJoinRequest, telegramWebhookSecret } from "@/lib/telegramApi";
 import QRCode from "qrcode";
@@ -204,29 +205,6 @@ function nomeDaModelo(profileId: string): string {
   return row?.name || "";
 }
 
-/**
- * Contabiliza a entrada/saída de um grupo para o gráfico de crescimento.
- *
- * Conta a TRANSIÇÃO, não o evento: o Telegram manda a mesma entrada por dois
- * caminhos (a mensagem de serviço `new_chat_members` e o update `chat_member`),
- * e contar os dois dobraria o número. Comparando com o estado que já está
- * guardado, o segundo aviso não muda nada e por isso não conta de novo.
- *
- * Precisa rodar ANTES do upsert que grava o novo estado — depois dele os dois
- * valores já seriam iguais e nenhuma transição seria detectada.
- */
-function registraMudancaDeGrupo(
-  bot: { id: string; profileId: string },
-  telegramUserId: number,
-  kind: "vip" | "previas",
-  entrou: boolean,
-): void {
-  const atual = getTelegramUser(`${bot.id}_${telegramUserId}`);
-  const estavaDentro = kind === "vip" ? atual?.inVip === true : atual?.inPrevias === true;
-  if (estavaDentro === entrou) return; // nada mudou: aviso repetido
-  recordGroupMembershipChange(bot.id, bot.profileId, kind, entrou);
-}
-
 export async function POST(
   req: NextRequest,
   { params }: { params: { botId: string } }
@@ -237,145 +215,78 @@ export async function POST(
       return NextResponse.json({ error: "Bot não configurado." }, { status: 404 });
     }
 
-    // Operação desligada → o bot de vendas não age (quem opera o bot segue no
-    // controle). Retorna 200 para o Telegram não reenviar em loop.
-    if (!bot.operationActive) {
-      return NextResponse.json({ ok: true, inactive: true });
-    }
-
     // Segurança: o Telegram devolve o secret_token que registramos no header
     // abaixo. Se o webhook foi registrado com secret (padrão nas versões novas),
-    // exigimos que bata. Webhooks antigos (sem secret) continuam aceitos.
+    // exigimos que bata. Webhooks antigos (sem secret) continuam aceitos. Vale
+    // pros dois modos (controle total ou recepção) — é sempre o Telegram
+    // chamando ESTE endpoint, só muda o que fazemos com o update depois.
     const providedSecret = req.headers.get("x-telegram-bot-api-secret-token");
     if (providedSecret && providedSecret !== telegramWebhookSecret(bot.id)) {
       return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
     }
 
-    const update = await req.json().catch(() => ({}));
+    // Corpo CRU guardado à parte: o modo "recepção" (relay) repassa estes
+    // bytes exatamente como chegaram pro sistema de origem, sem re-serializar
+    // o JSON (evita qualquer diferença de formatação que o parser/re-stringify
+    // pudesse introduzir).
+    const rawBody = await req.text();
+    let update: any = {};
+    try {
+      update = rawBody ? JSON.parse(rawBody) : {};
+    } catch {
+      update = {};
+    }
+
+    // Operação desligada → quem tem controle total é outro sistema.
+    if (!bot.operationActive) {
+      // RECEPÇÃO DE INFORMAÇÕES, modo "relay": o Hot-Dash é o webhook (o
+      // outro sistema tinha um, e cedeu o lugar quando o operador ligou o
+      // interruptor — ver `probeIngestMode`/`ingest_mode` em
+      // `telegramPassiveIngest.ts`). Grava o que dá pra entender e repassa
+      // o update, sem alterar nada, pro endereço de origem.
+      if (bot.passiveIngestActive && bot.ingestMode === "relay" && bot.relayTargetUrl) {
+        if (!primeiraVezQueVejoEsteUpdate(bot.id, update.update_id)) {
+          return NextResponse.json({ ok: true, duplicate: true });
+        }
+        registrarChegadaTelegram(bot, update);
+        const relayed = await relayForward(bot.relayTargetUrl, bot.relayTargetSecret, rawBody);
+        if (!relayed) {
+          setRelayFailure(bot.id, "Falha ao repassar para o sistema de origem (rede ou endereço fora do ar).");
+          // 502 de propósito: o Telegram tenta de novo mais tarde sozinho —
+          // é a rede de segurança real contra um repasse que falhou, já que
+          // devolver 200 aqui faria o Telegram achar que já entregou.
+          return NextResponse.json({ ok: false, relay: "failed" }, { status: 502 });
+        }
+        clearRelayFailure(bot.id);
+        return NextResponse.json({ ok: true, relayed: true });
+      }
+      // Sem controle total nem repasse ativo (ou modo "poll", que nunca
+      // registra webhook nenhum — não deveria nem chegar tráfego aqui):
+      // o bot de vendas não age. Retorna 200 para o Telegram não reenviar
+      // em loop.
+      return NextResponse.json({ ok: true, inactive: true });
+    }
 
     // IDEMPOTÊNCIA: o Telegram reenvia o MESMO update se a nossa resposta
     // demorar ou falhar — sem isso, um /start (ou pior, um clique de compra)
     // reprocessado manda tudo de novo: boas-vindas duplicada, timer do
     // downsell reiniciado à toa, e no caso da compra, cobrança em dobro. Sai
-    // ANTES de qualquer efeito colateral (inclusive `recordSeenChat` abaixo).
+    // ANTES de qualquer efeito colateral (inclusive o registro abaixo).
     if (!primeiraVezQueVejoEsteUpdate(bot.id, update.update_id)) {
       return NextResponse.json({ ok: true, duplicate: true });
     }
 
-    // Anota TODO grupo/canal que aparecer, venha por onde vier. É a única
-    // forma de o painel saber em que grupos o bot está: a API do Telegram não
-    // deixa um bot listar os próprios chats. É o que alimenta o "Detectar".
-    for (const c of [
-      update.message?.chat,
-      update.channel_post?.chat,
-      update.my_chat_member?.chat,
-      update.chat_member?.chat,
-      update.chat_join_request?.chat,
-    ]) {
-      if (c) recordSeenChat(bot.id, c);
-    }
+    // Usuário visto, entrada/saída de grupo, lead do /start — o que dá pra
+    // ENTENDER do update, sem mandar nada. Mesma função usada pelo modo
+    // "recepção" acima (ver `telegramIngest.ts`).
+    registrarChegadaTelegram(bot, update);
 
     // ---- Mensagem comum (Ex: /start) ----
     if (update.message) {
       const { chat, text, from } = update.message;
       const isStart = typeof text === "string" && text.startsWith("/start");
 
-      // Qualquer mensagem no PRIVADO confirma que o bot pode falar com a
-      // pessoa — é o que a habilita a receber mailing. Nos GRUPOS, a mensagem
-      // serve para reconhecer quem já era membro antes de o painel existir
-      // (o Telegram não deixa um bot listar os membros de um grupo).
-      if (from && !from.is_bot) {
-        const isPrivate = chat?.type === "private";
-        const inVipGroup = String(chat?.id) === bot.idVip;
-        const inPreviasGroup = String(chat?.id) === bot.idAquecimento;
-        if (isPrivate || inVipGroup || inPreviasGroup) {
-          upsertTelegramUser({
-            botId: bot.id,
-            profileId: bot.profileId,
-            telegramUserId: from.id,
-            username: from.username,
-            firstName: from.first_name,
-            lastName: from.last_name,
-            chatId: isPrivate ? String(chat.id) : undefined,
-            canDm: isPrivate,
-            inVip: inVipGroup ? true : undefined,
-            inPrevias: inPreviasGroup ? true : undefined,
-            source: isPrivate ? "start" : "grupo",
-          });
-        }
-      }
-
-      // Entradas e saídas dos grupos chegam como mensagem de serviço.
-      const joinedGroup =
-        String(chat?.id) === bot.idVip ? "vip" : String(chat?.id) === bot.idAquecimento ? "previas" : null;
-      if (joinedGroup && Array.isArray(update.message.new_chat_members)) {
-        for (const member of update.message.new_chat_members) {
-          if (member?.is_bot) continue;
-          registraMudancaDeGrupo(bot, member.id, joinedGroup, true);
-          upsertTelegramUser({
-            botId: bot.id,
-            profileId: bot.profileId,
-            telegramUserId: member.id,
-            username: member.username,
-            firstName: member.first_name,
-            lastName: member.last_name,
-            inVip: joinedGroup === "vip" ? true : undefined,
-            inPrevias: joinedGroup === "previas" ? true : undefined,
-            source: joinedGroup === "vip" ? "vip" : "previas",
-          });
-        }
-      }
-      if (joinedGroup && update.message.left_chat_member && !update.message.left_chat_member.is_bot) {
-        registraMudancaDeGrupo(bot, update.message.left_chat_member.id, joinedGroup, false);
-        setTelegramUserGroup(bot.id, update.message.left_chat_member.id, joinedGroup, false);
-      }
-
       if (isStart && from) {
-        // Deep-link de divulgação: t.me/<bot>?start=CODIGO chega como
-        // "/start CODIGO". É o que liga a venda à origem do tráfego.
-        const sourceCode = (text.slice("/start".length).trim().split(/\s+/)[0] || "")
-          .replace(/[^\w-]/g, "")
-          .slice(0, 40);
-        upsertTelegramLead({
-          id: `${bot.id}_${from.id}`,
-          profileId: bot.profileId,
-          chatId: String(chat.id),
-          lastInteractionAt: Date.now(),
-          downsellStepIndex: 0,
-          createdAt: Date.now(),
-          // Reinicia o funil de Downsell geral A CADA /start: se o lead
-          // sumiu e voltou dias depois, ele entra de novo do zero — não
-          // encontra o funil na metade (ou já acabado) por causa da PRIMEIRA
-          // vez que ele deu /start. `createdAt` acima não muda de verdade
-          // pra quem já existe (upsertTelegramLead preserva o primeiro
-          // /start pras métricas do Funil de Vendas); só este campo conta
-          // pro Downsell.
-          downsellStartedAt: Date.now(),
-          sourceCode: sourceCode || undefined,
-        });
-        // Qualquer cobrança pendente de uma visita ANTERIOR vira "abandoned"
-        // — nunca mais nageia nem bloqueia o Downsell geral (ver o comentário
-        // em `abandonPendingSubscriptions`). Sem isto, dar /start de novo com
-        // um PIX/cartão pendente na mão fazia os DOIS funis de recuperação
-        // rodarem juntos pro mesmo lead.
-        abandonPendingSubscriptions(bot.id, from.id);
-        // O mesmo código de origem também fica no usuário, para a lista mostrar
-        // por qual link cada pessoa chegou.
-        if (sourceCode) {
-          upsertTelegramUser({
-            botId: bot.id,
-            profileId: bot.profileId,
-            telegramUserId: from.id,
-            username: from.username,
-            firstName: from.first_name,
-            lastName: from.last_name,
-            chatId: String(chat.id),
-            canDm: true,
-            source: "start",
-            sourceCode,
-          });
-        }
-
         // MODO INTERNACIONAL BILÍNGUE: com `intlAskFirst` ligado (e plano
         // qualificado em USD), pergunta Brasil/International ANTES de
         // qualquer conteúdo — 2 botões, mensagem própria. Sem isso (padrão),

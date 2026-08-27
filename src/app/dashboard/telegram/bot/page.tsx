@@ -67,6 +67,13 @@ type Bot = {
   upsellFunnel?: string;
   previewsWelcomeMessage?: string;
   operationActive: boolean;
+  /** Recepção de informações — 2º interruptor, independente do de cima. */
+  passiveIngestActive?: boolean;
+  ingestMode?: "relay" | "poll";
+  relayTargetUrl?: string;
+  relayTargetSecret?: string;
+  relayLastError?: string;
+  relayLastErrorAt?: number;
   vipApprovalMode: ApprovalMode;
   previasApprovalMode: ApprovalMode;
   pixGeneratingMessage?: string;
@@ -908,6 +915,15 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
   >(null);
 
   const active = bot.operationActive;
+  const ingestActive = Boolean(bot.passiveIngestActive);
+  const [ingestBusy, setIngestBusy] = useState(false);
+  // Segredo do repasse — só relevante no modo "relay", só quando o sistema
+  // de origem exige o header `X-Telegram-Bot-Api-Secret-Token`. Editável a
+  // qualquer momento (religa o repasse com o valor novo).
+  const [relaySecret, setRelaySecret] = useState(bot.relayTargetSecret || "");
+  useEffect(() => {
+    setRelaySecret(bot.relayTargetSecret || "");
+  }, [bot.relayTargetSecret]);
 
   const checkGrupos = useCallback(async () => {
     try {
@@ -987,6 +1003,34 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
     }
   }
 
+  async function setPassiveIngest(next: boolean) {
+    setIngestBusy(true);
+    try {
+      const r = await apiSend<{ ok: boolean; message?: string; mode?: "relay" | "poll" }>(
+        "/api/telegram",
+        "POST",
+        { action: "set-passive-ingest", profileId, active: next, relayTargetSecret: relaySecret },
+      );
+      if (r.ok) {
+        showToast(
+          next
+            ? r.mode === "poll"
+              ? "Recepção LIGADA (modo espiada — o bot não tinha webhook)."
+              : "Recepção LIGADA (repassando pro sistema de origem)."
+            : "Recepção DESLIGADA.",
+          "success",
+        );
+        onSaved();
+      } else {
+        showToast(r.message || "Falha ao alterar a recepção.", "error");
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha.", "error");
+    } finally {
+      setIngestBusy(false);
+    }
+  }
+
   async function register() {
     setBusy(true);
     try {
@@ -1036,6 +1080,59 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
           </p>
         </div>
         <Switch checked={active} onChange={setOperation} disabled={toggling} ariaLabel="Operação do bot" />
+      </div>
+
+      {/* RECEPÇÃO DE INFORMAÇÕES — 2º interruptor, independente do de cima:
+          o Hot-Dash só GRAVA o que dá pra entender (/start, entrada em
+          grupo) de um bot que outro sistema continua operando de ponta a
+          ponta. Nunca manda mensagem nenhuma. Mutuamente exclusivo com
+          "controle total" — os dois juntos não fazem sentido. */}
+      <div
+        className={`mt-2 rounded-xl border p-3.5 ${
+          ingestActive ? "border-sky-500/30 bg-sky-500/[0.06]" : "border-white/10 bg-ink-850"
+        } ${active ? "opacity-50" : ""}`}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white">
+              {ingestActive ? "Recepção ligada — só grava, quem opera é o outro sistema" : "Recepção de informações"}
+            </p>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {active
+                ? "Desligue o controle total pra poder ligar isto — os dois não podem ficar juntos."
+                : ingestActive
+                  ? bot.ingestMode === "poll"
+                    ? "Modo espiada: o bot não tinha webhook (o outro sistema usa long polling). Melhor-esforço — pode não captar 100% dos eventos."
+                    : `Modo repasse: todo update é repassado sem alteração pro endereço de origem${bot.relayTargetUrl ? ` (${bot.relayTargetUrl})` : ""}.`
+                  : "Liga só a leitura (/start, entradas em grupo) de um bot que outro sistema continua controlando — decide sozinho entre repasse (se o bot tinha webhook) ou espiada (se usa long polling)."}
+            </p>
+          </div>
+          <Switch
+            checked={ingestActive}
+            onChange={setPassiveIngest}
+            disabled={ingestBusy || active}
+            ariaLabel="Recepção de informações"
+          />
+        </div>
+        {(!ingestActive || bot.ingestMode === "relay") && !active && (
+          <div className="mt-3">
+            <label className="text-[11px] uppercase tracking-wider text-zinc-500">
+              Segredo do webhook de origem (opcional)
+            </label>
+            <input
+              className="input mt-1 h-8 py-0 text-xs"
+              value={relaySecret}
+              onChange={(e) => setRelaySecret(e.target.value)}
+              placeholder="só se o sistema atual exigir X-Telegram-Bot-Api-Secret-Token"
+            />
+          </div>
+        )}
+        {bot.relayLastError && bot.relayLastErrorAt && Date.now() - bot.relayLastErrorAt < 24 * 60 * 60 * 1000 && (
+          <p className="mt-2 text-xs text-amber-400">
+            Falha recente no repasse ({new Date(bot.relayLastErrorAt).toLocaleTimeString("pt-BR")}):{" "}
+            {bot.relayLastError}
+          </p>
+        )}
       </div>
 
       <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">

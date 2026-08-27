@@ -54,6 +54,11 @@ export async function register() {
     // segura o intervalo de 15min recomendado pela API e é um no-op sem
     // chave configurada, então pode entrar no tick de sempre sem custo.
     const { syncSltEvents } = await import("@/lib/sltSync");
+    // Recepção de informações (modo "poll") — espia a fila de bots sem
+    // webhook próprio, em intervalo mais curto que o tick de baixo (ver o
+    // setInterval dedicado, mais abaixo): cobertura aqui depende de chegar
+    // antes do outro sistema confirmar a fila dele.
+    const { runTelegramPassiveIngestPoll } = await import("@/lib/telegramPassiveIngest");
     // Geração do Método MK (Prévias e VIP), em lotes: a rota só enfileira (a
     // copy de um dia inteiro não cabe no maxDuration de uma requisição). Os dois
     // dividem UMA fila e um lote por tick — ver generationJobs.ts.
@@ -210,5 +215,21 @@ export async function register() {
     setInterval(() => {
       void tickGeracao();
     }, 60 * 1000);
+
+    // Recepção de informações (modo "poll"): laço PRÓPRIO, bem mais curto —
+    // 5s em vez de 1min. É espiada não-destrutiva (nunca confirma nada, ver
+    // `getTelegramUpdatesPeek`), então só existe risco de PERDER cobertura
+    // se demorar demais pra chegar antes do outro sistema, nunca de atrapalhar
+    // ninguém. Trava anti-sobreposição própria, mesmo padrão dos ciclos acima.
+    let espiando = false;
+    setInterval(() => {
+      if (espiando) return;
+      espiando = true;
+      runTelegramPassiveIngestPoll()
+        .catch((err) => console.error("[hotdash] Erro no cron (recepção/poll):", err))
+        .finally(() => {
+          espiando = false;
+        });
+    }, 5 * 1000);
   }
 }

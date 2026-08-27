@@ -1278,6 +1278,27 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "telegram_bots", "origin_gate_message", "TEXT");
   ensureColumn(d, "telegram_bots", "origin_gate_btn_br", "TEXT");
   ensureColumn(d, "telegram_bots", "origin_gate_btn_intl", "TEXT");
+  // RECEPÇÃO DE INFORMAÇÕES — segundo interruptor, independente de
+  // `operation_active` ("controle total"): recebe /start e afins de um bot
+  // que outro sistema continua operando (funis, disparos, tudo dele), sem
+  // tirar nada da mão de ninguém. `ingest_mode` é decidido sozinho ao ligar
+  // (ver `probeIngestMode` em telegramPassiveIngest.ts): "relay" quando o
+  // bot tinha um webhook de verdade (o Hot-Dash assume o webhook e repassa
+  // pro endereço de antes, guardado em `relay_target_url`); "poll" quando
+  // não tinha nenhum (o outro sistema usa long polling) — aí o Hot-Dash só
+  // espia a fila sem confirmar nada, pra não roubar update de ninguém.
+  ensureColumn(d, "telegram_bots", "passive_ingest_active", "INTEGER DEFAULT 0");
+  ensureColumn(d, "telegram_bots", "ingest_mode", "TEXT");
+  ensureColumn(d, "telegram_bots", "relay_target_url", "TEXT");
+  // Opcional: só preenchido se o operador souber que o sistema atual exige o
+  // header `X-Telegram-Bot-Api-Secret-Token` — o Telegram não devolve esse
+  // segredo em `getWebhookInfo` (é write-only), não tem como descobrir sozinho.
+  ensureColumn(d, "telegram_bots", "relay_target_secret", "TEXT");
+  // Última falha do REPASSE (não da recepção em si) — visível na tela do bot
+  // pra um repasse quebrado não passar semanas em silêncio até alguém notar
+  // que sumiram vendas do sistema de origem.
+  ensureColumn(d, "telegram_bots", "relay_last_error", "TEXT");
+  ensureColumn(d, "telegram_bots", "relay_last_error_at", "INTEGER");
   // `page_id` (junção estável com `slt_page_profiles`, mais confiável que o
   // slug) entrou depois de `slt_events` já estar em bancos existentes —
   // sem este ensureColumn, quem já tinha a tabela ficava com INSERT

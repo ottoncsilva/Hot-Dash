@@ -566,15 +566,15 @@ function FunilVisual({ m }: { m?: Metricas }) {
       className="relative mx-auto w-full max-w-[420px] lg:mx-0 lg:w-[420px] lg:shrink-0"
       style={{ aspectRatio: `${larguraRef} / ${alturaRef}` }}
     >
-      {/* Linhas-guia horizontais — uma por etapa, atravessando a coluna de
-          números E o desenho, na mesma altura exata da cintura daquela
-          etapa. É a grade que amarra rótulo e curva; sem elas, alinhado só
-          "por perto" não convence ninguém. */}
+      {/* Linhas-guia horizontais — só dentro do DESENHO, entre a linha
+          vertical divisória (à esquerda dela mora a coluna de números, sem
+          linha nenhuma cruzando por baixo) e a borda direita do gráfico, na
+          mesma altura exata da cintura daquela etapa. */}
       {centerYs.map((y, i) => (
         <div
           key={`linha-${rotulos[i]}`}
-          className="absolute inset-x-0 h-px bg-white/[0.06]"
-          style={{ top: `${(y / H) * 100}%` }}
+          className="absolute h-px bg-white/[0.06]"
+          style={{ top: `${(y / H) * 100}%`, left: `${divisor}%`, right: 0 }}
         />
       ))}
 
@@ -629,7 +629,7 @@ function Conversao({
   accent?: boolean;
 }) {
   return (
-    <div className="text-center lg:text-left">
+    <div className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2.5 text-center lg:text-left">
       <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">{label}</p>
       <p className={`mt-1 font-display text-xl font-semibold ${accent ? "text-emerald-400" : "text-sky-400"}`}>
         {valor ?? <span className="inline-block h-6 w-14 animate-pulse rounded bg-white/5" />}

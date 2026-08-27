@@ -14,21 +14,27 @@ import { getSltApiKey, setSltSyncState, getSltSyncState } from "./settings";
  *   • `fetchSltCatalogue` — chamada AO VIVO quando o operador abre a tela de
  *     Links: páginas e links mudam pouco (o operador edita no próprio SLT),
  *     então não vale a pena guardar cópia local só pra ela poder ficar
- *     desatualizada. Duas chamadas por visita não chegam perto do limite de
- *     60/hora.
+ *     desatualizada. Poucas chamadas por visita não chegam perto da cota.
  */
 
 const SLT_API_BASE = "https://api.slt.bio";
 
-/** "Toda hora reseta a janela (UTC)" — a própria SLT recomenda 15 minutos
- *  pra quem faz polling (Zapier/Sheets); aqui vale o mesmo, com uma folga de
- *  1 minuto porque o tick de fundo roda a cada 60s e não bate exato na
- *  marca. */
-const POLL_INTERVAL_MS = 14 * 60 * 1000;
+/**
+ * A SLT recomenda 15 minutos pra quem faz polling estilo Zapier/Sheets, mas
+ * o dashboard deles próprio (ver /v1/summary) atrasa até um dia inteiro pra
+ * fechar "hoje" — 15 minutos deixava o nosso Funil/tela de Links tão
+ * desatualizado quanto o painel deles. A cota real da chave, conferida ao
+ * vivo (cabeçalho `X-RateLimit-Limit`), é 300 requisições/hora — bem acima
+ * das ~60/hora documentadas pra outros planos — e o pior caso daqui
+ * (`3600/180000 × MAX_PAGES_PER_SYNC` = 20 ciclos/hora × 5 páginas = 100
+ * req/hora) cabe com folga de sobra pra tela de Links e o botão
+ * "Sincronizar agora".
+ */
+const POLL_INTERVAL_MS = 3 * 60 * 1000;
 
 /** Nunca deixa um sync sem fim: cada página é uma requisição a mais gasta da
- *  cota de 60/hora, e um cursor que nunca avança (bug do lado de lá, ou um
- *  volume de eventos maior que o esperado) não pode consumir a hora
+ *  cota da hora, e um cursor que nunca avança (bug do lado de lá, ou um
+ *  volume de eventos maior que o esperado) não pode consumir a cota
  *  inteira de uma vez. */
 const MAX_PAGES_PER_SYNC = 5;
 

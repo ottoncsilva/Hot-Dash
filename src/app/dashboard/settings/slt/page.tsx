@@ -16,7 +16,7 @@ type SltState = {
 
 /**
  * Links da Bio (integração com o SLT, slt.bio) — só leitura, uma chave pra
- * conta inteira (não é por modelo). Sincroniza sozinho a cada ~15 min (ver
+ * conta inteira (não é por modelo). Sincroniza sozinho a cada ~3 min (ver
  * instrumentation.ts); o botão aqui é só pra não esperar o próximo tick
  * depois de configurar.
  *
@@ -161,7 +161,7 @@ export default function SltSettingsPage() {
           <p className="mt-2 text-[11px] text-zinc-500">
             {sltState.lastSyncedAt
               ? `Última sincronização com evento novo: ${new Date(sltState.lastSyncedAt).toLocaleString("pt-BR")}.`
-              : "Ainda sem eventos sincronizados — o tick de fundo roda a cada minuto e checa a cada ~15min."}
+              : "Ainda sem eventos sincronizados — o tick de fundo roda a cada minuto e checa a cada ~3min."}
             {sltState.lastSyncError && (
               <span className="mt-1 block text-amber-400">Último erro: {sltState.lastSyncError}</span>
             )}

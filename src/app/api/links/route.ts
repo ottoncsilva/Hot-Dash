@@ -4,24 +4,33 @@ import { getDb } from "@/lib/db";
 import { listProfiles } from "@/lib/profiles";
 import { fetchSltCatalogue } from "@/lib/sltSync";
 import { sltPageStats } from "@/lib/salesFunnel";
-import { SLT_NETWORKS } from "@/lib/sltNetworks";
+import { isValidSltNetworkKey, listSltNetworks } from "@/lib/sltNetworksStore";
+import { getAppTimeZone } from "@/lib/settings";
+import { resolvePeriod } from "@/lib/periodRange";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const JANELA_PADRAO_DIAS = 30;
-
 /**
  * Tela de Links: o catálogo de páginas/links do SLT (ao vivo — muda pouco,
- * não vale a pena manter cópia local), com clique/visualização dos últimos
- * dias (local, já sincronizado — ver `lib/sltSync.ts`) e agrupado por
+ * não vale a pena manter cópia local), com clique/visualização do período
+ * escolhido (local, já sincronizado — ver `lib/sltSync.ts`) e agrupado por
  * MODELO do Hot-Dash via `slt_page_profiles` (ver POST abaixo).
+ *
+ * O período usa o MESMO seletor do Dashboard/Financeiro/Funil de Vendas
+ * (`resolvePeriod`) — comparar "últimos 7 dias" aqui com o painel da própria
+ * SLT só faz sentido se as duas contarem os mesmos 7 dias.
  */
 export async function GET(req: NextRequest) {
   try {
     await requireUser(req);
-    const dias = Number(req.nextUrl.searchParams.get("days")) || JANELA_PADRAO_DIAS;
-    const sinceMs = Date.now() - dias * 24 * 60 * 60 * 1000;
+    const tz = getAppTimeZone();
+    const { period, range } = resolvePeriod(
+      req.nextUrl.searchParams.get("period"),
+      req.nextUrl.searchParams.get("from"),
+      req.nextUrl.searchParams.get("to"),
+      tz,
+    );
 
     const catalogo = await fetchSltCatalogue().catch((e) => {
       throw new ApiError(502, e instanceof Error ? e.message : "Falha ao consultar o SLT.");
@@ -31,7 +40,7 @@ export async function GET(req: NextRequest) {
     }
 
     const profiles = await listProfiles();
-    const stats = new Map(sltPageStats(sinceMs, null).map((s) => [s.pageSlug, s]));
+    const stats = new Map(sltPageStats(range.since, range.until).map((s) => [s.pageSlug, s]));
     const mapa = getDb()
       .prepare("SELECT page_id, profile_id, traffic_source FROM slt_page_profiles")
       .all() as { page_id: string; profile_id: string | null; traffic_source: string | null }[];
@@ -81,8 +90,9 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       connected: true,
-      windowDays: dias,
+      period,
       profiles: profiles.map((p) => ({ id: p.id, name: p.name })),
+      networks: listSltNetworks(),
       groups,
       unassigned: semModelo,
     });
@@ -120,7 +130,7 @@ export async function POST(req: NextRequest) {
       const existe = db.prepare("SELECT id FROM profiles WHERE id = ?").get(profileId);
       if (!existe) throw new ApiError(404, "Modelo não encontrada.");
     }
-    if (trafficSource && !SLT_NETWORKS.some((n) => n.key === trafficSource)) {
+    if (trafficSource && !isValidSltNetworkKey(trafficSource)) {
       throw new ApiError(400, "Rede desconhecida.");
     }
 

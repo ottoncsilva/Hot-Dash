@@ -2,6 +2,7 @@ import "server-only";
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { resolve, join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { syncPayFeeCents } from "./payments/syncpayExport";
 
 /**
@@ -132,6 +133,20 @@ function migrate(d: Database.Database) {
       updated_at     INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_slt_page_profiles_profile ON slt_page_profiles(profile_id);
+
+    -- Cadastro das redes/origens de tráfego que "traffic_source" acima pode
+    -- guardar — era uma lista fixa no código; virou tabela para o operador
+    -- poder adicionar a própria (ver Configuracoes -> Links da Bio). A
+    -- "key" é o valor gravado em slt_page_profiles.traffic_source: nasce
+    -- junto com a rede e nunca muda depois, para uma renomeação de rótulo
+    -- não desamarrar as páginas já classificadas.
+    CREATE TABLE IF NOT EXISTS slt_networks (
+      id         TEXT PRIMARY KEY,
+      key        TEXT NOT NULL UNIQUE,
+      label      TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
 
     -- Trava de execução dos crons que têm DOIS caminhos de disparo (o ticker
     -- interno de instrumentation.ts E uma rota HTTP externa) — sem isso, as
@@ -1275,6 +1290,7 @@ function migrate(d: Database.Database) {
   // `/v1/summary` da SLT: bateu praticamente 1 a 1, sem esse problema).
   ensureColumn(d, "slt_events", "session_id", "TEXT");
   ensureSltPageProfilesSchema(d);
+  ensureDefaultSltNetworks(d);
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);
@@ -1867,6 +1883,32 @@ function ensureDefaultProfileStatuses(d: Database.Database) {
   insert.run("online", "Online", "#10b981", 0, now);
   insert.run("configuring", "Configurando", "#f59e0b", 1, now);
   insert.run("paused", "Pausado", "#71717a", 2, now);
+}
+
+/**
+ * Semeia o cadastro de redes de tráfego do SLT com as opções que já
+ * existiam como lista fixa no código (mesmas "key", para toda página já
+ * classificada continuar valendo sem reatribuir nada) — o operador adiciona
+ * o resto pela tela (Configurações → Links da Bio). Só roda se a tabela
+ * estiver vazia (idempotente); "INSERT OR IGNORE" cobre também o caso de
+ * rodar duas vezes antes da primeira leitura confirmar `c > 0`.
+ */
+function ensureDefaultSltNetworks(d: Database.Database) {
+  const { c } = d.prepare("SELECT COUNT(*) c FROM slt_networks").get() as { c: number };
+  if (c > 0) return;
+  const now = Date.now();
+  const insert = d.prepare(
+    "INSERT OR IGNORE INTO slt_networks (id, key, label, sort_order, created_at) VALUES (?, ?, ?, ?, ?)",
+  );
+  const padrao: [string, string][] = [
+    ["instagram", "Instagram"],
+    ["facebook", "Facebook"],
+    ["telegram", "Telegram"],
+    ["tiktok", "TikTok"],
+    ["ads", "Anúncios"],
+    ["outro", "Outro"],
+  ];
+  padrao.forEach(([key, label], i) => insert.run(randomUUID(), key, label, i, now));
 }
 
 /**

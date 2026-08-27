@@ -5,7 +5,9 @@ import Link from "next/link";
 import { apiGet, apiSend } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { showToast } from "@/lib/toast";
-import { SLT_NETWORKS } from "@/lib/sltNetworks";
+import type { SltNetwork } from "@/lib/sltNetworks";
+import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
+import { DEFAULT_PERIOD, type PeriodKey } from "@/lib/periods";
 
 type LinkRow = { id: string; label: string; url: string; platform: string };
 type PageRow = {
@@ -24,8 +26,9 @@ type PageRow = {
 type Group = { profileId: string; profileName: string; pages: PageRow[] };
 type Data = {
   connected: boolean;
-  windowDays?: number;
+  period?: PeriodKey;
   profiles?: { id: string; name: string }[];
+  networks?: SltNetwork[];
   groups?: Group[];
   unassigned?: PageRow[];
 };
@@ -35,31 +38,35 @@ type Data = {
  *
  * A API do SLT não sabe o que é uma "modelo" — cada página é atribuída AQUI
  * (uma vez só, dura até trocar), o que puxa cliques/visualizações e catálogo
- * é sempre da mesma conta (ver Configurações → Pagamentos → SLT).
+ * é sempre da mesma conta (ver Configurações → Links da Bio).
+ *
+ * O período usa o MESMO seletor do Dashboard/Funil de Vendas — "últimos 7
+ * dias" aqui é a MESMA janela de lá, e a mesma que compara direto com o
+ * painel da própria SLT (que usa esses recortes também).
  */
 export default function LinksPage() {
   const [data, setData] = useState<Data | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const [dias, setDias] = useState(30);
+  const [period, setPeriod] = useState<PeriodState>({ period: DEFAULT_PERIOD, from: "", to: "" });
   const [salvandoId, setSalvandoId] = useState<string | null>(null);
 
-  function load(d: number) {
+  function load() {
     setErro(null);
-    apiGet<Data>(`/api/links?days=${d}`)
+    apiGet<Data>(`/api/links?${periodQuery(period)}`)
       .then(setData)
       .catch((e) => setErro(e instanceof Error ? e.message : "Falha ao carregar."));
   }
 
   useEffect(() => {
-    load(dias);
+    load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dias]);
+  }, [period]);
 
   async function atribuir(pageId: string, patch: { profileId?: string; trafficSource?: string }) {
     setSalvandoId(pageId);
     try {
       await apiSend("/api/links", "POST", { pageId, ...patch });
-      load(dias);
+      load();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha ao atribuir.", "error");
     } finally {
@@ -71,19 +78,12 @@ export default function LinksPage() {
     <div className="page">
       <PageHeader
         title="Links (bio)"
-        description="Páginas e links do SLT, agrupados por modelo e por rede — visualização e clique dos últimos dias."
-        actions={
-          <select
-            className="input h-8 w-auto py-0 text-xs"
-            value={dias}
-            onChange={(e) => setDias(Number(e.target.value))}
-          >
-            <option value={7}>7 dias</option>
-            <option value={30}>30 dias</option>
-            <option value={60}>60 dias</option>
-          </select>
-        }
+        description="Páginas e links do SLT, agrupados por modelo e por rede — visualização e clique do período."
       />
+
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <PeriodPicker value={period} onChange={setPeriod} />
+      </div>
 
       {erro && (
         <div className="mt-4 card border-red-500/30 bg-red-500/[0.07] p-4 text-sm text-red-300">{erro}</div>
@@ -100,7 +100,7 @@ export default function LinksPage() {
         <div className="mt-4 card p-6 text-center text-sm text-zinc-400">
           SLT ainda não conectado. Configure a chave em{" "}
           <Link href="/dashboard/settings/slt" className="underline">
-            Configurações → SLT (link na bio)
+            Configurações → Links da Bio
           </Link>
           .
         </div>
@@ -117,6 +117,7 @@ export default function LinksPage() {
                     key={p.pageId}
                     pagina={p}
                     profiles={data.profiles || []}
+                    networks={data.networks || []}
                     salvando={salvandoId === p.pageId}
                     onAtribuir={(patch) => atribuir(p.pageId, patch)}
                   />
@@ -140,6 +141,7 @@ export default function LinksPage() {
                     key={p.pageId}
                     pagina={p}
                     profiles={data.profiles || []}
+                    networks={data.networks || []}
                     salvando={salvandoId === p.pageId}
                     onAtribuir={(patch) => atribuir(p.pageId, patch)}
                   />
@@ -156,11 +158,13 @@ export default function LinksPage() {
 function PaginaCard({
   pagina,
   profiles,
+  networks,
   salvando,
   onAtribuir,
 }: {
   pagina: PageRow;
   profiles: { id: string; name: string }[];
+  networks: SltNetwork[];
   salvando: boolean;
   onAtribuir: (patch: { profileId?: string; trafficSource?: string }) => void;
 }) {
@@ -209,7 +213,7 @@ function PaginaCard({
             aria-label="Rede de tráfego"
           >
             <option value="">Sem rede</option>
-            {SLT_NETWORKS.map((n) => (
+            {networks.map((n) => (
               <option key={n.key} value={n.key}>
                 {n.label}
               </option>

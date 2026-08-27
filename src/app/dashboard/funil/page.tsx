@@ -181,20 +181,21 @@ export default function FunilPage() {
         </div>
       )}
 
-      {/* Funil: as três etapas com a taxa de passagem entre elas */}
+      {/* Funil: as cinco etapas com a taxa de passagem entre elas. Lado a
+          lado com o desenho a partir do desktop/iPad (`lg:`) — é onde sobra
+          largura ao lado do funil (que tem teto de tamanho, ver
+          FunilVisual); empilhado embaixo no celular, onde não sobra. */}
       <div className="mt-6 card p-5">
         <p className="eyebrow">jornada do usuário até a compra</p>
-        <FunilVisual m={m} />
-        <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/[0.06] pt-4 sm:grid-cols-3 lg:grid-cols-5">
-          {m && (m.views > 0 || m.clicks > 0) && (
-            <>
-              <Conversao label="View → Clique" valor={pctFunil(m.viewToClick)} detalhe={`${m.clicks} de ${m.views}`} />
-              <Conversao label="Clique → Start" valor={pctFunil(m.clickToStart)} detalhe={`${m.totalStarts} de ${m.clicks}`} />
-            </>
-          )}
-          <Conversao label="Start → PIX" valor={m ? pctFunil(m.startToPix) : null} detalhe={m ? `${m.pixGenerated} de ${m.totalStarts}` : ""} />
-          <Conversao label="PIX → Pago" valor={m ? pctFunil(m.pixToPaid) : null} detalhe={m ? `${m.pixPaid} de ${m.pixGenerated}` : ""} accent />
-          <Conversao label="Start → Pago" valor={m ? pctFunil(m.startToPaid) : null} detalhe={m ? `${m.pixPaid} de ${m.totalStarts}` : ""} />
+        <div className="lg:flex lg:items-start lg:gap-8">
+          <FunilVisual m={m} />
+          <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/[0.06] pt-4 sm:grid-cols-3 lg:mt-0 lg:grid-cols-1 lg:flex-1 lg:gap-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+            <Conversao label="View → Clique" valor={m ? pctFunil(m.viewToClick) : null} detalhe={m ? `${m.clicks} de ${m.views}` : ""} />
+            <Conversao label="Clique → Start" valor={m ? pctFunil(m.clickToStart) : null} detalhe={m ? `${m.totalStarts} de ${m.clicks}` : ""} />
+            <Conversao label="Start → PIX" valor={m ? pctFunil(m.startToPix) : null} detalhe={m ? `${m.pixGenerated} de ${m.totalStarts}` : ""} />
+            <Conversao label="PIX → Pago" valor={m ? pctFunil(m.pixToPaid) : null} detalhe={m ? `${m.pixPaid} de ${m.pixGenerated}` : ""} accent />
+            <Conversao label="Start → Pago" valor={m ? pctFunil(m.startToPaid) : null} detalhe={m ? `${m.pixPaid} de ${m.totalStarts}` : ""} />
+          </div>
         </div>
         {m && m.pixGenerated > m.totalStarts && (
           <p className="mt-3 text-[11px] text-amber-400/80">
@@ -478,8 +479,10 @@ export default function FunilPage() {
 /** Cor única do desenho — nem opacidade por segmento, nem hue por etapa. A
  *  profundidade de "líquido" vem só do brilho (glow) e do degradê de
  *  transparência desta MESMA cor entre o topo e a base, nunca de uma cor
- *  diferente. */
-const FUNIL_COR = "#d946ef";
+ *  diferente. Mesmo verde (emerald-400) já usado em "Pago" e no gráfico de
+ *  crescimento do grupo VIP — o verde de "dinheiro entrando" do resto do
+ *  painel, não uma cor nova só pro funil. */
+const FUNIL_COR = "#34d399";
 
 /**
  * A jornada desenhada como um fio de líquido descendo — de cima (topo do
@@ -494,57 +497,46 @@ const FUNIL_COR = "#d946ef";
  * proporção de propósito — por isso o número absoluto vai escrito ao lado de
  * cada etapa, e é ele que manda.
  *
- * Os rótulos ficam num degrau fixo à direita da forma (não seguem a largura
- * de cada etapa) — colados na ALTURA de cada cintura via posicionamento em
- * porcentagem, mesma base de referência do viewBox do SVG (`preserveAspectRatio="none"`
- * faz os dois — desenho e rótulos — escalarem juntos).
+ * O desenho fica à DIREITA e os rótulos num degrau fixo à ESQUERDA (não
+ * seguem a largura de cada etapa) — colados na ALTURA de cada cintura via
+ * posicionamento em porcentagem, mesma base de referência do viewBox do SVG
+ * (`preserveAspectRatio="none"` faz os dois — desenho e rótulos — escalarem
+ * juntos).
  */
 function FunilVisual({ m }: { m?: Metricas }) {
   if (!m) return <div className="mt-4 h-64 animate-pulse rounded-lg bg-white/5" />;
 
-  // SLT (link na bio) só entra quando tem dado de verdade — sem isso
-  // conectado, views/clicks vêm zerados, e um funil de 5 etapas com as duas
-  // primeiras em 0 pareceria quebrado em vez de "não configurado".
-  const temSlt = m.views > 0 || m.clicks > 0;
-
-  // A base é a MAIOR etapa, não a primeira. Numa janela curta é comum haver
-  // mais venda que /start (gente que entrou antes e comprou agora): com a
-  // primeira etapa de base, as faixas seguintes estourariam a largura e o
-  // funil viraria retângulos iguais, deixando de ser funil.
+  // SEMPRE as 5 etapas — mesmo sem SLT conectado, mesmo período sem
+  // nenhuma venda. Esconder etapa quando o número é 0 já escondeu dado
+  // de verdade (SLT conectado mas com 0 view/clique naquela janela é uma
+  // resposta, não um "não configurado"); zero é informação, não motivo
+  // pra sumir com o desenho ou com o rótulo.
   const base = Math.max(m.views, m.clicks, m.totalStarts, m.pixGenerated, m.pixPaid, 1);
   // Taxa acima de 100% não é conversão: é venda de lead de outro dia. Melhor
   // não mostrar número nenhum do que anunciar "175% da etapa anterior".
   const taxaOuNada = (r: number | null) => (r !== null && r <= 1 ? r : null);
   const etapas = [
-    ...(temSlt
-      ? [
-          { rotulo: "Views", valor: m.views, taxa: null as number | null, topo: true, base: "" },
-          { rotulo: "Cliques", valor: m.clicks, taxa: taxaOuNada(m.viewToClick), topo: false, base: "das views" },
-        ]
-      : []),
-    {
-      rotulo: "/start",
-      valor: m.totalStarts,
-      taxa: temSlt ? taxaOuNada(m.clickToStart) : null,
-      topo: !temSlt,
-      base: "dos cliques",
-    },
+    { rotulo: "Views", valor: m.views, taxa: null as number | null, topo: true, base: "" },
+    { rotulo: "Cliques", valor: m.clicks, taxa: taxaOuNada(m.viewToClick), topo: false, base: "das views" },
+    { rotulo: "/start", valor: m.totalStarts, taxa: taxaOuNada(m.clickToStart), topo: false, base: "dos cliques" },
     { rotulo: "PIX gerado", valor: m.pixGenerated, taxa: taxaOuNada(m.startToPix), topo: false, base: "do /start" },
     { rotulo: "Pago", valor: m.pixPaid, taxa: taxaOuNada(m.startToPaid), topo: false, base: "do /start" },
   ];
 
   const N = etapas.length;
   // Coordenadas do SVG em unidades "percentuais": W/H = 100 fazem 1 unidade
-  // valer 1% do contêiner (que tem altura FIXA em px, definida no style
-  // abaixo) — é o que deixa o desenho e os rótulos (posicionados por
-  // porcentagem em HTML por cima do SVG) andarem exatamente juntos.
+  // valer 1% do contêiner — é o que deixa o desenho e os rótulos
+  // (posicionados por porcentagem em HTML por cima do SVG) andarem
+  // exatamente juntos, na mesma escala, em qualquer tamanho de tela.
   const W = 100;
   const H = 100;
-  const cx = 27; // centro horizontal da forma — o resto da largura sobra pros rótulos à direita
+  const cx = 73; // centro horizontal da forma — à DIREITA; o resto da largura sobra pros rótulos à esquerda
   const maxHalf = 21;
   const topPad = 9;
   const bottomPad = 9;
-  const halfWidths = etapas.map((e) => maxHalf * Math.min(1, Math.max(0.08, e.valor / base)));
+  // Piso bem baixo (3.5%): pouco volume tem que PARECER pouco volume — um
+  // fio fino, não um cano grosso quase do tamanho da etapa cheia.
+  const halfWidths = etapas.map((e) => maxHalf * Math.min(1, Math.max(0.035, e.valor / base)));
   const centerYs = etapas.map((_, i) => (N > 1 ? topPad + (i * (H - topPad - bottomPad)) / (N - 1) : H / 2));
   const domeTopo = 6;
   const domeBase = Math.min(9, Math.max(3, halfWidths[N - 1] * 0.55));
@@ -567,10 +559,21 @@ function FunilVisual({ m }: { m?: Metricas }) {
   }
   d += " Z";
 
-  const alturaPx = Math.max(260, 74 * N + 40);
+  // Altura de referência (N etapas — mais etapa, mais alto) casada com uma
+  // largura de referência fixa: a RAZÃO entre as duas vira `aspect-ratio` do
+  // contêiner, não um tamanho fixo em pixel. Com `width: 100%` + `max-width`,
+  // o navegador escala LARGURA E ALTURA JUNTAS conforme sobra espaço na tela
+  // — cresce numa tela mais larga (até o teto) e encolhe no celular, sem
+  // achatar/esticar a curva (o que `preserveAspectRatio="none"` sozinho, com
+  // altura fixa, fazia).
+  const alturaRef = Math.max(260, 74 * N + 40);
+  const larguraRef = 320;
 
   return (
-    <div className="relative mt-4" style={{ height: alturaPx }}>
+    <div
+      className="relative mx-auto mt-4 w-full max-w-[640px] lg:mx-0 lg:w-[380px] lg:max-w-none lg:shrink-0"
+      style={{ aspectRatio: `${larguraRef} / ${alturaRef}` }}
+    >
       <svg
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
@@ -597,13 +600,15 @@ function FunilVisual({ m }: { m?: Metricas }) {
         <path d={d} fill="url(#funilGradiente)" stroke={FUNIL_COR} strokeWidth={0.6} strokeOpacity={0.6} />
       </svg>
 
-      {/* Rótulos num degrau fixo à direita — a altura de cada um acompanha a
-          cintura correspondente no desenho (mesma escala em %, já que o SVG
-          usa preserveAspectRatio="none" num contêiner de altura fixa). */}
+      {/* Rótulos num degrau fixo à esquerda (o desenho fica à direita) — a
+          altura de cada um acompanha a cintura correspondente no desenho
+          (mesma escala em %, já que o SVG usa preserveAspectRatio="none" num
+          contêiner de altura fixa). Texto alinhado à direita: "aponta" pro
+          desenho ao lado. */}
       {etapas.map((e, i) => (
         <div
           key={e.rotulo}
-          className="absolute left-[54%] right-0 -translate-y-1/2"
+          className="absolute left-0 right-[46%] -translate-y-1/2 text-right"
           style={{ top: `${(centerYs[i] / H) * 100}%` }}
         >
           <p className="truncate font-mono text-[10px] uppercase tracking-wider text-zinc-500">
@@ -859,7 +864,7 @@ function Conversao({
   accent?: boolean;
 }) {
   return (
-    <div className="text-center">
+    <div className="text-center lg:text-left">
       <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">{label}</p>
       <p className={`mt-1 font-display text-xl font-semibold ${accent ? "text-emerald-400" : "text-sky-400"}`}>
         {valor ?? <span className="inline-block h-6 w-14 animate-pulse rounded bg-white/5" />}

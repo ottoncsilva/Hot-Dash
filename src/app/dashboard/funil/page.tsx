@@ -475,20 +475,32 @@ export default function FunilPage() {
 }
 
 
+/** Cor única do desenho — nem opacidade por segmento, nem hue por etapa. A
+ *  profundidade de "líquido" vem só do brilho (glow) e do degradê de
+ *  transparência desta MESMA cor entre o topo e a base, nunca de uma cor
+ *  diferente. */
+const FUNIL_COR = "#d946ef";
+
 /**
- * A jornada desenhada como funil: três faixas que estreitam da esquerda para a
- * direita, na proporção de quanta gente sobrou em cada etapa.
+ * A jornada desenhada como um fio de líquido descendo — de cima (topo do
+ * funil) para baixo (pago), afinando na proporção de quanta gente sobrou em
+ * cada etapa. Um contorno só, sem NENHUM segmento reto: as bordas viram um
+ * caminho SVG feito de curvas (`Q` no arremate de cima/baixo, `C` ligando
+ * cada cintura à seguinte, no estilo dos links de um diagrama de Sankey —
+ * tangente horizontal em cada nó, sem quina).
  *
- * A largura tem um PISO (20%): uma etapa com uma venda só continua sendo um
- * trapézio legível em vez de um fio invisível. O piso deforma a proporção de
- * propósito — por isso o número absoluto vai escrito embaixo de cada etapa, e
- * é ele que manda.
+ * A largura tem um PISO (8%): uma etapa com uma venda só continua sendo uma
+ * cintura legível em vez de sumir num fio invisível. O piso deforma a
+ * proporção de propósito — por isso o número absoluto vai escrito ao lado de
+ * cada etapa, e é ele que manda.
  *
- * Vertical seria mais fácil, mas o funil horizontal cabe em 430px sem rolagem
- * e é a leitura que o operador já conhece.
+ * Os rótulos ficam num degrau fixo à direita da forma (não seguem a largura
+ * de cada etapa) — colados na ALTURA de cada cintura via posicionamento em
+ * porcentagem, mesma base de referência do viewBox do SVG (`preserveAspectRatio="none"`
+ * faz os dois — desenho e rótulos — escalarem juntos).
  */
 function FunilVisual({ m }: { m?: Metricas }) {
-  if (!m) return <div className="mt-4 h-40 animate-pulse rounded-lg bg-white/5" />;
+  if (!m) return <div className="mt-4 h-64 animate-pulse rounded-lg bg-white/5" />;
 
   // SLT (link na bio) só entra quando tem dado de verdade — sem isso
   // conectado, views/clicks vêm zerados, e um funil de 5 etapas com as duas
@@ -521,63 +533,98 @@ function FunilVisual({ m }: { m?: Metricas }) {
     { rotulo: "Pago", valor: m.pixPaid, taxa: taxaOuNada(m.startToPaid), topo: false, base: "do /start" },
   ];
 
+  const N = etapas.length;
+  // Coordenadas do SVG em unidades "percentuais": W/H = 100 fazem 1 unidade
+  // valer 1% do contêiner (que tem altura FIXA em px, definida no style
+  // abaixo) — é o que deixa o desenho e os rótulos (posicionados por
+  // porcentagem em HTML por cima do SVG) andarem exatamente juntos.
   const W = 100;
-  const H = 44;
-  const meia = (v: number) => (H / 2) * Math.min(1, Math.max(0.2, v / base));
-  const x = (i: number) => (W / etapas.length) * i;
+  const H = 100;
+  const cx = 27; // centro horizontal da forma — o resto da largura sobra pros rótulos à direita
+  const maxHalf = 21;
+  const topPad = 9;
+  const bottomPad = 9;
+  const halfWidths = etapas.map((e) => maxHalf * Math.min(1, Math.max(0.08, e.valor / base)));
+  const centerYs = etapas.map((_, i) => (N > 1 ? topPad + (i * (H - topPad - bottomPad)) / (N - 1) : H / 2));
+  const domeTopo = 6;
+  const domeBase = Math.min(9, Math.max(3, halfWidths[N - 1] * 0.55));
+
+  // Contorno em UM caminho fechado, só com curvas: arremate de cima (Q,
+  // bojo pra cima — "superfície do líquido"), desce pela borda direita
+  // ligando cintura a cintura (C, tangente horizontal em cada nó — mesma
+  // curva usada em link de Sankey), arremate de baixo (Q, bojo pra baixo —
+  // afina até a última etapa) e sobe pela esquerda espelhado.
+  let d = `M ${cx - halfWidths[0]} ${centerYs[0]}`;
+  d += ` Q ${cx} ${centerYs[0] - domeTopo} ${cx + halfWidths[0]} ${centerYs[0]}`;
+  for (let i = 0; i < N - 1; i++) {
+    const ymid = (centerYs[i] + centerYs[i + 1]) / 2;
+    d += ` C ${cx + halfWidths[i]} ${ymid} ${cx + halfWidths[i + 1]} ${ymid} ${cx + halfWidths[i + 1]} ${centerYs[i + 1]}`;
+  }
+  d += ` Q ${cx} ${centerYs[N - 1] + domeBase} ${cx - halfWidths[N - 1]} ${centerYs[N - 1]}`;
+  for (let i = N - 1; i > 0; i--) {
+    const ymid = (centerYs[i] + centerYs[i - 1]) / 2;
+    d += ` C ${cx - halfWidths[i]} ${ymid} ${cx - halfWidths[i - 1]} ${ymid} ${cx - halfWidths[i - 1]} ${centerYs[i - 1]}`;
+  }
+  d += " Z";
+
+  const alturaPx = Math.max(260, 74 * N + 40);
 
   return (
-    <div className="mt-4">
+    <div className="relative mt-4" style={{ height: alturaPx }}>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
-        className="h-32 w-full"
+        className="absolute inset-0 h-full w-full"
         role="img"
         aria-label={etapas.map((e) => `${e.valor} ${e.rotulo}`).join(", ")}
       >
-        {etapas.map((e, i) => {
-          const proximo = etapas[i + 1];
-          const aEsq = meia(e.valor);
-          const aDir = meia(proximo ? proximo.valor : e.valor * 0.9);
-          const x1 = x(i);
-          const x2 = x(i + 1);
-          return (
-            <polygon
-              key={e.rotulo}
-              points={`${x1},${H / 2 - aEsq} ${x2},${H / 2 - aDir} ${x2},${H / 2 + aDir} ${x1},${H / 2 + aEsq}`}
-              fill="#34d399"
-              opacity={0.25 + i * 0.2}
-            />
-          );
-        })}
+        <defs>
+          <linearGradient id="funilGradiente" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={FUNIL_COR} stopOpacity={0.95} />
+            <stop offset="100%" stopColor={FUNIL_COR} stopOpacity={0.5} />
+          </linearGradient>
+          <filter id="funilBrilho" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="3.5" result="desfoque" />
+            <feMerge>
+              <feMergeNode in="desfoque" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+        {/* Sombra do próprio líquido por baixo, bem sutil — profundidade sem
+            virar uma segunda cor. */}
+        <path d={d} fill={FUNIL_COR} opacity={0.18} filter="url(#funilBrilho)" />
+        <path d={d} fill="url(#funilGradiente)" stroke={FUNIL_COR} strokeWidth={0.6} strokeOpacity={0.6} />
       </svg>
 
-      {/* Os números por baixo do desenho: é aqui que está a verdade exata, já
-          que a largura das faixas tem piso. */}
-      <div
-        className="mt-2 grid gap-2 text-center"
-        style={{ gridTemplateColumns: `repeat(${etapas.length}, minmax(0, 1fr))` }}
-      >
-        {etapas.map((e, i) => (
-          <div key={e.rotulo} className="min-w-0">
-            <p className="truncate font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-              {e.rotulo}
-            </p>
-            <p
-              className={`font-display text-2xl font-semibold ${i === etapas.length - 1 ? "text-emerald-400" : "text-white"}`}
-            >
-              {e.valor}
-            </p>
-            <p className="font-mono text-[10px] text-zinc-600">
-              {e.topo
-                ? "topo do funil"
-                : e.taxa === null
-                  ? "acima da etapa anterior"
-                  : `${pct(e.taxa)} ${e.base}`}
-            </p>
-          </div>
-        ))}
-      </div>
+      {/* Rótulos num degrau fixo à direita — a altura de cada um acompanha a
+          cintura correspondente no desenho (mesma escala em %, já que o SVG
+          usa preserveAspectRatio="none" num contêiner de altura fixa). */}
+      {etapas.map((e, i) => (
+        <div
+          key={e.rotulo}
+          className="absolute left-[54%] right-0 -translate-y-1/2"
+          style={{ top: `${(centerYs[i] / H) * 100}%` }}
+        >
+          <p className="truncate font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+            {e.rotulo}
+          </p>
+          <p
+            className={`font-display text-2xl font-semibold leading-tight ${
+              i === etapas.length - 1 ? "text-emerald-400" : "text-white"
+            }`}
+          >
+            {e.valor}
+          </p>
+          <p className="font-mono text-[10px] text-zinc-600">
+            {e.topo
+              ? "topo do funil"
+              : e.taxa === null
+                ? "acima da etapa anterior"
+                : `${pct(e.taxa)} ${e.base}`}
+          </p>
+        </div>
+      ))}
     </div>
   );
 }

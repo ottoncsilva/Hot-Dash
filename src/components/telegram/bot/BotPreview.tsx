@@ -193,7 +193,7 @@ export function FunnelPreview({
   successMessageIntl,
   successButtonsIntl,
   cardBrButtons,
-  redirectStyle,
+  originGateStyle,
   pixCheckStyle,
   checkoutPayStyle,
   checkoutGerandoIntl,
@@ -247,9 +247,12 @@ export function FunnelPreview({
   /** Botão extra "pagar no cartão" — só no ramo Brasil (é uma opção A MAIS
    *  pro brasileiro, não existe do lado internacional). */
   cardBrButtons?: Btn[];
-  /** Cor dos botões de redirecionamento (papel "redirect") — aplica na
-   *  pergunta Brasil/International e no "pagar no cartão". */
-  redirectStyle?: PreviewStyle;
+  /** Cor da pergunta "Brasil ou International?" (papel "originGate") — os
+   *  botões desta pergunta especificamente, quando `intlAskFirst` está
+   *  ligado. O "Not from Brazil?" e o "pagar no cartão" já vêm com a cor
+   *  própria deles embutida em `buttons`/`cardBrButtons` (papéis
+   *  "notFromBrazil"/"cardBrOffer", calculados em `page.tsx`). */
+  originGateStyle?: PreviewStyle;
   /** Cor do botão "Verificar status"/"Check payment status" (papel
    *  "pixCheck") — mesmo botão nos dois provedores. */
   pixCheckStyle?: PreviewStyle;
@@ -460,13 +463,13 @@ export function FunnelPreview({
                 {
                   text: "🇧🇷 Brasil",
                   kind: "custom",
-                  style: redirectStyle,
+                  style: originGateStyle,
                   onClick: origemEscolhida ? undefined : () => escolherOrigem("br"),
                 },
                 {
                   text: "🌎 International",
                   kind: "custom",
-                  style: redirectStyle,
+                  style: originGateStyle,
                   onClick: origemEscolhida ? undefined : () => escolherOrigem("intl"),
                 },
               ]}

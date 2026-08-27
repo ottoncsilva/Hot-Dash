@@ -441,11 +441,11 @@ export default function BotVendasPage() {
     // pergunta lá na frente (ver `intlAskFirst` no webhook): os dois nunca
     // aparecem juntos pro mesmo lead.
     ...(podeMostrarBotaoNotFromBrazil
-      ? [{ text: "🌎 Not from Brazil?", kind: "custom" as const, style: corDo(bot?.buttonStyles?.redirect) }]
+      ? [{ text: "🌎 Not from Brazil?", kind: "custom" as const, style: corDo(bot?.buttonStyles?.notFromBrazil) }]
       : []),
     ...buttons.map((b) => ({ text: b.text, kind: "custom" as const, style: corDo(bot?.buttonStyles?.redirect) })),
     ...(bot?.supportUsername
-      ? [{ text: "💬 Suporte / Dúvidas", kind: "support" as const, style: corDo(bot?.buttonStyles?.redirect) }]
+      ? [{ text: "💬 Suporte / Dúvidas", kind: "support" as const, style: corDo(bot?.buttonStyles?.support) }]
       : []),
   ];
 
@@ -461,7 +461,7 @@ export default function BotVendasPage() {
   // Botão extra "prefere pagar no cartão", em SEQUÊNCIA depois dos planos em
   // PIX — mesmo texto do webhook (`enviarAberturaBrasil`).
   const cardBrBotoes = cardBrOn
-    ? [{ text: "💳 Pagar no cartão", kind: "custom" as const, style: corDo(bot?.buttonStyles?.redirect) }]
+    ? [{ text: "💳 Pagar no cartão", kind: "custom" as const, style: corDo(bot?.buttonStyles?.cardBrOffer) }]
     : [];
 
   // Plano de EXEMPLO para o funil (o primeiro ativo) — é o que substitui
@@ -800,7 +800,7 @@ export default function BotVendasPage() {
                   successMessageIntl={temPlanoUsd ? sucessoTextoIntlEfetivo : undefined}
                   successButtonsIntl={temPlanoUsd ? successButtonsIntl : undefined}
                   cardBrButtons={cardBrBotoes}
-                  redirectStyle={corDo(bot?.buttonStyles?.redirect)}
+                  originGateStyle={corDo(bot?.buttonStyles?.originGate)}
                   pixCheckStyle={corDo(bot?.buttonStyles?.pixCheck)}
                   checkoutPayStyle={corDo(bot?.buttonStyles?.checkoutPay)}
                   checkoutPayTextoIntl={checkoutPayEn}

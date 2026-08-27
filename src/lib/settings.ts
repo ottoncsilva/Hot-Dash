@@ -811,7 +811,12 @@ export type ButtonRole =
   | "bumpAccept"
   | "bumpDecline"
   | "access"
-  | "managePortal";
+  | "managePortal"
+  | "notFromBrazil"
+  | "cardBrOffer"
+  | "support"
+  | "originGate"
+  | "language";
 
 /**
  * Cor de partida de cada papel. Aceitar/recusar do Order Bump nascem verde e
@@ -824,17 +829,22 @@ const BUTTON_STYLE_DEFAULTS: Partial<Record<ButtonRole, ButtonStyle>> = {
 };
 
 export const BUTTON_ROLES: { key: ButtonRole; label: string; hint: string }[] = [
-  { key: "redirect", label: "Botões de redirect", hint: "Links extras (suporte, idioma, entregável, mailing…) — qualquer botão que só leva pra outro lugar" },
+  { key: "redirect", label: "Botões de redirect", hint: "Links extras (entregável, mailing, botões customizados do /start…) — qualquer botão que só leva pra outro lugar, sem papel próprio na lista abaixo" },
   { key: "plans", label: "Lista de planos", hint: "Botões de escolha de plano (/start, funis, mailing). Um plano com cor própria ignora esta." },
   { key: "confirmPurchase", label: "Confirmar compra", hint: 'Botão "Pagar com Pix", quando houver escolha de método' },
-  { key: "checkoutPay", label: "Pagar no cartão", hint: 'Botão que abre o link de pagamento no checkout Stripe (internacional ou cartão no Brasil)' },
-  { key: "pixCheck", label: "Verificar pagamento", hint: 'Botão "Verificar Status do Pagamento"' },
+  { key: "checkoutPay", label: "Pagar no checkout (cartão)", hint: 'Botão "Pagar" que abre o link de pagamento no checkout Stripe (internacional ou "pagar no cartão" do Brasil) — depois de já ter escolhido o método' },
+  { key: "pixCheck", label: "Verificar pagamento", hint: 'Botão "Verificar Status do Pagamento" (PIX e cartão)' },
   { key: "pixCopy", label: "Copiar chave Pix", hint: "Botão que reenvia só o código" },
   { key: "pixQr", label: "Mostrar QR Code", hint: "Botão que envia a imagem do QR" },
   { key: "bumpAccept", label: "Aceitar bump", hint: "Botão de aceite da oferta adicional" },
   { key: "bumpDecline", label: "Recusar bump", hint: "Botão de recusa da oferta adicional" },
   { key: "access", label: "Acessar conteúdo", hint: "Botão de acesso ao VIP depois do pagamento" },
   { key: "managePortal", label: "Gerenciar assinatura", hint: 'Botões "Gerenciar assinatura" e "Abrir portal" (renovação automática via Stripe)' },
+  { key: "notFromBrazil", label: '"Not from Brazil?"', hint: "Botão que abre o menu internacional no meio do funil (/start e Downsell geral)" },
+  { key: "cardBrOffer", label: '"Prefere pagar no cartão?"', hint: "Botão do BRASILEIRO que oferece pagar no cartão em vez de Pix — abre a lista de planos em cartão (`acceptCardBr`)" },
+  { key: "support", label: "Suporte / Dúvidas", hint: "Botão de contato com o suporte, no /start" },
+  { key: "originGate", label: 'Pergunta "Brasil ou International?"', hint: 'Os 2 botões da PRIMEIRA pergunta do /start, quando o modo bilíngue pergunta antes de tudo (`intlAskFirst`)' },
+  { key: "language", label: "Escolha de idioma (EN/ES)", hint: 'Os 2 botões "English"/"Español" do menu internacional' },
 ];
 
 export type ButtonStyles = Partial<Record<ButtonRole, ButtonStyle>>;

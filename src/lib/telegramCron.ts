@@ -526,7 +526,7 @@ function buildReplyMarkup(
   // C.4 do plano da Stripe.
   if (plans.some((p) => (p.priceUsdCents || 0) > 0)) {
     inlineKeyboard.push([
-      { text: "🌎 Not from Brazil?", callback_data: "intl_menu", ...buttonStyleProps(bot, "redirect") },
+      { text: "🌎 Not from Brazil?", callback_data: "intl_menu", ...buttonStyleProps(bot, "notFromBrazil") },
     ]);
   }
   return inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : undefined;

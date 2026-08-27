@@ -105,7 +105,7 @@ async function enviarAberturaBrasil(
   // saída válida pra quem clicou errado ou muda de ideia.
   if (bot.intlEnabled && plans.some((p) => (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false)) {
     inlineKeyboard.push([
-      { text: "🌎 Not from Brazil?", callback_data: "intl_menu", ...buttonStyleProps(bot, "redirect") },
+      { text: "🌎 Not from Brazil?", callback_data: "intl_menu", ...buttonStyleProps(bot, "notFromBrazil") },
     ]);
   }
 
@@ -121,7 +121,7 @@ async function enviarAberturaBrasil(
     const supportUrl = bot.supportUsername.startsWith("http")
       ? bot.supportUsername
       : `https://t.me/${bot.supportUsername.replace("@", "")}`;
-    inlineKeyboard.push([{ text: "💬 Suporte / Dúvidas", url: supportUrl, ...buttonStyleProps(bot, "redirect") }]);
+    inlineKeyboard.push([{ text: "💬 Suporte / Dúvidas", url: supportUrl, ...buttonStyleProps(bot, "support") }]);
   }
 
   const replyMarkup = inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : undefined;
@@ -163,7 +163,7 @@ async function enviarAberturaBrasil(
     if (getStripeCredentials()) {
       await sendTelegramMessage(bot.botToken, String(chat.id), "💳 Prefere pagar no cartão?", {
         reply_markup: {
-          inline_keyboard: [[{ text: "💳 Pagar no cartão", callback_data: "card_menu", ...buttonStyleProps(bot, "redirect") }]],
+          inline_keyboard: [[{ text: "💳 Pagar no cartão", callback_data: "card_menu", ...buttonStyleProps(bot, "cardBrOffer") }]],
         },
       });
     }
@@ -382,8 +382,8 @@ export async function POST(
             reply_markup: {
               inline_keyboard: [
                 [
-                  { text: "🇧🇷 Brasil", callback_data: "origin_br", ...buttonStyleProps(bot, "redirect") },
-                  { text: "🌎 International", callback_data: "origin_intl", ...buttonStyleProps(bot, "redirect") },
+                  { text: "🇧🇷 Brasil", callback_data: "origin_br", ...buttonStyleProps(bot, "originGate") },
+                  { text: "🌎 International", callback_data: "origin_intl", ...buttonStyleProps(bot, "originGate") },
                 ],
               ],
             },
@@ -422,8 +422,8 @@ export async function POST(
             reply_markup: {
               inline_keyboard: [
                 [
-                  { text: "🇬🇧 English", callback_data: "lang_en", ...buttonStyleProps(bot, "redirect") },
-                  { text: "🇪🇸 Español", callback_data: "lang_es", ...buttonStyleProps(bot, "redirect") },
+                  { text: "🇬🇧 English", callback_data: "lang_en", ...buttonStyleProps(bot, "language") },
+                  { text: "🇪🇸 Español", callback_data: "lang_es", ...buttonStyleProps(bot, "language") },
                 ],
               ],
             },

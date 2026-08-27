@@ -919,10 +919,14 @@ export async function POST(
           provider: provider.key,
           providerRef: charge.providerRef,
           profileId: bot.profileId,
+          botId: bot.id,
           description: `Assinatura Telegram - ${itemName}`,
           customer: from.first_name,
           amountCents,
           currency: isIntlBuy ? "USD" : undefined,
+          // PIX é PIX; cartão (internacional OU brasileiro) é sempre Stripe
+          // aqui — mesmo critério de `isStripeBuy` usado nas linhas acima.
+          method: isStripeBuy ? "card" : "pix",
           status: "pending",
           sourceCode: lead?.sourceCode,
           origin: "bot",

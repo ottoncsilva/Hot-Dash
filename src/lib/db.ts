@@ -1125,6 +1125,13 @@ function migrate(d: Database.Database) {
   // nunca passou por um /start. Linha antiga fica NULL: não dá para adivinhar a
   // origem, e o comportamento de antes (contar tudo) é o que ela preserva.
   ensureColumn(d, "transactions", "origin", "TEXT");
+  // QUAL bot do Telegram gerou a cobrança — com uma conta operando várias
+  // modelos, cada uma com seu próprio bot, sem isso o Financeiro não tinha
+  // como separar "veio do bot de vendas de qual modelo" de forma direta
+  // (profile_id já dá isso hoje, mas indiretamente; este campo existe para
+  // a coluna "Bot" da tela e para distinguir venda de bot de venda do
+  // LTV/lançada à mão, que ficam sem bot mesmo). Linha antiga fica NULL.
+  ensureColumn(d, "transactions", "bot_id", "TEXT");
   // Oferta do MAILING que originou a venda (nome/preço/duração ajustados só
   // para aquele disparo). Quando presente, manda na confirmação do pagamento
   // no lugar do plano original.

@@ -18,6 +18,12 @@ export type Transaction = {
   provider: string;
   providerRef?: string;
   profileId?: string;
+  /** Bot do Telegram que gerou a cobrança — vazio em venda do LTV ou lançada
+   *  à mão (nunca passou por um bot). */
+  botId?: string;
+  /** @usuário do bot, só quando a consulta faz o JOIN (listagem do
+   *  Financeiro) — ausente nas outras leituras, que não precisam dele. */
+  botUsername?: string;
   description?: string;
   customer?: string;
   /** Valor CHEIO da venda (faturamento bruto). */
@@ -45,6 +51,10 @@ type Row = {
   provider: string;
   provider_ref: string | null;
   profile_id: string | null;
+  bot_id: string | null;
+  /** Só presente quando a consulta faz LEFT JOIN telegram_bots (ver
+   *  `comBot` abaixo) — em `SELECT *` puro fica ausente (undefined). */
+  bot_username?: string | null;
   description: string | null;
   customer: string | null;
   amount_cents: number;
@@ -66,6 +76,8 @@ function toClient(r: Row): Transaction {
     provider: r.provider,
     providerRef: r.provider_ref || undefined,
     profileId: r.profile_id || undefined,
+    botId: r.bot_id || undefined,
+    botUsername: r.bot_username || undefined,
     description: r.description || undefined,
     customer: r.customer || undefined,
     amountCents: r.amount_cents,
@@ -85,6 +97,9 @@ export function recordTransaction(input: {
   provider: string;
   providerRef?: string;
   profileId?: string;
+  /** Bot do Telegram que gerou a cobrança (venda pelo bot de vendas). Vazio
+   *  em venda do LTV ou lançada à mão. */
+  botId?: string;
   description?: string;
   customer?: string;
   amountCents: number;
@@ -125,16 +140,17 @@ export function recordTransaction(input: {
   getDb()
     .prepare(
       `INSERT INTO transactions
-        (id, provider, provider_ref, profile_id, description, customer,
+        (id, provider, provider_ref, profile_id, bot_id, description, customer,
          amount_cents, net_amount_cents, fee_cents, split_cents, paid_at,
          currency, method, status, source_code, origin, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
       input.provider,
       input.providerRef || null,
       input.profileId || null,
+      input.botId || null,
       input.description || null,
       input.customer || null,
       input.amountCents,
@@ -242,33 +258,48 @@ export function deleteTransaction(id: string): boolean {
   return r.changes > 0;
 }
 
-/** Cobranças de um intervalo [since, until) — as pontas vêm resolvidas no fuso
- *  da operação. Usada pelo Financeiro, que filtra por período na origem em vez
- *  de cortar as últimas 50 no navegador (senão o filtro só veria essas 50). */
+/**
+ * Cobranças de um intervalo [since, until) — as pontas vêm resolvidas no fuso
+ * da operação. Usada pelo Financeiro, que filtra por período na origem em vez
+ * de cortar as últimas N no navegador (senão o filtro só veria essas N).
+ *
+ * SEM limite por padrão: o registro é o que sustenta a conferência financeira
+ * — um teto arbitrário derrubando linha do meio de um período grande (mais de
+ * ~500 cobranças) é dado que some sem aviso nenhum. `limit` só existe para
+ * quem realmente quer as últimas N (nenhum chamador usa hoje).
+ */
 export function listTransactionsInRange(
   sinceMs: number | null,
   untilMs: number | null,
-  limit = 500,
+  limit?: number,
   profileId?: string,
 ): Transaction[] {
   const clauses: string[] = [];
   const params: (string | number)[] = [];
   if (sinceMs !== null) {
-    clauses.push("created_at >= ?");
+    clauses.push("t.created_at >= ?");
     params.push(sinceMs);
   }
   if (untilMs !== null) {
-    clauses.push("created_at < ?");
+    clauses.push("t.created_at < ?");
     params.push(untilMs);
   }
   if (profileId) {
-    clauses.push("profile_id = ?");
+    clauses.push("t.profile_id = ?");
     params.push(profileId);
   }
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  if (limit) params.push(limit);
   const rows = getDb()
-    .prepare(`SELECT * FROM transactions ${where} ORDER BY created_at DESC LIMIT ?`)
-    .all(...params, limit) as Row[];
+    .prepare(
+      `SELECT t.*, b.bot_username
+         FROM transactions t
+         LEFT JOIN telegram_bots b ON b.id = t.bot_id
+         ${where}
+        ORDER BY t.created_at DESC
+        ${limit ? "LIMIT ?" : ""}`,
+    )
+    .all(...params) as Row[];
   return rows.map(toClient);
 }
 

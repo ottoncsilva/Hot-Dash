@@ -35,7 +35,9 @@ export async function GET(req: NextRequest) {
 
     // Contato do Telegram de cada venda (quando o webhook amarrou a cobrança a
     // uma inscrição): é o que a tela usa para abrir a conversa com o lead.
-    const transactions = listTransactionsInRange(range.since, range.until, 500, profileId);
+    // SEM teto: um limite aqui cortava período longo sem avisar — o extrato
+    // do Financeiro precisa ser o registro completo, não uma amostra.
+    const transactions = listTransactionsInRange(range.since, range.until, undefined, profileId);
     const contatos = getTelegramContactsByTransactions(transactions.map((t) => t.id));
 
     return NextResponse.json({

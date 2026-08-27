@@ -48,6 +48,11 @@ const STATUS_LABEL: Record<string, string> = {
   chargeback: "chargeback",
 };
 
+const METHOD_LABEL: Record<string, string> = {
+  pix: "Pix",
+  card: "Cartão",
+};
+
 type PaidFilter = "all" | "paid" | "unpaid";
 type SortKey = "created_desc" | "created_asc" | "paid_desc" | "paid_asc" | "amount_desc" | "amount_asc";
 
@@ -75,6 +80,11 @@ export default function PaymentsPage() {
   const [charging, setCharging] = useState(false);
   const [paidFilter, setPaidFilter] = useState<PaidFilter>("all");
   const [sort, setSort] = useState<SortKey>("created_desc");
+  // Busca em texto livre — sobre o que JÁ carregou (o período é filtrado no
+  // servidor, sem teto: ver /api/payments/overview). Cobre nome, produto,
+  // bot e método, porque "pesquisar" pra quem usa a tela é achar uma venda
+  // por qualquer um desses, não só o cliente.
+  const [busca, setBusca] = useState("");
   // Mesmo seletor do Dashboard, com o mesmo padrão (hoje). O recorte é feito no
   // servidor — ver /api/payments/overview.
   const [period, setPeriod] = useState<PeriodState>({ period: DEFAULT_PERIOD, from: "", to: "" });
@@ -135,6 +145,15 @@ export default function PaymentsPage() {
     if (paidFilter === "paid") list = list.filter((t) => t.status === "paid");
     else if (paidFilter === "unpaid") list = list.filter((t) => t.status !== "paid");
 
+    const termo = busca.trim().toLowerCase();
+    if (termo) {
+      list = list.filter((t) =>
+        [t.customer, t.description, t.botUsername, t.method, t.provider]
+          .filter(Boolean)
+          .some((campo) => campo!.toLowerCase().includes(termo)),
+      );
+    }
+
     const val = (t: Transaction) => t.netAmountCents ?? t.amountCents;
     // Sem pagamento ainda: joga pro fim na ordem decrescente e pro fim na
     // crescente também, para os pendentes não bagunçarem a leitura.
@@ -158,7 +177,7 @@ export default function PaymentsPage() {
       }
     });
     return sorted;
-  }, [data, paidFilter, sort]);
+  }, [data, paidFilter, sort, busca]);
 
   return (
     <div className="page">
@@ -223,8 +242,22 @@ export default function PaymentsPage() {
 
       {/* Lista de PIX gerados */}
       <div className="mt-8 flex flex-wrap items-end justify-between gap-3">
-        <p className="eyebrow">pix gerados</p>
+        <p className="eyebrow">
+          pix gerados
+          {data && (
+            <span className="ml-2 normal-case text-zinc-600">
+              ({filteredTransactions.length}
+              {filteredTransactions.length !== data.transactions.length ? ` de ${data.transactions.length}` : ""})
+            </span>
+          )}
+        </p>
         <div className="flex flex-wrap items-end gap-2">
+          <input
+            className="input w-48 py-1.5 text-xs"
+            placeholder="Buscar cliente, produto, bot..."
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
           <select
             className="input w-auto py-1.5 text-xs"
             value={paidFilter}
@@ -243,10 +276,10 @@ export default function PaymentsPage() {
               <option key={k} value={k}>{SORT_LABEL[k]}</option>
             ))}
           </select>
-          {(paidFilter !== "all" || sort !== "created_desc") && (
+          {(paidFilter !== "all" || sort !== "created_desc" || busca) && (
             <button
               type="button"
-              onClick={() => { setPaidFilter("all"); setSort("created_desc"); }}
+              onClick={() => { setPaidFilter("all"); setSort("created_desc"); setBusca(""); }}
               className="btn-ghost py-1.5 text-xs"
             >
               Limpar
@@ -270,10 +303,13 @@ export default function PaymentsPage() {
             <p className="text-sm text-zinc-500">Nenhum PIX encontrado.</p>
           </div>
         ) : (
-          <table className="w-full min-w-[780px] border-collapse text-left text-sm">
+          <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
             <thead>
               <tr className="border-b border-white/[0.06] bg-white/[0.02] font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                 <th className="p-3">Nome</th>
+                <th className="p-3 w-32">Bot</th>
+                <th className="p-3 w-40">Produto</th>
+                <th className="p-3 w-24">Método</th>
                 {/* Pago e gerado dividem uma coluna só: são a mesma informação
                     (quando), e separadas gastavam largura numa tabela que já
                     rola na horizontal. Pago em cima, gerado embaixo. */}
@@ -340,6 +376,15 @@ export default function PaymentsPage() {
                           </div>
                         </div>
                       </div>
+                    </td>
+                    <td className="p-3 font-mono text-[11px] text-zinc-400">
+                      {t.botUsername ? `@${t.botUsername}` : <span className="text-zinc-700">—</span>}
+                    </td>
+                    <td className="max-w-[160px] truncate p-3 text-xs text-zinc-400">
+                      {t.description || <span className="text-zinc-700">—</span>}
+                    </td>
+                    <td className="p-3 text-xs text-zinc-400">
+                      {t.method ? METHOD_LABEL[t.method] || t.method : <span className="text-zinc-700">—</span>}
                     </td>
                     {/* Pago em cima, gerado embaixo. Uma linha cada (em vez do
                         par data/hora empilhado de antes), senão a célula viraria

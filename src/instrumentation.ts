@@ -50,6 +50,10 @@ export async function register() {
     // Retoma quem sumiu no meio do papo do LTV (só nas contas com isso
     // ligado — ver SegurancaBlock).
     const { runLtvReengajamento } = await import("@/lib/ltvAgent");
+    // Cliques/visualizações do SLT (link na bio) — próprio arquivo já
+    // segura o intervalo de 15min recomendado pela API e é um no-op sem
+    // chave configurada, então pode entrar no tick de sempre sem custo.
+    const { syncSltEvents } = await import("@/lib/sltSync");
     // Geração do Método MK (Prévias e VIP), em lotes: a rota só enfileira (a
     // copy de um dia inteiro não cabe no maxDuration de uma requisição). Os dois
     // dividem UMA fila e um lote por tick — ver generationJobs.ts.
@@ -121,6 +125,13 @@ export async function register() {
           if (retomados > 0) console.log(`[hotdash] LTV: ${retomados} lead(s) retomado(s) após silêncio.`);
         } catch (err) {
           console.error("[hotdash] Erro no cron (retomada do LTV):", err);
+        }
+        try {
+          const r = await syncSltEvents();
+          if (r.synced > 0) console.log(`[hotdash] SLT: ${r.synced} evento(s) novo(s) sincronizado(s).`);
+          if (!r.ok) console.error(`[hotdash] Erro no cron (sync SLT): ${r.error}`);
+        } catch (err) {
+          console.error("[hotdash] Erro no cron (sync SLT):", err);
         }
       } finally {
         running = false;

@@ -271,6 +271,12 @@ export type FonteTrafego = {
   pixGenerated: number;
   pixPaid: number;
   paidCents: number;
+  /** Visualização/clique da página do SLT (link na bio) — só existe quando
+   *  este `code` é IGUAL ao `page_slug` de alguma página do SLT (ver
+   *  `sltPageStats`). Sem isso configurado assim, fica `undefined` — a
+   *  linha continua mostrando os números de sempre, só sem o topo do funil. */
+  views?: number;
+  clicks?: number;
 };
 
 /**
@@ -336,7 +342,50 @@ export function trafficSources(
     f.pixPaid = r.pagos;
     f.paidCents = r.cents;
   }
+  // SLT só entra quando o código do deep-link é IGUAL ao slug da página lá —
+  // nunca cria linha nova (um código sem venda nenhuma não interessa aqui),
+  // só completa o topo do funil de um código que já existe.
+  for (const p of sltPageStats(sinceMs, untilMs)) {
+    const f = mapa.get(p.pageSlug);
+    if (f) {
+      f.views = p.views;
+      f.clicks = p.clicks;
+    }
+  }
   return [...mapa.values()].sort((a, b) => b.paidCents - a.paidCents || b.starts - a.starts);
+}
+
+export type SltPageStat = {
+  pageSlug: string;
+  views: number;
+  clicks: number;
+  poplinkClicks: number;
+};
+
+/**
+ * Visualização/clique por página do SLT, direto de `slt_events` (ver
+ * `lib/sltSync.ts` — quem mantém essa tabela sincronizada). Sem relação com
+ * modelo/perfil aqui: essa amarração é só da tela de Links
+ * (`slt_page_profiles`), não do funil.
+ */
+export function sltPageStats(sinceMs: number | null, untilMs: number | null = null): SltPageStat[] {
+  const db = getDb();
+  const { clauses, params } = range(sinceMs, untilMs);
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const rows = db
+    .prepare(
+      `SELECT COALESCE(page_slug, '') page_slug,
+              SUM(CASE WHEN event_type = 'page_viewed' THEN 1 ELSE 0 END) views,
+              SUM(CASE WHEN event_type = 'link_clicked' THEN 1 ELSE 0 END) clicks,
+              SUM(CASE WHEN event_type = 'poplink_click' THEN 1 ELSE 0 END) poplink_clicks
+       FROM slt_events
+       ${where}
+       GROUP BY COALESCE(page_slug, '')`,
+    )
+    .all(...params) as { page_slug: string; views: number; clicks: number; poplink_clicks: number }[];
+  return rows
+    .filter((r) => r.page_slug)
+    .map((r) => ({ pageSlug: r.page_slug, views: r.views, clicks: r.clicks, poplinkClicks: r.poplink_clicks }));
 }
 
 export type ProfileRevenue = {

@@ -86,6 +86,40 @@ function migrate(d: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_webhook_events_at ON webhook_events(received_at DESC);
 
+    -- Eventos de clique/visualização puxados da API do SLT (slt.bio, link na
+    -- bio) — ver lib/sltSync.ts. O id é montado NA HORA de gravar (não vem
+    -- do SLT) a partir dos campos que juntos identificam o evento; INSERT OR
+    -- IGNORE faz do reprocessar a mesma janela (o cursor "since" pode
+    -- repetir a borda) um no-op em vez de duplicar linha.
+    CREATE TABLE IF NOT EXISTS slt_events (
+      id                 TEXT PRIMARY KEY,
+      created_at         INTEGER NOT NULL,
+      event_type         TEXT NOT NULL,
+      page_slug          TEXT,
+      page_display_name  TEXT,
+      link_label         TEXT,
+      link_url           TEXT,
+      link_platform      TEXT,
+      poplink_slug       TEXT,
+      referer            TEXT,
+      country            TEXT,
+      domain             TEXT,
+      synced_at          INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_slt_events_created ON slt_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_slt_events_page ON slt_events(page_slug);
+
+    -- Qual MODELO cada página do SLT pertence — a API do SLT não sabe nada
+    -- sobre "perfil"/modelo, é um conceito só nosso. Sem essa amarração a
+    -- tela de Links não teria como agrupar por modelo; com uma conta SLT só
+    -- pra várias modelos, o operador atribui cada página uma vez (ver tela
+    -- de Links) e o resto (cliques, views, funil) já sai agrupado sozinho.
+    CREATE TABLE IF NOT EXISTS slt_page_profiles (
+      page_id    TEXT PRIMARY KEY,
+      profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+      updated_at INTEGER NOT NULL
+    );
+
     -- Trava de execução dos crons que têm DOIS caminhos de disparo (o ticker
     -- interno de instrumentation.ts E uma rota HTTP externa) — sem isso, as
     -- duas execuções podiam rodar em paralelo sem saber uma da outra e mandar

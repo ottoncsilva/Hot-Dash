@@ -20,6 +20,7 @@ export type NavKey =
   | "motion"
   | "payments"
   | "funil"
+  | "links"
   | "telegram"
   | "schedule";
 
@@ -37,6 +38,7 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   motion: { key: "motion", label: "Motion Control", href: "/dashboard/motion-control" },
   payments: { key: "payments", label: "Financeiro", href: "/dashboard/payments" },
   funil: { key: "funil", label: "Funil de Vendas", href: "/dashboard/funil" },
+  links: { key: "links", label: "Links (bio)", href: "/dashboard/links" },
   telegram: { key: "telegram", label: "Telegram", href: "/dashboard/telegram" },
   // O grupo aponta para o primeiro filho: clicar no cabeçalho abre o submenu,
   // mas o href ainda precisa levar a algum lugar real.
@@ -60,6 +62,7 @@ export const DEFAULT_MENU_ORDER: NavKey[] = [
   "schedule",
   "payments",
   "funil",
+  "links",
   "telegram",
   "ltv",
   "settings",

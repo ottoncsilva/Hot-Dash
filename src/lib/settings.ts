@@ -80,6 +80,97 @@ export function updateUazapiSettings(patch: {
   return getUazapiSettingsPublic();
 }
 
+// ---- SLT (slt.bio, link na bio) ----
+// UMA conta SLT cobre todas as modelos (confirmado com o operador) — por
+// isso a chave mora aqui, no mesmo nível do Stripe/SyncPay, e não no
+// cadastro de cada modelo. É só LEITURA do lado do SLT (a chave nem permite
+// escrever nada lá), e o que ela traz (visualização/clique por página) é
+// casado com as vendas pelo `page_slug` — ver `lib/sltSync.ts` e
+// `trafficSources`/`sltPageStats` em `lib/salesFunnel.ts`.
+export type SltSettingsPublic = {
+  hasApiKey: boolean;
+  /** Instante do último evento já gravado (epoch ms) — "até onde já
+   *  sincronizei", não "quando rodou a última tentativa". */
+  lastSyncedAt?: number;
+  /** Mensagem do último erro de sincronização, se o mais recente falhou.
+   *  Limpo no próximo sucesso. */
+  lastSyncError?: string;
+};
+type SltSettingsStored = {
+  apiKeyEnc?: string;
+  /** Cursor `since` da API (ISO, devolvido por ela mesma como `next_since`) —
+   *  formato dela, não epoch ms, para mandar de volta sem reconverter. */
+  sinceCursor?: string;
+  lastSyncedAt?: number;
+  /** Relógio de quando a API foi CHAMADA por último (sucesso ou falha) —
+   *  separado de `lastSyncedAt` porque uma tentativa vazia (nada novo)
+   *  ainda precisa segurar o próximo tick por 15 minutos (recomendação da
+   *  própria SLT), mesmo sem avançar o cursor. */
+  lastPolledAt?: number;
+  lastSyncError?: string;
+};
+
+function rawSlt(): SltSettingsStored {
+  return getJson<SltSettingsStored>("slt", {});
+}
+
+export function getSltSettingsPublic(): SltSettingsPublic {
+  const s = rawSlt();
+  return {
+    hasApiKey: Boolean(s.apiKeyEnc),
+    lastSyncedAt: s.lastSyncedAt,
+    lastSyncError: s.lastSyncError,
+  };
+}
+
+/** Chave descriptografada (uso server-side apenas, dentro do sync). */
+export function getSltApiKey(): string | null {
+  const s = rawSlt();
+  if (!s.apiKeyEnc) return null;
+  try {
+    return decryptSecret(s.apiKeyEnc);
+  } catch {
+    return null;
+  }
+}
+
+/** Troca a chave. Nova chave zera o cursor — a sincronização recomeça do
+ *  que a API tiver disponível agora (últimos 7 dias), não tenta continuar
+ *  de onde a chave ANTERIOR tinha parado. */
+export function updateSltApiKey(apiKey: string | undefined): SltSettingsPublic {
+  const s = rawSlt();
+  const trimmed = apiKey?.trim();
+  if (trimmed !== undefined) {
+    s.apiKeyEnc = trimmed ? encryptSecret(trimmed) : undefined;
+    s.sinceCursor = undefined;
+    s.lastSyncedAt = undefined;
+    s.lastPolledAt = undefined;
+    s.lastSyncError = undefined;
+  }
+  setJson("slt", s);
+  return getSltSettingsPublic();
+}
+
+/** Estado interno do cursor — só o job de sincronização usa. */
+export function getSltSyncState(): { sinceCursor?: string; lastPolledAt?: number } {
+  const s = rawSlt();
+  return { sinceCursor: s.sinceCursor, lastPolledAt: s.lastPolledAt };
+}
+
+export function setSltSyncState(patch: {
+  sinceCursor?: string;
+  lastSyncedAt?: number;
+  lastPolledAt?: number;
+  lastSyncError?: string | null;
+}): void {
+  const s = rawSlt();
+  if (patch.sinceCursor !== undefined) s.sinceCursor = patch.sinceCursor;
+  if (patch.lastSyncedAt !== undefined) s.lastSyncedAt = patch.lastSyncedAt;
+  if (patch.lastPolledAt !== undefined) s.lastPolledAt = patch.lastPolledAt;
+  if (patch.lastSyncError !== undefined) s.lastSyncError = patch.lastSyncError || undefined;
+  setJson("slt", s);
+}
+
 // ---- Telegram por conta real (chip) ----
 // O chip roda DENTRO do painel, então não há endereço nem segredo de serviço
 // para configurar. O que sobra é a única coisa que o Telegram exige e ninguém

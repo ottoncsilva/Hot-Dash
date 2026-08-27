@@ -80,7 +80,17 @@ type Metricas = {
   startToPaid: number | null;
 };
 type Linha = Metricas & { profileId: string | null; profileName: string; botActive: boolean | null };
-type Fonte = { code: string; starts: number; pixGenerated: number; pixPaid: number; paidCents: number };
+type Fonte = {
+  code: string;
+  starts: number;
+  pixGenerated: number;
+  pixPaid: number;
+  paidCents: number;
+  /** Do SLT (link na bio) — só existe quando o código bate com o slug de
+   *  uma página lá. Ver Configurações → Pagamentos → SLT. */
+  views?: number;
+  clicks?: number;
+};
 /** Tempo entre o primeiro /start e o pagamento. `base` são as PRIMEIRAS
  *  compras (renovação mediria meses de relacionamento, não decisão de compra);
  *  `semStart` são as pagas que vieram por fora do bot e não dá para
@@ -372,6 +382,8 @@ export default function FunilPage() {
           <thead>
             <tr className="border-b border-white/[0.06] font-mono text-[10px] uppercase tracking-wider text-zinc-500">
               <th className="p-3">Código</th>
+              <th className="p-3 text-right">Views</th>
+              <th className="p-3 text-right">Cliques</th>
               <th className="p-3 text-right">Starts</th>
               <th className="p-3 text-right">PIX</th>
               <th className="p-3 text-right">Pagos</th>
@@ -381,9 +393,9 @@ export default function FunilPage() {
           </thead>
           <tbody className="divide-y divide-white/[0.04]">
             {!data ? (
-              <tr><td colSpan={6} className="p-6 text-center text-xs text-zinc-600">Carregando...</td></tr>
+              <tr><td colSpan={8} className="p-6 text-center text-xs text-zinc-600">Carregando...</td></tr>
             ) : data.fontes.length === 0 ? (
-              <tr><td colSpan={6} className="p-6 text-center text-xs text-zinc-600">Sem tráfego no período.</td></tr>
+              <tr><td colSpan={8} className="p-6 text-center text-xs text-zinc-600">Sem tráfego no período.</td></tr>
             ) : (
               data.fontes.map((f) => (
                 <tr key={f.code || "(sem)"} className="hover:bg-white/[0.04]">
@@ -393,6 +405,12 @@ export default function FunilPage() {
                     ) : (
                       <span className="font-mono text-xs text-zinc-500">(sem código)</span>
                     )}
+                  </td>
+                  <td className="p-3 text-right font-mono text-zinc-500">
+                    {f.views !== undefined ? f.views : "—"}
+                  </td>
+                  <td className="p-3 text-right font-mono text-zinc-500">
+                    {f.clicks !== undefined ? f.clicks : "—"}
                   </td>
                   <td className="p-3 text-right font-mono text-zinc-400">{f.starts}</td>
                   <td className="p-3 text-right font-mono text-zinc-400">{f.pixGenerated}</td>
@@ -409,6 +427,10 @@ export default function FunilPage() {
           </tbody>
         </table>
       </div>
+      <p className="mt-1.5 text-[11px] text-zinc-600">
+        Views/Cliques vêm do SLT (link na bio) — só aparecem quando o código é igual ao slug da página
+        lá. Veja a lista completa em <Link href="/dashboard/links" className="underline">Links</Link>.
+      </p>
 
       {/* Planos */}
       <p className="eyebrow mt-8">planos que mais convertem</p>

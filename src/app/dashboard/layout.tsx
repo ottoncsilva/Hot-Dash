@@ -33,6 +33,7 @@ import {
   IconSearch,
   IconFunnel,
   IconFire,
+  IconLink,
 } from "@/components/icons";
 import NavGroup, { type NavSubItem } from "@/components/NavGroup";
 import CommandPalette from "@/components/CommandPalette";
@@ -54,6 +55,7 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   motion: IconFilm,
   payments: IconPayments,
   funil: IconFunnel,
+  links: IconLink,
   telegram: IconTelegram,
   geracao: IconSparkle,
   ltv: IconFire,

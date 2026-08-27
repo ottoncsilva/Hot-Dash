@@ -66,6 +66,16 @@ export default function PaymentSettingsPage() {
   const [impBusy, setImpBusy] = useState(false);
   const [impFile, setImpFile] = useState<File | null>(null);
   const [impMsg, setImpMsg] = useState<string | null>(null);
+  // SLT (link na bio) — chave única pra conta inteira (não é por modelo).
+  const [sltState, setSltState] = useState<{
+    hasApiKey: boolean;
+    lastSyncedAt?: number;
+    lastSyncError?: string;
+  } | null>(null);
+  const [sltApiKey, setSltApiKey] = useState("");
+  const [sltSaving, setSltSaving] = useState(false);
+  const [sltSyncing, setSltSyncing] = useState(false);
+  const [sltMsg, setSltMsg] = useState<string | null>(null);
 
   function loadDiagnostics() {
     apiGet<{ settings: PaymentSettingsPublic; lastPaid: LastPaid }>("/api/payments/settings")
@@ -79,9 +89,16 @@ export default function PaymentSettingsPage() {
       .catch(() => {});
   }
 
+  function loadSlt() {
+    apiGet<{ settings: typeof sltState }>("/api/settings/slt")
+      .then((d) => setSltState(d.settings))
+      .catch(() => {});
+  }
+
   useEffect(() => {
     if (typeof window !== "undefined") setOrigin(window.location.origin);
     loadDiagnostics();
+    loadSlt();
     apiGet<{ finance: { monthlyGoalCents: number } }>("/api/payments/finance-settings")
       .then((d) => {
         const cents = d.finance?.monthlyGoalCents || 0;
@@ -89,6 +106,57 @@ export default function PaymentSettingsPage() {
       })
       .catch(() => {});
   }, []);
+
+  async function salvarChaveSlt() {
+    setSltSaving(true);
+    setSltMsg(null);
+    try {
+      await apiSend("/api/settings/slt", "PATCH", { apiKey: sltApiKey });
+      setSltApiKey("");
+      setSltMsg("Chave salva e validada.");
+      loadSlt();
+    } catch (e) {
+      setSltMsg(e instanceof Error ? e.message : "Falha ao salvar.");
+    } finally {
+      setSltSaving(false);
+    }
+  }
+
+  async function desconectarSlt() {
+    setSltSaving(true);
+    setSltMsg(null);
+    try {
+      await apiSend("/api/settings/slt", "PATCH", { apiKey: "" });
+      setSltMsg("Chave removida.");
+      loadSlt();
+    } catch (e) {
+      setSltMsg(e instanceof Error ? e.message : "Falha ao remover.");
+    } finally {
+      setSltSaving(false);
+    }
+  }
+
+  async function sincronizarSltAgora() {
+    setSltSyncing(true);
+    setSltMsg(null);
+    try {
+      const d = await apiSend<{ ok: boolean; synced: number; error?: string }>(
+        "/api/settings/slt",
+        "POST",
+        {},
+      );
+      setSltMsg(
+        d.ok
+          ? `Sincronizado: ${d.synced} evento(s) novo(s).`
+          : `Falha na sincronização: ${d.error || "erro desconhecido"}`,
+      );
+      loadSlt();
+    } catch (e) {
+      setSltMsg(e instanceof Error ? e.message : "Falha ao sincronizar.");
+    } finally {
+      setSltSyncing(false);
+    }
+  }
 
   async function salvarMeta() {
     setSalvandoMeta(true);
@@ -750,6 +818,82 @@ export default function PaymentSettingsPage() {
           provider="stripe"
           descricao='O que a Stripe mandou e o que o sistema fez com cada evento — "relevante" é o que já vira venda/atualização no Financeiro hoje (checkout.session.completed). Marcou mais eventos lá na Stripe? Eles aparecem aqui em "Todos", pra saber quais ainda vale a pena tratar.'
         />
+      </div>
+
+      {/* SLT (slt.bio, link na bio) — só leitura, uma chave pra conta
+          inteira (não é por modelo). Sincroniza sozinho a cada ~15 min (ver
+          instrumentation.ts); o botão aqui é só pra não esperar o próximo
+          tick depois de configurar. */}
+      <div className="mt-4 card p-4">
+        <div className="flex items-center justify-between">
+          <span className="font-medium text-white">SLT (link na bio)</span>
+          {sltState?.hasApiKey && (
+            <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+              conectado
+            </span>
+          )}
+        </div>
+        <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+          Traz visualização e clique de cada página do SLT pro Funil de Vendas e pra tela de Links —
+          casado pelo código do link (<code>?start=CODIGO</code> igual ao slug da página no SLT).
+        </p>
+
+        <div className="mt-3">
+          <KeyLabel salva={Boolean(sltState?.hasApiKey)}>API Key</KeyLabel>
+        </div>
+        <input
+          className="input font-mono"
+          type="password"
+          placeholder={sltState?.hasApiKey ? "•••••••• (em branco = manter)" : "slt_live_..."}
+          value={sltApiKey}
+          onChange={(e) => setSltApiKey(e.target.value)}
+        />
+        <p className="mt-1 text-[11px] text-zinc-500">
+          Gerada em slt.bio → Dashboard → Settings → API Keys (planos Pro/Agency).
+        </p>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={salvarChaveSlt}
+            disabled={sltSaving || !sltApiKey.trim()}
+            className="btn-primary px-3 py-1.5 text-xs"
+          >
+            {sltSaving ? "Salvando..." : "Salvar chave"}
+          </button>
+          {sltState?.hasApiKey && (
+            <>
+              <button
+                type="button"
+                onClick={sincronizarSltAgora}
+                disabled={sltSyncing}
+                className="btn-ghost px-3 py-1.5 text-xs"
+              >
+                {sltSyncing ? "Sincronizando..." : "Sincronizar agora"}
+              </button>
+              <button
+                type="button"
+                onClick={desconectarSlt}
+                disabled={sltSaving}
+                className="btn-ghost px-3 py-1.5 text-xs text-red-400"
+              >
+                Remover chave
+              </button>
+            </>
+          )}
+        </div>
+
+        {sltState?.hasApiKey && (
+          <p className="mt-2 text-[11px] text-zinc-500">
+            {sltState.lastSyncedAt
+              ? `Última sincronização com evento novo: ${new Date(sltState.lastSyncedAt).toLocaleString("pt-BR")}.`
+              : "Ainda sem eventos sincronizados — o tick de fundo roda a cada minuto e checa a cada ~15min."}
+            {sltState.lastSyncError && (
+              <span className="mt-1 block text-amber-400">Último erro: {sltState.lastSyncError}</span>
+            )}
+          </p>
+        )}
+        {sltMsg && <p className="mt-2 text-xs text-zinc-300">{sltMsg}</p>}
       </div>
 
       <div className="mt-3 flex items-center gap-3">

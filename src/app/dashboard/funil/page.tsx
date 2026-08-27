@@ -498,11 +498,13 @@ const FUNIL_COR = "#34d399";
  * propósito — por isso o número absoluto vai escrito na legenda de cada
  * transição, e é ele que manda.
  *
- * O número de cada etapa fica GRUDADO na própria cintura — não numa coluna
- * fixa: a posição é calculada a partir da largura REAL daquela cintura
- * (`cx - halfWidths[i] - vão`), então o rótulo sempre encosta perto da
- * curva, sem invadi-la e sem sobrar longe dela numa etapa fina. Um fundo
- * (chip) atrás do texto garante leitura mesmo quando a cintura é larga.
+ * O número de cada etapa mora numa coluna FIXA à esquerda — uma embaixo da
+ * outra, alinhada em linha reta (mesmo padrão da coluna de conversão à
+ * direita, do outro lado do gráfico) — separada do desenho por uma linha
+ * vertical, e cada uma casada com uma linha horizontal sutil que atravessa
+ * o gráfico na altura exata daquela etapa (`centerYs[i]`, o mesmo ponto que
+ * o caminho SVG usa como cintura). Nada de posição "encostada na curva":
+ * é grade (linha × coluna), não colagem.
  */
 function FunilVisual({ m }: { m?: Metricas }) {
   if (!m) return <div className="h-80 w-full animate-pulse rounded-lg bg-white/5 lg:w-[420px]" />;
@@ -518,11 +520,14 @@ function FunilVisual({ m }: { m?: Metricas }) {
   const N = valores.length;
 
   // Coordenadas em unidades "percentuais" (W/H = 100): 1 unidade = 1% do
-  // contêiner — desenho e rótulos escalam juntos em qualquer tamanho.
+  // contêiner — desenho, coluna de números e linhas-guia escalam juntos em
+  // qualquer tamanho. A coluna da esquerda (rótulos) vai de 0 a `divisor`;
+  // o desenho ocupa o resto, à direita da linha divisória.
   const W = 100;
   const H = 100;
-  const cx = 50; // centro da forma — ela ocupa o contêiner inteiro agora (a legenda de conversão mora FORA, ao lado)
-  const maxHalf = 30;
+  const divisor = 24;
+  const cx = 64; // centro da forma, DENTRO da área à direita do divisor
+  const maxHalf = 32;
   const topPad = 8;
   const bottomPad = 8;
   const halfWidths = valores.map((v) => maxHalf * Math.min(1, Math.max(0.035, v / base)));
@@ -561,6 +566,39 @@ function FunilVisual({ m }: { m?: Metricas }) {
       className="relative mx-auto w-full max-w-[420px] lg:mx-0 lg:w-[420px] lg:shrink-0"
       style={{ aspectRatio: `${larguraRef} / ${alturaRef}` }}
     >
+      {/* Linhas-guia horizontais — uma por etapa, atravessando a coluna de
+          números E o desenho, na mesma altura exata da cintura daquela
+          etapa. É a grade que amarra rótulo e curva; sem elas, alinhado só
+          "por perto" não convence ninguém. */}
+      {centerYs.map((y, i) => (
+        <div
+          key={`linha-${rotulos[i]}`}
+          className="absolute inset-x-0 h-px bg-white/[0.06]"
+          style={{ top: `${(y / H) * 100}%` }}
+        />
+      ))}
+
+      {/* Linha vertical separando a coluna de números do desenho — o par da
+          que já existe do lado direito, entre o funil e a lista de
+          conversão. */}
+      <div className="absolute inset-y-0 border-l border-white/10" style={{ left: `${divisor}%` }} />
+
+      {/* Coluna de números: uma linha reta só, cada etapa na MESMA posição
+          horizontal (não colada na largura da curva) — é a "linha vertical
+          igual a da direita" que estava faltando. */}
+      {valores.map((v, i) => (
+        <div
+          key={rotulos[i]}
+          className="absolute -translate-y-1/2 text-right"
+          style={{ top: `${(centerYs[i] / H) * 100}%`, left: 0, width: `${divisor - 3}%` }}
+        >
+          <p className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">{rotulos[i]}</p>
+          <p className={`font-display text-lg font-semibold leading-tight ${i === N - 1 ? "text-emerald-400" : "text-white"}`}>
+            {v}
+          </p>
+        </div>
+      ))}
+
       <svg
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
@@ -572,24 +610,6 @@ function FunilVisual({ m }: { m?: Metricas }) {
             próprio traçado do path, nítida por definição. */}
         <path d={d} fill={FUNIL_COR} />
       </svg>
-
-      {valores.map((v, i) => (
-        <div
-          key={rotulos[i]}
-          className="absolute -translate-y-1/2 -translate-x-full text-right"
-          style={{
-            top: `${(centerYs[i] / H) * 100}%`,
-            left: `${((cx - halfWidths[i] - 3) / W) * 100}%`,
-          }}
-        >
-          <div className="rounded-md bg-ink-900/70 px-1.5 py-0.5">
-            <p className="font-mono text-[9px] uppercase tracking-wider text-zinc-400">{rotulos[i]}</p>
-            <p className={`font-display text-lg font-semibold leading-tight ${i === N - 1 ? "text-emerald-400" : "text-white"}`}>
-              {v}
-            </p>
-          </div>
-        </div>
-      ))}
     </div>
   );
 }

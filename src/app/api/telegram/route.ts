@@ -13,6 +13,7 @@ import {
   saveCustomButton,
   deleteCustomButton,
   listSubscriptions,
+  countActiveSubscriptions,
   getSubscription,
   saveSubscription,
   toApprovalMode,
@@ -231,6 +232,11 @@ export async function GET(req: NextRequest) {
     const subscriptions = bot ? listSubscriptions(bot.id) : [];
     // Métricas de venda do modelo (reaproveita o painel financeiro).
     const metrics = overview(profileId);
+    // Assinantes ativos AGORA — junto com metrics.today.paidCount, são os
+    // 2 números que decidem se a prova social do bot de verdade dispara ou
+    // fica calada hoje (ver webhook). A prévia usa os dois para não mentir
+    // sobre quando a mensagem realmente sai.
+    const activeSubscriptions = bot ? countActiveSubscriptions(bot.id) : 0;
 
     return NextResponse.json({
       bot,
@@ -240,6 +246,7 @@ export async function GET(req: NextRequest) {
       customButtons,
       subscriptions,
       metrics,
+      activeSubscriptions,
       pixDefaults: PIX_DEFAULTS,
       checkoutDefaults: CHECKOUT_DEFAULTS,
       // Passos-modelo do Alerta de Renovação, para o botão "Puxar padrão" —

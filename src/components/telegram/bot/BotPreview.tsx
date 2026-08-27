@@ -157,6 +157,14 @@ const CHECKOUT_PADRAO_PREVIEW = {
   checkButton: "Verificar status",
 };
 
+/** Espelha `ORIGIN_GATE_DEFAULT` do webhook — mesmo motivo dos dois acima
+ *  (evitar puxar módulo server-only para o navegador). */
+const ORIGIN_GATE_PADRAO_PREVIEW = {
+  message: "🌎 Choose your language · Escolha o idioma\n\nWhere are you talking to me from? / De onde você fala comigo?",
+  btnBr: "🇧🇷 Brasil (Português)",
+  btnIntl: "🌐 International (English)",
+};
+
 /** Código de exemplo — só para o preview ter algo para substituir {pix_code}. */
 const PIX_CODIGO_EXEMPLO = "00020126580014BR.GOV.BCB.PIX...(código de exemplo)...6304EXPL";
 
@@ -180,6 +188,8 @@ export function FunnelPreview({
   pixCaption,
   pixSocialProof,
   pixSocialProofText,
+  vendasHojeReal,
+  assinantesAtivosReal,
   pixButtons,
   pixAudioUrl,
   effectPix,
@@ -187,6 +197,9 @@ export function FunnelPreview({
   successButtons,
   effectSuccess,
   intlAskFirst,
+  originGateMessage,
+  originGateBtnBr,
+  originGateBtnIntl,
   welcomeMessageIntl,
   welcomeButtonsIntl,
   pixSocialProofTextIntl,
@@ -221,6 +234,14 @@ export function FunnelPreview({
   pixCaption: string;
   pixSocialProof: boolean;
   pixSocialProofText: string;
+  /** Números REAIS de hoje desta modelo (vendas pagas hoje / assinantes
+   *  ativos agora) — os mesmos 2 que o bot de verdade confere antes de
+   *  mandar a prova social (`hoje > 0 || assinantes > 0`, ver webhook).
+   *  Sem eles a prévia sempre mostrava a linha com números de exemplo,
+   *  mesmo nos dias em que o bot de verdade fica calado — não eram 100%
+   *  realistas. Ausentes/undefined = ainda carregando, trata como 0. */
+  vendasHojeReal?: number;
+  assinantesAtivosReal?: number;
   pixButtons: Btn[];
   pixAudioUrl?: string;
   effectPix?: string;
@@ -234,6 +255,13 @@ export function FunnelPreview({
    *  from Brazil?" (quando existe em `buttons`) — mesmas duas portas do
    *  bot de verdade, nenhum seletor de fora precisa decidir por ele. */
   intlAskFirst?: boolean;
+  /** Mensagem e texto dos 2 botões da pergunta — o que a pessoa está
+   *  digitando em Configurações internacionais, ANTES de salvar (mesmo
+   *  motivo de tudo aqui). Vazio cai no mesmo texto padrão do bot de
+   *  verdade (ver `ORIGIN_GATE_DEFAULT` no webhook). */
+  originGateMessage?: string;
+  originGateBtnBr?: string;
+  originGateBtnIntl?: string;
   /** Mesmo trio welcome/botões/plano acima, só que do ramo internacional —
    *  só existem quando há plano elegível em USD (ver `temPlanoUsd` em
    *  `page.tsx`); a navegação clicável troca de um pro outro sozinha
@@ -346,11 +374,16 @@ export function FunnelPreview({
     pixCaption,
     pixSocialProof,
     pixSocialProofTextoAtivo,
+    vendasHojeReal,
+    assinantesAtivosReal,
     JSON.stringify(pixButtons.map((b) => b.text)),
     Boolean(pixAudioUrl),
     successMessageAtivo,
     JSON.stringify(successButtonsAtivos.map((b) => b.text)),
     Boolean(intlAskFirst),
+    originGateMessage,
+    originGateBtnBr,
+    originGateBtnIntl,
     JSON.stringify((cardBrButtons || []).map((b) => b.text)),
     checkoutGerandoIntl,
     checkoutPayTextoIntl,
@@ -399,13 +432,18 @@ export function FunnelPreview({
       ? legenda.replace(/{pix_code}/gi, PIX_CODIGO_EXEMPLO)
       : `${legenda}\n\n${PIX_CODIGO_EXEMPLO}`;
   }
-  // Números de EXEMPLO (3 vendas hoje, 128 assinantes) — só pra ilustrar
-  // como a linha fica; o bot de verdade usa os números reais desta modelo.
-  const provaSocialLinha = pixSocialProof
-    ? (pixSocialProofTextoAtivo.trim() || PIX_PADRAO_PREVIEW.socialProofText)
-        .replace(/{vendas_hoje}/gi, "3")
-        .replace(/{assinantes}/gi, "128")
-    : "";
+  // Números REAIS desta modelo hoje — mesma dupla que o bot de verdade
+  // confere antes de mandar a prova social. Mesmo gate aqui: se os dois
+  // estiverem zerados, a prévia também fica calada, em vez de fingir com
+  // números de exemplo que o bot nunca mandaria hoje.
+  const vendasHoje = vendasHojeReal || 0;
+  const assinantesAtivos = assinantesAtivosReal || 0;
+  const provaSocialLinha =
+    pixSocialProof && (vendasHoje > 0 || assinantesAtivos > 0)
+      ? (pixSocialProofTextoAtivo.trim() || PIX_PADRAO_PREVIEW.socialProofText)
+          .replace(/{vendas_hoje}/gi, String(vendasHoje))
+          .replace(/{assinantes}/gi, String(assinantesAtivos))
+      : "";
 
   // "Verificar Status" confirma no SEGUNDO toque — mesma sensação de "toquei
   // de novo depois de pagar de verdade" que o lead teria, sem precisar de um
@@ -458,16 +496,16 @@ export function FunnelPreview({
           <>
             <PreviewBalao
               mediaIds={[]}
-              text="🌎 Brasil ou fora do Brasil? / From Brazil or international?"
+              text={originGateMessage?.trim() || ORIGIN_GATE_PADRAO_PREVIEW.message}
               buttons={[
                 {
-                  text: "🇧🇷 Brasil",
+                  text: originGateBtnBr?.trim() || ORIGIN_GATE_PADRAO_PREVIEW.btnBr,
                   kind: "custom",
                   style: originGateStyle,
                   onClick: origemEscolhida ? undefined : () => escolherOrigem("br"),
                 },
                 {
-                  text: "🌎 International",
+                  text: originGateBtnIntl?.trim() || ORIGIN_GATE_PADRAO_PREVIEW.btnIntl,
                   kind: "custom",
                   style: originGateStyle,
                   onClick: origemEscolhida ? undefined : () => escolherOrigem("intl"),
@@ -478,7 +516,13 @@ export function FunnelPreview({
               onCortado={marcarCorte}
             />
             {origemEscolhida && (
-              <Momento label={`Lead toca em "${origemEscolhida === "intl" ? "🌎 International" : "🇧🇷 Brasil"}"`} />
+              <Momento
+                label={`Lead toca em "${
+                  origemEscolhida === "intl"
+                    ? originGateBtnIntl?.trim() || ORIGIN_GATE_PADRAO_PREVIEW.btnIntl
+                    : originGateBtnBr?.trim() || ORIGIN_GATE_PADRAO_PREVIEW.btnBr
+                }"`}
+              />
             )}
           </>
         )}

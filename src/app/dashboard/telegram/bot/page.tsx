@@ -280,6 +280,12 @@ export default function BotVendasPage() {
   // clique antes de salvar.
   const [intlOn, setIntlOn] = useState(true);
   const [askFirstOn, setAskFirstOn] = useState(false);
+  // Mensagem e botões da pergunta Brasil/International — mesmo motivo dos 3
+  // interruptores acima: o preview precisa mostrar exatamente o que a
+  // pessoa está digitando, não o texto padrão fixo.
+  const [gateMsg, setGateMsg] = useState("");
+  const [gateBtnBr, setGateBtnBr] = useState("");
+  const [gateBtnIntl, setGateBtnIntl] = useState("");
   const [cardBrOn, setCardBrOn] = useState(false);
   const [welcomeEs, setWelcomeEs] = useState("");
   // Efeitos de mensagem — editados aqui porque o preview precisa acompanhar.
@@ -300,6 +306,12 @@ export default function BotVendasPage() {
   const [pixBtnQr, setPixBtnQr] = useState("");
   const [pixBtnCopy, setPixBtnCopy] = useState("");
   const [pixAudio, setPixAudio] = useState("");
+  // Números REAIS de hoje desta modelo — os mesmos 2 que o bot de verdade
+  // confere antes de mandar a prova social (webhook: `hoje > 0 || assinantes
+  // > 0`). O preview usa os dois pra só mostrar a linha quando o bot de
+  // verdade também mostraria, em vez de fingir com números de exemplo.
+  const [vendasHojeReal, setVendasHojeReal] = useState(0);
+  const [assinantesAtivosReal, setAssinantesAtivosReal] = useState(0);
   // Resposta de "ainda não pago" — lifted pra navegação clicável do preview
   // conseguir mostrar ela quando o lead simulado toca em "Verificar Status"
   // antes do "pagamento" (que no preview é sempre simulado).
@@ -354,8 +366,12 @@ export default function BotVendasPage() {
         checkoutDefaults: CheckoutDefaults;
         renewalDefaults: FunnelStep[];
         buttonRoles: ButtonRoleInfo[];
+        metrics?: { today?: { paidCount?: number } };
+        activeSubscriptions?: number;
       }>(`/api/telegram?profileId=${profileId}`);
       setBot(d.bot);
+      setVendasHojeReal(d.metrics?.today?.paidCount || 0);
+      setAssinantesAtivosReal(d.activeSubscriptions || 0);
       setPlans(d.plans || []);
       setButtons(d.customButtons || []);
       setSubs(d.subscriptions || []);
@@ -369,6 +385,9 @@ export default function BotVendasPage() {
       setWelcomeEs(d.bot?.welcomeMessageEs || "");
       setIntlOn(d.bot?.intlEnabled !== false);
       setAskFirstOn(Boolean(d.bot?.intlAskFirst));
+      setGateMsg(d.bot?.originGateMessage || "");
+      setGateBtnBr(d.bot?.originGateBtnBr || "");
+      setGateBtnIntl(d.bot?.originGateBtnIntl || "");
       setCardBrOn(Boolean(d.bot?.acceptCardBr));
       setEfeitoWelcome(d.bot?.effectWelcome || "");
       setEfeitoPix(d.bot?.effectPix || "");
@@ -623,6 +642,12 @@ export default function BotVendasPage() {
                     setIntlOn={setIntlOn}
                     askFirstOn={askFirstOn}
                     setAskFirstOn={setAskFirstOn}
+                    gateMsg={gateMsg}
+                    setGateMsg={setGateMsg}
+                    gateBtnBr={gateBtnBr}
+                    setGateBtnBr={setGateBtnBr}
+                    gateBtnIntl={gateBtnIntl}
+                    setGateBtnIntl={setGateBtnIntl}
                     cardBrOn={cardBrOn}
                     setCardBrOn={setCardBrOn}
                     onSaved={load}
@@ -810,6 +835,8 @@ export default function BotVendasPage() {
                   pixCaption={pixLegenda}
                   pixSocialProof={pixProva}
                   pixSocialProofText={pixProvaTexto}
+                  vendasHojeReal={vendasHojeReal}
+                  assinantesAtivosReal={assinantesAtivosReal}
                   pixButtons={pixButtons}
                   pixAudioUrl={pixAudio}
                   effectPix={efeitoPix}
@@ -817,6 +844,9 @@ export default function BotVendasPage() {
                   successButtons={successButtons}
                   effectSuccess={efeitoSuccess}
                   intlAskFirst={askFirstOn && temPlanoUsd}
+                  originGateMessage={gateMsg}
+                  originGateBtnBr={gateBtnBr}
+                  originGateBtnIntl={gateBtnIntl}
                   welcomeMessageIntl={temPlanoUsd ? welcomeIntlEfetivo : undefined}
                   welcomeButtonsIntl={temPlanoUsd ? previewButtonsUsd : undefined}
                   pixSocialProofTextIntl={temPlanoUsd ? provaSocialIntlEfetivo : undefined}
@@ -1427,31 +1457,38 @@ function IntlConfigCard({
   setIntlOn,
   askFirstOn,
   setAskFirstOn,
+  gateMsg,
+  setGateMsg,
+  gateBtnBr,
+  setGateBtnBr,
+  gateBtnIntl,
+  setGateBtnIntl,
   cardBrOn,
   setCardBrOn,
   onSaved,
 }: {
   profileId: string;
   bot: Bot;
-  // Os 3 interruptores vivem no componente PAI (não aqui dentro) pelo mesmo
-  // motivo da boas-vindas: o preview ao vivo é irmão deste formulário, não
-  // filho, e precisa acompanhar o clique ANTES de salvar.
+  // Os 3 interruptores (e agora a mensagem/botões da pergunta) vivem no
+  // componente PAI (não aqui dentro) pelo mesmo motivo da boas-vindas: o
+  // preview ao vivo é irmão deste formulário, não filho, e precisa
+  // acompanhar a digitação ANTES de salvar.
   intlOn: boolean;
   setIntlOn: (v: boolean) => void;
   askFirstOn: boolean;
   setAskFirstOn: (v: boolean) => void;
+  gateMsg: string;
+  setGateMsg: (v: string) => void;
+  gateBtnBr: string;
+  setGateBtnBr: (v: string) => void;
+  gateBtnIntl: string;
+  setGateBtnIntl: (v: string) => void;
   cardBrOn: boolean;
   setCardBrOn: (v: boolean) => void;
   onSaved: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [busyTraduzir, setBusyTraduzir] = useState(false);
-  // Mensagem e botões da pergunta Brasil/International — locais (não
-  // precisam de preview ao vivo como boas-vindas/PIX); `bot` já chega
-  // sempre fresco da modelo certa (a tela remonta este card ao trocar).
-  const [gateMsg, setGateMsg] = useState(bot.originGateMessage || "");
-  const [gateBtnBr, setGateBtnBr] = useState(bot.originGateBtnBr || "");
-  const [gateBtnIntl, setGateBtnIntl] = useState(bot.originGateBtnIntl || "");
 
   async function save() {
     setBusy(true);
@@ -2105,7 +2142,9 @@ function PixRow({
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white">Prova social</p>
             <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-              Última mensagem do <code>/start</code>, com os números <b>reais</b> desta modelo.
+              Última mensagem do <code>/start</code>, com os números <b>reais</b> desta modelo. Só sai quando
+              já existe venda hoje ou assinante ativo — sem isso o bot fica calado (não manda "0 pessoas
+              hoje"), e o preview ao lado reflete a mesma regra com os números reais de agora.
             </p>
           </div>
           <Switch checked={prova} onChange={setProva} ariaLabel="Prova social" />

@@ -447,6 +447,36 @@ export function sltPageStats(sinceMs: number | null, untilMs: number | null = nu
     .map((r) => ({ pageSlug: r.page_slug, views: r.views, clicks: r.clicks, poplinkClicks: r.poplink_clicks }));
 }
 
+export type SltLinkClickStat = {
+  pageId: string;
+  /** Chave de casamento com o catálogo (`SltLink.url`) — cada evento de
+   *  clique já vem com a URL do link que foi clicado, gravada junto. */
+  linkUrl: string;
+  clicks: number;
+};
+
+/**
+ * Cliques por LINK dentro de cada página do SLT (não só o total da página).
+ * `slt_events` já grava `link_url` em cada `link_clicked` — não precisa de
+ * tabela nova, só agrupar pelo par página+URL. URL vazia (evento antigo,
+ * de antes da coluna existir) não casa com nenhum link do catálogo e cai
+ * fora — melhor não contar do que contar no link errado.
+ */
+export function sltLinkClicks(sinceMs: number | null, untilMs: number | null = null): SltLinkClickStat[] {
+  const db = getDb();
+  const { clauses, params } = range(sinceMs, untilMs);
+  const where = ["event_type = 'link_clicked'", "page_id IS NOT NULL", "link_url IS NOT NULL", "link_url != ''", ...clauses];
+  const rows = db
+    .prepare(
+      `SELECT page_id, link_url, COUNT(*) c
+       FROM slt_events
+       WHERE ${where.join(" AND ")}
+       GROUP BY page_id, link_url`,
+    )
+    .all(...params) as { page_id: string; link_url: string; c: number }[];
+  return rows.map((r) => ({ pageId: r.page_id, linkUrl: r.link_url, clicks: r.c }));
+}
+
 export type ProfileRevenue = {
   profileId: string;
   profileName: string;

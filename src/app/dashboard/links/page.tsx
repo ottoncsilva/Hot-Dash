@@ -9,7 +9,7 @@ import type { SltNetwork } from "@/lib/sltNetworks";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import { DEFAULT_PERIOD, type PeriodKey } from "@/lib/periods";
 
-type LinkRow = { id: string; label: string; url: string; platform: string };
+type LinkRow = { id: string; label: string; url: string; platform: string; clicks: number };
 type PageRow = {
   pageId: string;
   slug: string;
@@ -244,6 +244,9 @@ function PaginaCard({
                 {l.platform}
               </span>
               <span className="min-w-0 flex-1 truncate text-zinc-300">{l.label}</span>
+              <span className="shrink-0 font-mono text-[11px] text-zinc-500">
+                {l.clicks} {l.clicks === 1 ? "clique" : "cliques"}
+              </span>
               <span className="min-w-0 max-w-[40%] truncate font-mono text-[11px] text-zinc-600">
                 {l.url}
               </span>

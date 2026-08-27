@@ -3,7 +3,7 @@ import { errorResponse, requireUser, ApiError } from "@/lib/apiAuth";
 import { getDb } from "@/lib/db";
 import { listProfiles } from "@/lib/profiles";
 import { fetchSltCatalogue } from "@/lib/sltSync";
-import { sltPageStats } from "@/lib/salesFunnel";
+import { sltPageStats, sltLinkClicks } from "@/lib/salesFunnel";
 import { isValidSltNetworkKey, listSltNetworks } from "@/lib/sltNetworksStore";
 import { getAppTimeZone } from "@/lib/settings";
 import { resolvePeriod } from "@/lib/periodRange";
@@ -41,6 +41,9 @@ export async function GET(req: NextRequest) {
 
     const profiles = await listProfiles();
     const stats = new Map(sltPageStats(range.since, range.until).map((s) => [s.pageSlug, s]));
+    // Cliques por LINK (não só por página) — chave página+URL, mesmo par
+    // que casa com o catálogo abaixo.
+    const cliquesPorLink = new Map(sltLinkClicks(range.since, range.until).map((s) => [`${s.pageId}|${s.linkUrl}`, s.clicks]));
     const mapa = getDb()
       .prepare("SELECT page_id, profile_id, traffic_source FROM slt_page_profiles")
       .all() as { page_id: string; profile_id: string | null; traffic_source: string | null }[];
@@ -69,6 +72,7 @@ export async function GET(req: NextRequest) {
           label: l.label,
           url: l.url,
           platform: l.platform,
+          clicks: cliquesPorLink.get(`${p.id}|${l.url}`) || 0,
         })),
         views: s?.views || 0,
         clicks: s?.clicks || 0,

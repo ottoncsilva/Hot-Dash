@@ -34,6 +34,8 @@ export default function PaymentSettingsPage() {
     pendingCents: number | null;
     connected: boolean;
     error?: string;
+    // BRL do "cartão no Brasil", quando existe.
+    secondary?: { currency: string; availableCents: number; pendingCents?: number } | null;
   } | null>(null);
   const [stripeBalanceBusy, setStripeBalanceBusy] = useState(false);
   // Teste manual de cobrança: gera um link de checkout de verdade (com um
@@ -206,6 +208,7 @@ export default function PaymentSettingsPage() {
         availableCents: number | null;
         pendingCents: number | null;
         error?: string;
+        secondary?: { currency: string; availableCents: number; pendingCents?: number } | null;
       }>("/api/payments/stripe/balance");
       setStripeBalance(d);
     } catch (e) {
@@ -626,7 +629,7 @@ export default function PaymentSettingsPage() {
               <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
                 Saldo na Stripe
               </p>
-              <p className="mt-0.5 text-xs text-zinc-500">Disponível e a caminho, em USD.</p>
+              <p className="mt-0.5 text-xs text-zinc-500">Disponível e a caminho.</p>
             </div>
             <button
               type="button"
@@ -638,24 +641,40 @@ export default function PaymentSettingsPage() {
             </button>
           </div>
           {stripeBalance && (
-            <div className="mt-2 text-xs">
+            <div className="mt-2 space-y-0.5 text-xs">
               {!stripeBalance.connected ? (
                 <p className="text-amber-400/80">
                   {stripeBalance.error || "Não foi possível consultar — confira a Secret Key acima."}
                 </p>
               ) : (
-                <p className="text-zinc-300">
-                  Disponível:{" "}
-                  <span className="text-emerald-400">
-                    {stripeBalance.availableCents !== null ? usd(stripeBalance.availableCents) : "—"}
-                  </span>
-                  {stripeBalance.pendingCents !== null && stripeBalance.pendingCents > 0 && (
-                    <>
-                      {" "}
-                      · A caminho: <span className="text-zinc-400">{usd(stripeBalance.pendingCents)}</span>
-                    </>
+                <>
+                  <p className="text-zinc-300">
+                    USD:{" "}
+                    <span className="text-emerald-400">
+                      {stripeBalance.availableCents !== null ? usd(stripeBalance.availableCents) : "—"}
+                    </span>
+                    {stripeBalance.pendingCents !== null && stripeBalance.pendingCents > 0 && (
+                      <>
+                        {" "}
+                        · a caminho <span className="text-zinc-400">{usd(stripeBalance.pendingCents)}</span>
+                      </>
+                    )}
+                  </p>
+                  {/* BRL só aparece quando existe — a maioria das contas
+                      nunca cobrou em "cartão no Brasil". */}
+                  {stripeBalance.secondary && (
+                    <p className="text-zinc-300">
+                      BRL: <span className="text-emerald-400">{brl(stripeBalance.secondary.availableCents)}</span>
+                      {!!stripeBalance.secondary.pendingCents && (
+                        <>
+                          {" "}
+                          · a caminho{" "}
+                          <span className="text-zinc-400">{brl(stripeBalance.secondary.pendingCents)}</span>
+                        </>
+                      )}
+                    </p>
                   )}
-                </p>
+                </>
               )}
             </div>
           )}

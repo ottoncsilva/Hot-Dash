@@ -1198,6 +1198,11 @@ function migrate(d: Database.Database) {
   // configurado, o bot simplesmente não manda o relatório — o resto da
   // entrega (acesso do cliente) nunca depende disto.
   ensureColumn(d, "telegram_bots", "id_vendas", "TEXT");
+  // Assinatura no cartão vira renovação automática sozinha por padrão
+  // (default 1 = liga pra quem já tinha isso acontecendo sem escolher).
+  // Desligado, toda cobrança no cartão vira avulsa — mesmo plano de
+  // assinatura, o Alerta de Renovação cobra o próximo ciclo na mão.
+  ensureColumn(d, "telegram_bots", "accept_card_recurring", "INTEGER NOT NULL DEFAULT 1");
   ensurePostNetworksAccountId(d);
   ensureDefaultProfileStatuses(d);
   backfillSyncPayAmounts(d);

@@ -874,12 +874,16 @@ export async function POST(
         // ciclo, então um desconto "só desta compra" (funil de recuperação)
         // viraria desconto pra sempre se entrasse numa assinatura. Duração
         // que não mapeia num ciclo da Stripe (recurringFromDurationDays)
-        // também cai pra avulso — nenhum desses casos precisa de ação da
-        // modelo, o fallback é automático.
+        // também cai pra avulso. `acceptCardRecurring` (default ligado) é o
+        // interruptor manual: desligado, TODA cobrança no cartão vira
+        // avulsa, mesmo quando os outros critérios dariam recorrente.
         const isStripeBuy = isIntlBuy || isCardBrBuy;
         const planStripe = isStripeBuy ? getPlan(planId) : null;
         const recurring =
-          isStripeBuy && planStripe?.kind === "subscription" && discountPercent === 0
+          isStripeBuy &&
+          bot.acceptCardRecurring !== false &&
+          planStripe?.kind === "subscription" &&
+          discountPercent === 0
             ? recurringFromDurationDays(planStripe.durationDays)
             : null;
 

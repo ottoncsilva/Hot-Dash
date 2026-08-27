@@ -126,6 +126,9 @@ type Bot = {
   checkoutCheckButtonTextEn?: string;
   checkoutCheckButtonTextEs?: string;
   checkoutShowCheckButton?: boolean;
+  /** Assinatura no cartão renova sozinha por padrão — desligado, vira
+   *  sempre avulso, mesmo em plano de assinatura. */
+  acceptCardRecurring?: boolean;
 };
 /** Cores dos botões DESTA modelo (não do painel). O preview usa as mesmas. */
 type ButtonStyles = Record<string, "" | "primary" | "success" | "danger">;
@@ -542,9 +545,8 @@ export default function BotVendasPage() {
 
       {!loading && !bot && (
         <div className="card p-6 text-center text-sm text-zinc-400">
-          Este modelo ainda não tem o bot configurado. Vá em <b>Modelos → editar a modelo →
-          Bot do Telegram</b>, informe o <b>Token do Bot</b> e os <b>IDs dos grupos VIP e
-          Prévias</b> e salve. Depois volte aqui para configurar as vendas.
+          Bot ainda não configurado. Em <b>Modelos → editar → Bot do Telegram</b>, salve o{" "}
+          <b>Token</b> e os <b>IDs dos grupos VIP e Prévias</b>.
         </div>
       )}
 
@@ -1360,7 +1362,7 @@ function WelcomeRow({
       <div className="mt-6 border-t border-white/10 pt-4">
         <p className="eyebrow">tradução (leads internacionais)</p>
         <p className="mt-1 text-xs text-zinc-500">
-          Traduz sozinha quando a mensagem em português é salva. Sem tradução (IA não configurada, por exemplo), cai num texto padrão em inglês/espanhol.
+          Traduz sozinha ao salvar o texto em português. Sem IA configurada, cai no padrão.
         </p>
 
         <label className="eyebrow mt-3 block">🇬🇧 English</label>
@@ -1474,9 +1476,7 @@ function IntlConfigCard({
         <div className="min-w-0">
           <p className="text-sm font-medium text-white">🌎 Botão &quot;Not from Brazil?&quot;</p>
           <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
-            Abre o checkout internacional (cartão, via Stripe) pra quem não usa PIX. Só aparece
-            de verdade com o interruptor LIGADO <i>e</i> pelo menos um plano com preço em USD
-            cadastrado (aba Planos) — desligar aqui pausa o botão sem apagar preço nenhum.
+            Abre o checkout internacional (cartão, Stripe). Precisa de plano com preço em USD (aba Planos).
           </p>
         </div>
         <Switch checked={intlOn} onChange={setIntlOn} ariaLabel='Ativar botão "Not from Brazil?"' />
@@ -1486,11 +1486,8 @@ function IntlConfigCard({
         <div className="min-w-0">
           <p className="text-sm font-medium text-white">🌐 Modo internacional (bilíngue)</p>
           <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
-            No <code>/start</code> o lead escolhe <b>🇧🇷 Brasil</b> ou <b>🌎 International</b> ANTES de ver
-            qualquer coisa — em vez do botão &quot;Not from Brazil?&quot; no meio do funil (que continua
-            existindo se preferir deixar desligado). O gringo segue em inglês/espanhol, na sua moeda,
-            pagando no cartão. O brasileiro segue igual (PT + PIX). Requer o interruptor de cima ligado
-            e algum plano com preço em USD.
+            No <code>/start</code>, escolhe <b>🇧🇷 Brasil</b> ou <b>🌎 International</b> antes de tudo, em
+            vez do botão no meio do funil. Requer o interruptor de cima ligado.
           </p>
         </div>
         <Switch checked={askFirstOn} onChange={setAskFirstOn} ariaLabel="Ativar modo internacional bilíngue" />
@@ -1500,9 +1497,7 @@ function IntlConfigCard({
         <div className="min-w-0">
           <p className="text-sm font-medium text-white">💳 Aceitar cartão no Brasil também</p>
           <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
-            Manda um botão extra, numa mensagem em sequência depois dos planos em PIX, pro lead
-            brasileiro pagar no cartão em vez de PIX — mesmo catálogo, mesmo preço em reais, via
-            Stripe. Requer a Stripe conectada na aba Pagamentos.
+            Botão extra depois dos planos, pra pagar no cartão em vez de Pix. Requer Stripe conectada.
           </p>
         </div>
         <Switch checked={cardBrOn} onChange={setCardBrOn} ariaLabel="Aceitar cartão no Brasil também" />
@@ -1515,10 +1510,7 @@ function IntlConfigCard({
       <div className="mt-6 border-t border-white/10 pt-4">
         <p className="eyebrow">tradução automática</p>
         <p className="mt-1 text-xs text-zinc-500">
-          Boas-vindas, aprovação, botão de acesso e prova social já traduzem sozinhos (EN/ES) a
-          cada vez que o texto em português é salvo em cada aba. Nome de plano (EN) e passos dos
-          funis de recuperação (EN/ES) também. Use o botão abaixo pra forçar TUDO de novo agora,
-          de uma vez — útil depois de trocar a IA configurada, ou pra recalibrar traduções antigas.
+          Tudo traduz sozinho (EN/ES) ao salvar. O botão abaixo força retraduzir tudo de novo.
         </p>
         <button onClick={traduzirTudo} disabled={busyTraduzir} className="btn-ghost mt-3 text-xs">
           <IconSparkle size={13} /> {busyTraduzir ? "Traduzindo tudo..." : "Traduzir tudo"}
@@ -1646,13 +1638,12 @@ function SuccessRow({
         onChange={(e) => setBotao(e.target.value)}
       />
       <p className="mt-1 text-[11px] text-zinc-500">
-        O botão de acesso vai <b>sempre</b>. Vazio, ele sai com o texto padrão
-        (&quot;{"🔒 Acessar Conteúdo"}&quot;).
+        Vai sempre. Vazio, sai como &quot;{"🔒 Acessar Conteúdo"}&quot;.
       </p>
 
       {semMarcador && (
         <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-2.5 text-xs text-amber-300">
-          Sem <b>{"{link_vip}"}</b> no texto, o link do VIP entra no fim da mensagem. Escreva a variável para escolher onde ele aparece.
+          Sem <b>{"{link_vip}"}</b>, o link entra no fim da mensagem.
         </p>
       )}
 
@@ -1672,7 +1663,7 @@ function SuccessRow({
       <div className="mt-6 border-t border-white/10 pt-4">
         <p className="eyebrow">tradução (leads internacionais)</p>
         <p className="mt-1 text-xs text-zinc-500">
-          Só é usada com quem escolheu esse idioma no menu "Not from Brazil?" — sem tradução salva, esse lead recebe o texto em português acima.
+          Só pra quem escolheu esse idioma. Sem tradução, cai no texto em português.
         </p>
 
         <div className="mt-3 flex items-center justify-between gap-2">
@@ -1692,7 +1683,7 @@ function SuccessRow({
           onChange={(e) => setBotaoEn(e.target.value)}
         />
         {traducaoDesatualizada(textoEn) && (
-          <p className="mt-1 text-[11px] text-amber-400/80">Tradução pode estar desatualizada — o texto em português mudou depois dela.</p>
+          <p className="mt-1 text-[11px] text-amber-400/80">Tradução pode estar desatualizada.</p>
         )}
 
         <div className="mt-3 flex items-center justify-between gap-2">
@@ -1712,7 +1703,7 @@ function SuccessRow({
           onChange={(e) => setBotaoEs(e.target.value)}
         />
         {traducaoDesatualizada(textoEs) && (
-          <p className="mt-1 text-[11px] text-amber-400/80">Tradução pode estar desatualizada — o texto em português mudou depois dela.</p>
+          <p className="mt-1 text-[11px] text-amber-400/80">Tradução pode estar desatualizada.</p>
         )}
 
         <button onClick={salvarTraducoes} disabled={busyTraducao} className="btn-ghost mt-3 text-xs">
@@ -1819,6 +1810,9 @@ function PixRow({
   const [busy, setBusy] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const provaRef = useRef<HTMLTextAreaElement>(null);
+  // Não entra no preview (não muda nada visível na conversa), então fica
+  // local — sem precisar subir pro componente pai como os campos vizinhos.
+  const [cardRecurring, setCardRecurring] = useState(bot.acceptCardRecurring !== false);
 
   async function save() {
     setBusy(true);
@@ -1846,6 +1840,7 @@ function PixRow({
         checkoutCheckButtonTextEn: checkoutCheckEn,
         checkoutCheckButtonTextEs: checkoutCheckEs,
         checkoutShowCheckButton: checkoutShowCheck,
+        acceptCardRecurring: cardRecurring,
       });
       showToast("Tela de pagamento salva.", "success");
       onSaved();
@@ -1867,17 +1862,14 @@ function PixRow({
       }
     >
       <p className="text-xs text-zinc-500">
-        O que o lead vê entre clicar no plano e pagar — PIX e cartão são telas diferentes, cada uma no seu
-        quadro abaixo. Deixe em branco para usar o texto padrão.
+        O que o lead vê entre clicar no plano e pagar. Vazio usa o texto padrão.
       </p>
 
       {/* PIX — código copia-e-cola + QR. Nunca aparece pra quem paga no
           cartão (seção própria logo abaixo). */}
       <div className="mt-4 rounded-xl border border-white/10 bg-ink-850 p-3.5">
         <p className="text-sm font-semibold text-white">PIX</p>
-        <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-          Copia-e-cola + QR Code — o caminho de sempre pro pagamento em reais.
-        </p>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">Copia-e-cola + QR Code.</p>
 
         <div className="mt-3 flex items-center justify-between gap-2">
           <label className="eyebrow block">Aviso enquanto a cobrança é criada</label>
@@ -1916,10 +1908,6 @@ function PixRow({
         </p>
 
         <label className="eyebrow mt-4 block">Botões que acompanham o PIX</label>
-        <p className="mb-1.5 mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-          Vai como <b>texto</b>, não legenda de foto — só assim o Telegram faz &quot;toque para copiar&quot;
-          no código. O QR fica atrás do botão.
-        </p>
         <div className="grid gap-2 sm:grid-cols-3">
           <input
             className="input text-xs"
@@ -1949,8 +1937,7 @@ function PixRow({
           onChange={(e) => setAudio(e.target.value)}
         />
         <p className="mt-1 text-[11px] text-zinc-500">
-          Vai como voz <b>depois</b> do PIX. A URL precisa ser alcançável da internet; fora de OGG/OPUS o
-          Telegram entrega como arquivo comum, sem a bolha de áudio.
+          Vai como voz depois do PIX. Fora de OGG/OPUS, o Telegram entrega como arquivo comum.
         </p>
       </div>
 
@@ -1961,8 +1948,7 @@ function PixRow({
       <div className="mt-4 rounded-xl border border-white/10 bg-ink-850 p-3.5">
         <p className="text-sm font-semibold text-white">Checkout no cartão (Stripe)</p>
         <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-          Tela que aparece depois de escolher um plano em dólar, ou "pagar no cartão" no Brasil — link de
-          pagamento, não PIX.
+          Depois de escolher plano em dólar ou "pagar no cartão" no Brasil — link, não Pix.
         </p>
 
         <label className="eyebrow mt-3 block">Aviso enquanto a cobrança é criada</label>
@@ -2030,10 +2016,18 @@ function PixRow({
           </>
         )}
         <p className="mt-2 text-[11px] text-zinc-500">
-          Tradução EN/ES: em branco, é gravada sozinha ao salvar — edite por cima se quiser algo diferente
-          do automático. Cor dos dois botões: aba "Cores dos botões", papéis "Pagar no cartão" e
-          "Verificar pagamento".
+          Tradução EN/ES em branco grava sozinha ao salvar. Cor dos botões: "Cores dos botões".
         </p>
+
+        <div className="mt-3 flex items-center justify-between gap-3 border-t border-white/10 pt-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-white">Renovação automática</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+              Assinatura no cartão cobra sozinha todo ciclo (USD ou BRL). Desligado, vira sempre avulso.
+            </p>
+          </div>
+          <Switch checked={cardRecurring} onChange={setCardRecurring} ariaLabel="Renovação automática no cartão" />
+        </div>
       </div>
 
       {/* Prova social — números REAIS, e só isso. Não existe campo para
@@ -2045,8 +2039,7 @@ function PixRow({
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white">Prova social</p>
             <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-              Última mensagem do <code>/start</code> — depois dos planos, do "Not from Brazil?" e do
-              "pagar no cartão" — com os números <b>reais</b> desta modelo. Zerado, não é enviada.
+              Última mensagem do <code>/start</code>, com os números <b>reais</b> desta modelo.
             </p>
           </div>
           <Switch checked={prova} onChange={setProva} ariaLabel="Prova social" />
@@ -2115,8 +2108,7 @@ function PixRow({
         onChange={(e) => setNaoPago(e.target.value)}
       />
       <p className="mt-1 text-[11px] text-zinc-500">
-        Enviada quando o cliente toca em <b>Verificar Status</b> (PIX ou cartão) e o pagamento ainda não
-        consta. Se já constar pago, o bot reenvia o acesso.
+        Ao tocar em <b>Verificar Status</b> sem constar pago ainda. Se já pagou, o bot reenvia o acesso.
       </p>
 
       <EfeitoPicker
@@ -2207,14 +2199,8 @@ function ExtrasRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; o
         targetRef={areaRef}
         onChange={setPreviews}
       />
-      <p className="mt-1 text-[11px] text-zinc-500">
-        Só chega se o lead já tiver dado /start no bot — antes disso o Telegram proíbe a mensagem.
-      </p>
+      <p className="mt-1 text-[11px] text-zinc-500">Só chega se o lead já tiver dado /start.</p>
 
-      {/* O canal de vendas saiu da tela a pedido — não está em uso por ora. O
-          valor eventualmente já salvo continua no banco e a notificação parou
-          de ser enviada, então devolver o campo aqui é o bastante para
-          reativar. */}
       <div className="mt-4">
         <label className="eyebrow block">Suporte (@usuário ou link)</label>
         <input className="input mt-1.5" value={support} onChange={(e) => setSupport(e.target.value)} />
@@ -2400,12 +2386,6 @@ function PlansCard({
           </span>
         </div>
       </div>
-
-      <p className="text-[11px] text-zinc-500">
-        🌎 O botão &quot;Not from Brazil?&quot;, o modo internacional bilíngue e o cartão no Brasil
-        mudaram de lugar — agora ficam em <b>Configuração → Configurações internacionais</b>,
-        logo abaixo da mensagem de boas-vindas.
-      </p>
 
       <div className="space-y-2">
         {rows.map((r, i) => {
@@ -2809,7 +2789,7 @@ function FunnelCard({
       key: "geral",
       titulo: "Downsell geral",
       resumo: "Quem deu /start e ainda não comprou",
-      aviso: "Conta a partir do /start — o tempo de cada mensagem é sempre desde ali, não desde a mensagem anterior. Para de vez quando o pagamento é confirmado ou quando o lead gera um PIX (a partir daí quem cuida é o Downsell de PIX gerado, logo abaixo).",
+      aviso: "Tempo de cada mensagem conta a partir do /start (nunca da anterior). Para quando paga ou gera um PIX — daí quem cuida é o Downsell de PIX, abaixo.",
       ativo: onDownsell,
       setAtivo: setOnDownsell,
       steps: downsell,
@@ -2821,7 +2801,7 @@ function FunnelCard({
       key: "pix",
       titulo: "Downsell de PIX gerado",
       resumo: "Quem chegou a gerar o PIX e não pagou",
-      aviso: "Público diferente do geral: essa pessoa já escolheu o plano e viu a tela de pagamento — falta menos, então costuma valer outra conversa e outro desconto. Conta a partir da criação da cobrança (o tempo de cada mensagem é sempre desde ali, não desde a mensagem anterior) e para quando ela é paga.",
+      aviso: "Já escolheu o plano e viu a cobrança — vale outra conversa e outro desconto. Tempo conta a partir da cobrança gerada, para quando ela é paga.",
       ativo: onPix,
       setAtivo: setOnPix,
       steps: pixDownsell,
@@ -2992,17 +2972,15 @@ function RenewalCard({
       <div className="card p-4">
         <h2 className="font-display text-lg font-semibold">Alerta de renovação</h2>
         <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-          Avisa quem está VIP de que o acesso está para vencer, com desconto para renovar.
-          Configure da etapa <b>mais distante</b> para a <b>mais perto</b> do vencimento — por
-          exemplo 12 horas antes, depois 6 horas, depois 1 hora — e cada uma dispara sozinha na
-          hora certa.
+          Avisa quem está VIP do vencimento, com desconto pra renovar. Configure do mais distante
+          pro mais perto do vencimento (ex.: 12h, 6h, 1h antes).
         </p>
       </div>
 
       <FunilRetratil
         titulo="Alerta de renovação"
         resumo="Assinantes VIP a caminho do vencimento"
-        aviso="Conta REGRESSIVO até o vencimento da assinatura, não desde a última mensagem. Some da lista assim que a pessoa renova (a renovação nasce como uma inscrição nova, do zero) ou quando o acesso vence de vez."
+        aviso="Conta regressivo até o vencimento. Some da lista quando renova ou quando vence de vez."
         ativo={ativo}
         setAtivo={setAtivo}
         steps={steps}
@@ -3244,8 +3222,8 @@ function TempoDoPasso({
       <p className="mt-1 text-[11px] text-zinc-500">
         {modo === "horario"
           ? dailyTimeNextDay
-            ? `Envia a partir de AMANHÃ às ${dailyTime || "12:00"}, e depois todo dia nesse horário, até a pessoa sair do funil.`
-            : `Envia TODO DIA às ${dailyTime || "12:00"}, até a pessoa sair do funil.`
+            ? `A partir de amanhã, todo dia às ${dailyTime || "12:00"}.`
+            : `Todo dia às ${dailyTime || "12:00"}.`
           : modoRenovacao
             ? `Envia quando faltam ${rotuloDoTempo(minutos)} para o vencimento.`
             : `Envia ${rotuloDoTempo(minutos)} ${ancoraTexto}.`}
@@ -3789,7 +3767,7 @@ function PrecoDinamicoRow({
     >
       <div className="flex items-start justify-between gap-3">
         <p className="min-w-0 text-xs leading-relaxed text-zinc-400">
-          Soma ou subtrai alguns centavos do valor, de forma <b>única por cliente</b>. Os centavos vêm do ID do Telegram, então o mesmo lead recebe sempre o mesmo valor — é assim que um PIX é casado com quem devia pagá-lo.
+          Varia alguns centavos por cliente (fixo pelo ID do Telegram) — assim o PIX identifica quem pagou.
         </p>
         <Switch
           checked={preco.enabled}
@@ -3825,10 +3803,7 @@ function PrecoDinamicoRow({
               <option value="up">Sempre para cima</option>
               <option value="down">Sempre para baixo</option>
             </select>
-            <p className="mt-1 text-[11px] text-zinc-500">
-              No aleatório o sentido também vem do ID, então não muda entre as tentativas do mesmo
-              cliente.
-            </p>
+            <p className="mt-1 text-[11px] text-zinc-500">Aleatório também fica fixo por cliente.</p>
           </div>
         </div>
       )}
@@ -3887,11 +3862,10 @@ function CoresBotoesRow({
       status={comCor > 0 ? { label: `${comCor} com cor`, tone: "ok" } : undefined}
     >
       <p className="text-xs leading-relaxed text-zinc-400">
-        Cor dos botões do bot desta modelo, por papel do fluxo. Um plano com cor própria ignora a cor da
-        lista.
+        Cor de cada botão, por papel. Um plano com cor própria ignora a cor da lista.
       </p>
       <p className="mt-2 rounded-lg border border-indigo-500/25 bg-indigo-500/[0.07] p-2.5 text-[11px] leading-relaxed text-zinc-300">
-        A cor chegou na <b>Bot API 9.4</b>. Em apps antigos o botão sai na cor padrão, sem quebrar nada.
+        Recurso da Bot API 9.4 — em apps antigos, o botão sai na cor padrão.
       </p>
 
       <div className="mt-4 space-y-3">
@@ -4137,7 +4111,7 @@ function ApprovalCard({
       />
 
       <p className="mt-4 rounded-lg border border-white/10 bg-ink-850 p-3 text-xs text-zinc-400">
-        Em qualquer modo o bot precisa ser <b>administrador</b> do grupo, com permissão de convidar por link — é assim que ele aprova a entrada e gera o convite.
+        O bot precisa ser <b>administrador</b> do grupo, com permissão de convidar por link.
       </p>
 
       <button onClick={save} disabled={busy} className="btn-primary mt-4">
@@ -4261,8 +4235,7 @@ function WelcomeSequence({
     <div className="mt-5">
       <p className="text-sm font-semibold text-white">{titulo}</p>
       <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-        Vão no <b>privado</b> de quem foi aprovado, e só se a pessoa já tiver dado{" "} <code>/start</code>.
-        Vazio, não envia nada.
+        Vão no privado de quem foi aprovado, só se já tiver dado <code>/start</code>.
       </p>
 
       {/* REUSAR A MENSAGEM DE BOAS-VINDAS. É a mesma conversa: quem entra no
@@ -4273,8 +4246,7 @@ function WelcomeSequence({
           <div className="min-w-0">
             <p className="text-sm font-medium text-zinc-100">Usar a mensagem de boas-vindas</p>
             <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
-              Manda a MESMA mensagem do <code>/start</code> — texto, mídias e botões. Editar as boas-vindas muda
-              as duas.
+              Mesma mensagem do <code>/start</code> — editar as boas-vindas muda as duas.
             </p>
           </div>
           <Switch
@@ -4286,8 +4258,7 @@ function WelcomeSequence({
 
         {usarBoasVindas && (
           <p className="mt-2 text-[11px] text-zinc-500">
-            As mensagens abaixo continuam valendo e saem <b>depois</b> desta. Veja a conversa
-            inteira no celular ao lado.
+            As mensagens abaixo saem depois desta. Veja a conversa no celular ao lado.
           </p>
         )}
       </div>
@@ -4445,7 +4416,7 @@ function BotoesDoPasso({
       )}
       {!padrao && (
         <p className="mt-1.5 text-[11px] text-amber-400">
-          O @ do bot ainda não foi lido — salve as credenciais em Modelos para o link vir preenchido.
+          @ do bot ainda não lido — salve as credenciais em Modelos.
         </p>
       )}
     </div>
@@ -4556,8 +4527,7 @@ function BumpEditor({
             </div>
           </div>
           <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-            Lado a lado, sem preço. Ganham ✅ e ❌ automaticamente (emoji seu é mantido). A cor sai de{" "}
-            <b>Configurações → Bot de vendas</b>.
+            Lado a lado, ganham ✅/❌ sozinhos. Cor em <b>Cores dos botões</b>.
           </p>
 
           <label className="eyebrow mt-3 block">Mídia da oferta (opcional)</label>

@@ -621,6 +621,10 @@ export async function POST(req: NextRequest) {
           body.checkoutShowCheckButton !== undefined
             ? Boolean(body.checkoutShowCheckButton)
             : bot.checkoutShowCheckButton,
+        acceptCardRecurring:
+          body.acceptCardRecurring !== undefined
+            ? Boolean(body.acceptCardRecurring)
+            : bot.acceptCardRecurring,
       });
       return NextResponse.json({ ok: true });
     }

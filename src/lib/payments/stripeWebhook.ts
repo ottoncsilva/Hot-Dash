@@ -22,6 +22,12 @@ export type ResultadoWebhookStripe = { ok: true; ignored?: boolean; reason?: str
  * da Stripe, não uma resposta a um clique do lead no bot.
  */
 const TEXTOS_ASSINATURA = {
+  pt: {
+    renewed: "🔁 Sua assinatura renovou agora — acesso estendido automaticamente.",
+    failed:
+      "⚠️ Não conseguimos cobrar seu cartão neste ciclo. Vamos tentar de novo automaticamente — " +
+      "atualize a forma de pagamento se continuar falhando.",
+  },
   en: {
     renewed: "🔁 Your subscription just renewed — access extended automatically.",
     failed:
@@ -36,9 +42,14 @@ const TEXTOS_ASSINATURA = {
   },
 } as const;
 
-function idiomaDoLead(botId: string, telegramUserId: number): "en" | "es" {
+/** "Cartão no Brasil" (`acceptCardBr`) também vira assinatura automática via
+ *  Stripe (mesma decisão de sempre: "só o cartão vira automático") — esse
+ *  comprador nunca passa pelo menu internacional, então `language` fica
+ *  vazio, e o piso seguro pra quem NUNCA escolheu idioma é português, não
+ *  inglês (mesmo critério de `deliverPayment.ts`). */
+function idiomaDoLead(botId: string, telegramUserId: number): "pt" | "en" | "es" {
   const lang = getTelegramUser(`${botId}_${telegramUserId}`)?.language;
-  return lang === "es" ? "es" : "en"; // comprador internacional: nunca português, "en" é o piso seguro.
+  return lang === "en" || lang === "es" ? lang : "pt";
 }
 
 /**

@@ -59,6 +59,10 @@ export type BalanceResult = {
   /** Ainda não liberado pro saque (ex.: retenção padrão da Stripe até o
    *  repasse). Ausente = provedor não distingue os dois estados. */
   pendingCents?: number;
+  /** Saldo em OUTRA moeda, quando a conta cobra em mais de uma (Stripe: USD
+   *  do checkout internacional + BRL do "cartão no Brasil", a mesma conta).
+   *  Ausente = só uma moeda mesmo — não precisa aparecer separado. */
+  secondary?: { currency: string; availableCents: number; pendingCents?: number };
   raw?: unknown;
 };
 

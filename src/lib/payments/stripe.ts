@@ -81,15 +81,21 @@ export function createStripe(creds: { secretKey: string; webhookSecret: string }
 
     async getBalance() {
       const bal = await stripe.balance.retrieve();
-      // Só a entrada em USD — a conta pode ter outras moedas na lista (ex.:
-      // o saldo padrão do país da conta), e somar valores em moedas
-      // diferentes sem converter misturaria centavos de unidades distintas.
-      // Este app só cobra em USD pela Stripe, então é a única que importa.
-      const somaUsd = (lista: { amount: number; currency: string }[]) =>
-        lista.filter((b) => b.currency === "usd").reduce((acc, b) => acc + b.amount, 0);
+      // Duas moedas possíveis nesta conta: USD (checkout internacional) e
+      // BRL ("cartão no Brasil", `acceptCardBr`) — nunca somadas juntas, que
+      // misturaria centavos de unidades diferentes. BRL só aparece quando
+      // existe (a maioria das contas nunca cobrou em cartão no Brasil).
+      const somaPor = (moeda: string, lista: { amount: number; currency: string }[]) =>
+        lista.filter((b) => b.currency === moeda).reduce((acc, b) => acc + b.amount, 0);
+      const availableBrl = somaPor("brl", bal.available);
+      const pendingBrl = somaPor("brl", bal.pending);
       return {
-        availableCents: somaUsd(bal.available),
-        pendingCents: somaUsd(bal.pending),
+        availableCents: somaPor("usd", bal.available),
+        pendingCents: somaPor("usd", bal.pending),
+        secondary:
+          availableBrl > 0 || pendingBrl > 0
+            ? { currency: "BRL", availableCents: availableBrl, pendingCents: pendingBrl }
+            : undefined,
         raw: bal,
       };
     },

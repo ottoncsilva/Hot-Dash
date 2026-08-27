@@ -31,6 +31,9 @@ export async function GET(req: NextRequest) {
       connected: true,
       availableCents: bal.availableCents,
       pendingCents: bal.pendingCents ?? null,
+      // BRL do "cartão no Brasil", quando existe — ver `secondary` em
+      // `lib/payments/types.ts`.
+      secondary: bal.secondary ?? null,
     });
   } catch (err) {
     return errorResponse(err);

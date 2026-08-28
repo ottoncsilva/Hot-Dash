@@ -54,20 +54,6 @@ export async function register() {
     // segura o intervalo de 15min recomendado pela API e é um no-op sem
     // chave configurada, então pode entrar no tick de sempre sem custo.
     const { syncSltEvents } = await import("@/lib/sltSync");
-    // A antiga "recepção de informações" (espiada/repasse do tráfego de um
-    // bot operado por fora) foi REMOVIDA do sistema — ver
-    // `telegramRecepcaoRollback.ts` para o porquê. Só resta esta limpeza de
-    // uma vez: um bot que ficou em modo "repasse" tem o webhook do Telegram
-    // apontando pra cá, e devolvê-lo pro endereço de origem é o que impede
-    // esse bot de ficar mudo. Idempotente — vira uma consulta só depois que
-    // todo bot já foi limpo.
-    try {
-      const { desligarRecepcaoDeTodosBots } = await import("@/lib/telegramRecepcaoRollback");
-      const n = await desligarRecepcaoDeTodosBots();
-      if (n > 0) console.log(`[hotdash] recepção antiga limpa em ${n} bot(s) (webhook devolvido à origem).`);
-    } catch (err) {
-      console.error("[hotdash] Erro limpando a recepção antiga no boot:", err);
-    }
     // Geração do Método MK (Prévias e VIP), em lotes: a rota só enfileira (a
     // copy de um dia inteiro não cabe no maxDuration de uma requisição). Os dois
     // dividem UMA fila e um lote por tick — ver generationJobs.ts.

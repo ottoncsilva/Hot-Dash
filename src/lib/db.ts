@@ -1299,19 +1299,6 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "telegram_bots", "origin_gate_message", "TEXT");
   ensureColumn(d, "telegram_bots", "origin_gate_btn_br", "TEXT");
   ensureColumn(d, "telegram_bots", "origin_gate_btn_intl", "TEXT");
-  // LEGADO da antiga "recepção de informações" (espiada/repasse do tráfego
-  // de um bot operado por outro sistema), REMOVIDA do sistema — ver
-  // `telegramRecepcaoRollback.ts`. Nenhum código de aplicação lê ou escreve
-  // estas colunas; elas continuam aqui só para a limpeza de boot conseguir
-  // encontrar um bot que ficou em modo "repasse" e devolver o webhook dele
-  // pro endereço de origem (SQLite não tem DROP COLUMN barato, e apagá-las
-  // deixaria esse bot mudo pra sempre, sem ninguém saber qual era).
-  ensureColumn(d, "telegram_bots", "passive_ingest_active", "INTEGER DEFAULT 0");
-  ensureColumn(d, "telegram_bots", "ingest_mode", "TEXT");
-  ensureColumn(d, "telegram_bots", "relay_target_url", "TEXT");
-  ensureColumn(d, "telegram_bots", "relay_target_secret", "TEXT");
-  ensureColumn(d, "telegram_bots", "relay_last_error", "TEXT");
-  ensureColumn(d, "telegram_bots", "relay_last_error_at", "INTEGER");
   // `page_id` (junção estável com `slt_page_profiles`, mais confiável que o
   // slug) entrou depois de `slt_events` já estar em bancos existentes —
   // sem este ensureColumn, quem já tinha a tabela ficava com INSERT

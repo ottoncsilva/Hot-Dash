@@ -54,11 +54,25 @@ export async function register() {
     // segura o intervalo de 15min recomendado pela API e é um no-op sem
     // chave configurada, então pode entrar no tick de sempre sem custo.
     const { syncSltEvents } = await import("@/lib/sltSync");
-    // Recepção de informações (modo "poll") — espia a fila de bots sem
-    // webhook próprio, em intervalo mais curto que o tick de baixo (ver o
-    // setInterval dedicado, mais abaixo): cobertura aqui depende de chegar
-    // antes do outro sistema confirmar a fila dele.
-    const { runTelegramPassiveIngestPoll } = await import("@/lib/telegramPassiveIngest");
+    // RECEPÇÃO DE INFORMAÇÕES — DESLIGADA por decisão explícita (27/08): um
+    // bot em modo "repasse" sem o segredo do webhook de origem configurado
+    // derrubou o recebimento de vendas de um bot que o Bobz opera — o
+    // Hot-Dash virou o webhook, o Bobz parou de receber QUALQUER coisa, e
+    // ninguém percebeu até vendas sumirem. "Ou usa o Hot-Dash, ou usa o
+    // Bobz" — sem meio-termo por enquanto. `desligarRecepcaoDeTodosBots`
+    // devolve o webhook de qualquer bot que ainda esteja em modo "repasse"
+    // (a chamada de rede é o que importa; a limpeza da flag no banco
+    // qualquer save já faria) e zera as flags de todos — roda uma vez, no
+    // boot, pra um deploy já bastar (não depende de ninguém clicar em nada
+    // na tela). O parsing do Grupo de Vendas (relatório de venda, sempre
+    // seguro — não intercepta nada do bot em si) continua funcionando.
+    try {
+      const { desligarRecepcaoDeTodosBots } = await import("@/lib/telegramPassiveIngest");
+      const n = await desligarRecepcaoDeTodosBots();
+      if (n > 0) console.log(`[hotdash] recepção desligada em ${n} bot(s) (devolvido o webhook de origem).`);
+    } catch (err) {
+      console.error("[hotdash] Erro desligando a recepção no boot:", err);
+    }
     // Geração do Método MK (Prévias e VIP), em lotes: a rota só enfileira (a
     // copy de um dia inteiro não cabe no maxDuration de uma requisição). Os dois
     // dividem UMA fila e um lote por tick — ver generationJobs.ts.
@@ -215,21 +229,5 @@ export async function register() {
     setInterval(() => {
       void tickGeracao();
     }, 60 * 1000);
-
-    // Recepção de informações (modo "poll"): laço PRÓPRIO, bem mais curto —
-    // 5s em vez de 1min. É espiada não-destrutiva (nunca confirma nada, ver
-    // `getTelegramUpdatesPeek`), então só existe risco de PERDER cobertura
-    // se demorar demais pra chegar antes do outro sistema, nunca de atrapalhar
-    // ninguém. Trava anti-sobreposição própria, mesmo padrão dos ciclos acima.
-    let espiando = false;
-    setInterval(() => {
-      if (espiando) return;
-      espiando = true;
-      runTelegramPassiveIngestPoll()
-        .catch((err) => console.error("[hotdash] Erro no cron (recepção/poll):", err))
-        .finally(() => {
-          espiando = false;
-        });
-    }, 5 * 1000);
   }
 }

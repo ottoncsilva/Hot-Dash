@@ -915,20 +915,15 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
   >(null);
 
   const active = bot.operationActive;
+  // Recepção (2º interruptor) foi DESLIGADA por decisão explícita — ver o
+  // comentário no card mais abaixo e em `telegramPassiveIngest.ts`. Só resta
+  // o estado pra mostrar "ainda ligada, desligando sozinha" enquanto o
+  // rollback não chega em todo bot; nada aqui liga a Recepção de novo.
   const ingestActive = Boolean(bot.passiveIngestActive);
-  const [ingestBusy, setIngestBusy] = useState(false);
-  // Confirmação antes de LIGAR o controle total — é a única das duas ações
-  // desta tela que TOMA o bot de qualquer sistema que esteja rodando ele
-  // agora (a Recepção nunca faz isso; no pior caso ela repassa tudo de
-  // volta). Um clique errado aqui derruba quem estiver operando de verdade.
+  // Confirmação antes de LIGAR o controle total — TOMA o bot de qualquer
+  // sistema que esteja rodando ele agora. Um clique errado aqui derruba quem
+  // estiver operando de verdade.
   const { confirm, ConfirmDialog } = useConfirm();
-  // Segredo do repasse — só relevante no modo "relay", só quando o sistema
-  // de origem exige o header `X-Telegram-Bot-Api-Secret-Token`. Editável a
-  // qualquer momento (religa o repasse com o valor novo).
-  const [relaySecret, setRelaySecret] = useState(bot.relayTargetSecret || "");
-  useEffect(() => {
-    setRelaySecret(bot.relayTargetSecret || "");
-  }, [bot.relayTargetSecret]);
 
   const checkGrupos = useCallback(async () => {
     try {
@@ -1021,34 +1016,6 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
     }
   }
 
-  async function setPassiveIngest(next: boolean) {
-    setIngestBusy(true);
-    try {
-      const r = await apiSend<{ ok: boolean; message?: string; mode?: "relay" | "poll" }>(
-        "/api/telegram",
-        "POST",
-        { action: "set-passive-ingest", profileId, active: next, relayTargetSecret: relaySecret },
-      );
-      if (r.ok) {
-        showToast(
-          next
-            ? r.mode === "poll"
-              ? "Recepção LIGADA (modo espiada — o bot não tinha webhook)."
-              : "Recepção LIGADA (repassando pro sistema de origem)."
-            : "Recepção DESLIGADA.",
-          "success",
-        );
-        onSaved();
-      } else {
-        showToast(r.message || "Falha ao alterar a recepção.", "error");
-      }
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Falha.", "error");
-    } finally {
-      setIngestBusy(false);
-    }
-  }
-
   async function register() {
     setBusy(true);
     try {
@@ -1117,55 +1084,27 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
           grupo) de um bot que outro sistema continua operando de ponta a
           ponta. Nunca manda mensagem nenhuma. Mutuamente exclusivo com
           "controle total" — os dois juntos não fazem sentido. */}
-      <div
-        className={`mt-2 rounded-xl border-2 p-3.5 ${
-          ingestActive ? "border-sky-500/40 bg-sky-500/[0.08]" : "border-white/10 bg-ink-850"
-        } ${active ? "opacity-50" : ""}`}
-      >
-        <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-sky-400">
-          2 · Recepção — o Hot-Dash só LÊ, nunca manda nada
+      <div className="mt-2 rounded-xl border-2 border-white/10 bg-ink-850 p-3.5 opacity-70">
+        <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+          2 · Recepção — desligada por enquanto
         </p>
         <div className="mt-1.5 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white">
-              {ingestActive ? "LIGADO — só leitura, quem opera continua sendo o outro sistema" : "Desligado"}
+              {ingestActive ? "Ainda ligada neste bot — desligando sozinha" : "Desativada"}
             </p>
             <p className="mt-0.5 text-xs text-zinc-500">
-              {active
-                ? "Desligue o Controle total (acima) pra poder ligar isto — os dois não podem ficar juntos."
-                : ingestActive
-                  ? bot.ingestMode === "poll"
-                    ? "Modo espiada: o bot não tinha webhook (o outro sistema usa long polling). Melhor-esforço — pode não captar 100% dos eventos."
-                    : `Modo repasse: todo update é repassado sem alteração pro endereço de origem${bot.relayTargetUrl ? ` (${bot.relayTargetUrl})` : ""}.`
-                  : "Liga só a leitura (/start, entradas em grupo) de um bot que outro sistema continua controlando — decide sozinho entre repasse (se o bot tinha webhook) ou espiada (se usa long polling)."}
+              Um bot em modo repasse sem o segredo certo fez o sistema de origem parar de receber vendas em
+              silêncio. Até resolver isso direito: ou o Hot-Dash controla o bot inteiro (toggle acima), ou
+              não mexe em nada — sem meio-termo.
             </p>
           </div>
-          <Switch
-            checked={ingestActive}
-            onChange={setPassiveIngest}
-            disabled={ingestBusy || active}
-            ariaLabel="Recepção de informações"
-          />
+          <Switch checked={ingestActive} onChange={() => {}} disabled ariaLabel="Recepção de informações (desativada)" />
         </div>
-        {(!ingestActive || bot.ingestMode === "relay") && !active && (
-          <div className="mt-3">
-            <label className="text-[11px] uppercase tracking-wider text-zinc-500">
-              Segredo do webhook de origem (opcional)
-            </label>
-            <input
-              className="input mt-1 h-8 py-0 text-xs"
-              value={relaySecret}
-              onChange={(e) => setRelaySecret(e.target.value)}
-              placeholder="só se o sistema atual exigir X-Telegram-Bot-Api-Secret-Token"
-            />
-          </div>
-        )}
         {bot.relayLastError && bot.relayLastErrorAt && Date.now() - bot.relayLastErrorAt < 24 * 60 * 60 * 1000 && (
           <p className="mt-2 text-xs text-amber-400">
-            Falha recente na recepção ({new Date(bot.relayLastErrorAt).toLocaleTimeString("pt-BR")}):{" "}
+            Última falha registrada ({new Date(bot.relayLastErrorAt).toLocaleTimeString("pt-BR")}):{" "}
             {bot.relayLastError}
-            {bot.relayLastError.includes("webhook is active") &&
-              " — o sistema de origem passou a usar webhook; o Hot-Dash já tenta trocar sozinho pro modo repasse no próximo instante."}
           </p>
         )}
       </div>

@@ -37,6 +37,16 @@ import { publicOriginSemRequest, webhookOriginProblem } from "./publicOrigin";
  * Telegram passa a recusar `getUpdates` com erro 409 — nesse caso o próprio
  * laço de espiada detecta e vira pro modo "relay" sozinho, sem o operador
  * precisar desligar e religar (ver `tentarVirarRelay`).
+ *
+ * DESLIGADA por decisão explícita em 27/08 (ver `desligarRecepcaoDeTodosBots`,
+ * chamada uma vez no boot em `instrumentation.ts`): um bot em "relay" sem o
+ * segredo do webhook de origem configurado fez o sistema de origem (o Bobz)
+ * parar de receber QUALQUER coisa — o Hot-Dash tinha assumido o webhook e o
+ * repasse estava sendo recusado do outro lado, em silêncio. "Ou usa o
+ * Hot-Dash, ou usa o Bobz" — sem meio-termo por enquanto. As funções abaixo
+ * continuam aqui (não removidas) porque a ideia em si não está descartada —
+ * só ninguém liga automaticamente, e a ação de ligar pela tela está
+ * bloqueada (ver `set-passive-ingest` em `api/telegram/route.ts`).
  */
 
 export async function probeIngestMode(
@@ -182,4 +192,59 @@ export async function runTelegramPassiveIngestPoll(): Promise<void> {
       setRelayFailure(bot.id, err instanceof Error ? err.message : "Falha ao consultar o Telegram.");
     }
   }
+}
+
+/**
+ * DESLIGA a recepção de TODOS os bots — chamada uma vez no boot (ver
+ * `instrumentation.ts`), pra um deploy já bastar, sem depender de ninguém
+ * clicar em nada na tela. Pra cada bot em "relay", devolve o webhook pro
+ * endereço de origem primeiro — é a parte que importa de verdade; zerar só
+ * a flag no banco sem devolver o webhook deixaria o sistema de origem
+ * (ex.: o Bobz) sem receber nada, mesmo com a recepção "desligada" aqui.
+ * Nunca lança: uma falha ao devolver o webhook de UM bot não pode impedir
+ * de zerar a flag dos demais (e mesmo a flag deste é zerada de qualquer
+ * jeito — ver o comentário dentro do laço). Devolve quantos bots foram
+ * desligados.
+ */
+export async function desligarRecepcaoDeTodosBots(): Promise<number> {
+  const db = getDb();
+  const bots = db
+    .prepare(
+      `SELECT id, bot_token, ingest_mode, relay_target_url, relay_target_secret
+         FROM telegram_bots
+        WHERE passive_ingest_active = 1
+          AND bot_token IS NOT NULL AND bot_token <> ''`,
+    )
+    .all() as {
+    id: string;
+    bot_token: string;
+    ingest_mode: string | null;
+    relay_target_url: string | null;
+    relay_target_secret: string | null;
+  }[];
+
+  let desligados = 0;
+  for (const row of bots) {
+    try {
+      if (row.ingest_mode === "relay" && row.relay_target_url) {
+        await setTelegramWebhook(row.bot_token, row.relay_target_url, row.relay_target_secret || undefined);
+      }
+      // Modo "poll" nunca mexeu no webhook do Telegram — só zera a flag abaixo.
+    } catch (err) {
+      // Mesmo com falha aqui, a flag é zerada do mesmo jeito (fora do try) —
+      // não pode deixar o bot marcado como "recepção ligada" achando que
+      // ainda está espiando/repassando quando a decisão foi desligar tudo.
+      // Se o webhook não voltou sozinho, fica pro operador religar
+      // manualmente no sistema de origem — mas ao menos o log avisa.
+      console.error(`[hotdash] falha devolvendo o webhook do bot ${row.id} ao desligar a recepção:`, err);
+    }
+    db.prepare(
+      `UPDATE telegram_bots
+          SET passive_ingest_active = 0, ingest_mode = NULL, relay_target_url = NULL,
+              relay_target_secret = NULL, relay_last_error = NULL, relay_last_error_at = NULL
+        WHERE id = ?`,
+    ).run(row.id);
+    desligados++;
+  }
+  return desligados;
 }

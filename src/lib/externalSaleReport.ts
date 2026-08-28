@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
+import { upsertTelegramUser } from "./telegramUsers";
 
 /**
  * VÍNCULO de pagamento a lead/bot pra vendas que NÃO passam pelo checkout do
@@ -133,6 +134,23 @@ export function registrarRelatorioExterno(text: string): void {
         `UPDATE transactions SET profile_id = ?, bot_id = COALESCE(bot_id, ?)
           WHERE provider = ? AND provider_ref = ? AND profile_id IS NULL`,
       ).run(profileId, botId || null, parsed.provider, parsed.providerRef);
+    }
+
+    // Tela de USUÁRIOS: mesmo sem o /start deste lead ter sido capturado
+    // pela recepção (modo "poll" é melhor-esforço, e quem comprou pode ter
+    // dado /start antes da recepção existir), o relatório de venda já basta
+    // pra ele aparecer lá — fonte "compra", pra distinguir de quem a
+    // recepção viu de verdade dar /start. Upsert: se já existir (o /start
+    // FOI capturado), só complementa — nunca apaga o que já tinha.
+    if (botId && profileId && parsed.telegramUserId) {
+      upsertTelegramUser({
+        botId,
+        profileId,
+        telegramUserId: parsed.telegramUserId,
+        username: parsed.username,
+        firstName: parsed.nomePerfil,
+        source: "compra",
+      });
     }
   } catch (err) {
     console.error("[hotdash] erro registrando relatório externo de venda:", err);

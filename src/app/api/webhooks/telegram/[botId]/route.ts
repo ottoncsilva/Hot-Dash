@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { TelegramPlan, TelegramBotConfig } from "@/lib/telegramDb";
-import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, getTelegramLead, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, recurringFromDurationDays, primeiraVezQueVejoEsteUpdate, setRelayFailure, clearRelayFailure, BUMP_DEFAULTS, PIX_DEFAULTS, CHECKOUT_DEFAULTS } from "@/lib/telegramDb";
+import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, getTelegramLead, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, recurringFromDurationDays, primeiraVezQueVejoEsteUpdate, BUMP_DEFAULTS, PIX_DEFAULTS, CHECKOUT_DEFAULTS } from "@/lib/telegramDb";
 import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser, setTelegramUserLanguage } from "@/lib/telegramUsers";
 import { registrarChegadaTelegram, registraMudancaDeGrupo } from "@/lib/telegramIngest";
-import { relayForward } from "@/lib/telegramPassiveIngest";
 import { getMailingOffer } from "@/lib/telegramMailing";
 import { sendTelegramMessage, sendTelegramMedia, sendTelegramMediaGroup, sendTelegramVoiceUrl, sendTelegramPhotoBuffer, approveTelegramJoinRequest, declineTelegramJoinRequest, telegramWebhookSecret } from "@/lib/telegramApi";
 import QRCode from "qrcode";
@@ -218,52 +217,32 @@ export async function POST(
     // Segurança: o Telegram devolve o secret_token que registramos no header
     // abaixo. Se o webhook foi registrado com secret (padrão nas versões novas),
     // exigimos que bata. Webhooks antigos (sem secret) continuam aceitos. Vale
-    // pros dois modos (controle total ou recepção) — é sempre o Telegram
-    // chamando ESTE endpoint, só muda o que fazemos com o update depois.
+    // é sempre o Telegram chamando ESTE endpoint.
     const providedSecret = req.headers.get("x-telegram-bot-api-secret-token");
     if (providedSecret && providedSecret !== telegramWebhookSecret(bot.id)) {
       return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
     }
 
-    // Corpo CRU guardado à parte: o modo "recepção" (relay) repassa estes
-    // bytes exatamente como chegaram pro sistema de origem, sem re-serializar
-    // o JSON (evita qualquer diferença de formatação que o parser/re-stringify
-    // pudesse introduzir).
-    const rawBody = await req.text();
     let update: any = {};
     try {
-      update = rawBody ? JSON.parse(rawBody) : {};
+      update = await req.json();
     } catch {
       update = {};
     }
 
-    // Operação desligada → quem tem controle total é outro sistema.
+    // Operação desligada → quem tem controle total é outro sistema (ex.: o
+    // Bobz), e o Hot-Dash não encosta em NADA deste bot: não grava, não
+    // repassa, não responde. "Ou usa o Hot-Dash, ou usa o Bobz" — o
+    // meio-termo (repasse/espiada) foi removido depois de derrubar, em
+    // silêncio, o recebimento de vendas do sistema de origem.
+    //
+    // As vendas destes bots continuam entrando pelo Financeiro: o pagamento
+    // chega pelo webhook da SyncPay/Stripe como sempre, e a atribuição ao
+    // modelo/bot vem do relatório que o sistema de origem posta no Grupo de
+    // Vendas (ver `externalSaleReport.ts`) — nada disso passa por aqui.
+    //
+    // Retorna 200 para o Telegram não reenviar em loop.
     if (!bot.operationActive) {
-      // RECEPÇÃO DE INFORMAÇÕES, modo "relay": o Hot-Dash é o webhook (o
-      // outro sistema tinha um, e cedeu o lugar quando o operador ligou o
-      // interruptor — ver `probeIngestMode`/`ingest_mode` em
-      // `telegramPassiveIngest.ts`). Grava o que dá pra entender e repassa
-      // o update, sem alterar nada, pro endereço de origem.
-      if (bot.passiveIngestActive && bot.ingestMode === "relay" && bot.relayTargetUrl) {
-        if (!primeiraVezQueVejoEsteUpdate(bot.id, update.update_id)) {
-          return NextResponse.json({ ok: true, duplicate: true });
-        }
-        registrarChegadaTelegram(bot, update);
-        const relayed = await relayForward(bot.relayTargetUrl, bot.relayTargetSecret, rawBody);
-        if (!relayed) {
-          setRelayFailure(bot.id, "Falha ao repassar para o sistema de origem (rede ou endereço fora do ar).");
-          // 502 de propósito: o Telegram tenta de novo mais tarde sozinho —
-          // é a rede de segurança real contra um repasse que falhou, já que
-          // devolver 200 aqui faria o Telegram achar que já entregou.
-          return NextResponse.json({ ok: false, relay: "failed" }, { status: 502 });
-        }
-        clearRelayFailure(bot.id);
-        return NextResponse.json({ ok: true, relayed: true });
-      }
-      // Sem controle total nem repasse ativo (ou modo "poll", que nunca
-      // registra webhook nenhum — não deveria nem chegar tráfego aqui):
-      // o bot de vendas não age. Retorna 200 para o Telegram não reenviar
-      // em loop.
       return NextResponse.json({ ok: true, inactive: true });
     }
 
@@ -277,8 +256,7 @@ export async function POST(
     }
 
     // Usuário visto, entrada/saída de grupo, lead do /start — o que dá pra
-    // ENTENDER do update, sem mandar nada. Mesma função usada pelo modo
-    // "recepção" acima (ver `telegramIngest.ts`).
+    // ENTENDER do update, sem mandar nada (ver `telegramIngest.ts`).
     registrarChegadaTelegram(bot, update);
 
     // ---- Mensagem comum (Ex: /start) ----

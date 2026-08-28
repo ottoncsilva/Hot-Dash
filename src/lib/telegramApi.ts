@@ -205,24 +205,6 @@ export async function deleteTelegramWebhook(botToken: string): Promise<boolean> 
   return telegramFetch(botToken, "deleteWebhook", { drop_pending_updates: false });
 }
 
-/**
- * ESPIA a fila de updates SEM confirmar nada — usada pelo modo "poll" da
- * recepção de informações, quando o bot não tem webhook nenhum (outro
- * sistema usa `getUpdates` pra operar). Nunca manda `offset`: passar um
- * offset avançaria a fila e FARIA O OUTRO SISTEMA PERDER o update, já que a
- * fila é da conta do bot, não de quem está perguntando — este método é
- * assim de propósito, uma "leitura suja" que nunca consome nada de
- * ninguém. `timeout: 0` devolve na hora (o próprio Hot-Dash decide a
- * cadência chamando de novo, não deixa o Telegram segurar a resposta).
- */
-export async function getTelegramUpdatesPeek(botToken: string): Promise<any[]> {
-  const result = await telegramFetch(botToken, "getUpdates", {
-    timeout: 0,
-    allowed_updates: ["message", "callback_query", "chat_member", "my_chat_member"],
-  });
-  return Array.isArray(result) ? result : [];
-}
-
 /** Busca dados do próprio bot (getMe) — usado para validar o token e pegar o @username. */
 export async function getTelegramMe(
   botToken: string,

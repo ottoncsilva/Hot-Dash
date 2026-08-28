@@ -67,13 +67,6 @@ type Bot = {
   upsellFunnel?: string;
   previewsWelcomeMessage?: string;
   operationActive: boolean;
-  /** Recepção de informações — 2º interruptor, independente do de cima. */
-  passiveIngestActive?: boolean;
-  ingestMode?: "relay" | "poll";
-  relayTargetUrl?: string;
-  relayTargetSecret?: string;
-  relayLastError?: string;
-  relayLastErrorAt?: number;
   vipApprovalMode: ApprovalMode;
   previasApprovalMode: ApprovalMode;
   pixGeneratingMessage?: string;
@@ -915,11 +908,6 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
   >(null);
 
   const active = bot.operationActive;
-  // Recepção (2º interruptor) foi DESLIGADA por decisão explícita — ver o
-  // comentário no card mais abaixo e em `telegramPassiveIngest.ts`. Só resta
-  // o estado pra mostrar "ainda ligada, desligando sozinha" enquanto o
-  // rollback não chega em todo bot; nada aqui liga a Recepção de novo.
-  const ingestActive = Boolean(bot.passiveIngestActive);
   // Confirmação antes de LIGAR o controle total — TOMA o bot de qualquer
   // sistema que esteja rodando ele agora. Um clique errado aqui derruba quem
   // estiver operando de verdade.
@@ -987,8 +975,8 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
         title: "Assumir o bot?",
         message:
           "Isso faz o Hot-Dash MANDAR as mensagens deste bot a partir de agora (funil, PIX, aprovação) — " +
-          "quem estiver operando ele hoje (outro sistema, ou a Recepção em modo repasse) para de receber " +
-          "qualquer coisa na hora. Só ligue se a intenção é essa.",
+          "quem estiver operando ele hoje (outro sistema, ex.: o Bobz) para de receber qualquer coisa " +
+          "na hora. Só ligue se a intenção é essa.",
         confirmLabel: "Sim, assumir o bot",
       });
       if (!ok) return;
@@ -1048,21 +1036,16 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
         </div>
       )}
 
-      <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
-        Dois interruptores INDEPENDENTES, cada um com um efeito bem diferente — leia o rótulo de cada um
-        antes de ligar.
-      </p>
-
-      {/* Liga/desliga da operação (cutover do sistema atual → Hot-Dash). É a
-          ação PERIGOSA das duas: toma o bot de qualquer sistema que esteja
-          rodando ele agora, e por isso pede confirmação (ver setOperation). */}
+      {/* Liga/desliga da operação (cutover do sistema atual → Hot-Dash): toma
+          o bot de qualquer sistema que esteja rodando ele agora, e por isso
+          pede confirmação (ver setOperation). */}
       <div
         className={`mt-3 rounded-xl border-2 p-3.5 ${
           active ? "border-emerald-500/40 bg-emerald-500/[0.08]" : "border-amber-500/30 bg-amber-500/[0.04]"
         }`}
       >
         <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-amber-400">
-          1 · Controle total — o Hot-Dash MANDA as mensagens
+          Controle total — o Hot-Dash MANDA as mensagens
         </p>
         <div className="mt-1.5 flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -1072,41 +1055,11 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
             <p className="mt-0.5 text-xs text-zinc-500">
               {active
                 ? "O bot recebe leads, gera PIX e aprova entradas pelo Hot-Dash. Ninguém mais manda mensagem por ele."
-                : "Ligar isto TOMA o bot na hora de quem estiver operando ele agora (outro sistema, ou a Recepção abaixo)."}
+                : "Ligar isto TOMA o bot na hora de quem estiver operando ele agora (ex.: o Bobz). Desligado, o Hot-Dash não encosta neste bot — só registra as vendas dele pelo Grupo de Vendas."}
             </p>
           </div>
           <Switch checked={active} onChange={setOperation} disabled={toggling} ariaLabel="Controle total do bot" />
         </div>
-      </div>
-
-      {/* RECEPÇÃO DE INFORMAÇÕES — 2º interruptor, independente do de cima:
-          o Hot-Dash só GRAVA o que dá pra entender (/start, entrada em
-          grupo) de um bot que outro sistema continua operando de ponta a
-          ponta. Nunca manda mensagem nenhuma. Mutuamente exclusivo com
-          "controle total" — os dois juntos não fazem sentido. */}
-      <div className="mt-2 rounded-xl border-2 border-white/10 bg-ink-850 p-3.5 opacity-70">
-        <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-          2 · Recepção — desligada por enquanto
-        </p>
-        <div className="mt-1.5 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-white">
-              {ingestActive ? "Ainda ligada neste bot — desligando sozinha" : "Desativada"}
-            </p>
-            <p className="mt-0.5 text-xs text-zinc-500">
-              Um bot em modo repasse sem o segredo certo fez o sistema de origem parar de receber vendas em
-              silêncio. Até resolver isso direito: ou o Hot-Dash controla o bot inteiro (toggle acima), ou
-              não mexe em nada — sem meio-termo.
-            </p>
-          </div>
-          <Switch checked={ingestActive} onChange={() => {}} disabled ariaLabel="Recepção de informações (desativada)" />
-        </div>
-        {bot.relayLastError && bot.relayLastErrorAt && Date.now() - bot.relayLastErrorAt < 24 * 60 * 60 * 1000 && (
-          <p className="mt-2 text-xs text-amber-400">
-            Última falha registrada ({new Date(bot.relayLastErrorAt).toLocaleTimeString("pt-BR")}):{" "}
-            {bot.relayLastError}
-          </p>
-        )}
       </div>
 
       <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">

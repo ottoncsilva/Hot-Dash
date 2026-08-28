@@ -954,17 +954,10 @@ export async function POST(req: NextRequest) {
         if (!webhook.ok) {
           return NextResponse.json({ ok: false, message: webhook.message || "Falha ao registrar webhook." });
         }
-        // Controle total e recepção são MUTUAMENTE EXCLUSIVOS (não faz
-        // sentido repassar pra si mesmo) — ligar este desliga aquele sozinho.
-        // Nada pra "devolver": o Hot-Dash já assume o webhook de qualquer
-        // jeito aqui embaixo.
         saveBotConfig({
           ...bot,
           botUsername: webhook.username || bot.botUsername,
           operationActive: true,
-          passiveIngestActive: false,
-          ingestMode: undefined,
-          relayTargetUrl: undefined,
         });
         return NextResponse.json({ ok: true, active: true });
       }
@@ -973,61 +966,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, active: false });
     }
 
-    // ---- Recepção de informações (2º interruptor, independente do
-    // controle total) — ver `telegramPassiveIngest.ts` para a explicação
-    // completa dos dois modos ("relay"/"poll") e por que cada um existe.
-    //
-    // DESLIGADA por decisão explícita em 27/08: um bot em "relay" sem o
-    // segredo do webhook de origem configurado fez o Bobz parar de receber
-    // qualquer coisa, em silêncio. "Ou usa o Hot-Dash, ou usa o Bobz" — sem
-    // meio-termo por enquanto. Só bloqueia LIGAR; desligar continua
-    // funcionando (é a rede de segurança se algum bot ainda estiver ligado
-    // — ver também `desligarRecepcaoDeTodosBots`, chamada no boot). ----
-    if (action === "set-passive-ingest") {
-      const bot = requireBot(body.profileId);
-      const active = Boolean(body.active);
-      const secret = typeof body.relayTargetSecret === "string" ? body.relayTargetSecret.trim() : undefined;
-
-      if (active) {
-        return NextResponse.json({
-          ok: false,
-          message:
-            "Recepção desligada por enquanto — pode atrapalhar quem opera o bot de fora (ver o aviso na tela). Ou o Hot-Dash controla o bot inteiro, ou não mexe em nada.",
-        });
-      }
-
-      {
-        // Desligando (é o único caminho que sobra — ligar já voltou acima):
-        // se estava em modo "relay", devolve o webhook pro endereço de
-        // origem — sem isso, o bot ficaria mudo (Telegram continuaria
-        // chamando o Hot-Dash, que agora não faz mais nada).
-        if (bot.ingestMode === "relay" && bot.relayTargetUrl) {
-          try {
-            await setTelegramWebhook(bot.botToken, bot.relayTargetUrl, secret || bot.relayTargetSecret || undefined);
-          } catch (e) {
-            return NextResponse.json({
-              ok: false,
-              message:
-                "Não consegui devolver o webhook pro endereço de origem (" +
-                (diagnosticoDoToken(e) || (e instanceof Error ? e.message : "falha desconhecida")) +
-                "). Religue manualmente no sistema de origem antes de desligar aqui, ou tente de novo.",
-            });
-          }
-        }
-        // Modo "poll" nunca mexeu no webhook do Telegram — só para o laço
-        // de espiada (o próprio filtro do laço já ignora bots desligados).
-        saveBotConfig({
-          ...bot,
-          passiveIngestActive: false,
-          ingestMode: undefined,
-          relayTargetUrl: undefined,
-          relayTargetSecret: undefined,
-          relayLastError: undefined,
-          relayLastErrorAt: undefined,
-        });
-        return NextResponse.json({ ok: true, active: false });
-      }
-    }
 
     // ---- (Re)registrar o webhook manualmente (botão da UI) ----
     if (action === "register-webhook") {

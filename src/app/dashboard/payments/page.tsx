@@ -642,6 +642,7 @@ function ImportarHistoricoCard({ onImportado }: { onImportado: () => void }) {
     reconhecidos: number;
     vinculadosABot: number;
     transacoesCorrigidas: number;
+    ignoradosBotAtivo: number;
   } | null>(null);
 
   async function importar() {
@@ -655,6 +656,7 @@ function ImportarHistoricoCard({ onImportado }: { onImportado: () => void }) {
         reconhecidos: number;
         vinculadosABot: number;
         transacoesCorrigidas: number;
+        ignoradosBotAtivo: number;
       }>("/api/telegram", "POST", { action: "import-sales-reports", text: texto });
       setResultado(r);
       if (r.transacoesCorrigidas > 0) {
@@ -662,6 +664,11 @@ function ImportarHistoricoCard({ onImportado }: { onImportado: () => void }) {
         onImportado();
       } else if (r.reconhecidos > 0) {
         showToast(`${r.reconhecidos} venda(s) reconhecida(s), nenhuma precisava de correção.`, "success");
+      } else if (r.ignoradosBotAtivo > 0) {
+        showToast(
+          `${r.ignoradosBotAtivo} venda(s) de bot que o Hot-Dash já opera — já estavam atribuídas.`,
+          "success",
+        );
       } else {
         showToast("Nenhuma venda reconhecida nesse texto.", "error");
       }
@@ -682,8 +689,9 @@ function ImportarHistoricoCard({ onImportado }: { onImportado: () => void }) {
         <div>
           <p className="text-sm font-semibold text-white">Importar histórico de vendas externas</p>
           <p className="mt-0.5 text-xs text-zinc-500">
-            Vendas de um bot como o Bobz, de ANTES de ligar a Recepção — o Telegram não deixa ler pra trás
-            sozinho, então cola aqui o que você copiar de dentro do grupo.
+            Vendas de um bot operado por fora (ex.: o Bobz) — o Telegram não deixa ler o histórico do grupo
+            pra trás sozinho, então cola aqui o que você copiar de dentro do Grupo de Vendas. Relatório de
+            bot que o próprio Hot-Dash opera é ignorado: essas vendas já entram atribuídas.
           </p>
         </div>
         <span className="shrink-0 text-xs text-zinc-500">{aberto ? "recolher ▲" : "expandir ▼"}</span>
@@ -709,6 +717,9 @@ function ImportarHistoricoCard({ onImportado }: { onImportado: () => void }) {
                 <span className={resultado.transacoesCorrigidas > 0 ? "text-emerald-400" : ""}>
                   {resultado.transacoesCorrigidas} corrigida(s) agora
                 </span>
+                {resultado.ignoradosBotAtivo > 0 && (
+                  <> · {resultado.ignoradosBotAtivo} ignorada(s) (bot já operado pelo Hot-Dash)</>
+                )}
               </p>
             )}
           </div>

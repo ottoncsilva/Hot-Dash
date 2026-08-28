@@ -8,11 +8,8 @@ import { registrarRelatorioExterno } from "./externalSaleReport";
 /**
  * O que dá pra ENTENDER de um update do Telegram, sem mandar nada de volta —
  * usuário visto, entrada/saída de grupo, `/start` (lead + origem do
- * tráfego). Extraído do webhook principal (`api/webhooks/telegram/[botId]`)
- * porque agora tem DOIS chamadores: o bot com "controle total" (que grava
- * isto e DEPOIS manda as mensagens do funil) e o modo "recepção de
- * informações" (que só grava — quem manda mensagem é o sistema de origem,
- * seja por repasse ou por long polling dele mesmo).
+ * tráfego). Só roda pra bot com "controle total": um bot operado por fora
+ * (Bobz) não manda update nenhum pra cá, de propósito.
  *
  * Nunca lança: é chamada em cima de tráfego de produção de verdade (a venda
  * de alguém), e um erro aqui não pode derrubar nem o funil de quem tem
@@ -46,6 +43,11 @@ export function registrarChegadaTelegram(
     // pros bots que controla). É o único jeito de casar um pagamento "frio"
     // (SyncPay/Stripe sem passar pelo nosso checkout) com o lead e o bot
     // certos — ver `externalSaleReport.ts`.
+    //
+    // ESTE bot é o "ouvinte" do grupo; o bot da VENDA é o que vem escrito no
+    // relatório ("ID Bot"), e é sobre ele que a trava de bot ativo decide —
+    // relatório de bot que o Hot-Dash já opera é ignorado lá dentro, pra não
+    // reprocessar a nossa própria saída.
     if (bot.idVendas && String(chat?.id) === bot.idVendas && typeof text === "string") {
       registrarRelatorioExterno(text);
     }
@@ -127,10 +129,7 @@ export function registrarChegadaTelegram(
       // — nunca mais nageia nem bloqueia o Downsell geral (ver o comentário
       // em `abandonPendingSubscriptions`). Sem isto, dar /start de novo com
       // um PIX/cartão pendente na mão fazia os DOIS funis de recuperação
-      // rodarem juntos pro mesmo lead. Só faz sentido com controle total —
-      // no modo passivo o sistema de origem trata isso sozinho — mas
-      // marcar como abandonada aqui não faz mal nenhum, é só bookkeeping
-      // do PRÓPRIO Hot-Dash.
+      // rodarem juntos pro mesmo lead.
       abandonPendingSubscriptions(bot.id, from.id);
       // O mesmo código de origem também fica no usuário, para a lista mostrar
       // por qual link cada pessoa chegou.

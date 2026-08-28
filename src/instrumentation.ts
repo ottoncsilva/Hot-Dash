@@ -54,24 +54,19 @@ export async function register() {
     // segura o intervalo de 15min recomendado pela API e é um no-op sem
     // chave configurada, então pode entrar no tick de sempre sem custo.
     const { syncSltEvents } = await import("@/lib/sltSync");
-    // RECEPÇÃO DE INFORMAÇÕES — DESLIGADA por decisão explícita (27/08): um
-    // bot em modo "repasse" sem o segredo do webhook de origem configurado
-    // derrubou o recebimento de vendas de um bot que o Bobz opera — o
-    // Hot-Dash virou o webhook, o Bobz parou de receber QUALQUER coisa, e
-    // ninguém percebeu até vendas sumirem. "Ou usa o Hot-Dash, ou usa o
-    // Bobz" — sem meio-termo por enquanto. `desligarRecepcaoDeTodosBots`
-    // devolve o webhook de qualquer bot que ainda esteja em modo "repasse"
-    // (a chamada de rede é o que importa; a limpeza da flag no banco
-    // qualquer save já faria) e zera as flags de todos — roda uma vez, no
-    // boot, pra um deploy já bastar (não depende de ninguém clicar em nada
-    // na tela). O parsing do Grupo de Vendas (relatório de venda, sempre
-    // seguro — não intercepta nada do bot em si) continua funcionando.
+    // A antiga "recepção de informações" (espiada/repasse do tráfego de um
+    // bot operado por fora) foi REMOVIDA do sistema — ver
+    // `telegramRecepcaoRollback.ts` para o porquê. Só resta esta limpeza de
+    // uma vez: um bot que ficou em modo "repasse" tem o webhook do Telegram
+    // apontando pra cá, e devolvê-lo pro endereço de origem é o que impede
+    // esse bot de ficar mudo. Idempotente — vira uma consulta só depois que
+    // todo bot já foi limpo.
     try {
-      const { desligarRecepcaoDeTodosBots } = await import("@/lib/telegramPassiveIngest");
+      const { desligarRecepcaoDeTodosBots } = await import("@/lib/telegramRecepcaoRollback");
       const n = await desligarRecepcaoDeTodosBots();
-      if (n > 0) console.log(`[hotdash] recepção desligada em ${n} bot(s) (devolvido o webhook de origem).`);
+      if (n > 0) console.log(`[hotdash] recepção antiga limpa em ${n} bot(s) (webhook devolvido à origem).`);
     } catch (err) {
-      console.error("[hotdash] Erro desligando a recepção no boot:", err);
+      console.error("[hotdash] Erro limpando a recepção antiga no boot:", err);
     }
     // Geração do Método MK (Prévias e VIP), em lotes: a rota só enfileira (a
     // copy de um dia inteiro não cabe no maxDuration de uma requisição). Os dois

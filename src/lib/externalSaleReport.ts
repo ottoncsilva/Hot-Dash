@@ -17,9 +17,21 @@ import { getTelegramChatMember } from "./telegramApi";
  * controla (ver `buildSalesReportMessage` em `payments/deliverPayment.ts`):
  * ID Bot (prefixo numérico do token), ID Cliente (o Telegram do lead) e ID
  * Transação Gateway (a MESMA referência que o webhook de pagamento traz).
- * Com a Recepção de informações lendo esse grupo (`idVendas` do bot), dá
- * pra casar os dois lados por essa referência — sem precisar de nome,
- * e-mail ou CPF, que o Telegram nem tem.
+ * Casando os dois lados por essa referência dá pra atribuir a venda — sem
+ * precisar de nome, e-mail ou CPF, que o Telegram nem tem.
+ *
+ * COMO O RELATÓRIO CHEGA: por um bot que o Hot-Dash controla e que também
+ * está no Grupo de Vendas (`idVendas`) — é ele que "ouve" o grupo. O bot
+ * REPORTADO na mensagem ("ID Bot") é outro: o que o sistema de origem opera.
+ * Nada aqui intercepta o bot de ninguém; só se lê uma mensagem de grupo que
+ * já chegaria de qualquer jeito.
+ *
+ * SÓ VALE PRA BOT INATIVO (ver a trava em `registrarRelatorioExterno`).
+ * Quando o bot reportado é um bot que o PRÓPRIO Hot-Dash opera, a venda já
+ * entrou pelo checkout dele, com modelo/bot/lead certos desde o começo — e o
+ * relatório no grupo foi postado pelo próprio Hot-Dash
+ * (`buildSalesReportMessage`). Processá-lo de novo seria reprocessar a
+ * própria saída: trabalho duplicado, sem nada a acrescentar.
  *
  * A ordem de chegada não é garantida (às vezes o pagamento chega primeiro,
  * às vezes o relatório): guarda os dois lados batendo por
@@ -79,7 +91,8 @@ export function parseSalesReportMessage(text: string): RelatorioExternoParsed | 
  * Processa um relatório de venda visto no Grupo de Vendas (ver
  * `registrarChegadaTelegram`, que chama isto quando a mensagem chega no
  * chat marcado como `idVendas` do bot). Nunca lança — é tráfego de grupo
- * real, um relatório mal formado não pode derrubar o resto da recepção.
+ * real, um relatório mal formado não pode derrubar o resto do processamento
+ * do update.
  */
 export function registrarRelatorioExterno(text: string): void {
   try {
@@ -95,9 +108,15 @@ export function registrarRelatorioExterno(text: string): void {
     let profileId: string | undefined;
     if (parsed.idBot) {
       const row = db
-        .prepare("SELECT id, profile_id FROM telegram_bots WHERE bot_token LIKE ? || ':%'")
-        .get(parsed.idBot) as { id: string; profile_id: string } | undefined;
+        .prepare("SELECT id, profile_id, operation_active FROM telegram_bots WHERE bot_token LIKE ? || ':%'")
+        .get(parsed.idBot) as { id: string; profile_id: string; operation_active: number } | undefined;
       if (row) {
+        // BOT ATIVO = o Hot-Dash operou essa venda do começo ao fim (checkout
+        // próprio, transação já atribuída, lead já cadastrado) e foi ELE quem
+        // postou este relatório no grupo. Reprocessar aqui não acrescenta
+        // nada e só refaz trabalho: upsert de usuário e uma consulta de
+        // membro à API do Telegram por venda. Sai fora.
+        if (row.operation_active) return;
         botId = row.id;
         profileId = row.profile_id;
       }
@@ -138,12 +157,11 @@ export function registrarRelatorioExterno(text: string): void {
       ).run(profileId, botId || null, parsed.provider, parsed.providerRef);
     }
 
-    // Tela de USUÁRIOS: mesmo sem o /start deste lead ter sido capturado
-    // pela recepção (modo "poll" é melhor-esforço, e quem comprou pode ter
-    // dado /start antes da recepção existir), o relatório de venda já basta
-    // pra ele aparecer lá — fonte "compra", pra distinguir de quem a
-    // recepção viu de verdade dar /start. Upsert: se já existir (o /start
-    // FOI capturado), só complementa — nunca apaga o que já tinha.
+    // Tela de USUÁRIOS: o /start deste lead nunca vai ser capturado (o bot é
+    // operado por fora, e o Hot-Dash não intercepta nada dele), mas o
+    // relatório de venda já basta pra ele aparecer lá — fonte "compra", pra
+    // distinguir de quem foi visto dando /start de verdade. Upsert: se já
+    // existir, só complementa — nunca apaga o que já tinha.
     if (botId && profileId && parsed.telegramUserId) {
       upsertTelegramUser({
         botId,
@@ -228,26 +246,46 @@ export type ResultadoImportacao = {
   reconhecidos: number;
   vinculadosABot: number;
   transacoesCorrigidas: number;
+  /** Relatórios de bots que o PRÓPRIO Hot-Dash opera — ignorados de
+   *  propósito: essas vendas já entraram pelo checkout dele, atribuídas
+   *  desde o começo (ver a trava em `registrarRelatorioExterno`). */
+  ignoradosBotAtivo: number;
 };
 
 /**
- * IMPORTAÇÃO EM LOTE — histórico colado (o Telegram não deixa um bot ler
- * mensagens antigas, então isso cobre o que já aconteceu ANTES da recepção
- * existir; ver a explicação completa dada ao operador). Reaproveita
- * `registrarRelatorioExterno` bloco a bloco — mesma lógica, mesmas travas
- * (nunca sobrescreve uma venda já atribuída), só que de uma vez só.
+ * IMPORTAÇÃO EM LOTE — histórico colado. O Telegram não deixa um bot ler
+ * mensagens antigas de um grupo, então esta é a única forma de cobrir vendas
+ * que aconteceram antes de o bot "ouvinte" estar no Grupo de Vendas.
+ * Reaproveita `registrarRelatorioExterno` bloco a bloco — mesma lógica,
+ * mesmas travas (nunca sobrescreve uma venda já atribuída; ignora relatório
+ * de bot que o Hot-Dash opera), só que de uma vez só.
  */
 export function importarRelatoriosExternos(blob: string): ResultadoImportacao {
   const blocos = splitSalesReportBlob(blob);
   let reconhecidos = 0;
   let vinculadosABot = 0;
   let transacoesCorrigidas = 0;
+  let ignoradosBotAtivo = 0;
   const db = getDb();
 
   for (const bloco of blocos) {
     const parsed = parseSalesReportMessage(bloco);
     if (!parsed?.providerRef || !parsed.provider) continue;
     reconhecidos++;
+
+    // Mesma trava de `registrarRelatorioExterno`, conferida aqui só pra
+    // poder CONTAR e explicar no resumo por que esses blocos não viraram
+    // vínculo (senão o operador vê "reconhecidos > vinculados" e acha que
+    // falhou algo).
+    if (parsed.idBot) {
+      const dono = db
+        .prepare("SELECT operation_active FROM telegram_bots WHERE bot_token LIKE ? || ':%'")
+        .get(parsed.idBot) as { operation_active: number } | undefined;
+      if (dono?.operation_active) {
+        ignoradosBotAtivo++;
+        continue;
+      }
+    }
 
     // Conta ANTES de registrar se essa venda específica ainda estava sem
     // modelo — pra distinguir "corrigiu uma venda" de "só confirmou o que
@@ -263,7 +301,7 @@ export function importarRelatoriosExternos(blob: string): ResultadoImportacao {
     if (antes && vinculo?.profileId) transacoesCorrigidas++;
   }
 
-  return { total: blocos.length, reconhecidos, vinculadosABot, transacoesCorrigidas };
+  return { total: blocos.length, reconhecidos, vinculadosABot, transacoesCorrigidas, ignoradosBotAtivo };
 }
 
 export function buscarRelatorioExterno(

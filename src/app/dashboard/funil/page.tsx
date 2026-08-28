@@ -556,11 +556,18 @@ function FunilVisual({ m }: { m?: Metricas }) {
   d += " Z";
 
   return (
-    <div className="min-w-0 flex-1 self-stretch">
+    // `relative` + o SVG em `absolute inset-0`: sem isso o desenho DEFINIA a
+    // altura da linha. O viewBox é quadrado (100x100) e um SVG sem altura
+    // resolvida cai na proporção intrínseca dele — então quanto mais largo o
+    // monitor, mais ALTO o funil ficava (1014px de largura viravam 1007px de
+    // altura, e o card passava de 1000px, empurrando "Total starts" pra fora
+    // da tela). Fora do fluxo, ele só preenche a altura que as colunas de
+    // texto ao lado determinam, que é a medida compacta e certa.
+    <div className="relative min-w-0 flex-1 self-stretch">
       <svg
         viewBox={`0 0 100 ${H}`}
         preserveAspectRatio="none"
-        className="h-full w-full"
+        className="absolute inset-0 h-full w-full"
         role="img"
         aria-label={`Views ${m.views}, cliques ${m.clicks}, starts ${m.totalStarts}, PIX gerado ${m.pixGenerated}, pago ${m.pixPaid}`}
       >

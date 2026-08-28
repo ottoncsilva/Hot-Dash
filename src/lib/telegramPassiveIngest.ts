@@ -81,7 +81,14 @@ export async function relayForward(targetUrl: string, secret: string | undefined
   return false;
 }
 
-type BotEspiado = { id: string; profile_id: string; bot_token: string; id_vip: string; id_aquecimento: string };
+type BotEspiado = {
+  id: string;
+  profile_id: string;
+  bot_token: string;
+  id_vip: string;
+  id_aquecimento: string;
+  id_vendas: string | null;
+};
 
 /**
  * O bot que estava em "poll" (sem webhook) passou a ter um webhook — o
@@ -131,7 +138,7 @@ async function tentarVirarRelay(row: BotEspiado): Promise<boolean> {
 export async function runTelegramPassiveIngestPoll(): Promise<void> {
   const bots = getDb()
     .prepare(
-      `SELECT id, profile_id, bot_token, id_vip, id_aquecimento
+      `SELECT id, profile_id, bot_token, id_vip, id_aquecimento, id_vendas
          FROM telegram_bots
         WHERE passive_ingest_active = 1
           AND ingest_mode = 'poll'
@@ -142,7 +149,13 @@ export async function runTelegramPassiveIngestPoll(): Promise<void> {
     .all() as BotEspiado[];
 
   for (const row of bots) {
-    const bot = { id: row.id, profileId: row.profile_id, idVip: row.id_vip, idAquecimento: row.id_aquecimento };
+    const bot = {
+      id: row.id,
+      profileId: row.profile_id,
+      idVip: row.id_vip,
+      idAquecimento: row.id_aquecimento,
+      idVendas: row.id_vendas || undefined,
+    };
     try {
       const updates = await getTelegramUpdatesPeek(row.bot_token);
       for (const update of updates) {

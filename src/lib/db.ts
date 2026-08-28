@@ -175,6 +175,27 @@ function migrate(d: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_tx_created ON transactions(created_at);
 
+    -- RELATÓRIO DE VENDA vindo de fora (ex.: o Bobz, que opera alguns bots
+    -- e posta no Grupo de Vendas do Telegram um resumo de cada venda —
+    -- mesmo formato que o próprio Hot-Dash usa, ver buildSalesReportMessage
+    -- em payments/deliverPayment.ts). Guarda o que o relatório diz até o
+    -- webhook de pagamento (SyncPay/Stripe) casar pelo provider_ref
+    -- ("ID Transação Gateway") — dos dois lados, quem chegar primeiro espera
+    -- o outro (ver lib/externalSaleReport.ts).
+    CREATE TABLE IF NOT EXISTS external_sale_reports (
+      id                 TEXT PRIMARY KEY,
+      provider           TEXT NOT NULL,
+      provider_ref       TEXT NOT NULL,
+      bot_id             TEXT,
+      profile_id         TEXT,
+      telegram_user_id   INTEGER,
+      telegram_username  TEXT,
+      plan_name          TEXT,
+      raw_text           TEXT,
+      created_at         INTEGER NOT NULL,
+      UNIQUE (provider, provider_ref)
+    );
+
     CREATE TABLE IF NOT EXISTS tags (
       id         TEXT PRIMARY KEY,
       name       TEXT NOT NULL UNIQUE,

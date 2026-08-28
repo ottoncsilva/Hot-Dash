@@ -3,6 +3,7 @@ import type { TelegramBotConfig } from "./telegramDb";
 import { recordSeenChat, upsertTelegramLead, abandonPendingSubscriptions } from "./telegramDb";
 import { upsertTelegramUser, setTelegramUserGroup, getTelegramUser } from "./telegramUsers";
 import { recordGroupMembershipChange } from "./telegramMonitor";
+import { registrarRelatorioExterno } from "./externalSaleReport";
 
 /**
  * O que dá pra ENTENDER de um update do Telegram, sem mandar nada de volta —
@@ -18,7 +19,7 @@ import { recordGroupMembershipChange } from "./telegramMonitor";
  * controle total, nem a resposta 200 que o Telegram espera.
  */
 export function registrarChegadaTelegram(
-  bot: Pick<TelegramBotConfig, "id" | "profileId" | "idVip" | "idAquecimento">,
+  bot: Pick<TelegramBotConfig, "id" | "profileId" | "idVip" | "idAquecimento" | "idVendas">,
   update: any,
 ): void {
   try {
@@ -39,6 +40,15 @@ export function registrarChegadaTelegram(
     if (!message) return;
     const { chat, text, from } = message;
     const isStart = typeof text === "string" && text.startsWith("/start");
+
+    // GRUPO DE VENDAS: mensagem de relatório (o Bobz, ou o que for, posta
+    // ali um resumo de cada venda — mesmo formato que o próprio Hot-Dash usa
+    // pros bots que controla). É o único jeito de casar um pagamento "frio"
+    // (SyncPay/Stripe sem passar pelo nosso checkout) com o lead e o bot
+    // certos — ver `externalSaleReport.ts`.
+    if (bot.idVendas && String(chat?.id) === bot.idVendas && typeof text === "string") {
+      registrarRelatorioExterno(text);
+    }
 
     // Qualquer mensagem no PRIVADO confirma que o bot pode falar com a
     // pessoa — é o que a habilita a receber mailing. Nos GRUPOS, a mensagem

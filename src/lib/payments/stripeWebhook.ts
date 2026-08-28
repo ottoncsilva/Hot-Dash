@@ -14,6 +14,7 @@ import { getTelegramUser } from "@/lib/telegramUsers";
 import { sendTelegramMessage } from "@/lib/telegramApi";
 import { getStripeCredentials } from "@/lib/settings";
 import { getDb } from "@/lib/db";
+import { buscarRelatorioExterno } from "@/lib/externalSaleReport";
 
 export type ResultadoWebhookStripe = { ok: true; ignored?: boolean; reason?: string };
 
@@ -121,23 +122,32 @@ async function processarCheckoutCompleto(
   const grossCents = typeof session.amount_total === "number" ? session.amount_total : undefined;
 
   const updated = updateStatusByRef("stripe", providerRef, "paid", { grossCents });
-  registra(updated ? "cobrança atualizada · paid" : "venda nova · paid");
+  if (updated) registra("cobrança atualizada · paid");
 
   if (!updated) {
     // Sessão paga sem transação `pending` pré-criada (não deveria acontecer
     // no fluxo do bot, que sempre grava a transação antes de mandar o link,
     // mas cobre qualquer checkout gerado fora desse caminho) — mesmo padrão
-    // de fallback do webhook da SyncPay.
+    // de fallback do webhook da SyncPay. Se o Grupo de Vendas já mandou o
+    // relatório dessa venda (ex.: Bobz), ele já diz de qual modelo/bot é.
+    const vinculo = buscarRelatorioExterno("stripe", providerRef);
     recordTransaction({
       provider: "stripe",
       providerRef,
-      description: "Venda Stripe",
-      customer: session.customer_details?.name || session.customer_email || undefined,
+      profileId: vinculo?.profileId,
+      botId: vinculo?.botId,
+      description: vinculo?.planName ? `Venda Stripe - ${vinculo.planName}` : "Venda Stripe",
+      customer: session.customer_details?.name || session.customer_email || vinculo?.telegramUsername || undefined,
       amountCents: grossCents ?? 0,
       currency: (session.currency || "usd").toUpperCase(),
       method: "card",
       status: normalizeStatus("paid"),
     });
+    registra(
+      vinculo?.profileId
+        ? `venda nova · paid · vinculada pelo Grupo de Vendas (bot ${vinculo.botId})`
+        : "venda nova · paid · sem relatório do Grupo de Vendas ainda (Sem modelo)",
+    );
     return { ok: true };
   }
 
@@ -356,18 +366,29 @@ async function processarPaymentIntentSucedido(
 
   // Passou pelas 3 checagens: cobrança de verdade, desta conta, que o
   // Hot-Dash não iniciou e não é renovação de assinatura conhecida — grava
-  // como venda nova, SEM modelo atribuída ainda (mesma regra de sempre pra
-  // venda "fria" chegando só pelo webhook — corrige na tela de Financeiro).
+  // como venda nova. Se o Grupo de Vendas já mandou o relatório dessa venda
+  // (ex.: Bobz), ela já nasce atribuída ao modelo/bot certo; sem relatório
+  // ainda, nasce "Sem modelo" como sempre (corrige na tela de Financeiro, ou
+  // sozinha se o relatório chegar depois).
+  const vinculo = buscarRelatorioExterno("stripe", pi.id);
   recordTransaction({
     provider: "stripe",
     providerRef: pi.id,
-    description: "Venda Stripe (fora do checkout do Hot-Dash)",
-    customer: pi.receipt_email || undefined,
+    profileId: vinculo?.profileId,
+    botId: vinculo?.botId,
+    description: vinculo?.planName
+      ? `Venda Stripe - ${vinculo.planName} (fora do checkout do Hot-Dash)`
+      : "Venda Stripe (fora do checkout do Hot-Dash)",
+    customer: pi.receipt_email || vinculo?.telegramUsername || undefined,
     amountCents: pi.amount_received || pi.amount,
     currency: (pi.currency || "usd").toUpperCase(),
     method: "card",
     status: normalizeStatus("paid"),
   });
-  registra("venda nova (PaymentIntent fora do checkout) · paid");
+  registra(
+    vinculo?.profileId
+      ? `venda nova (PaymentIntent fora do checkout) · paid · vinculada pelo Grupo de Vendas (bot ${vinculo.botId})`
+      : "venda nova (PaymentIntent fora do checkout) · paid · sem relatório do Grupo de Vendas ainda (Sem modelo)",
+  );
   return { ok: true };
 }

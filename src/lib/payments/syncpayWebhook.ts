@@ -2,6 +2,7 @@ import "server-only";
 import { normalizeStatus, recordTransaction, updateStatusByRef } from "@/lib/transactions";
 import { logWebhookEvent } from "@/lib/webhookLog";
 import { deliverPaidTransaction } from "./deliverPayment";
+import { buscarRelatorioExterno } from "@/lib/externalSaleReport";
 
 /**
  * Webhook da SyncPay. Recebe os eventos da conta e atualiza o Financeiro.
@@ -132,7 +133,7 @@ export async function processarWebhookSyncPay(
     const netCents = toCents(data.final_amount ?? data.net_amount);
 
     const updated = updateStatusByRef("syncpay", providerRef, status, { grossCents, netCents });
-    registra(updated ? `cobrança atualizada · ${normalizeStatus(status)}` : `venda nova · ${normalizeStatus(status)}`);
+    if (updated) registra(`cobrança atualizada · ${normalizeStatus(status)}`);
 
     if (updated && updated.becamePaid) {
       await deliverPaidTransaction(updated.transaction, registra);
@@ -147,16 +148,28 @@ export async function processarWebhookSyncPay(
       // Quando só o líquido vier, a taxa é preenchida pela tabela em
       // recordTransaction, sem inflar a venda.
       const client = (data.client as Record<string, unknown>) || {};
+      // Se o Grupo de Vendas já mandou o relatório dessa venda (ex.: Bobz),
+      // ele já diz de qual modelo/bot é — nasce atribuída, sem precisar de
+      // correção manual depois. Sem relatório ainda, nasce "Sem modelo" como
+      // sempre (o relatório, se chegar depois, corrige sozinho).
+      const vinculo = buscarRelatorioExterno("syncpay", providerRef);
       recordTransaction({
         provider: "syncpay",
         providerRef,
-        description: "Venda SyncPay",
-        customer: (client.name as string) || undefined,
+        profileId: vinculo?.profileId,
+        botId: vinculo?.botId,
+        description: vinculo?.planName ? `Venda SyncPay - ${vinculo.planName}` : "Venda SyncPay",
+        customer: (client.name as string) || vinculo?.telegramUsername || undefined,
         amountCents: grossCents ?? netCents ?? 0,
         netAmountCents: netCents,
         method: (data.payment_method as string) || "pix",
         status: normalizeStatus(status),
       });
+      registra(
+        vinculo?.profileId
+          ? `venda nova · ${normalizeStatus(status)} · vinculada pelo Grupo de Vendas (bot ${vinculo.botId})`
+          : `venda nova · ${normalizeStatus(status)} · sem relatório do Grupo de Vendas ainda (Sem modelo)`,
+      );
     }
 
     return { ok: true };

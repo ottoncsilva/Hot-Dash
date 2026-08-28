@@ -240,6 +240,8 @@ export default function PaymentsPage() {
         />
       </div>
 
+      <ImportarHistoricoCard onImportado={load} />
+
       {/* Lista de PIX gerados */}
       <div className="mt-8 flex flex-wrap items-end justify-between gap-3">
         <p className="eyebrow">
@@ -618,6 +620,102 @@ function dataHoraCurta(ms: number, tz: string): string {
     hour: "2-digit", minute: "2-digit", timeZone: tz,
   });
   return `${data} ${hora}`;
+}
+
+/**
+ * Importa o histórico de um Grupo de Vendas que o Telegram não deixa a
+ * gente ler pra trás sozinho (ex.: o Bobz, antes de ligar a Recepção) — o
+ * operador copia as mensagens de dentro do próprio Telegram (seleciona
+ * várias e copia, ou cola o texto de um histórico exportado) e cola aqui.
+ * Reconhece uma ou várias mensagens juntas, cada uma resolvendo o bot dela
+ * pelo próprio "ID Bot" — não precisa escolher modelo nenhuma antes.
+ *
+ * Fica RECOLHIDO por padrão: é uma ferramenta de uso ocasional (histórico é
+ * importado uma vez), não precisa ocupar espaço na tela de todo dia.
+ */
+function ImportarHistoricoCard({ onImportado }: { onImportado: () => void }) {
+  const [aberto, setAberto] = useState(false);
+  const [texto, setTexto] = useState("");
+  const [importando, setImportando] = useState(false);
+  const [resultado, setResultado] = useState<{
+    total: number;
+    reconhecidos: number;
+    vinculadosABot: number;
+    transacoesCorrigidas: number;
+  } | null>(null);
+
+  async function importar() {
+    if (!texto.trim()) return;
+    setImportando(true);
+    setResultado(null);
+    try {
+      const r = await apiSend<{
+        ok: boolean;
+        total: number;
+        reconhecidos: number;
+        vinculadosABot: number;
+        transacoesCorrigidas: number;
+      }>("/api/telegram", "POST", { action: "import-sales-reports", text: texto });
+      setResultado(r);
+      if (r.transacoesCorrigidas > 0) {
+        showToast(`${r.transacoesCorrigidas} venda(s) corrigida(s) — modelo atribuída.`, "success");
+        onImportado();
+      } else if (r.reconhecidos > 0) {
+        showToast(`${r.reconhecidos} venda(s) reconhecida(s), nenhuma precisava de correção.`, "success");
+      } else {
+        showToast("Nenhuma venda reconhecida nesse texto.", "error");
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha ao importar.", "error");
+    } finally {
+      setImportando(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 card p-4">
+      <button
+        type="button"
+        onClick={() => setAberto((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 text-left"
+      >
+        <div>
+          <p className="text-sm font-semibold text-white">Importar histórico de vendas externas</p>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            Vendas de um bot como o Bobz, de ANTES de ligar a Recepção — o Telegram não deixa ler pra trás
+            sozinho, então cola aqui o que você copiar de dentro do grupo.
+          </p>
+        </div>
+        <span className="shrink-0 text-xs text-zinc-500">{aberto ? "recolher ▲" : "expandir ▼"}</span>
+      </button>
+      {aberto && (
+        <div className="mt-3">
+          <textarea
+            className="input min-h-[140px] font-mono text-xs"
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+            placeholder={
+              "Cole aqui uma ou várias mensagens do Grupo de Vendas (seleciona no Telegram, copia, cola)."
+            }
+          />
+          <div className="mt-2 flex items-center gap-3">
+            <button onClick={importar} disabled={importando || !texto.trim()} className="btn-primary text-xs">
+              {importando ? "Importando..." : "Importar"}
+            </button>
+            {resultado && (
+              <p className="text-xs text-zinc-500">
+                {resultado.total} mensagem(ns) · {resultado.reconhecidos} reconhecida(s) ·{" "}
+                {resultado.vinculadosABot} vinculada(s) a um bot ·{" "}
+                <span className={resultado.transacoesCorrigidas > 0 ? "text-emerald-400" : ""}>
+                  {resultado.transacoesCorrigidas} corrigida(s) agora
+                </span>
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SummaryChip({ label, value, accent }: { label: string; value: string | null; accent?: boolean }) {

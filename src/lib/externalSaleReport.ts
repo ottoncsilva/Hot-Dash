@@ -163,6 +163,74 @@ export function registrarRelatorioExterno(text: string): void {
  * do Grupo de Vendas já chegou primeiro, a venda nasce JÁ atribuída, em vez
  * de cair em "Sem modelo" pra corrigir na mão depois.
  */
+/**
+ * Separa um texto colado (várias mensagens do Grupo de Vendas coladas
+ * juntas — do jeito que o Telegram entrega quando você seleciona várias
+ * mensagens no celular e copia, ou de um histórico exportado) em blocos, um
+ * por venda. O separador é a linha de atribuição que o próprio Telegram
+ * insere entre mensagens copiadas: "Nome do canal, [DD de mês de AAAA às
+ * HH:MM]". Uma mensagem colada avulsa (sem esse cabeçalho) vira um bloco só.
+ */
+export function splitSalesReportBlob(blob: string): string[] {
+  const linhas = blob.split("\n");
+  const cabecalho = /^.+,\s*\[\d{1,2} de \S+ de \d{4} às \d{2}:\d{2}\]\s*$/;
+  const blocos: string[] = [];
+  let atual: string[] = [];
+  for (const linha of linhas) {
+    if (cabecalho.test(linha.trim())) {
+      if (atual.length) blocos.push(atual.join("\n").trim());
+      atual = [];
+    } else {
+      atual.push(linha);
+    }
+  }
+  if (atual.length) blocos.push(atual.join("\n").trim());
+  return blocos.filter(Boolean);
+}
+
+export type ResultadoImportacao = {
+  total: number;
+  reconhecidos: number;
+  vinculadosABot: number;
+  transacoesCorrigidas: number;
+};
+
+/**
+ * IMPORTAÇÃO EM LOTE — histórico colado (o Telegram não deixa um bot ler
+ * mensagens antigas, então isso cobre o que já aconteceu ANTES da recepção
+ * existir; ver a explicação completa dada ao operador). Reaproveita
+ * `registrarRelatorioExterno` bloco a bloco — mesma lógica, mesmas travas
+ * (nunca sobrescreve uma venda já atribuída), só que de uma vez só.
+ */
+export function importarRelatoriosExternos(blob: string): ResultadoImportacao {
+  const blocos = splitSalesReportBlob(blob);
+  let reconhecidos = 0;
+  let vinculadosABot = 0;
+  let transacoesCorrigidas = 0;
+  const db = getDb();
+
+  for (const bloco of blocos) {
+    const parsed = parseSalesReportMessage(bloco);
+    if (!parsed?.providerRef || !parsed.provider) continue;
+    reconhecidos++;
+
+    // Conta ANTES de registrar se essa venda específica ainda estava sem
+    // modelo — pra distinguir "corrigiu uma venda" de "só confirmou o que
+    // já estava certo" no resumo mostrado ao operador.
+    const antes = db
+      .prepare("SELECT 1 FROM transactions WHERE provider = ? AND provider_ref = ? AND profile_id IS NULL")
+      .get(parsed.provider, parsed.providerRef);
+
+    registrarRelatorioExterno(bloco);
+
+    const vinculo = buscarRelatorioExterno(parsed.provider, parsed.providerRef);
+    if (vinculo?.profileId) vinculadosABot++;
+    if (antes && vinculo?.profileId) transacoesCorrigidas++;
+  }
+
+  return { total: blocos.length, reconhecidos, vinculadosABot, transacoesCorrigidas };
+}
+
 export function buscarRelatorioExterno(
   provider: string,
   providerRef: string,

@@ -1092,6 +1092,18 @@ export async function POST(req: NextRequest) {
     }
 
     // ---- Status do webhook (getWebhookInfo) ----
+    // ---- Importação em lote do histórico do Grupo de Vendas (bots como o
+    // Bobz, que o Telegram não deixa a gente ler pra trás sozinho) — texto
+    // colado com uma ou várias mensagens, não amarrado a UM bot específico
+    // (cada bloco resolve o bot dele pelo "ID Bot" do próprio texto). ----
+    if (action === "import-sales-reports") {
+      const texto = typeof body.text === "string" ? body.text : "";
+      if (!texto.trim()) throw new ApiError(400, "Cole o texto do histórico.");
+      const { importarRelatoriosExternos } = await import("@/lib/externalSaleReport");
+      const resultado = importarRelatoriosExternos(texto);
+      return NextResponse.json({ ok: true, ...resultado });
+    }
+
     if (action === "webhook-status") {
       const bot = requireBot(body.profileId);
       const { url: expectedUrl, originSource, problem } = webhookUrlFor(req, bot.id);

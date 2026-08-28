@@ -2,6 +2,8 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
 import { upsertTelegramUser } from "./telegramUsers";
+import { getBotConfig } from "./telegramDb";
+import { getTelegramChatMember } from "./telegramApi";
 
 /**
  * VÍNCULO de pagamento a lead/bot pra vendas que NÃO passam pelo checkout do
@@ -151,9 +153,42 @@ export function registrarRelatorioExterno(text: string): void {
         firstName: parsed.nomePerfil,
         source: "compra",
       });
+      // "VIP" na tela de Usuários não é "comprou" — é "está DE VERDADE no
+      // grupo agora" (mesmo critério de sempre, ver ACTIVE_VIP em
+      // telegramUsers.ts). Comprar não confirma que o convite foi aceito
+      // (pode ainda não ter entrado, ou o Bobz pode nem convidar pelo
+      // mesmo grupo que está cadastrado aqui) — por isso CONSULTA a API do
+      // Telegram agora, em vez de supor. Em segundo plano: uma chamada de
+      // rede não pode seguar a resposta ao Telegram nem derrubar o resto
+      // se falhar (bot sem token válido, grupo errado, etc.).
+      void confirmarVipPelaApi(botId, profileId, parsed.telegramUserId, parsed.username, parsed.nomePerfil);
     }
   } catch (err) {
     console.error("[hotdash] erro registrando relatório externo de venda:", err);
+  }
+}
+
+/** Consulta se a pessoa está DE VERDADE no grupo VIP do bot agora — e só
+ *  então marca `inVip`. Nunca lança (chamada em segundo plano, sem await). */
+async function confirmarVipPelaApi(
+  botId: string,
+  profileId: string,
+  telegramUserId: number,
+  username: string | undefined,
+  firstName: string | undefined,
+): Promise<void> {
+  try {
+    const bot = getBotConfig(botId);
+    if (!bot?.idVip) return;
+    const member = await getTelegramChatMember(bot.botToken, bot.idVip, telegramUserId);
+    const noGrupo = member?.status
+      ? ["member", "administrator", "creator", "restricted"].includes(member.status)
+      : false;
+    if (noGrupo) {
+      upsertTelegramUser({ botId, profileId, telegramUserId, username, firstName, inVip: true, source: "compra" });
+    }
+  } catch (err) {
+    console.error("[hotdash] erro conferindo VIP pela API (relatório externo):", err);
   }
 }
 

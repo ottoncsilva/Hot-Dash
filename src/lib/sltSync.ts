@@ -64,12 +64,13 @@ const RESERVA_PARA_A_TELA = 12;
  *  aperta, quem cede é o catálogo. */
 const RESERVA_CATALOGO = 24;
 
-/** De quanto em quanto tempo o job de fundo refaz o catálogo: 24 req/hora
- *  fixas (2 por sincronização), independente de quantas telas forem abertas.
- *  Somado ao sync de eventos (12 a 24/hora), dá 36 a 48 das 60 documentadas
- *  — cabe, mas sem folga grande, e por isso o catálogo tem reserva PRÓPRIA,
- *  maior (ver `RESERVA_CATALOGO`). */
-const CATALOGO_INTERVALO_MS = 5 * 60 * 1000;
+/** De quanto em quanto tempo o job de fundo refaz o catálogo. Intervalo bem
+ *  mais longo que o dos eventos de propósito: páginas e links só mudam
+ *  quando o operador edita no painel da SLT, enquanto evento é fluxo
+ *  contínuo. São 8 req/hora fixas (2 por sincronização), independente de
+ *  quantas telas forem abertas — somadas ao sync de eventos (12 a 24/hora),
+ *  dão 20 a 32 das 60 documentadas, com folga confortável. */
+const CATALOGO_INTERVALO_MS = 15 * 60 * 1000;
 
 /** Lê `X-RateLimit-*` de qualquer resposta (inclusive a de erro, que é
  *  justamente quando o número importa) e GRAVA no banco — nada em memória,

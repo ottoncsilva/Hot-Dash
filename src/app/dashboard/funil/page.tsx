@@ -53,19 +53,6 @@ function duracao(ms: number): string {
   return h % 24 === 0 ? `${d}d` : `${d}d${h % 24}h`;
 }
 
-/**
- * "1 venda a cada X". Devolve null quando não dá para dividir — a tela escreve
- * o motivo em vez de mostrar 0 ou infinito.
- *
- * Atenção ao ler: numerador e denominador são da MESMA janela, mas não da
- * mesma gente — quem deu /start hoje pode comprar amanhã. Numa janela curta é
- * normal haver venda de lead antigo, e por isso o rótulo diz "no período".
- */
-function porVenda(de: number, vendas: number): number | null {
-  if (vendas <= 0 || de <= 0) return null;
-  return de / vendas;
-}
-
 type Metricas = {
   /** Do SLT (link na bio) — zerado sem a chave configurada. */
   views: number;
@@ -197,12 +184,26 @@ export default function FunilPage() {
           desenho (que é fixo em 420px daqui pra cima). O `minmax(0,…)`
           nas duas colunas é o que impede uma delas de estourar a
           largura por causa de um conteúdo comprido. */}
-      <div className="mt-6 lg:grid lg:grid-cols-[minmax(0,7fr)_minmax(300px,5fr)] lg:items-start lg:gap-6">
+      <div className="mt-6 lg:grid lg:grid-cols-[minmax(0,7fr)_minmax(300px,5fr)] lg:items-stretch lg:gap-6">
         <div className="card p-5">
           <p className="eyebrow">jornada do usuário até a compra</p>
-          <div className="flex items-stretch gap-3 lg:gap-6">
+          {/* SIMETRIA: etapa (esquerda) e conversão (direita) são colunas
+              IRMÃS — as duas `flex-1`, os cinco quadros de cada uma `flex-1`
+              também. Mesma largura, mesma altura, mesmo topo, mesma base, em
+              qualquer tela. O desenho fica no meio, com largura própria, e
+              por isso nasce centralizado (era o que saía torto no iPad em
+              pé). Antes os números da esquerda eram posicionados DENTRO do
+              SVG, e por isso nunca teriam a medida da direita. */}
+          <div className="flex items-stretch gap-2 lg:gap-3">
+            <div className="flex flex-1 flex-col gap-2">
+              <Etapa label="Views" valor={m ? String(m.views) : null} />
+              <Etapa label="Cliques" valor={m ? String(m.clicks) : null} />
+              <Etapa label="/start" valor={m ? String(m.totalStarts) : null} />
+              <Etapa label="PIX gerado" valor={m ? String(m.pixGenerated) : null} />
+              <Etapa label="Pago" valor={m ? String(m.pixPaid) : null} accent />
+            </div>
             <FunilVisual m={m} />
-            <div className="flex flex-1 flex-col justify-between border-l border-white/[0.06] pl-3 lg:pl-6">
+            <div className="flex flex-1 flex-col gap-2">
               <Conversao label="View → Clique" valor={m ? pctFunil(m.viewToClick) : null} detalhe={m ? `${m.clicks} de ${m.views}` : ""} />
               <Conversao label="Clique → Start" valor={m ? pctFunil(m.clickToStart) : null} detalhe={m ? `${m.totalStarts} de ${m.clicks}` : ""} />
               <Conversao label="Start → PIX" valor={m ? pctFunil(m.startToPix) : null} detalhe={m ? `${m.pixGenerated} de ${m.totalStarts}` : ""} />
@@ -219,42 +220,23 @@ export default function FunilPage() {
           )}
         </div>
 
-        {/* Empilhado, os quatro cabem numa linha só (nunca mais o 4º órfão
-            numa segunda fila, que era o que a grade de 3 colunas fazia). Ao
-            lado do funil, viram UMA coluna: em duas, cada card fica com
-            ~190px a 1280px e ~220px a 1440px, e os três valores (hoje/mês/
-            total) passam a truncar — "R$ 28,67" precisa de 80px e sobravam
-            46. Duas colunas só caberiam de ~1900px pra cima. Medido no
-            navegador, não estimado.
-
-            `pt-5` só no lado a lado: alinha este rótulo com o "jornada do
-            usuário" lá de dentro do card, que o padding do card empurra. */}
-        <div className="lg:pt-5">
-          {/* Comparativo de três janelas. NÃO segue o seletor de período de
-              propósito: 11% hoje só significa alguma coisa ao lado do histórico. */}
-          <p className="eyebrow mt-8 lg:mt-0">hoje, no mês e desde sempre</p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+        {/* Comparativo de duas janelas (hoje e mês). NÃO segue o seletor de
+            período de propósito: 11% hoje só significa alguma coisa ao lado
+            do histórico. `h-full` + `flex-1` em cada card: os quatro dividem
+            a altura do card do funil ao lado, alinhados em cima e embaixo. */}
+        <div className="lg:h-full">
+          <div className="grid h-full gap-3 sm:grid-cols-2 lg:flex lg:flex-col">
             <CartaoComparativo
               titulo="Conversão de usuário"
               subtitulo="% de quem deu /start e comprou"
               comp={data?.comparativo}
               valor={(j) => pct(j.startToPaid)}
-              rodape={(j) => {
-                const r = porVenda(j.totalStarts, j.pixPaid);
-                if (j.pixPaid > j.totalStarts && j.totalStarts > 0)
-                  return "vendas de leads de outros dias";
-                return r === null ? "ainda sem venda" : `1 venda a cada ${Math.round(r)} starts`;
-              }}
             />
             <CartaoComparativo
               titulo="Conversão de pagamento"
               subtitulo="% dos PIX gerados que foram pagos"
               comp={data?.comparativo}
               valor={(j) => pct(j.pixToPaid)}
-              rodape={(j) => {
-                const r = porVenda(j.pixGenerated, j.pixPaid);
-                return r === null ? "ainda sem venda" : `1 venda a cada ${Math.round(r)} PIX`;
-              }}
             />
             <CartaoTempo comp={data?.comparativo} />
             <CartaoComparativo
@@ -262,11 +244,6 @@ export default function FunilPage() {
               subtitulo="valor médio por venda"
               comp={data?.comparativo}
               valor={(j) => brl(j.avgTicketCents)}
-              rodape={(j) =>
-                j.valorMaisComprado && j.pixPaid >= 5
-                  ? `mais comprado: ${brl(j.valorMaisComprado.cents)} (${j.valorMaisComprado.vezes}×)`
-                  : "poucas vendas para dizer qual valor mais vende"
-              }
             />
           </div>
         </div>
@@ -531,7 +508,10 @@ const FUNIL_COR = "#34d399";
  * é grade (linha × coluna), não colagem.
  */
 function FunilVisual({ m }: { m?: Metricas }) {
-  if (!m) return <div className="h-80 w-[54%] shrink-0 animate-pulse rounded-lg bg-white/5" />;
+  // Largura própria e fixa em proporção: as colunas de etapa e conversão são
+  // `flex-1` e dividem o que sobra em partes iguais — é isso que mantém o
+  // desenho no CENTRO exato do card em qualquer largura.
+  if (!m) return <div className="w-[26%] shrink-0 animate-pulse rounded-lg bg-white/5" />;
 
   // SEMPRE as 5 etapas — mesmo sem SLT conectado, mesmo período sem
   // nenhuma venda. Esconder etapa quando o número é 0 já escondeu dado de
@@ -539,26 +519,20 @@ function FunilVisual({ m }: { m?: Metricas }) {
   // resposta, não um "não configurado"); zero é informação, não motivo pra
   // sumir com o desenho.
   const base = Math.max(m.views, m.clicks, m.totalStarts, m.pixGenerated, m.pixPaid, 1);
-  const rotulos = ["Views", "Cliques", "/start", "PIX gerado", "Pago"];
   const valores = [m.views, m.clicks, m.totalStarts, m.pixGenerated, m.pixPaid];
   const N = valores.length;
 
-  // Coordenadas em unidades "percentuais" (W/H = 100): 1 unidade = 1% do
-  // contêiner — desenho, coluna de números e linhas-guia escalam juntos em
-  // qualquer tamanho. A coluna da esquerda (rótulos) vai de 0 a `divisor`;
-  // o desenho ocupa o resto, à direita da linha divisória. Coluna e forma
-  // mais estreitas que antes (era 24/32) — o contêiner agora divide espaço
-  // com os cards de conversão em QUALQUER largura de tela, não só depois de
-  // sobrar espaço no desktop.
-  const W = 100;
+  // Coordenadas em "percentuais" (W/H = 100): 1 unidade = 1% do contêiner.
+  // A forma usa a largura INTEIRA agora (cx no meio), porque os números
+  // saíram de dentro do SVG e viraram uma coluna irmã.
   const H = 100;
-  const divisor = 34;
-  const cx = 67; // centro da forma, DENTRO da área à direita do divisor
-  const maxHalf = 22;
-  const topPad = 8;
-  const bottomPad = 8;
+  const cx = 50;
+  const maxHalf = 34;
+  // As cinturas casam com o centro de cada quadro das colunas ao lado: cinco
+  // quadros `flex-1` dividem a altura em cinco faixas iguais, e o centro da
+  // faixa i fica em (i + 0,5)/5 — ou seja 10, 30, 50, 70 e 90%.
+  const centerYs = valores.map((_, i) => ((i + 0.5) * H) / N);
   const halfWidths = valores.map((v) => maxHalf * Math.min(1, Math.max(0.035, v / base)));
-  const centerYs = valores.map((_, i) => topPad + (i * (H - topPad - bottomPad)) / (N - 1));
   const domeTopo = 5.5;
   const domeBase = Math.min(8, Math.max(2.5, halfWidths[N - 1] * 0.55));
 
@@ -580,65 +554,35 @@ function FunilVisual({ m }: { m?: Metricas }) {
   }
   d += " Z";
 
-  // Altura de referência casada com uma largura de referência: a RAZÃO
-  // entre as duas vira `aspect-ratio` do contêiner, não um tamanho fixo em
-  // pixel — o navegador escala os dois juntos conforme sobra espaço na
-  // tela (cresce até o teto, encolhe no celular) sem esticar/achatar a
-  // curva.
-  const alturaRef = Math.max(340, 78 * N + 60);
-  const larguraRef = 300;
-
   return (
-    <div
-      className="relative w-[54%] shrink-0"
-      style={{ aspectRatio: `${larguraRef} / ${alturaRef}` }}
-    >
-      {/* Linhas-guia horizontais — só dentro do DESENHO, entre a linha
-          vertical divisória (à esquerda dela mora a coluna de números, sem
-          linha nenhuma cruzando por baixo) e a borda direita do gráfico, na
-          mesma altura exata da cintura daquela etapa. */}
-      {centerYs.map((y, i) => (
-        <div
-          key={`linha-${rotulos[i]}`}
-          className="absolute h-px bg-white/[0.06]"
-          style={{ top: `${(y / H) * 100}%`, left: `${divisor}%`, right: 0 }}
-        />
-      ))}
-
-      {/* Linha vertical separando a coluna de números do desenho — o par da
-          que já existe do lado direito, entre o funil e a lista de
-          conversão. */}
-      <div className="absolute inset-y-0 border-l border-white/10" style={{ left: `${divisor}%` }} />
-
-      {/* Coluna de números: uma linha reta só, cada etapa na MESMA posição
-          horizontal (não colada na largura da curva) — é a "linha vertical
-          igual a da direita" que estava faltando. */}
-      {valores.map((v, i) => (
-        <div
-          key={rotulos[i]}
-          className="absolute -translate-y-1/2 rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1.5 text-left lg:px-2.5 lg:py-2"
-          style={{ top: `${(centerYs[i] / H) * 100}%`, left: 0, width: `${divisor - 2.5}%` }}
-        >
-          <p className="font-mono text-[9px] uppercase leading-tight tracking-tight text-zinc-500">
-            {rotulos[i]}
-          </p>
-          <p className={`mt-1 font-display text-lg font-semibold leading-tight lg:text-xl ${i === N - 1 ? "text-emerald-400" : "text-white"}`}>
-            {v}
-          </p>
-        </div>
-      ))}
-
+    <div className="w-[26%] shrink-0 self-stretch">
       <svg
-        viewBox={`0 0 ${W} ${H}`}
+        viewBox={`0 0 100 ${H}`}
         preserveAspectRatio="none"
-        className="absolute inset-0 h-full w-full"
+        className="h-full w-full"
         role="img"
-        aria-label={valores.map((v, i) => `${rotulos[i]} ${v}`).join(", ")}
+        aria-label={`Views ${m.views}, cliques ${m.clicks}, starts ${m.totalStarts}, PIX gerado ${m.pixGenerated}, pago ${m.pixPaid}`}
       >
         {/* Cor sólida só, sem gradiente, sem stroke, sem blur — a borda é o
             próprio traçado do path, nítida por definição. */}
         <path d={d} fill={FUNIL_COR} />
       </svg>
+    </div>
+  );
+}
+
+/** Um quadro de ETAPA (rótulo + número absoluto), à esquerda do desenho.
+ *  Mesma caixa, mesmo padding e mesmo tamanho de número do `Conversao` do
+ *  outro lado — as duas colunas precisam ser indistinguíveis em medida. */
+function Etapa({ label, valor, accent }: { label: string; valor: string | null; accent?: boolean }) {
+  return (
+    <div className="flex flex-1 flex-col justify-center rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2 text-left lg:px-3 lg:py-2.5">
+      <p className="font-mono text-[9px] uppercase leading-tight tracking-tight text-zinc-500 lg:text-[10px] lg:tracking-wider">
+        {label}
+      </p>
+      <p className={`mt-1 font-display text-lg font-semibold lg:text-xl ${accent ? "text-emerald-400" : "text-white"}`}>
+        {valor ?? <span className="inline-block h-6 w-14 animate-pulse rounded bg-white/5" />}
+      </p>
     </div>
   );
 }
@@ -657,7 +601,7 @@ function Conversao({
   accent?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2 text-left lg:px-3 lg:py-2.5">
+    <div className="flex flex-1 flex-col justify-center rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2 text-left lg:px-3 lg:py-2.5">
       <p className="font-mono text-[9px] uppercase leading-tight tracking-tight text-zinc-500 lg:text-[10px] lg:tracking-wider">
         {label}
       </p>
@@ -925,26 +869,23 @@ function CartaoComparativo({
   subtitulo,
   comp,
   valor,
-  rodape,
 }: {
   titulo: string;
   subtitulo: string;
   comp?: Comparativo;
   valor: (j: Janela) => string;
-  rodape: (j: Janela) => string;
 }) {
   const janelas: { rotulo: string; chave: keyof Comparativo }[] = [
     { rotulo: "Hoje", chave: "hoje" },
     { rotulo: "Mês", chave: "mes" },
-    { rotulo: "Total", chave: "total" },
   ];
   return (
-    <div className="card p-4">
+    <div className="card flex flex-col justify-center p-4 lg:flex-1">
       <p className="text-sm font-semibold text-zinc-200">{titulo}</p>
       <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
         {subtitulo}
       </p>
-      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+      <div className="mt-3 grid grid-cols-2 gap-2 text-center">
         {janelas.map((j) => (
           <div key={j.chave} className="min-w-0">
             <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
@@ -956,9 +897,6 @@ function CartaoComparativo({
           </div>
         ))}
       </div>
-      <p className="mt-3 border-t border-white/[0.06] pt-2 text-[11px] text-zinc-500">
-        {comp ? rodape(comp.mes) : "—"} <span className="text-zinc-700">no mês</span>
-      </p>
     </div>
   );
 }
@@ -974,16 +912,14 @@ function CartaoTempo({ comp }: { comp?: Comparativo }) {
   const janelas: { rotulo: string; chave: keyof Comparativo }[] = [
     { rotulo: "Hoje", chave: "hoje" },
     { rotulo: "Mês", chave: "mes" },
-    { rotulo: "Total", chave: "total" },
   ];
-  const mes = comp?.mes.tempo;
   return (
-    <div className="card p-4">
+    <div className="card flex flex-col justify-center p-4 lg:flex-1">
       <p className="text-sm font-semibold text-zinc-200">Tempo até a compra</p>
       <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
         metade das vendas em até
       </p>
-      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+      <div className="mt-3 grid grid-cols-2 gap-2 text-center">
         {janelas.map((j) => {
           const t = comp?.[j.chave].tempo;
           return (
@@ -1002,21 +938,6 @@ function CartaoTempo({ comp }: { comp?: Comparativo }) {
           );
         })}
       </div>
-      <p className="mt-3 border-t border-white/[0.06] pt-2 text-[11px] text-zinc-500">
-        {!mes ? (
-          "—"
-        ) : mes.base === 0 ? (
-          "Nenhuma venda do mês passou pelo /start do bot — não dá para medir."
-        ) : (
-          <>
-            base: {mes.base} primeira{mes.base > 1 ? "s" : ""} compra{mes.base > 1 ? "s" : ""} no mês
-            {mes.semStart > 0 && ` · ${mes.semStart} sem /start`}
-            {mes.renovacoes > 0 &&
-              ` · ${mes.renovacoes} ${mes.renovacoes > 1 ? "renovações" : "renovação"}`}
-            {mes.base < 5 && <span className="text-amber-400/80"> · poucos casos</span>}
-          </>
-        )}
-      </p>
     </div>
   );
 }

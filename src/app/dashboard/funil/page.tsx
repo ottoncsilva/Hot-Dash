@@ -197,7 +197,7 @@ export default function FunilPage() {
           desenho (que é fixo em 420px daqui pra cima). O `minmax(0,…)`
           nas duas colunas é o que impede uma delas de estourar a
           largura por causa de um conteúdo comprido. */}
-      <div className="mt-6 xl:grid xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] xl:items-start xl:gap-6">
+      <div className="mt-6 lg:grid lg:grid-cols-[minmax(0,7fr)_minmax(300px,5fr)] lg:items-start lg:gap-6">
         <div className="card p-5">
           <p className="eyebrow">jornada do usuário até a compra</p>
           <div className="flex items-stretch gap-3 lg:gap-6">
@@ -229,11 +229,11 @@ export default function FunilPage() {
 
             `pt-5` só no lado a lado: alinha este rótulo com o "jornada do
             usuário" lá de dentro do card, que o padding do card empurra. */}
-        <div className="xl:pt-5">
+        <div className="lg:pt-5">
           {/* Comparativo de três janelas. NÃO segue o seletor de período de
               propósito: 11% hoje só significa alguma coisa ao lado do histórico. */}
-          <p className="eyebrow mt-8 xl:mt-0">hoje, no mês e desde sempre</p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-1">
+          <p className="eyebrow mt-8 lg:mt-0">hoje, no mês e desde sempre</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
             <CartaoComparativo
               titulo="Conversão de usuário"
               subtitulo="% de quem deu /start e comprou"
@@ -531,7 +531,7 @@ const FUNIL_COR = "#34d399";
  * é grade (linha × coluna), não colagem.
  */
 function FunilVisual({ m }: { m?: Metricas }) {
-  if (!m) return <div className="h-80 w-[54%] shrink-0 animate-pulse rounded-lg bg-white/5 lg:w-[420px] xl:w-[54%]" />;
+  if (!m) return <div className="h-80 w-[54%] shrink-0 animate-pulse rounded-lg bg-white/5" />;
 
   // SEMPRE as 5 etapas — mesmo sem SLT conectado, mesmo período sem
   // nenhuma venda. Esconder etapa quando o número é 0 já escondeu dado de
@@ -552,9 +552,9 @@ function FunilVisual({ m }: { m?: Metricas }) {
   // sobrar espaço no desktop.
   const W = 100;
   const H = 100;
-  const divisor = 20;
-  const cx = 60; // centro da forma, DENTRO da área à direita do divisor
-  const maxHalf = 27;
+  const divisor = 34;
+  const cx = 67; // centro da forma, DENTRO da área à direita do divisor
+  const maxHalf = 22;
   const topPad = 8;
   const bottomPad = 8;
   const halfWidths = valores.map((v) => maxHalf * Math.min(1, Math.max(0.035, v / base)));
@@ -590,7 +590,7 @@ function FunilVisual({ m }: { m?: Metricas }) {
 
   return (
     <div
-      className="relative w-[54%] shrink-0 lg:w-[420px] xl:w-[54%]"
+      className="relative w-[54%] shrink-0"
       style={{ aspectRatio: `${larguraRef} / ${alturaRef}` }}
     >
       {/* Linhas-guia horizontais — só dentro do DESENHO, entre a linha
@@ -616,13 +616,13 @@ function FunilVisual({ m }: { m?: Metricas }) {
       {valores.map((v, i) => (
         <div
           key={rotulos[i]}
-          className="absolute -translate-y-1/2 text-right"
+          className="absolute -translate-y-1/2 rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1.5 text-left lg:px-2.5 lg:py-2"
           style={{ top: `${(centerYs[i] / H) * 100}%`, left: 0, width: `${divisor - 2.5}%` }}
         >
-          <p className="font-mono text-[8px] uppercase leading-tight tracking-tight text-zinc-500 lg:text-[9px] lg:tracking-wider">
+          <p className="font-mono text-[9px] uppercase leading-tight tracking-tight text-zinc-500">
             {rotulos[i]}
           </p>
-          <p className={`font-display text-base font-semibold leading-tight lg:text-lg ${i === N - 1 ? "text-emerald-400" : "text-white"}`}>
+          <p className={`mt-1 font-display text-lg font-semibold leading-tight lg:text-xl ${i === N - 1 ? "text-emerald-400" : "text-white"}`}>
             {v}
           </p>
         </div>

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { TelegramPlan, TelegramBotConfig } from "@/lib/telegramDb";
 import { moedaPorIdioma, formatarMoeda, type MoedaIntl } from "@/lib/moedaIntl";
 import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, getTelegramLead, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, recurringFromDurationDays, primeiraVezQueVejoEsteUpdate, BUMP_DEFAULTS, PIX_DEFAULTS, CHECKOUT_DEFAULTS } from "@/lib/telegramDb";
-import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser, setTelegramUserLanguage } from "@/lib/telegramUsers";
+import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser, setTelegramUserLanguage, limparTelegramUserLanguage } from "@/lib/telegramUsers";
 import { registrarChegadaTelegram, registraMudancaDeGrupo } from "@/lib/telegramIngest";
 import { getMailingOffer } from "@/lib/telegramMailing";
 import { sendTelegramMessage, sendTelegramMedia, sendTelegramMediaGroup, sendTelegramVoiceUrl, sendTelegramPhotoBuffer, approveTelegramJoinRequest, declineTelegramJoinRequest, telegramWebhookSecret } from "@/lib/telegramApi";
@@ -315,6 +315,12 @@ export async function POST(
       // downsell etc. — nada muda). "🌎 International" cai no MESMO menu de
       // idioma que o botão "Not from Brazil?" já abre hoje — ver logo abaixo.
       if (data === "origin_br") {
+        // Declarou-se brasileiro: o funil inteiro passa a ser em REAIS, na
+        // mesma tabela do PIX da SyncPay. A abertura abaixo já é fixa em BRL,
+        // mas os funis de downsell escolhem a moeda pelo idioma salvo — sem
+        // limpar aqui, quem tinha espiado o menu internacional antes veria R$
+        // no /start e receberia a recuperação em dólar/euro.
+        limparTelegramUserLanguage(bot.id, from.id);
         await enviarAberturaBrasil(bot, message.chat, from);
         return NextResponse.json({ ok: true });
       }

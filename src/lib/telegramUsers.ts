@@ -210,6 +210,23 @@ export function setTelegramUserLanguage(botId: string, telegramUserId: number, l
     .run(language, botId, telegramUserId);
 }
 
+/**
+ * APAGA o idioma do lead — usado quando ele declara que é do BRASIL na
+ * pergunta de origem (`origin_br`).
+ *
+ * Sem isto, quem espiou o menu "Not from Brazil?", escolheu um idioma e
+ * depois voltou pro Brasil ficava com `language` gravado pra sempre. A
+ * abertura brasileira mostra reais (ela é fixa em BRL), mas os funis de
+ * downsell decidem a moeda POR ESSE CAMPO — então o lead via R$ no /start e
+ * depois recebia a recuperação em dólar/euro. Declarar-se brasileiro tem que
+ * valer pro funil inteiro, não só pra primeira tela.
+ */
+export function limparTelegramUserLanguage(botId: string, telegramUserId: number): void {
+  getDb()
+    .prepare(`UPDATE telegram_users SET language = NULL WHERE bot_id = ? AND telegram_user_id = ?`)
+    .run(botId, telegramUserId);
+}
+
 export function deleteTelegramUser(id: string): void {
   getDb().prepare("DELETE FROM telegram_users WHERE id = ?").run(id);
 }

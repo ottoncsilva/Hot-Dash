@@ -184,7 +184,7 @@ export default function FunilPage() {
           desenho (que é fixo em 420px daqui pra cima). O `minmax(0,…)`
           nas duas colunas é o que impede uma delas de estourar a
           largura por causa de um conteúdo comprido. */}
-      <div className="mt-6 lg:grid lg:grid-cols-[minmax(0,1fr)_240px] lg:items-stretch lg:gap-6">
+      <div className="mt-6 lg:grid lg:grid-cols-[minmax(0,1fr)_240px] xl:grid-cols-[minmax(0,1fr)_312px] lg:items-stretch lg:gap-6">
         <div className="card p-5">
           <p className="eyebrow">jornada do usuário até a compra</p>
           {/* SIMETRIA: etapa (esquerda) e conversão (direita) são colunas
@@ -222,7 +222,10 @@ export default function FunilPage() {
 
         {/* Comparativo de duas janelas (hoje e mês). NÃO segue o seletor de
             período de propósito: 11% hoje só significa alguma coisa ao lado
-            do histórico. `h-full` + `flex-1` em cada card: os quatro dividem
+            do histórico. A coluna é 30% mais larga a partir de `xl` (312px,
+            contra 240px): no monitor grande sobrava largura demais pro
+            desenho, que virava uma panqueca. Só de `xl` pra cima porque em
+            1024px os mesmos 312px deixariam o desenho com 95px — medido. `h-full` + `flex-1` em cada card: os quatro dividem
             a altura do card do funil ao lado, alinhados em cima e embaixo. */}
         <div className="lg:h-full">
           <div className="grid h-full gap-3 sm:grid-cols-2 lg:flex lg:flex-col">

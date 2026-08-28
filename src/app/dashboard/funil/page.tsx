@@ -189,65 +189,87 @@ export default function FunilPage() {
           menor em `FunilVisual`). `items-stretch` faz a coluna de taxas
           esticar pra MESMA altura do desenho e `justify-between` espalha as
           5 igualmente por essa altura. */}
-      <div className="mt-6 card p-5">
-        <p className="eyebrow">jornada do usuário até a compra</p>
-        <div className="flex items-stretch gap-3 lg:gap-6">
-          <FunilVisual m={m} />
-          <div className="flex flex-1 flex-col justify-between border-l border-white/[0.06] pl-3 lg:pl-6">
-            <Conversao label="View → Clique" valor={m ? pctFunil(m.viewToClick) : null} detalhe={m ? `${m.clicks} de ${m.views}` : ""} />
-            <Conversao label="Clique → Start" valor={m ? pctFunil(m.clickToStart) : null} detalhe={m ? `${m.totalStarts} de ${m.clicks}` : ""} />
-            <Conversao label="Start → PIX" valor={m ? pctFunil(m.startToPix) : null} detalhe={m ? `${m.pixGenerated} de ${m.totalStarts}` : ""} />
-            <Conversao label="PIX → Pago" valor={m ? pctFunil(m.pixToPaid) : null} detalhe={m ? `${m.pixPaid} de ${m.pixGenerated}` : ""} accent />
-            <Conversao label="Start → Pago" valor={m ? pctFunil(m.startToPaid) : null} detalhe={m ? `${m.pixPaid} de ${m.totalStarts}` : ""} accent />
+      {/* No desktop largo o funil fica LADO A LADO com os quatro
+          comparativos, em vez de empilhado: o desenho da jornada fica
+          junto dos números que ele explica, e a tela inteira cabe sem
+          rolar. Só a partir de `xl` — abaixo disso a coluna do funil
+          ficaria estreita demais e espremeria as 5 taxas ao lado do
+          desenho (que é fixo em 420px daqui pra cima). O `minmax(0,…)`
+          nas duas colunas é o que impede uma delas de estourar a
+          largura por causa de um conteúdo comprido. */}
+      <div className="mt-6 xl:grid xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] xl:items-start xl:gap-6">
+        <div className="card p-5">
+          <p className="eyebrow">jornada do usuário até a compra</p>
+          <div className="flex items-stretch gap-3 lg:gap-6">
+            <FunilVisual m={m} />
+            <div className="flex flex-1 flex-col justify-between border-l border-white/[0.06] pl-3 lg:pl-6">
+              <Conversao label="View → Clique" valor={m ? pctFunil(m.viewToClick) : null} detalhe={m ? `${m.clicks} de ${m.views}` : ""} />
+              <Conversao label="Clique → Start" valor={m ? pctFunil(m.clickToStart) : null} detalhe={m ? `${m.totalStarts} de ${m.clicks}` : ""} />
+              <Conversao label="Start → PIX" valor={m ? pctFunil(m.startToPix) : null} detalhe={m ? `${m.pixGenerated} de ${m.totalStarts}` : ""} />
+              <Conversao label="PIX → Pago" valor={m ? pctFunil(m.pixToPaid) : null} detalhe={m ? `${m.pixPaid} de ${m.pixGenerated}` : ""} accent />
+              <Conversao label="Start → Pago" valor={m ? pctFunil(m.startToPaid) : null} detalhe={m ? `${m.pixPaid} de ${m.totalStarts}` : ""} accent />
+            </div>
+          </div>
+          {m && m.pixGenerated > m.totalStarts && (
+            <p className="mt-3 text-[11px] text-amber-400/80">
+              {m.totalStarts === 0
+                ? "Sem /start no período — as vendas vieram por fora do bot, então o topo do funil não dá para medir."
+                : "Mais PIX do que /start: parte das vendas é de gente que entrou antes. As taxas ficam sem número porque não seriam conversão."}
+            </p>
+          )}
+        </div>
+
+        {/* Empilhado, os quatro cabem numa linha só (nunca mais o 4º órfão
+            numa segunda fila, que era o que a grade de 3 colunas fazia). Ao
+            lado do funil, viram UMA coluna: em duas, cada card fica com
+            ~190px a 1280px e ~220px a 1440px, e os três valores (hoje/mês/
+            total) passam a truncar — "R$ 28,67" precisa de 80px e sobravam
+            46. Duas colunas só caberiam de ~1900px pra cima. Medido no
+            navegador, não estimado.
+
+            `pt-5` só no lado a lado: alinha este rótulo com o "jornada do
+            usuário" lá de dentro do card, que o padding do card empurra. */}
+        <div className="xl:pt-5">
+          {/* Comparativo de três janelas. NÃO segue o seletor de período de
+              propósito: 11% hoje só significa alguma coisa ao lado do histórico. */}
+          <p className="eyebrow mt-8 xl:mt-0">hoje, no mês e desde sempre</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-1">
+            <CartaoComparativo
+              titulo="Conversão de usuário"
+              subtitulo="% de quem deu /start e comprou"
+              comp={data?.comparativo}
+              valor={(j) => pct(j.startToPaid)}
+              rodape={(j) => {
+                const r = porVenda(j.totalStarts, j.pixPaid);
+                if (j.pixPaid > j.totalStarts && j.totalStarts > 0)
+                  return "vendas de leads de outros dias";
+                return r === null ? "ainda sem venda" : `1 venda a cada ${Math.round(r)} starts`;
+              }}
+            />
+            <CartaoComparativo
+              titulo="Conversão de pagamento"
+              subtitulo="% dos PIX gerados que foram pagos"
+              comp={data?.comparativo}
+              valor={(j) => pct(j.pixToPaid)}
+              rodape={(j) => {
+                const r = porVenda(j.pixGenerated, j.pixPaid);
+                return r === null ? "ainda sem venda" : `1 venda a cada ${Math.round(r)} PIX`;
+              }}
+            />
+            <CartaoTempo comp={data?.comparativo} />
+            <CartaoComparativo
+              titulo="Ticket médio"
+              subtitulo="valor médio por venda"
+              comp={data?.comparativo}
+              valor={(j) => brl(j.avgTicketCents)}
+              rodape={(j) =>
+                j.valorMaisComprado && j.pixPaid >= 5
+                  ? `mais comprado: ${brl(j.valorMaisComprado.cents)} (${j.valorMaisComprado.vezes}×)`
+                  : "poucas vendas para dizer qual valor mais vende"
+              }
+            />
           </div>
         </div>
-        {m && m.pixGenerated > m.totalStarts && (
-          <p className="mt-3 text-[11px] text-amber-400/80">
-            {m.totalStarts === 0
-              ? "Sem /start no período — as vendas vieram por fora do bot, então o topo do funil não dá para medir."
-              : "Mais PIX do que /start: parte das vendas é de gente que entrou antes. As taxas ficam sem número porque não seriam conversão."}
-          </p>
-        )}
-      </div>
-
-      {/* Comparativo de três janelas. NÃO segue o seletor de período de
-          propósito: 11% hoje só significa alguma coisa ao lado do histórico. */}
-      <p className="eyebrow mt-8">hoje, no mês e desde sempre</p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <CartaoComparativo
-          titulo="Conversão de usuário"
-          subtitulo="% de quem deu /start e comprou"
-          comp={data?.comparativo}
-          valor={(j) => pct(j.startToPaid)}
-          rodape={(j) => {
-            const r = porVenda(j.totalStarts, j.pixPaid);
-            if (j.pixPaid > j.totalStarts && j.totalStarts > 0)
-              return "vendas de leads de outros dias";
-            return r === null ? "ainda sem venda" : `1 venda a cada ${Math.round(r)} starts`;
-          }}
-        />
-        <CartaoComparativo
-          titulo="Conversão de pagamento"
-          subtitulo="% dos PIX gerados que foram pagos"
-          comp={data?.comparativo}
-          valor={(j) => pct(j.pixToPaid)}
-          rodape={(j) => {
-            const r = porVenda(j.pixGenerated, j.pixPaid);
-            return r === null ? "ainda sem venda" : `1 venda a cada ${Math.round(r)} PIX`;
-          }}
-        />
-        <CartaoTempo comp={data?.comparativo} />
-        <CartaoComparativo
-          titulo="Ticket médio"
-          subtitulo="valor médio por venda"
-          comp={data?.comparativo}
-          valor={(j) => brl(j.avgTicketCents)}
-          rodape={(j) =>
-            j.valorMaisComprado && j.pixPaid >= 5
-              ? `mais comprado: ${brl(j.valorMaisComprado.cents)} (${j.valorMaisComprado.vezes}×)`
-              : "poucas vendas para dizer qual valor mais vende"
-          }
-        />
       </div>
 
       {/* Números do período — só o que é ETAPA da jornada. Receita, receita
@@ -509,7 +531,7 @@ const FUNIL_COR = "#34d399";
  * é grade (linha × coluna), não colagem.
  */
 function FunilVisual({ m }: { m?: Metricas }) {
-  if (!m) return <div className="h-80 w-[54%] shrink-0 animate-pulse rounded-lg bg-white/5 lg:w-[420px]" />;
+  if (!m) return <div className="h-80 w-[54%] shrink-0 animate-pulse rounded-lg bg-white/5 lg:w-[420px] xl:w-[54%]" />;
 
   // SEMPRE as 5 etapas — mesmo sem SLT conectado, mesmo período sem
   // nenhuma venda. Esconder etapa quando o número é 0 já escondeu dado de
@@ -568,7 +590,7 @@ function FunilVisual({ m }: { m?: Metricas }) {
 
   return (
     <div
-      className="relative w-[54%] shrink-0 lg:w-[420px]"
+      className="relative w-[54%] shrink-0 lg:w-[420px] xl:w-[54%]"
       style={{ aspectRatio: `${larguraRef} / ${alturaRef}` }}
     >
       {/* Linhas-guia horizontais — só dentro do DESENHO, entre a linha

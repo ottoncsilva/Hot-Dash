@@ -184,7 +184,7 @@ export default function FunilPage() {
           desenho (que é fixo em 420px daqui pra cima). O `minmax(0,…)`
           nas duas colunas é o que impede uma delas de estourar a
           largura por causa de um conteúdo comprido. */}
-      <div className="mt-6 lg:grid lg:grid-cols-[minmax(0,7fr)_minmax(300px,5fr)] lg:items-stretch lg:gap-6">
+      <div className="mt-6 lg:grid lg:grid-cols-[minmax(0,1fr)_240px] lg:items-stretch lg:gap-6">
         <div className="card p-5">
           <p className="eyebrow">jornada do usuário até a compra</p>
           {/* SIMETRIA: etapa (esquerda) e conversão (direita) são colunas
@@ -195,7 +195,7 @@ export default function FunilPage() {
               pé). Antes os números da esquerda eram posicionados DENTRO do
               SVG, e por isso nunca teriam a medida da direita. */}
           <div className="flex items-stretch gap-2 lg:gap-3">
-            <div className="flex flex-1 flex-col gap-2">
+            <div className="flex flex-1 flex-col gap-2 sm:max-w-[120px]">
               <Etapa label="Views" valor={m ? String(m.views) : null} />
               <Etapa label="Cliques" valor={m ? String(m.clicks) : null} />
               <Etapa label="/start" valor={m ? String(m.totalStarts) : null} />
@@ -203,7 +203,7 @@ export default function FunilPage() {
               <Etapa label="Pago" valor={m ? String(m.pixPaid) : null} accent />
             </div>
             <FunilVisual m={m} />
-            <div className="flex flex-1 flex-col gap-2">
+            <div className="flex flex-1 flex-col gap-2 sm:max-w-[120px]">
               <Conversao label="View → Clique" valor={m ? pctFunil(m.viewToClick) : null} detalhe={m ? `${m.clicks} de ${m.views}` : ""} />
               <Conversao label="Clique → Start" valor={m ? pctFunil(m.clickToStart) : null} detalhe={m ? `${m.totalStarts} de ${m.clicks}` : ""} />
               <Conversao label="Start → PIX" valor={m ? pctFunil(m.startToPix) : null} detalhe={m ? `${m.pixGenerated} de ${m.totalStarts}` : ""} />
@@ -508,10 +508,11 @@ const FUNIL_COR = "#34d399";
  * é grade (linha × coluna), não colagem.
  */
 function FunilVisual({ m }: { m?: Metricas }) {
-  // Largura própria e fixa em proporção: as colunas de etapa e conversão são
-  // `flex-1` e dividem o que sobra em partes iguais — é isso que mantém o
-  // desenho no CENTRO exato do card em qualquer largura.
-  if (!m) return <div className="w-[26%] shrink-0 animate-pulse rounded-lg bg-white/5" />;
+  // O DESENHO é o elemento elástico da linha: as colunas de etapa e conversão
+  // têm teto fixo (120px, o conteúdo mais largo que existe), então toda sobra
+  // de largura vem parar aqui. Como os dois vizinhos têm a MESMA largura, ele
+  // continua centralizado de graça, em qualquer tela.
+  if (!m) return <div className="min-w-0 flex-1 animate-pulse rounded-lg bg-white/5" />;
 
   // SEMPRE as 5 etapas — mesmo sem SLT conectado, mesmo período sem
   // nenhuma venda. Esconder etapa quando o número é 0 já escondeu dado de
@@ -555,7 +556,7 @@ function FunilVisual({ m }: { m?: Metricas }) {
   d += " Z";
 
   return (
-    <div className="w-[26%] shrink-0 self-stretch">
+    <div className="min-w-0 flex-1 self-stretch">
       <svg
         viewBox={`0 0 100 ${H}`}
         preserveAspectRatio="none"
@@ -576,7 +577,7 @@ function FunilVisual({ m }: { m?: Metricas }) {
  *  outro lado — as duas colunas precisam ser indistinguíveis em medida. */
 function Etapa({ label, valor, accent }: { label: string; valor: string | null; accent?: boolean }) {
   return (
-    <div className="flex flex-1 flex-col justify-center rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2 text-left lg:px-3 lg:py-2.5">
+    <div className="flex flex-1 flex-col justify-center rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2 text-center lg:px-3 lg:py-2.5">
       <p className="font-mono text-[9px] uppercase leading-tight tracking-tight text-zinc-500 lg:text-[10px] lg:tracking-wider">
         {label}
       </p>
@@ -601,7 +602,7 @@ function Conversao({
   accent?: boolean;
 }) {
   return (
-    <div className="flex flex-1 flex-col justify-center rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2 text-left lg:px-3 lg:py-2.5">
+    <div className="flex flex-1 flex-col justify-center rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2 text-center lg:px-3 lg:py-2.5">
       <p className="font-mono text-[9px] uppercase leading-tight tracking-tight text-zinc-500 lg:text-[10px] lg:tracking-wider">
         {label}
       </p>

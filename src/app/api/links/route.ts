@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser, ApiError } from "@/lib/apiAuth";
 import { getDb } from "@/lib/db";
 import { listProfiles } from "@/lib/profiles";
-import { fetchSltCatalogue } from "@/lib/sltSync";
+import { getSltCatalogue } from "@/lib/sltSync";
 import { sltPageStats, sltLinkClicks } from "@/lib/salesFunnel";
 import { isValidSltNetworkKey, listSltNetworks } from "@/lib/sltNetworksStore";
 import { getAppTimeZone } from "@/lib/settings";
@@ -12,8 +12,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Tela de Links: o catálogo de páginas/links do SLT (ao vivo — muda pouco,
- * não vale a pena manter cópia local), com clique/visualização do período
+ * Tela de Links: o catálogo de páginas/links do SLT (lido do banco, gravado
+ * pelo job de fundo — ver `syncSltCatalogue`), com clique/visualização do período
  * escolhido (local, já sincronizado — ver `lib/sltSync.ts`) e agrupado por
  * MODELO do Hot-Dash via `slt_page_profiles` (ver POST abaixo).
  *
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
       tz,
     );
 
-    const catalogo = await fetchSltCatalogue().catch((e) => {
+    const catalogo = await getSltCatalogue().catch((e) => {
       throw new ApiError(502, e instanceof Error ? e.message : "Falha ao consultar o SLT.");
     });
     if (!catalogo) {

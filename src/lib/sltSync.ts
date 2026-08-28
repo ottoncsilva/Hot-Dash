@@ -1,6 +1,14 @@
 import "server-only";
 import { getDb } from "./db";
-import { getSltApiKey, setSltSyncState, getSltSyncState } from "./settings";
+import {
+  getSltApiKey,
+  setSltSyncState,
+  getSltSyncState,
+  getSltCatalogueStored,
+  setSltCatalogueStored,
+  getSltCotaStored,
+  setSltCotaStored,
+} from "./settings";
 
 /**
  * Integração com a API do SLT (slt.bio, link na bio) — somente leitura, uma
@@ -11,10 +19,11 @@ import { getSltApiKey, setSltSyncState, getSltSyncState } from "./settings";
  *     puxa só o que é NOVO (cursor `since`/`next_since`, devolvido pela
  *     própria API) e grava em `slt_events`. É o que alimenta os números de
  *     visualização/clique no Funil de Vendas e na tela de Links.
- *   • `fetchSltCatalogue` — chamada AO VIVO quando o operador abre a tela de
- *     Links: páginas e links mudam pouco (o operador edita no próprio SLT),
- *     então não vale a pena guardar cópia local só pra ela poder ficar
- *     desatualizada. Poucas chamadas por visita não chegam perto da cota.
+ *   • `syncSltCatalogue` — também no tick de fundo, em intervalo próprio
+ *     (15 min): guarda páginas e links no banco. A tela de Links lê de lá
+ *     (`getSltCatalogue`) sem tocar na rede, então o custo em cota é fixo e
+ *     não depende de quantas telas forem abertas nem de quantas vezes o
+ *     operador trocar o período.
  */
 
 const SLT_API_BASE = "https://api.slt.bio";
@@ -48,34 +57,35 @@ const MAX_PAGES_PER_SYNC = 5;
  *  abria quebrada — o pior jeito de gastar a última requisição. */
 const RESERVA_PARA_A_TELA = 12;
 
-/** Catálogo (páginas + links) muda quando o operador edita no painel da
- *  SLT, não a cada minuto — e NÃO depende do período escolhido na tela. Sem
- *  este cache, cada clique no seletor de período refazia as 2 chamadas: os
- *  8 botões gastavam 16 requisições em poucos segundos. */
-const CATALOGO_TTL_MS = 10 * 60 * 1000;
-
-/** Cota vista na última resposta (cabeçalhos da própria SLT). `null` = ainda
- *  não sabemos — nesse caso não seguramos nada, só medimos. */
-let cotaRestante: number | null = null;
-let cotaResetaEm: number | null = null;
+/** De quanto em quanto tempo o job de fundo refaz o catálogo. Ele só muda
+ *  quando o operador edita links no painel da SLT — 15 minutos é de sobra, e
+ *  custa 8 requisições/hora fixas (2 por sincronização), independente de
+ *  quantas telas forem abertas. */
+const CATALOGO_INTERVALO_MS = 15 * 60 * 1000;
 
 /** Lê `X-RateLimit-*` de qualquer resposta (inclusive a de erro, que é
- *  justamente quando o número importa). */
+ *  justamente quando o número importa) e GRAVA no banco — nada em memória,
+ *  para o estado sobreviver a um deploy. */
 function registrarCota(res: Response): void {
+  const atual = getSltCotaStored();
   const restante = Number(res.headers.get("x-ratelimit-remaining"));
-  if (Number.isFinite(restante)) cotaRestante = restante;
   const reset = Number(res.headers.get("x-ratelimit-reset"));
-  // O cabeçalho vem em segundos unix; guardamos em ms para comparar com
-  // Date.now() sem conversão espalhada pelo arquivo.
-  if (Number.isFinite(reset) && reset > 0) cotaResetaEm = reset * 1000;
+  const novo = {
+    restante: Number.isFinite(restante) ? restante : atual.restante,
+    // O cabeçalho vem em segundos unix; guardamos em ms para comparar com
+    // Date.now() sem conversão espalhada pelo arquivo.
+    resetaEm: Number.isFinite(reset) && reset > 0 ? reset * 1000 : atual.resetaEm,
+  };
+  if (novo.restante !== atual.restante || novo.resetaEm !== atual.resetaEm) setSltCotaStored(novo);
 }
 
 /** Já sabemos que não há cota agora? Vale tanto para a espera pós-429 quanto
  *  para a reserva do sync de fundo. */
 function semCota(reserva: number): boolean {
-  if (cotaRestante === null) return false; // ainda não medimos: deixa passar
-  if (cotaResetaEm !== null && Date.now() >= cotaResetaEm) return false; // já virou a janela
-  return cotaRestante <= reserva;
+  const { restante, resetaEm } = getSltCotaStored();
+  if (restante === null) return false; // ainda não medimos: deixa passar
+  if (resetaEm !== null && Date.now() >= resetaEm) return false; // já virou a janela
+  return restante <= reserva;
 }
 
 export type SltEvent = {
@@ -101,7 +111,7 @@ export type SltEvent = {
   session_id?: string | null;
 };
 
-type SltLink = {
+export type SltLink = {
   type: "link" | "poplink";
   id: string;
   page_id: string | null;
@@ -112,7 +122,7 @@ type SltLink = {
   poplink_url?: string;
 };
 
-type SltPage = {
+export type SltPage = {
   id: string;
   slug: string;
   display_name: string;
@@ -144,12 +154,14 @@ async function sltFetch<T>(apiKey: string, path: string, params?: Record<string,
     // 429 sem cabeçalho de reset: assume que a janela vira no topo da hora
     // seguinte, que é como a SLT documenta (janela fixa, não deslizante).
     if (res.status === 429) {
-      cotaRestante = 0;
-      if (cotaResetaEm === null || cotaResetaEm <= Date.now()) {
+      const atual = getSltCotaStored();
+      let resetaEm = atual.resetaEm;
+      if (resetaEm === null || resetaEm <= Date.now()) {
         const proximaHora = new Date();
         proximaHora.setUTCMinutes(0, 0, 0);
-        cotaResetaEm = proximaHora.getTime() + 60 * 60 * 1000;
+        resetaEm = proximaHora.getTime() + 60 * 60 * 1000;
       }
+      setSltCotaStored({ restante: 0, resetaEm });
     }
     const texto = await res.text().catch(() => "");
     throw new SltApiError(`SLT ${path} → HTTP ${res.status}: ${texto.slice(0, 200)}`, res.status);
@@ -280,41 +292,65 @@ export async function syncSltEvents(opts?: { force?: boolean }): Promise<{
   }
 }
 
-type Catalogo = { pages: SltPage[]; links: SltLink[] };
-let catalogoCache: { em: number; dados: Catalogo } | null = null;
+export type Catalogo = { pages: SltPage[]; links: SltLink[] };
 
 /**
- * Catálogo (páginas + links) para a tela de Links, com cache curto em
- * memória. Ele NÃO depende do período escolhido na tela, mas a rota é
- * refeita a cada troca de período — sem cache, passar pelos 8 botões do
- * seletor custava 16 requisições em poucos segundos, mais de um quarto da
- * cota da hora. Dez minutos é curto o bastante para uma edição no painel da
- * SLT aparecer logo, e longo o bastante para o seletor sair de graça.
+ * Sincroniza o catálogo (páginas + links) e GRAVA no banco — roda no tick de
+ * fundo, junto do sync de eventos.
+ *
+ * Antes a tela de Links chamava a API a cada carregamento, e o catálogo nem
+ * depende do período escolhido: passar pelos 8 botões do seletor gastava 16
+ * requisições em segundos. Um cache em memória resolveria pela metade — ele
+ * morre a cada deploy e o custo continuaria dependendo do uso. Sincronizando
+ * de fundo, o gasto vira fixo (8 req/hora) e a tela nunca espera rede nem
+ * quebra por falta de cota.
+ *
+ * Nunca lança: é uma tarefa do agendador como as outras.
  */
-export async function fetchSltCatalogue(opts?: { force?: boolean }): Promise<Catalogo | null> {
+export async function syncSltCatalogue(opts?: { force?: boolean }): Promise<Catalogo | null> {
   const apiKey = getSltApiKey();
   if (!apiKey) return null;
-  if (!opts?.force && catalogoCache && Date.now() - catalogoCache.em < CATALOGO_TTL_MS) {
-    return catalogoCache.dados;
+
+  const guardado = getSltCatalogueStored();
+  if (!opts?.force && guardado && Date.now() - guardado.syncedAt < CATALOGO_INTERVALO_MS) {
+    return { pages: guardado.pages as SltPage[], links: guardado.links as SltLink[] };
   }
-  // Sem cota: devolve o catálogo velho em vez de derrubar a tela. Páginas e
-  // links mudam pouco — mostrar o de 20 minutos atrás é muito melhor do que
-  // mostrar um erro.
-  if (semCota(0)) {
-    if (catalogoCache) return catalogoCache.dados;
+  // Mesma reserva do sync de eventos: o job de fundo não encosta na cota que
+  // o operador pode precisar. Com algo guardado, devolve o que tem.
+  if (semCota(opts?.force ? 0 : RESERVA_PARA_A_TELA)) {
+    return guardado ? { pages: guardado.pages as SltPage[], links: guardado.links as SltLink[] } : null;
   }
-  const [pagesResp, linksResp] = await Promise.all([
-    sltFetch<{ pages: SltPage[] }>(apiKey, "/v1/pages"),
-    sltFetch<{ links: SltLink[] }>(apiKey, "/v1/links"),
-  ]);
-  const dados = { pages: pagesResp.pages, links: linksResp.links };
-  catalogoCache = { em: Date.now(), dados };
-  return dados;
+
+  try {
+    const [pagesResp, linksResp] = await Promise.all([
+      sltFetch<{ pages: SltPage[] }>(apiKey, "/v1/pages"),
+      sltFetch<{ links: SltLink[] }>(apiKey, "/v1/links"),
+    ]);
+    const dados = { pages: pagesResp.pages || [], links: linksResp.links || [] };
+    setSltCatalogueStored({ ...dados, syncedAt: Date.now() });
+    return dados;
+  } catch (e) {
+    console.error("[hotdash] Erro sincronizando o catálogo do SLT:", e instanceof Error ? e.message : e);
+    // Falhou agora não pode apagar o que já estava certo.
+    return guardado ? { pages: guardado.pages as SltPage[], links: guardado.links as SltLink[] } : null;
+  }
+}
+
+/**
+ * O catálogo para a TELA — lê do banco, sem tocar na rede. Só vai à API no
+ * caso de nunca ter sincronizado (chave recém-configurada, banco novo), para
+ * a tela não nascer vazia esperando o primeiro tick.
+ */
+export async function getSltCatalogue(): Promise<Catalogo | null> {
+  if (!getSltApiKey()) return null;
+  const guardado = getSltCatalogueStored();
+  if (guardado) return { pages: guardado.pages as SltPage[], links: guardado.links as SltLink[] };
+  return syncSltCatalogue({ force: true });
 }
 
 /** Estado da cota, para diagnóstico na tela de Configurações. */
 export function sltCotaAtual(): { restante: number | null; resetaEm: number | null } {
-  return { restante: cotaRestante, resetaEm: cotaResetaEm };
+  return getSltCotaStored();
 }
 
 /** Confere a chave batendo em `/v1/me` — usado ao salvar, pra não deixar

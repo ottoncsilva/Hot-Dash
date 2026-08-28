@@ -146,9 +146,50 @@ export function updateSltApiKey(apiKey: string | undefined): SltSettingsPublic {
     s.lastSyncedAt = undefined;
     s.lastPolledAt = undefined;
     s.lastSyncError = undefined;
+    // O catálogo guardado é da conta ANTERIOR — some com ele, senão a tela
+    // de Links mostraria páginas que não são desta chave até o próximo tick.
+    setJson("slt_catalogue", null);
   }
   setJson("slt", s);
   return getSltSettingsPublic();
+}
+
+/**
+ * CATÁLOGO da SLT (páginas + links) guardado no banco pelo job de fundo —
+ * ver `syncSltCatalogue`. A tela de Links lê daqui, sem tocar na API: o
+ * custo em cota passa a ser fixo (uma sincronização a cada 15 min) em vez
+ * de depender de quantas telas foram abertas. Chave própria de propósito:
+ * gravar isto não reescreve o blob que guarda a chave cifrada.
+ */
+export type SltCatalogueStored = { pages: unknown[]; links: unknown[]; syncedAt: number };
+
+export function getSltCatalogueStored(): SltCatalogueStored | null {
+  const v = getJson<SltCatalogueStored | null>("slt_catalogue", null);
+  return v && Array.isArray(v.pages) && Array.isArray(v.links) ? v : null;
+}
+
+export function setSltCatalogueStored(v: SltCatalogueStored): void {
+  setJson("slt_catalogue", v);
+}
+
+export function limparSltCatalogueStored(): void {
+  setJson("slt_catalogue", null);
+}
+
+/**
+ * COTA da API do SLT vista na última resposta (`X-RateLimit-*`). No banco, e
+ * não em memória, para o recuo depois de um 429 sobreviver a um deploy — um
+ * restart no meio da janela não pode fazer o app voltar a bater na API achando
+ * que tem cota.
+ */
+export type SltCotaStored = { restante: number | null; resetaEm: number | null };
+
+export function getSltCotaStored(): SltCotaStored {
+  return getJson<SltCotaStored>("slt_cota", { restante: null, resetaEm: null });
+}
+
+export function setSltCotaStored(v: SltCotaStored): void {
+  setJson("slt_cota", v);
 }
 
 /** Estado interno do cursor — só o job de sincronização usa. */

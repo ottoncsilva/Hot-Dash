@@ -53,7 +53,7 @@ export async function register() {
     // Cliques/visualizações do SLT (link na bio) — próprio arquivo já
     // segura o intervalo de 15min recomendado pela API e é um no-op sem
     // chave configurada, então pode entrar no tick de sempre sem custo.
-    const { syncSltEvents } = await import("@/lib/sltSync");
+    const { syncSltEvents, syncSltCatalogue } = await import("@/lib/sltSync");
     // Geração do Método MK (Prévias e VIP), em lotes: a rota só enfileira (a
     // copy de um dia inteiro não cabe no maxDuration de uma requisição). Os dois
     // dividem UMA fila e um lote por tick — ver generationJobs.ts.
@@ -132,6 +132,14 @@ export async function register() {
           if (!r.ok) console.error(`[hotdash] Erro no cron (sync SLT): ${r.error}`);
         } catch (err) {
           console.error("[hotdash] Erro no cron (sync SLT):", err);
+        }
+        try {
+          // Catálogo (páginas/links) com intervalo PRÓPRIO, bem mais longo —
+          // ele só muda quando o operador edita no painel da SLT. É o que
+          // deixa a tela de Links ler do banco em vez de chamar a API.
+          await syncSltCatalogue();
+        } catch (err) {
+          console.error("[hotdash] Erro no cron (catálogo SLT):", err);
         }
       } finally {
         running = false;

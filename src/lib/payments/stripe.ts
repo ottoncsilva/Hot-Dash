@@ -81,21 +81,26 @@ export function createStripe(creds: { secretKey: string; webhookSecret: string }
 
     async getBalance() {
       const bal = await stripe.balance.retrieve();
-      // Duas moedas possíveis nesta conta: USD (checkout internacional) e
-      // BRL ("cartão no Brasil", `acceptCardBr`) — nunca somadas juntas, que
-      // misturaria centavos de unidades diferentes. BRL só aparece quando
-      // existe (a maioria das contas nunca cobrou em cartão no Brasil).
+      // O dólar é o principal; toda outra moeda vira linha própria. Nunca
+      // somadas entre si — centavos de moedas diferentes não se somam. A
+      // conta pode ter USD (internacional), EUR/GBP (cobrança na moeda do
+      // lead) e BRL ("cartão no Brasil") ao mesmo tempo.
       const somaPor = (moeda: string, lista: { amount: number; currency: string }[]) =>
         lista.filter((b) => b.currency === moeda).reduce((acc, b) => acc + b.amount, 0);
-      const availableBrl = somaPor("brl", bal.available);
-      const pendingBrl = somaPor("brl", bal.pending);
+      const moedas = [...new Set([...bal.available, ...bal.pending].map((b) => b.currency))]
+        .filter((m) => m !== "usd")
+        .sort();
+      const outras = moedas
+        .map((m) => ({
+          currency: m.toUpperCase(),
+          availableCents: somaPor(m, bal.available),
+          pendingCents: somaPor(m, bal.pending),
+        }))
+        .filter((o) => o.availableCents > 0 || (o.pendingCents || 0) > 0);
       return {
         availableCents: somaPor("usd", bal.available),
         pendingCents: somaPor("usd", bal.pending),
-        secondary:
-          availableBrl > 0 || pendingBrl > 0
-            ? { currency: "BRL", availableCents: availableBrl, pendingCents: pendingBrl }
-            : undefined,
+        outras: outras.length ? outras : undefined,
         raw: bal,
       };
     },

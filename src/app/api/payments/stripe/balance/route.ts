@@ -31,9 +31,9 @@ export async function GET(req: NextRequest) {
       connected: true,
       availableCents: bal.availableCents,
       pendingCents: bal.pendingCents ?? null,
-      // BRL do "cartão no Brasil", quando existe — ver `secondary` em
+      // Toda moeda que não é dólar (BRL, EUR, GBP) — ver `outras` em
       // `lib/payments/types.ts`.
-      secondary: bal.secondary ?? null,
+      outras: bal.outras ?? null,
     });
   } catch (err) {
     return errorResponse(err);

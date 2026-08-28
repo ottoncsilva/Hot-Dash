@@ -62,7 +62,12 @@ export type BalanceResult = {
   /** Saldo em OUTRA moeda, quando a conta cobra em mais de uma (Stripe: USD
    *  do checkout internacional + BRL do "cartão no Brasil", a mesma conta).
    *  Ausente = só uma moeda mesmo — não precisa aparecer separado. */
-  secondary?: { currency: string; availableCents: number; pendingCents?: number };
+  /** Saldos em TODA moeda que não seja o dólar — BRL do "cartão no Brasil",
+   *  EUR e GBP da cobrança na moeda do lead. Lista, não uma moeda só: desde
+   *  que o preço internacional passou a ser cobrado em euro e libra, a conta
+   *  pode ter três saldos ao mesmo tempo. Nunca somados entre si, que
+   *  misturaria centavos de unidades diferentes. */
+  outras?: { currency: string; availableCents: number; pendingCents?: number }[];
   raw?: unknown;
 };
 

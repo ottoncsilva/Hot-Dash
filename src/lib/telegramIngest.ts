@@ -70,6 +70,9 @@ export function registrarChegadaTelegram(
           lastName: from.last_name,
           chatId: isPrivate ? String(chat.id) : undefined,
           canDm: isPrivate,
+          // Idioma do aparelho: único sinal por pessoa para escolher a moeda
+          // da cobrança internacional (ver `moedaIntl.ts`).
+          languageCode: from.language_code,
           inVip: inVipGroup ? true : undefined,
           inPrevias: inPreviasGroup ? true : undefined,
           source: isPrivate ? "start" : "grupo",
@@ -143,6 +146,7 @@ export function registrarChegadaTelegram(
           lastName: from.last_name,
           chatId: String(chat.id),
           canDm: true,
+          languageCode: from.language_code,
           source: "start",
           sourceCode,
         });

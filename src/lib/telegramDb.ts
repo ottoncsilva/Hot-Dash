@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { precoIntl, formatarMoeda, temPrecoIntl, type MoedaIntl } from "./moedaIntl";
 import { planButtonStyleProps, sanitizeButtonStyles, type ButtonStyles, type DynamicPrice } from "./settings";
 
 export type TelegramBotConfig = {
@@ -834,36 +835,38 @@ export function getPlan(id: string): TelegramPlan | null {
  * o menu internacional da Stripe), pra não duplicar a formatação de preço e
  * cor em cada um.
  *
- * Em `moeda: "USD"` só entram os planos com `priceUsdCents` cadastrado E
- * `intlAvailable !== false` — o preço decide SE é possível vender esse
- * plano lá fora, o interruptor decide se a modelo QUER vender agora.
+ * Em moeda internacional (USD/EUR/GBP) só entram os planos com ALGUM preço
+ * de fora cadastrado E `intlAvailable !== false` — o preço decide SE é
+ * possível vender esse plano lá fora, o interruptor decide se a modelo QUER
+ * vender agora. Cada plano é mostrado na moeda pedida quando tem preço nela,
+ * e em dólar quando não tem (ver `precoIntl`), então dá para ligar o euro num
+ * plano por vez sem sumir com os outros do cardápio.
  */
 export function buildPlanKeyboardRows(
   bot: { buttonStyles?: ButtonStyles },
   plans: TelegramPlan[],
   opts: {
-    moeda: "BRL" | "USD";
+    moeda: "BRL" | MoedaIntl;
     discountPercent?: number;
     prefix: "buy_plan_" | "buy_intl_" | "buy_card_";
     /** Usa `plan.nameEn` (com fallback pro `name` em PT) no rótulo do botão —
      *  independente da moeda: o cartão no Brasil (`buy_card_`) continua em
      *  BRL, mas pode ser mostrado pra um lead que já está em inglês (ex.: no
-     *  downsell traduzido). Padrão: acompanha `moeda === "USD"`. */
+     *  downsell traduzido). Padrão: acompanha ser moeda internacional. */
     nomeEmIngles?: boolean;
   },
 ): { text: string; callback_data: string; style?: string }[][] {
-  const relevantes =
-    opts.moeda === "USD"
-      ? plans.filter((p) => (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false)
-      : plans;
+  const intl = opts.moeda !== "BRL";
+  const relevantes = intl ? plans.filter((p) => temPrecoIntl(p) && p.intlAvailable !== false) : plans;
   const sufixo = opts.discountPercent && opts.discountPercent > 0 ? `_${opts.discountPercent}` : "";
-  const emIngles = opts.nomeEmIngles ?? opts.moeda === "USD";
+  const emIngles = opts.nomeEmIngles ?? intl;
   return relevantes.map((plan) => {
-    const cents = opts.moeda === "USD" ? plan.priceUsdCents! : plan.priceCents;
-    const priceStr = (cents / 100).toLocaleString(opts.moeda === "USD" ? "en-US" : "pt-BR", {
-      style: "currency",
-      currency: opts.moeda,
-    });
+    // Cada plano pode cair numa moeda diferente da pedida (quando só tem
+    // preço em dólar) — por isso o rótulo é formatado com a moeda que
+    // `precoIntl` devolveu, não com a que foi pedida.
+    const preco = intl ? precoIntl(plan, opts.moeda as MoedaIntl) : { cents: plan.priceCents, moeda: "BRL" as const };
+    if (!preco) return null;
+    const priceStr = formatarMoeda(preco.cents, preco.moeda);
     const nome = emIngles ? plan.nameEn?.trim() || plan.name : plan.name;
     return [
       {
@@ -872,7 +875,7 @@ export function buildPlanKeyboardRows(
         ...planButtonStyleProps(bot, plan.highlight),
       },
     ];
-  });
+  }).filter((linha): linha is NonNullable<typeof linha> => linha !== null);
 }
 
 export function savePlan(plan: TelegramPlan): void {

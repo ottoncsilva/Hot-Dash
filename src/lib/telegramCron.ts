@@ -59,6 +59,7 @@ import { aplicarVariaveis } from "@/lib/telegramVars";
 import { listMedia, getMediaRow } from "@/lib/media";
 import { audienceFromPostType, logMediaPosted, pickReplacementMedia } from "@/lib/mediaUsage";
 import { getProfile } from "@/lib/profiles";
+import { moedaPorIdioma, type MoedaIntl } from "@/lib/moedaIntl";
 import {
   DEFAULT_CTA_BUTTONS,
   DEFAULT_VIP_CTA_BUTTONS,
@@ -486,6 +487,9 @@ function buildReplyMarkup(
    *  mesmo critério do `/start`. Sem idioma, ou sem plano USD, BRL como
    *  sempre. */
   idioma?: "en" | "es",
+  /** Moeda do lead (do `language_code` dele) — o mesmo número do preço em
+   *  dólar, cobrado na moeda dele. Só vale no ramo internacional. */
+  moeda: MoedaIntl = "USD",
 ) {
   if (planMode === "none") return undefined;
   // Só os ATIVOS: um plano desligado some do /start, e some dos funis também.
@@ -495,9 +499,9 @@ function buildReplyMarkup(
   const intl = idioma && plans.some((p) => (p.priceUsdCents || 0) > 0 && p.intlAvailable !== false);
   if (intl) {
     // Sem desconto embutido no botão: o downsell traduzido reusa o mesmo
-    // teclado do checkout internacional (preço fixo em USD), o desconto de
+    // teclado do checkout internacional (preço internacional), o desconto de
     // recuperação só existe hoje pro fluxo em BRL.
-    return { inline_keyboard: buildPlanKeyboardRows(bot, plans, { moeda: "USD", prefix: "buy_intl_" }) };
+    return { inline_keyboard: buildPlanKeyboardRows(bot, plans, { moeda, prefix: "buy_intl_" }) };
   }
   const inlineKeyboard: any[] = [];
   if (plans.length > 0) {
@@ -573,14 +577,15 @@ function buildPixDownsellMarkup(
    *  só sabe resolver plano do catálogo, nunca oferta avulsa. Sem isso, cai
    *  no BRL/PIX de sempre — nunca quebra, só não traduz esse caso raro. */
   idioma?: "en" | "es",
+  moeda: MoedaIntl = "USD",
 ) {
   const resolvido = resolvePixItem(sub, discountPercent);
-  if (!resolvido) return buildReplyMarkup(bot, discountPercent, "all", idioma);
+  if (!resolvido) return buildReplyMarkup(bot, discountPercent, "all", idioma, moeda);
 
   if (idioma && sub.planId) {
     const plano = getPlan(sub.planId);
     if (plano && (plano.priceUsdCents || 0) > 0 && plano.intlAvailable !== false) {
-      return { inline_keyboard: buildPlanKeyboardRows(bot, [plano], { moeda: "USD", prefix: "buy_intl_" }) };
+      return { inline_keyboard: buildPlanKeyboardRows(bot, [plano], { moeda, prefix: "buy_intl_" }) };
     }
   }
 
@@ -893,9 +898,12 @@ async function runTelegramFunnelsImpl(): Promise<{
         );
         if (alvo) {
           const stepFinal = downsellFunnel[alvo.enviar];
-          const idiomaLead = getTelegramUser(`${bot.id}_${lead.chatId}`)?.language;
+          const pessoaLead = getTelegramUser(`${bot.id}_${lead.chatId}`);
+          const idiomaLead = pessoaLead?.language;
           const idioma = idiomaLead === "en" || idiomaLead === "es" ? idiomaLead : undefined;
-          const replyMarkup = buildReplyMarkup(bot, stepFinal.discountPercent, stepFinal.planMode, idioma);
+          // Mesmo número do preço em dólar, na moeda do lead (ver `moedaIntl.ts`).
+          const moedaLead = moedaPorIdioma(pessoaLead?.languageCode);
+          const replyMarkup = buildReplyMarkup(bot, stepFinal.discountPercent, stepFinal.planMode, idioma, moedaLead);
           await sendFunnelStep(bot.botToken, bot.id, lead.chatId, p.id, stepFinal, replyMarkup, bot.botUsername);
 
           lead.lastInteractionAt = now;
@@ -962,11 +970,13 @@ async function runTelegramFunnelsImpl(): Promise<{
         // o comentário de `buildPixDownsellMarkup`.
         const sub = getSubscription(row.id);
         const resolvido = sub ? resolvePixItem(sub, step.discountPercent) : null;
-        const idiomaLeadPix = getTelegramUser(`${bot.id}_${row.telegram_user_id}`)?.language;
+        const pessoaPix = getTelegramUser(`${bot.id}_${row.telegram_user_id}`);
+        const idiomaLeadPix = pessoaPix?.language;
         const idiomaPix = idiomaLeadPix === "en" || idiomaLeadPix === "es" ? idiomaLeadPix : undefined;
+        const moedaPix = moedaPorIdioma(pessoaPix?.languageCode);
         const markup = sub
-          ? buildPixDownsellMarkup(bot, sub, step.discountPercent, idiomaPix)
-          : buildReplyMarkup(bot, step.discountPercent, step.planMode, idiomaPix);
+          ? buildPixDownsellMarkup(bot, sub, step.discountPercent, idiomaPix, moedaPix)
+          : buildReplyMarkup(bot, step.discountPercent, step.planMode, idiomaPix, moedaPix);
         // Em USD (checkout internacional traduzido), o valor exibido nas
         // variáveis {plano}/{valor} do texto acompanha o mesmo preço do
         // botão — senão o texto falaria BRL enquanto o botão cobra em USD.

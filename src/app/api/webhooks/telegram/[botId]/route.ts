@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { TelegramPlan, TelegramBotConfig } from "@/lib/telegramDb";
+import { moedaPorIdioma, formatarMoeda, type MoedaIntl } from "@/lib/moedaIntl";
 import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, getTelegramLead, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, recurringFromDurationDays, primeiraVezQueVejoEsteUpdate, BUMP_DEFAULTS, PIX_DEFAULTS, CHECKOUT_DEFAULTS } from "@/lib/telegramDb";
 import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser, setTelegramUserLanguage } from "@/lib/telegramUsers";
 import { registrarChegadaTelegram, registraMudancaDeGrupo } from "@/lib/telegramIngest";
@@ -390,7 +391,12 @@ export async function POST(
         });
 
         const plans = listActivePlans(bot.id);
-        const rows = buildPlanKeyboardRows(bot, plans, { moeda: "USD", prefix: "buy_intl_" });
+        // Cardápio já na moeda do lead — o mesmo número do preço em dólar
+        // (6 dólares = 6 euros), pra ele não ter que converter de cabeça.
+        const rows = buildPlanKeyboardRows(bot, plans, {
+          moeda: moedaPorIdioma(from.language_code),
+          prefix: "buy_intl_",
+        });
         if (rows.length === 0) {
           await sendTelegramMessage(bot.botToken, String(message.chat.id), t.noPlan);
         } else {
@@ -571,6 +577,11 @@ export async function POST(
           : "en"
         : "en";
       const tIntl = CHECKOUT_INTL_TEXTS[idiomaIntl];
+      // MOEDA do lead internacional, pelo `language_code` que o Telegram
+      // manda em todo update (o único sinal por pessoa que existe — ver
+      // `moedaIntl.ts`). O VALOR é o mesmo número do preço em dólar; só a
+      // moeda cobrada muda. Fora do fluxo internacional isto não é usado.
+      const moedaIntl: MoedaIntl = isIntlBuy ? moedaPorIdioma(from.language_code) : "USD";
 
       // ---- Order Bump: a oferta que aparece entre escolher o plano e gerar
       // o PIX. `bump_yes_` / `bump_no_` carregam o mesmo par (plano, desconto)
@@ -628,6 +639,7 @@ export async function POST(
           }
           itemName = plan.name;
           basePriceCents = plan.priceUsdCents!;
+          // (o número é o mesmo; quem muda é a moeda em `moedaIntl`)
         } else if (isCardBrBuy) {
           // Mesmo formato de callback (`<id>[_<desconto>]`), mesmo catálogo —
           // só o método de pagamento (cartão via Stripe, não PIX) e a moeda
@@ -808,7 +820,7 @@ export async function POST(
           // este campo (sempre BRL), então `undefined` nunca importou até
           // agora — mas com o cartão no Brasil passando pela Stripe também,
           // precisa ser explícito.
-          currency: isIntlBuy ? "USD" : isCardBrBuy ? "BRL" : undefined,
+          currency: isIntlBuy ? moedaIntl : isCardBrBuy ? "BRL" : undefined,
           description: `Assinatura ${itemName}`,
           recurring: recurring || undefined,
           postbackUrl,
@@ -834,7 +846,7 @@ export async function POST(
           description: `Assinatura Telegram - ${itemName}`,
           customer: from.first_name,
           amountCents,
-          currency: isIntlBuy ? "USD" : undefined,
+          currency: isIntlBuy ? moedaIntl : undefined,
           // PIX é PIX; cartão (internacional OU brasileiro) é sempre Stripe
           // aqui — mesmo critério de `isStripeBuy` usado nas linhas acima.
           method: isStripeBuy ? "card" : "pix",
@@ -846,9 +858,7 @@ export async function POST(
         // Alerta de cobrança GERADA pelo bot de vendas (lead pediu o pagamento).
         try {
           const { sendPushEvent } = await import("@/lib/push");
-          const valStr = isIntlBuy
-            ? (amountCents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })
-            : (amountCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+          const valStr = formatarMoeda(amountCents, isIntlBuy ? moedaIntl : "BRL");
           await sendPushEvent(
             "pix",
             `⏳ ${isIntlBuy ? "Cobrança internacional gerada" : isCardBrBuy ? "Cobrança no cartão gerada" : "Pix gerado"} — ${valStr}`,

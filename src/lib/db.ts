@@ -1092,6 +1092,18 @@ function migrate(d: Database.Database) {
   // único: qualquer conversão pra outra moeda no futuro parte daqui, não
   // ganha um campo novo por moeda.
   ensureColumn(d, "telegram_plans", "price_usd_cents", "INTEGER");
+  // Preço em EURO e LIBRA por plano. O bot cobrava todo estrangeiro em
+  // dólar; nos cliques reais do SLT a zona do euro é MAIOR que a dos EUA
+  // (Portugal sozinho quase iguala os Estados Unidos). Vazio = cai no dólar,
+  // então dá para ligar uma moeda num plano por vez sem tirar os outros do
+  // cardápio internacional (ver `precoIntl` em `moedaIntl.ts`).
+  // `language_code` CRU do Telegram (ex.: "pt-br", "pt", "en-gb", "it") —
+  // vem em todo `from` e é o ÚNICO sinal por pessoa que existe para escolher
+  // a moeda da cobrança internacional (o Telegram não diz o país). Ver
+  // `moedaPorIdioma` em `moedaIntl.ts`.
+  ensureColumn(d, "telegram_users", "language_code", "TEXT");
+  ensureColumn(d, "telegram_plans", "price_eur_cents", "INTEGER");
+  ensureColumn(d, "telegram_plans", "price_gbp_cents", "INTEGER");
   // Idioma escolhido no menu internacional ("en" | "es"; ausente = português,
   // comportamento de sempre). Fica no USUÁRIO, não só na sessão de compra —
   // é o que faz "a partir daí tudo traduzido" valer permanentemente pra

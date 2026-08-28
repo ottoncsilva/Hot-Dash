@@ -35,7 +35,7 @@ export default function PaymentSettingsPage() {
     connected: boolean;
     error?: string;
     // BRL do "cartão no Brasil", quando existe.
-    secondary?: { currency: string; availableCents: number; pendingCents?: number } | null;
+    outras?: { currency: string; availableCents: number; pendingCents?: number }[] | null;
   } | null>(null);
   const [stripeBalanceBusy, setStripeBalanceBusy] = useState(false);
   // Teste manual de cobrança: gera um link de checkout de verdade (com um
@@ -208,7 +208,7 @@ export default function PaymentSettingsPage() {
         availableCents: number | null;
         pendingCents: number | null;
         error?: string;
-        secondary?: { currency: string; availableCents: number; pendingCents?: number } | null;
+        outras?: { currency: string; availableCents: number; pendingCents?: number }[] | null;
       }>("/api/payments/stripe/balance");
       setStripeBalance(d);
     } catch (e) {
@@ -660,20 +660,27 @@ export default function PaymentSettingsPage() {
                       </>
                     )}
                   </p>
-                  {/* BRL só aparece quando existe — a maioria das contas
-                      nunca cobrou em "cartão no Brasil". */}
-                  {stripeBalance.secondary && (
-                    <p className="text-zinc-300">
-                      BRL: <span className="text-emerald-400">{brl(stripeBalance.secondary.availableCents)}</span>
-                      {!!stripeBalance.secondary.pendingCents && (
-                        <>
-                          {" "}
-                          · a caminho{" "}
-                          <span className="text-zinc-400">{brl(stripeBalance.secondary.pendingCents)}</span>
-                        </>
-                      )}
-                    </p>
-                  )}
+                  {/* Uma linha por moeda que não seja o dólar, e só quando
+                      existe saldo nela: BRL do "cartão no Brasil", EUR e GBP
+                      da cobrança na moeda do lead. Nunca somadas entre si. */}
+                  {stripeBalance.outras?.map((o) => {
+                    const fmt = (c: number) =>
+                      (c / 100).toLocaleString(o.currency === "BRL" ? "pt-BR" : "en-US", {
+                        style: "currency",
+                        currency: o.currency,
+                      });
+                    return (
+                      <p key={o.currency} className="text-zinc-300">
+                        {o.currency}: <span className="text-emerald-400">{fmt(o.availableCents)}</span>
+                        {!!o.pendingCents && (
+                          <>
+                            {" "}
+                            · a caminho <span className="text-zinc-400">{fmt(o.pendingCents)}</span>
+                          </>
+                        )}
+                      </p>
+                    );
+                  })}
                 </>
               )}
             </div>

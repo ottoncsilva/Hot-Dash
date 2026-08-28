@@ -39,6 +39,8 @@ export type TelegramUser = {
    *  português, comportamento de sempre — o lead só entra em "modo
    *  traduzido" depois de escolher um idioma ali. */
   language?: "en" | "es";
+  /** `language_code` cru do Telegram — escolhe a moeda internacional. */
+  languageCode?: string;
 };
 
 /**
@@ -96,6 +98,7 @@ function toUser(r: any): TelegramUser {
     lastInteractionAt: r.last_interaction_at || undefined,
     createdAt: r.created_at,
     language: r.language === "en" || r.language === "es" ? r.language : undefined,
+    languageCode: r.language_code || undefined,
   };
 }
 
@@ -117,6 +120,8 @@ export type UpsertUserInput = {
   inPrevias?: boolean;
   source?: TelegramUserSource;
   sourceCode?: string;
+  /** `language_code` cru do Telegram — decide a moeda internacional. */
+  languageCode?: string;
 };
 
 /**
@@ -134,8 +139,8 @@ export function upsertTelegramUser(input: UpsertUserInput): void {
     .prepare(
       `INSERT INTO telegram_users
          (id, bot_id, profile_id, telegram_user_id, username, first_name, last_name, chat_id,
-          can_dm, blocked, in_vip, in_previas, source, source_code, last_interaction_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+          can_dm, blocked, in_vip, in_previas, source, source_code, language_code, last_interaction_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          username            = COALESCE(excluded.username, telegram_users.username),
          first_name          = COALESCE(excluded.first_name, telegram_users.first_name),
@@ -145,6 +150,9 @@ export function upsertTelegramUser(input: UpsertUserInput): void {
          in_vip              = COALESCE(?, telegram_users.in_vip),
          in_previas          = COALESCE(?, telegram_users.in_previas),
          source_code         = COALESCE(telegram_users.source_code, excluded.source_code),
+         -- O idioma do aparelho pode mudar (a pessoa troca de celular); vale
+         -- sempre o último visto, não o primeiro.
+         language_code       = COALESCE(excluded.language_code, telegram_users.language_code),
          last_interaction_at = excluded.last_interaction_at,
          -- Voltou a interagir ⇒ não está mais bloqueado.
          blocked             = CASE WHEN excluded.can_dm = 1 THEN 0 ELSE telegram_users.blocked END`,
@@ -163,6 +171,7 @@ export function upsertTelegramUser(input: UpsertUserInput): void {
       input.inPrevias === undefined ? 0 : input.inPrevias ? 1 : 0,
       input.source || null,
       input.sourceCode || null,
+      input.languageCode || null,
       now,
       now,
       input.inVip === undefined ? null : input.inVip ? 1 : 0,

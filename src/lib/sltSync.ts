@@ -57,11 +57,19 @@ const MAX_PAGES_PER_SYNC = 5;
  *  abria quebrada — o pior jeito de gastar a última requisição. */
 const RESERVA_PARA_A_TELA = 12;
 
-/** De quanto em quanto tempo o job de fundo refaz o catálogo. Ele só muda
- *  quando o operador edita links no painel da SLT — 15 minutos é de sobra, e
- *  custa 8 requisições/hora fixas (2 por sincronização), independente de
- *  quantas telas forem abertas. */
-const CATALOGO_INTERVALO_MS = 15 * 60 * 1000;
+/** O catálogo recua ANTES do sync de eventos, e de propósito: perder uma
+ *  volta dele não custa nada (ele se refaz na volta seguinte, e a tela
+ *  continua lendo do banco enquanto isso), enquanto evento não puxado a
+ *  tempo some de vez — a API só guarda os últimos 7 dias. Quando a cota
+ *  aperta, quem cede é o catálogo. */
+const RESERVA_CATALOGO = 24;
+
+/** De quanto em quanto tempo o job de fundo refaz o catálogo: 24 req/hora
+ *  fixas (2 por sincronização), independente de quantas telas forem abertas.
+ *  Somado ao sync de eventos (12 a 24/hora), dá 36 a 48 das 60 documentadas
+ *  — cabe, mas sem folga grande, e por isso o catálogo tem reserva PRÓPRIA,
+ *  maior (ver `RESERVA_CATALOGO`). */
+const CATALOGO_INTERVALO_MS = 5 * 60 * 1000;
 
 /** Lê `X-RateLimit-*` de qualquer resposta (inclusive a de erro, que é
  *  justamente quando o número importa) e GRAVA no banco — nada em memória,
@@ -315,9 +323,10 @@ export async function syncSltCatalogue(opts?: { force?: boolean }): Promise<Cata
   if (!opts?.force && guardado && Date.now() - guardado.syncedAt < CATALOGO_INTERVALO_MS) {
     return { pages: guardado.pages as SltPage[], links: guardado.links as SltLink[] };
   }
-  // Mesma reserva do sync de eventos: o job de fundo não encosta na cota que
-  // o operador pode precisar. Com algo guardado, devolve o que tem.
-  if (semCota(opts?.force ? 0 : RESERVA_PARA_A_TELA)) {
+  // Reserva MAIOR que a do sync de eventos: com a cota apertando, o catálogo
+  // é o primeiro a ceder (ver `RESERVA_CATALOGO`). Com algo guardado,
+  // devolve o que tem.
+  if (semCota(opts?.force ? 0 : RESERVA_CATALOGO)) {
     return guardado ? { pages: guardado.pages as SltPage[], links: guardado.links as SltLink[] } : null;
   }
 

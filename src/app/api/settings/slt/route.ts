@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { getSltSettingsPublic, updateSltApiKey } from "@/lib/settings";
-import { syncSltEvents, testSltApiKey } from "@/lib/sltSync";
+import { syncSltEvents, testSltApiKey, sltDiagnosticoSessao } from "@/lib/sltSync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +15,12 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     await requireUser(req);
-    return NextResponse.json({ settings: getSltSettingsPublic() });
+    return NextResponse.json({
+      settings: getSltSettingsPublic(),
+      // Diagnóstico de qualidade do dado (ver `sltDiagnosticoSessao`): diz se
+      // a contagem de visualização é por visitante ou por carregamento.
+      sessao: sltDiagnosticoSessao(),
+    });
   } catch (err) {
     return errorResponse(err);
   }

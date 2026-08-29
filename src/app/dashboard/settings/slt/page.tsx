@@ -14,6 +14,9 @@ type SltState = {
   lastSyncError?: string;
 };
 
+/** Ver `sltDiagnosticoSessao` no servidor. */
+type SltSessao = { views: number; viewsComSessao: number; sessoesDistintas: number };
+
 /**
  * Links da Bio (integração com o SLT, slt.bio) — só leitura, uma chave pra
  * conta inteira (não é por modelo). Sincroniza sozinho a cada ~3 min (ver
@@ -31,10 +34,14 @@ export default function SltSettingsPage() {
   const [sltSaving, setSltSaving] = useState(false);
   const [sltSyncing, setSltSyncing] = useState(false);
   const [sltMsg, setSltMsg] = useState<string | null>(null);
+  const [sltSessao, setSltSessao] = useState<SltSessao | null>(null);
 
   function loadSlt() {
-    apiGet<{ settings: SltState }>("/api/settings/slt")
-      .then((d) => setSltState(d.settings))
+    apiGet<{ settings: SltState; sessao: SltSessao }>("/api/settings/slt")
+      .then((d) => {
+        setSltState(d.settings);
+        setSltSessao(d.sessao);
+      })
       .catch(() => {});
   }
 
@@ -170,7 +177,63 @@ export default function SltSettingsPage() {
         {sltMsg && <p className="mt-2 text-xs text-zinc-300">{sltMsg}</p>}
       </div>
 
+      {sltState?.hasApiKey && sltSessao && sltSessao.views > 0 && (
+        <ComoAVisualizacaoEContada dados={sltSessao} />
+      )}
+
       <RedesDeTrafego />
+    </div>
+  );
+}
+
+/**
+ * Diz, em português, o que a coluna "visualizações" do Funil de Vendas
+ * realmente está contando.
+ *
+ * O SLT manda (ou não) um identificador de sessão junto de cada
+ * visualização. Com ele, a mesma pessoa recarregando a página conta UMA vez
+ * — é gente. Sem ele, cada carregamento conta — e o navegador embutido do
+ * Instagram/TikTok recarrega sozinho, então o número infla. Como esse campo
+ * não está na documentação pública do SLT, a única resposta honesta vem de
+ * olhar o que de fato chegou. É o que este bloco mostra.
+ */
+function ComoAVisualizacaoEContada({ dados }: { dados: SltSessao }) {
+  const { views, viewsComSessao, sessoesDistintas } = dados;
+  const pct = Math.round((viewsComSessao / views) * 100);
+  const temSessao = viewsComSessao > 0;
+  const parcial = temSessao && viewsComSessao < views;
+
+  return (
+    <div className="mt-4 card p-4">
+      <span className="font-medium text-white">Como a visualização é contada</span>
+
+      <p className="mt-2 text-sm text-zinc-400">
+        {!temSessao ? (
+          <>
+            O SLT <strong className="text-amber-400">não está mandando sessão</strong> nas
+            visualizações — nenhuma das {views.toLocaleString("pt-BR")} registradas. Sem
+            sessão, cada CARREGAMENTO de página conta como uma visualização, e não cada
+            pessoa. Como o navegador embutido do Instagram e do TikTok recarrega a página
+            sozinho, o número de visualizações do Funil de Vendas fica{" "}
+            <strong className="text-amber-400">acima</strong> do de gente de verdade — e a
+            taxa de conversão, abaixo. Cliques e vendas não são afetados.
+          </>
+        ) : parcial ? (
+          <>
+            {pct}% das {views.toLocaleString("pt-BR")} visualizações vêm com sessão (
+            {sessoesDistintas.toLocaleString("pt-BR")} sessões distintas). Essas contam por
+            PESSOA. Os {(100 - pct)}% restantes contam por carregamento, então o total ainda
+            fica um pouco acima do número real de visitantes.
+          </>
+        ) : (
+          <>
+            Todas as {views.toLocaleString("pt-BR")} visualizações vêm com sessão —{" "}
+            {sessoesDistintas.toLocaleString("pt-BR")} sessões distintas. A contagem do Funil
+            de Vendas é por <strong className="text-emerald-400">pessoa</strong>, não por
+            carregamento: recarregar a página não infla o número.
+          </>
+        )}
+      </p>
     </div>
   );
 }

@@ -182,9 +182,16 @@ async function sltFetch<T>(apiKey: string, path: string, params?: Record<string,
  *  que juntos identificam UM evento (instante + tipo + o link/poplink
  *  envolvido) bastam: um replay do mesmo `since` (a borda pode repetir,
  *  documentado pela própria SLT) gera o MESMO id, e `INSERT OR IGNORE`
- *  descarta em vez de duplicar. */
+ *  descarta em vez de duplicar.
+ *
+ *  A sessão entra na chave quando existe. Sem ela, dois VISITANTES DIFERENTES
+ *  abrindo a mesma página no mesmo segundo geram a mesma chave e o segundo é
+ *  descartado como se fosse replay — visualização a menos, silenciosamente.
+ *  Só entra SE existe, de propósito: evento sem sessão mantém exatamente a
+ *  chave que já tem hoje, então nada do que já está gravado pode duplicar. */
 function idDoEvento(e: SltEvent): string {
-  return [e.created_at, e.event_type, e.link_id || "", e.poplink_id || "", e.page_id || ""].join("|");
+  const base = [e.created_at, e.event_type, e.link_id || "", e.poplink_id || "", e.page_id || ""].join("|");
+  return e.session_id ? `${base}|${e.session_id}` : base;
 }
 
 function gravarEventos(eventos: SltEvent[]): number {
@@ -356,6 +363,38 @@ export async function getSltCatalogue(): Promise<Catalogo | null> {
   const guardado = getSltCatalogueStored();
   if (guardado) return { pages: guardado.pages as SltPage[], links: guardado.links as SltLink[] };
   return syncSltCatalogue({ force: true });
+}
+
+/**
+ * A SLT está mandando `session_id` nos eventos?
+ *
+ * A pergunta importa porque `sltViewsClicks`/`sltPageStats` contam
+ * visualização como `COUNT(DISTINCT COALESCE(session_id, id))`. Com sessão,
+ * isso é VISITANTE ÚNICO: a mesma pessoa recarregando a página (o navegador
+ * embutido do Instagram/TikTok faz isso sozinho) conta uma vez. Sem sessão,
+ * cai no id do evento e passa a contar CADA CARREGAMENTO — o número fica
+ * mais alto que o de gente de verdade, e a taxa de conversão do funil, mais
+ * baixa. O campo não está na documentação pública da SLT, então a única
+ * forma de saber é olhar o que chegou. Daí este diagnóstico na tela.
+ */
+export function sltDiagnosticoSessao(): {
+  views: number;
+  viewsComSessao: number;
+  sessoesDistintas: number;
+} {
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS views,
+              COUNT(session_id) AS com_sessao,
+              COUNT(DISTINCT session_id) AS sessoes
+         FROM slt_events WHERE event_type = 'page_viewed'`,
+    )
+    .get() as { views: number; com_sessao: number; sessoes: number };
+  return {
+    views: row?.views || 0,
+    viewsComSessao: row?.com_sessao || 0,
+    sessoesDistintas: row?.sessoes || 0,
+  };
 }
 
 /** Estado da cota, para diagnóstico na tela de Configurações. */

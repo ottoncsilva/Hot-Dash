@@ -685,7 +685,7 @@ export default function TelegramUnifiedPage() {
           {(!settings.botToken || !settings.idVip || !settings.idAquecimento) && (
             <div className="mb-8 max-w-4xl rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-4">
               <p className="text-sm text-amber-200">
-                ⚠️ Configure o <b>Token do bot</b> e os <b>IDs dos grupos</b> em{" "} <b>Modelos → editar a
+                ⚠️ Configure o <b>Token do bot</b> e os <b>IDs dos canais</b> em{" "} <b>Modelos → editar a
                 modelo</b>. Sem isso a automação não posta.
               </p>
             </div>
@@ -697,7 +697,7 @@ export default function TelegramUnifiedPage() {
             <div className="space-y-6">
               <div className="rounded-xl border border-sky-500/20 bg-sky-950/10 p-5 space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <h3 className="font-semibold text-sky-400 flex items-center gap-2">Canal / Grupo VIP</h3>
+                    <h3 className="font-semibold text-sky-400 flex items-center gap-2">Canal VIP</h3>
                     <div className="flex flex-wrap items-center gap-2">
                        {settings.vipScheduleType === "manual" && (
                          <button type="button" onClick={() => generateSchedule("vip", true)} disabled={generatingVip} className="rounded-lg bg-sky-500/20 text-sky-300 px-3 py-1.5 text-xs font-semibold hover:bg-sky-500/30 transition-colors disabled:opacity-50 [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:px-4">
@@ -1057,7 +1057,7 @@ export default function TelegramUnifiedPage() {
             <div className="space-y-6">
               <div className="rounded-xl border border-orange-500/20 bg-orange-950/10 p-5 space-y-6">
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <h3 className="font-semibold text-orange-400 flex items-center gap-2">Canal / Grupo Prévias</h3>
+                    <h3 className="font-semibold text-orange-400 flex items-center gap-2">Canal Prévias</h3>
                     <div className="flex flex-wrap items-center gap-2">
                        {settings.warmupScheduleType === "manual" && (
                          <button type="button" onClick={() => generateSchedule("warmup", true)} disabled={generatingWarmup} className="rounded-lg bg-orange-500/20 text-orange-300 px-3 py-1.5 text-xs font-semibold hover:bg-orange-500/30 transition-colors disabled:opacity-50 [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:px-4">

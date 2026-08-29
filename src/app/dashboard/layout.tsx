@@ -69,7 +69,7 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
 
 // Submenu de Configurações — abre dentro da própria sidebar (desktop).
 const SETTINGS_SUBSECTIONS: { label: string; anchor: string }[] = [
-  { label: "Geral (fuso, grupos)", anchor: "geral" },
+  { label: "Geral (fuso, canais)", anchor: "geral" },
   { label: "Notificações", anchor: "notificacoes" },
   { label: "Menu", anchor: "menu" },
   { label: "Etiquetas", anchor: "etiquetas" },
@@ -83,7 +83,7 @@ const SETTINGS_SUBSECTIONS: { label: string; anchor: string }[] = [
 
 // O LTV junta os dois canais: a conversa ao vivo (que serve WhatsApp e
 // Telegram) e a configuração de cada um. O menu "Telegram" ao lado continua
-// sendo outra coisa — o grupo VIP, que roda por bot.
+// sendo outra coisa — o canal VIP, que roda por bot.
 // Só agrupa: cada tela continua no caminho de sempre, nada foi movido.
 const GERACAO_SUBSECTIONS: NavSubItem[] = [
   { label: "Censura com IA", href: "/dashboard/censura" },

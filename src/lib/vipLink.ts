@@ -9,12 +9,12 @@ import { getTelegramMe, getTelegramChat, createTelegramInviteLink } from "./tele
  * Era um campo que o operador tinha de preencher à mão no cadastro da modelo,
  * e sem ele os posts de conversão das Prévias saíam convidando para lugar
  * nenhum (ou nem eram gerados). Só que o painel já tem tudo o que é preciso
- * para achar esse link: o token do bot e o ID do grupo VIP.
+ * para achar esse link: o token do bot e o ID do canal VIP.
  *
  * A ORDEM importa, e ela é de funil, não de conveniência:
  *
  *   1. O BOT (t.me/usuario_do_bot). É o destino certo para uma Prévia: o lead
- *      chega no bot, vê os planos e paga. Mandá-lo direto para o grupo VIP
+ *      chega no bot, vê os planos e paga. Mandá-lo direto para o canal VIP
  *      seria entregar o produto de graça.
  *   2. O VIP PÚBLICO (t.me/usuario_do_grupo), quando o grupo tem @username.
  *   3. O CONVITE PRIMÁRIO do VIP, lido pelo getChat.
@@ -40,9 +40,9 @@ export type VipLinkSource = "manual" | "bot" | "vip_publico" | "vip_convite" | "
 export const VIP_LINK_SOURCE_LABEL: Record<VipLinkSource, string> = {
   manual: "preenchido por você",
   bot: "conversa do bot",
-  vip_publico: "@ público do grupo VIP",
-  vip_convite: "convite do grupo VIP",
-  vip_novo_convite: "convite criado agora para o grupo VIP",
+  vip_publico: "@ público do canal VIP",
+  vip_convite: "convite do canal VIP",
+  vip_novo_convite: "convite criado agora para o canal VIP",
 };
 
 export type LinkDoVip = {
@@ -125,7 +125,7 @@ export async function resolverLinkDoVip(
   }
 
   if (!bot.idVip?.trim()) {
-    return { link: "", problem: "Sem @ do bot e sem grupo VIP cadastrado — não há de onde tirar o link." };
+    return { link: "", problem: "Sem @ do bot e sem canal VIP cadastrado — não há de onde tirar o link." };
   }
 
   // 2 e 3. Uma chamada só de getChat responde as duas: o @ público do grupo e
@@ -146,8 +146,8 @@ export async function resolverLinkDoVip(
       link: "",
       problem:
         e instanceof Error
-          ? `O bot não consegue ler o grupo VIP (${e.message}). Confira o ID e se ele é administrador ali.`
-          : "O bot não consegue ler o grupo VIP.",
+          ? `O bot não consegue ler o canal VIP (${e.message}). Confira o ID e se ele é administrador ali.`
+          : "O bot não consegue ler o canal VIP.",
     };
   }
 
@@ -161,7 +161,7 @@ export async function resolverLinkDoVip(
       link: "",
       problem:
         e instanceof Error
-          ? `Não foi possível gerar o convite do VIP (${e.message}). O bot precisa ser administrador do grupo com permissão de convidar por link.`
+          ? `Não foi possível gerar o convite do VIP (${e.message}). O bot precisa ser administrador do canal com permissão de convidar por link.`
           : "Não foi possível gerar o convite do VIP.",
     };
   }

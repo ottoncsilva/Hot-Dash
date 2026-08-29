@@ -789,7 +789,7 @@ export function SequencePreview({
       // amarelo quando não há mensagem nenhuma configurada, que é erro de fato.
       rodape={
         nenhuma
-          ? "Nada configurado: quem for aprovado entra no grupo e não recebe mensagem nenhuma."
+          ? "Nada configurado: quem for aprovado entra no canal e não recebe mensagem nenhuma."
           : passaDaTela
             ? "Somadas, as mensagens passam de uma tela — cada uma chega no seu horário."
             : "A conversa inteira cabe em uma tela."
@@ -846,7 +846,7 @@ export function SequencePreview({
 
         {nenhuma && (
           <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-2 text-center text-[11px] text-amber-300">
-            Nenhuma mensagem configurada para este grupo.
+            Nenhuma mensagem configurada para este canal.
           </p>
         )}
       </div>

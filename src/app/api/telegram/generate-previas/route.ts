@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     // Um terço do dia das Prévias é post de CONVERSÃO: a copy chama pro VIP e o
     // envio anexa o link. Sem link, esses posts sairiam convidando para lugar
     // nenhum — mas o painel não precisa mais PEDIR o link: ele o descobre a
-    // partir do bot e do grupo VIP (ver lib/vipLink.ts). Só desiste quando nem
+    // partir do bot e do canal VIP (ver lib/vipLink.ts). Só desiste quando nem
     // a descoberta funciona, e aí diz o motivo real em vez de mandar preencher
     // um campo que ele mesmo saberia preencher.
     const vip = await resolverLinkDoVip(profile.id);

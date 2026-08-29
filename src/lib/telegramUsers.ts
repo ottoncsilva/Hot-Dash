@@ -280,7 +280,7 @@ export const AUDIENCE_LABELS: Record<Audience, string> = {
   pacotes: "Pacotes",
   order_bump: "Order Bump",
   previas: "Prévias",
-  grupo_vip: "Grupo VIP",
+  grupo_vip: "Canal VIP",
 };
 
 export const AUDIENCE_HINTS: Record<Audience, string> = {
@@ -293,8 +293,8 @@ export const AUDIENCE_HINTS: Record<Audience, string> = {
   recorrentes: "Comprou mais de uma vez.",
   pacotes: "Comprou um pacote (compra única).",
   order_bump: "Aceitou uma oferta adicional na hora de pagar.",
-  previas: "Está no grupo de prévias.",
-  grupo_vip: "Está dentro do grupo VIP.",
+  previas: "Está no canal de prévias.",
+  grupo_vip: "Está dentro do canal VIP.",
 };
 
 /**

@@ -214,7 +214,7 @@ export async function deliverPaidTransaction(
               await sendPushEvent(
                 "sale",
                 "⚠️ Venda aprovada SEM link do VIP",
-                "O bot não conseguiu gerar o convite — confira se ele é admin do grupo com permissão de convidar.",
+                "O bot não conseguiu gerar o convite — confira se ele é admin do canal com permissão de convidar.",
                 "/dashboard/telegram/bot",
               );
             } catch {
@@ -286,7 +286,7 @@ export async function deliverPaidTransaction(
             // que faz o <code>/<b> acima virarem formatação de verdade).
             await sendTelegramMessage(bot.botToken, bot.idVendas.trim(), relatorio);
           } catch (rErr) {
-            console.error("Erro ao mandar o relatório no Grupo de Vendas:", rErr);
+            console.error("Erro ao mandar o relatório no Canal de Vendas:", rErr);
           }
         }
 

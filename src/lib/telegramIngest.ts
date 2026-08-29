@@ -39,7 +39,7 @@ export function registrarChegadaTelegram(
     // (SyncPay/Stripe sem passar pelo nosso checkout) com o lead e o bot
     // certos — ver `externalSaleReport.ts`.
     //
-    // Aceita `message` E `channel_post`: na prática o "Grupo de Vendas" é um
+    // Aceita `message` E `channel_post`: na prática o "Canal de Vendas" é um
     // CANAL, e post de canal não chega como `message` — é um tipo de update à
     // parte. Era por isso que a venda notificada no canal não era captada,
     // mesmo com o bot sendo administrador lá.

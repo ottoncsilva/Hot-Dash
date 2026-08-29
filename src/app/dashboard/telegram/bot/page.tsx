@@ -52,7 +52,7 @@ type Bot = {
   idVip: string;
   idAquecimento: string;
   idRegistro?: string;
-  /** Grupo de Vendas — terceiro canal, opcional (editado na tela da modelo,
+  /** Canal de Vendas — terceiro canal, opcional (editado na tela da modelo,
    *  junto do VIP e das Prévias). Recebe um relatório de cada venda aprovada. */
   idVendas?: string;
   supportUsername?: string;
@@ -586,7 +586,7 @@ export default function BotVendasPage() {
       {!loading && !bot && (
         <div className="card p-6 text-center text-sm text-zinc-400">
           Bot ainda não configurado. Em <b>Modelos → editar → Bot do Telegram</b>, salve o{" "}
-          <b>Token</b> e os <b>IDs dos grupos VIP e Prévias</b>.
+          <b>Token</b> e os <b>IDs dos canais VIP e Prévias</b>.
         </div>
       )}
 
@@ -1055,7 +1055,7 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
             <p className="mt-0.5 text-xs text-zinc-500">
               {active
                 ? "O bot recebe leads, gera PIX e aprova entradas pelo Hot-Dash. Ninguém mais manda mensagem por ele."
-                : "Ligar isto TOMA o bot na hora de quem estiver operando ele agora (ex.: o Bobz). Desligado, o Hot-Dash não encosta neste bot — só registra as vendas dele pelo Grupo de Vendas."}
+                : "Ligar isto TOMA o bot na hora de quem estiver operando ele agora (ex.: o Bobz). Desligado, o Hot-Dash não encosta neste bot — só registra as vendas dele pelo Canal de Vendas."}
             </p>
           </div>
           <Switch checked={active} onChange={setOperation} disabled={toggling} ariaLabel="Controle total do bot" />
@@ -1064,16 +1064,16 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
 
       <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
         <Info label="Bot" value={bot.botUsername ? `@${bot.botUsername}` : "—"} />
-        <Info label="Grupo VIP" value={bot.idVip || "—"} />
-        <Info label="Grupo Prévias" value={bot.idAquecimento || "—"} />
-        <Info label="Grupo Vendas" value={bot.idVendas || "— (opcional)"} />
+        <Info label="Canal VIP" value={bot.idVip || "—"} />
+        <Info label="Canal Prévias" value={bot.idAquecimento || "—"} />
+        <Info label="Canal Vendas" value={bot.idVendas || "— (opcional)"} />
       </div>
       {/* Sem ser ADMIN do VIP o bot não gera o convite — e a falha só
           apareceria depois de alguém pagar. Por isso a checagem fica à vista. */}
       {grupos && grupos.some((g) => !g.ok) && (
         <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.07] p-3.5">
           <p className="text-sm font-semibold text-amber-300">
-            O bot ainda não consegue operar todos os grupos
+            O bot ainda não consegue operar todos os canais
           </p>
           <ul className="mt-1.5 space-y-1 text-xs text-zinc-300">
             {grupos.map((g) => (
@@ -1088,7 +1088,7 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
             ))}
           </ul>
           <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">
-            Promova o bot a <b>administrador</b> nos grupos, com <b>convidar por link</b> e{" "} <b>remover
+            Promova o bot a <b>administrador</b> nos canais, com <b>convidar por link</b> e{" "} <b>remover
             membros</b>. Sem isso não há convite do VIP nem aprovação.
           </p>
         </div>
@@ -1108,7 +1108,7 @@ function WebhookCard({ profileId, bot, onSaved }: { profileId: string; bot: Bot;
       )}
 
       <p className="mt-2 text-xs text-zinc-500">
-        Token e IDs dos grupos VIP/Prévias vêm do <b>cadastro da modelo</b> (Modelos → editar). A
+        Token e IDs dos canais VIP/Prévias vêm do <b>cadastro da modelo</b> (Modelos → editar). A
         postagem automática funciona independentemente deste liga/desliga.
       </p>
 
@@ -1753,7 +1753,7 @@ function SuccessRow({
         onChange={(e) => setTexto(e.target.value)}
       />
       <VarChips
-        vars={[["{link_vip}", "link de convite do grupo VIP, gerado na hora"]]}
+        vars={[["{link_vip}", "link de convite do canal VIP, gerado na hora"]]}
         targetRef={areaRef}
         onChange={setTexto}
       />
@@ -2316,7 +2316,7 @@ function ExtrasRow({ profileId, bot, onSaved }: { profileId: string; bot: Bot; o
           .join(" · ") || "nada configurado"
       }
     >
-      <label className="eyebrow block">Boas-vindas nas prévias (grupo grátis)</label>
+      <label className="eyebrow block">Boas-vindas nas prévias (canal grátis)</label>
       <textarea
         ref={areaRef}
         className="input mt-1.5 min-h-[80px]"
@@ -4127,7 +4127,7 @@ const MODOS: { key: ApprovalMode; label: string; desc: string }[] = [
   {
     key: "all",
     label: "Aprovar todos",
-    desc: "Aceita qualquer pedido. É o normal do grupo de prévias, que é gratuito.",
+    desc: "Aceita qualquer pedido. É o normal do canal de prévias, que é gratuito.",
   },
   {
     key: "manual",
@@ -4204,18 +4204,18 @@ function ApprovalCard({
     <div className="card p-4">
       <h2 className="font-display text-lg font-semibold">Aprovação automática</h2>
       <p className="mt-1 text-xs text-zinc-500">
-        O que o bot faz quando alguém pede para entrar em cada grupo. Vale só para grupos com{" "}
+        O que o bot faz quando alguém pede para entrar em cada canal. Vale só para canais com{" "}
         <b>&quot;aprovar novos membros&quot;</b> ligado nas configurações do Telegram — sem isso nenhuma regra aqui tem efeito.
       </p>
 
       <GrupoAprovacao
-        titulo="Grupo VIP"
+        titulo="Canal VIP"
         subtitulo={bot.idVip || "sem ID configurado"}
         valor={vip}
         onChange={setVip}
       />
       <GrupoAprovacao
-        titulo="Grupo de Prévias"
+        titulo="Canal de Prévias"
         subtitulo={bot.idAquecimento || "sem ID configurado"}
         valor={previas}
         onChange={setPrevias}
@@ -4241,7 +4241,7 @@ function ApprovalCard({
       />
 
       <p className="mt-4 rounded-lg border border-white/10 bg-ink-850 p-3 text-xs text-zinc-400">
-        O bot precisa ser <b>administrador</b> do grupo, com permissão de convidar por link.
+        O bot precisa ser <b>administrador</b> do canal, com permissão de convidar por link.
       </p>
 
       <button onClick={save} disabled={busy} className="btn-primary mt-4">
@@ -4369,7 +4369,7 @@ function WelcomeSequence({
       </p>
 
       {/* REUSAR A MENSAGEM DE BOAS-VINDAS. É a mesma conversa: quem entra no
-          grupo precisa ver a mesma oferta de quem chega pelo /start. Manter as
+          canal precisa ver a mesma oferta de quem chega pelo /start. Manter as
           duas em sincronia na mão era garantia de elas divergirem. */}
       <div className="mt-2.5 rounded-xl border border-white/10 bg-ink-850 p-3">
         <div className="flex items-center justify-between gap-3">

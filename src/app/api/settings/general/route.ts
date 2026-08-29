@@ -58,7 +58,7 @@ export async function PATCH(req: NextRequest) {
       const n = Number(body.fixedGroupMembers);
       if (!Number.isFinite(n) || n < 0) {
         return NextResponse.json(
-          { error: "Informe quantos integrantes fixos cada grupo tem (0 ou mais)." },
+          { error: "Informe quantos integrantes fixos cada canal tem (0 ou mais)." },
           { status: 400 },
         );
       }

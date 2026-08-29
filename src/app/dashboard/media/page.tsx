@@ -1134,12 +1134,12 @@ function MediaGrid({
             {!selecting && (item.postCounts?.previas || item.postCounts?.vip) ? (
               <span className="pointer-events-none absolute right-2 top-2 flex flex-col items-end gap-1">
                 {item.postCounts.previas > 0 && (
-                  <span className="chip bg-black/60" title="Vezes publicada no grupo de Prévias">
+                  <span className="chip bg-black/60" title="Vezes publicada no canal de Prévias">
                     prévias ×{item.postCounts.previas}
                   </span>
                 )}
                 {item.postCounts.vip > 0 && (
-                  <span className="chip bg-black/60" title="Vezes publicada no grupo VIP">
+                  <span className="chip bg-black/60" title="Vezes publicada no canal VIP">
                     vip ×{item.postCounts.vip}
                   </span>
                 )}

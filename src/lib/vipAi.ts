@@ -419,7 +419,7 @@ function balancePolls(planned: VipPost[]): void {
 }
 
 /** Fração-alvo de posts de CONVITE da janela, quando o convite está ligado.
- *  Calibrada pelo GRÁFICO DE VISUALIZAÇÕES do próprio grupo VIP: convite só nas
+ *  Calibrada pelo GRÁFICO DE VISUALIZAÇÕES do próprio canal VIP: convite só nas
  *  horas em que tem gente olhando. Na prática dá ~7 a 8 posts com o link por
  *  dia (a cota arredonda para cima em cada janela), ~90% deles em hora de pico. */
 function windowDiretoTarget(w: Window): number {

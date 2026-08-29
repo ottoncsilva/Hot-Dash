@@ -165,7 +165,7 @@ async function telegramFormFetch(
  */
 export const UPDATES_NECESSARIOS = [
   "message",
-  // Post de CANAL. O Grupo de Vendas costuma ser um canal, e não um grupo —
+  // Post de CANAL. O Canal de Vendas costuma ser um canal, e não um grupo —
   // e post de canal NÃO chega como `message`, é um tipo à parte que o
   // Telegram só entrega se estiver listado aqui. Sem ele, o relatório de
   // venda que o sistema de origem publica nunca chegava, mesmo com o bot

@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Interruptor do vínculo pelo Grupo de Vendas — ver `externalSaleReport.ts`.
+ * Interruptor do vínculo pelo Canal de Vendas — ver `externalSaleReport.ts`.
  * Fica numa rota própria (e não junto de `finance-settings`) porque não é
  * número financeiro: é comportamento do sistema, e salvar a meta do mês não
  * pode arrastar isto junto sem querer.

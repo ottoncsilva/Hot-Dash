@@ -1368,7 +1368,7 @@ function esperaDaTentativa(tentativas: number): number {
 }
 
 /**
- * Tira alguém do grupo VIP. Devolve `null` quando deu certo, ou o motivo.
+ * Tira alguém do canal VIP. Devolve `null` quando deu certo, ou o motivo.
  *
  * Bane e desbane em seguida: o desban limpa a restrição, senão a pessoa não
  * conseguiria voltar ao comprar de novo.
@@ -1515,8 +1515,8 @@ async function runTelegramEvictionImpl(): Promise<number> {
       String(row.telegram_user_id),
       `⚠️ <b>Sua assinatura VIP expirou!</b>\n\n` +
         `Para continuar recebendo o conteúdo completo e exclusivo, renove seu plano no chat do bot.\n\n` +
-        `Enquanto isso, você foi redirecionado para o nosso grupo de prévias gratuitas:\n` +
-        `👉 <a href="${linkPrevias}">Entrar no Grupo de Prévias</a>`,
+        `Enquanto isso, você foi redirecionado para o nosso canal de prévias gratuitas:\n` +
+        `👉 <a href="${linkPrevias}">Entrar no Canal de Prévias</a>`,
     ).catch(() => {});
   }
 

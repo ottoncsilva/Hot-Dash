@@ -37,7 +37,7 @@ const AUDIENCE_LABELS: Record<Audience, string> = {
   pacotes: "Pacotes",
   order_bump: "Order Bump",
   previas: "Prévias",
-  grupo_vip: "Grupo VIP",
+  grupo_vip: "Canal VIP",
 };
 
 /** A explicação de cada público, no `title` do cartão. */
@@ -51,8 +51,8 @@ const AUDIENCE_HINTS: Record<Audience, string> = {
   recorrentes: "Comprou mais de uma vez.",
   pacotes: "Comprou um pacote (compra única).",
   order_bump: "Aceitou uma oferta adicional na hora de pagar.",
-  previas: "Está no grupo de prévias.",
-  grupo_vip: "Está dentro do grupo VIP.",
+  previas: "Está no canal de prévias.",
+  grupo_vip: "Está dentro do canal VIP.",
 };
 
 const AUDIENCE_ORDER: Audience[] = [
@@ -203,7 +203,7 @@ export default function MailingPage() {
       {!loading && !bot && (
         <div className="card p-6 text-center text-sm text-zinc-400">
           Este modelo ainda não tem o bot configurado. Vá em <b>Modelos → editar a modelo → Bot do
-          Telegram</b>, informe o <b>Token do Bot</b> e os <b>IDs dos grupos</b> e salve.
+          Telegram</b>, informe o <b>Token do Bot</b> e os <b>IDs dos canais</b> e salve.
         </div>
       )}
 

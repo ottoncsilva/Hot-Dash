@@ -176,7 +176,7 @@ function migrate(d: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_tx_created ON transactions(created_at);
 
     -- RELATÓRIO DE VENDA vindo de fora (ex.: o Bobz, que opera alguns bots
-    -- e posta no Grupo de Vendas do Telegram um resumo de cada venda —
+    -- e posta no Canal de Vendas do Telegram um resumo de cada venda —
     -- mesmo formato que o próprio Hot-Dash usa, ver buildSalesReportMessage
     -- em payments/deliverPayment.ts). Guarda o que o relatório diz até o
     -- webhook de pagamento (SyncPay/Stripe) casar pelo provider_ref
@@ -378,7 +378,7 @@ function migrate(d: Database.Database) {
       support_username  TEXT,
       welcome_message   TEXT NOT NULL,
       welcome_media_tags TEXT,
-      success_message   TEXT NOT NULL DEFAULT '✅ Pagamento aprovado! Acesse o Grupo VIP aqui: {link_vip}',
+      success_message   TEXT NOT NULL DEFAULT '✅ Pagamento aprovado! Acesse o Canal VIP aqui: {link_vip}',
       downsell_funnel   TEXT,
       upsell_funnel     TEXT,
       created_at        INTEGER NOT NULL,
@@ -927,7 +927,7 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "profiles", "vip_link_auto", "TEXT");
   ensureColumn(d, "profiles", "vip_link_auto_source", "TEXT");
   // Link de SAÍDA do VIP (WhatsApp particular) + texto do botão. Usado nos posts
-  // do grupo VIP marcados para levar o link, para puxar o lead pro WhatsApp (LTV).
+  // do canal VIP marcados para levar o link, para puxar o lead pro WhatsApp (LTV).
   ensureColumn(d, "profiles", "bio_whatsapp_link", "TEXT");
   ensureColumn(d, "profiles", "bio_whatsapp_button", "TEXT");
   // Mesmo papel do WhatsApp acima, no Telegram: o post do VIP pode puxar o lead
@@ -1666,7 +1666,7 @@ function backfillSyncPayAmounts(d: Database.Database) {
 function backfillMensagensPadrao(d: Database.Database) {
   const BEM_VINDO =
     "Oi meu amor 😈\n\nSeja bem-vindo! Aqui embaixo estão as opções pra você entrar no meu VIP e ver tudo o que eu não posso postar por aí 🔥\n\nEscolhe a sua e vem 👇";
-  const APROVADO = "✅ Pagamento aprovado meu amor! Acesse o Grupo VIP aqui:\n\n🔗 {link_vip}";
+  const APROVADO = "✅ Pagamento aprovado meu amor! Acesse o Canal VIP aqui:\n\n🔗 {link_vip}";
   const BOTAO = "🔒 Acessar Conteúdo";
 
   d.prepare(

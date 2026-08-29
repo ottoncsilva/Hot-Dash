@@ -356,7 +356,7 @@ export async function runTelegramGroupMonitor(opts?: {
         atualizados++;
       } catch (e) {
         upsert(bot.id, bot.profile_id, alvo.kind, alvo.chatId, {
-          error: e instanceof Error ? e.message.slice(0, 200) : "Falha ao consultar o grupo.",
+          error: e instanceof Error ? e.message.slice(0, 200) : "Falha ao consultar o canal.",
         });
       }
     }

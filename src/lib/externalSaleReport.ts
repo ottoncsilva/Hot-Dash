@@ -20,7 +20,7 @@ import { getVendasExternasSettings } from "./settings";
  * precisar de nome, e-mail ou CPF, que o Telegram nem tem.
  *
  * COMO O RELATÓRIO CHEGA: por um bot que o Hot-Dash controla e que também
- * está no Grupo de Vendas (`idVendas`) — é ele que "ouve" o grupo. O bot
+ * está no Canal de Vendas (`idVendas`) — é ele que "ouve" o grupo. O bot
  * REPORTADO na mensagem ("ID Bot") é outro: o que o sistema de origem opera.
  * Nada aqui intercepta o bot de ninguém; só se lê uma mensagem de grupo que
  * já chegaria de qualquer jeito.
@@ -99,7 +99,7 @@ export function parseSalesReportMessage(text: string): RelatorioExternoParsed | 
 }
 
 /**
- * Processa um relatório de venda visto no Grupo de Vendas (ver
+ * Processa um relatório de venda visto no Canal de Vendas (ver
  * `registrarChegadaTelegram`, que chama isto quando a mensagem chega no
  * chat marcado como `idVendas` do bot). Nunca lança — é tráfego de grupo
  * real, um relatório mal formado não pode derrubar o resto do processamento
@@ -202,7 +202,7 @@ export function registrarRelatorioExterno(text: string): void {
 /**
  * Consultada pelos webhooks de pagamento (SyncPay/Stripe) na hora de gravar
  * uma venda "fria" (sem transação pendente pré-existente) — se o relatório
- * do Grupo de Vendas já chegou primeiro, a venda nasce JÁ atribuída, em vez
+ * do Canal de Vendas já chegou primeiro, a venda nasce JÁ atribuída, em vez
  * de cair em "Sem modelo" pra corrigir na mão depois.
  */
 /**
@@ -270,7 +270,7 @@ const ABERTURA_DO_RELATORIO = /pagamento\s+aprovado/i;
 const ATRIBUICAO_DO_TELEGRAM = /,\s*\[[^\]\n]*\d{1,2}:\d{2}[^\]\n]*\]\s*$/;
 
 /**
- * Separa um texto colado (várias mensagens do Grupo de Vendas coladas juntas)
+ * Separa um texto colado (várias mensagens do Canal de Vendas coladas juntas)
  * em blocos, um por venda.
  *
  * O corte é feito pela PRIMEIRA LINHA DA PRÓPRIA VENDA ("Pagamento
@@ -328,7 +328,7 @@ export type ResultadoImportacao = {
 /**
  * IMPORTAÇÃO EM LOTE — histórico colado. O Telegram não deixa um bot ler
  * mensagens antigas de um grupo, então esta é a única forma de cobrir vendas
- * que aconteceram antes de o bot "ouvinte" estar no Grupo de Vendas.
+ * que aconteceram antes de o bot "ouvinte" estar no Canal de Vendas.
  * Reaproveita `registrarRelatorioExterno` bloco a bloco — mesma lógica,
  * mesmas travas (nunca sobrescreve uma venda já atribuída; ignora relatório
  * de bot que o Hot-Dash opera), só que de uma vez só.

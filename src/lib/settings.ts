@@ -508,7 +508,7 @@ export function setNotificationPrefs(patch: Partial<NotificationPrefs>): Notific
  * VÍNCULO PELO GRUPO DE VENDAS — liga/desliga a atribuição automática de
  * venda "fria" (SyncPay/Stripe sem passar pelo checkout do Hot-Dash) ao
  * modelo e ao bot certos, lendo o relatório que o sistema de origem (o Bobz)
- * posta no Grupo de Vendas. Ver `externalSaleReport.ts`.
+ * posta no Canal de Vendas. Ver `externalSaleReport.ts`.
  *
  * Nasce LIGADO: já era o comportamento em produção quando o interruptor
  * passou a existir, e nascer desligado calaria a atribuição sem ninguém

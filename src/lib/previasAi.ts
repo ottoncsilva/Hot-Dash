@@ -643,7 +643,7 @@ export function captionTheme(type: MkType, hour = 21, weekday?: number): string 
     case "REACTION": return `Post CURTÍSSIMO que PEDE reação com emoji ('reage com 🔥 se…', '😈 se você…'), com a provocação no meio. ${base}`;
     case "PHOTO_PREMIUM": return `Legenda quente desta FOTO, comentando o que aparece nela e o que NÃO deu pra postar aqui. ${cta} ${base}`;
     case "VIDEO_PREMIUM": return `Legenda de VÍDEO (use o frame como referência): conte o que acontece no vídeo e por que ele não cabe no grupo de prévias. ${cta} ${base}`;
-    case "CENSORED_PREVIEW": return `PRÉVIA CORTADA: essa é a versão que dá pra mostrar no grupo — diga isso e descreva o que ficou de fora do enquadramento, o que a foto original mostra inteiro. É o post que mais converte: a curiosidade tem que doer. Não afirme que tem tarja preta na imagem. ${cta} ${base}`;
+    case "CENSORED_PREVIEW": return `PRÉVIA CORTADA: essa é a versão que dá pra mostrar no canal — diga isso e descreva o que ficou de fora do enquadramento, o que a foto original mostra inteiro. É o post que mais converte: a curiosidade tem que doer. Não afirme que tem tarja preta na imagem. ${cta} ${base}`;
     case "PRESENT": return `Recompensa imediata: 'quem entrar agora ganha…' (um vídeo seu, um nude, uma chamada). ${cta} ${base}`;
     case "COUNTDOWN": return `Urgência real ('esse eu apago hoje', 'sai do ar à meia-noite'), dizendo o que vai sumir. ${cta} ${base}`;
     case "VIP_INVITATION": return `Convite direto e safado pro VIP, contando como você é do lado de lá. ${cta} ${base}`;
@@ -669,7 +669,7 @@ const FALLBACK: Partial<Record<MkType, string[]>> = {
   QUESTION: ["Se eu sentasse no teu colo agora, o que você fazia? 😈 me conta", "Por onde você começaria em mim? 😏 quero ver"],
   REACTION: ["Reage com 🔥 se você tá duro pensando em mim 😈", "😈 se você me aguentaria a noite toda", "Manda um 💦 se você quer me ver gozando", "🔥 se você tá com saudade da minha bunda"],
   PHOTO_PREMIUM: ["Aqui eu tive que tapar… lá eu tô toda aberta pra você 🔥", "Essa é a versão comportada. A outra você não esquece 😈", "Isso é 10% do que eu postei lá dentro hoje 💦"],
-  VIDEO_PREMIUM: ["Gravei um vídeo gozando que não cabe aqui… tá te esperando 💦", "Esse vídeo é forte demais pro grupo, tive que jogar lá dentro 😈", "Fiz um vídeo pensando em você e não segurei o gemido 🔥"],
+  VIDEO_PREMIUM: ["Gravei um vídeo gozando que não cabe aqui… tá te esperando 💦", "Esse vídeo é forte demais pro canal, tive que jogar lá dentro 😈", "Fiz um vídeo pensando em você e não segurei o gemido 🔥"],
   CENSORED_PREVIEW: ["Essa é a parte que dá pra postar aqui… a foto inteira tá lá 🔥", "Cortei bem na hora que ficou bom 😈 do lado de lá não tem corte", "Aqui você vê metade. Lá você vê tudo 💦"],
   PRESENT: ["Quem entrar agora ganha um vídeo meu bem safado 🎁😈", "Tenho um nude guardado pra quem chegar hoje 🎁🔥"],
   COUNTDOWN: ["Esse vídeo eu apago hoje à meia-noite… corre 🔥", "Depois de hoje some e não volta 😈"],

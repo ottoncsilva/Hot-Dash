@@ -33,9 +33,9 @@ import { buildSocialUrl, networkMeta } from "@/lib/socialLinks";
 const VIP_SOURCE_LABEL: Record<string, string> = {
   manual: "preenchido por você",
   bot: "conversa do bot",
-  vip_publico: "@ público do grupo VIP",
-  vip_convite: "convite do grupo VIP",
-  vip_novo_convite: "convite criado agora para o grupo VIP",
+  vip_publico: "@ público do canal VIP",
+  vip_convite: "convite do canal VIP",
+  vip_novo_convite: "convite criado agora para o canal VIP",
 };
 import { showToast } from "@/lib/toast";
 import DetectChat from "@/components/telegram/bot/DetectChat";
@@ -82,7 +82,7 @@ export default function ProfileDetailPage() {
   const [hasToken, setHasToken] = useState(false);
   const [botIdVip, setBotIdVip] = useState("");
   const [botIdPrevias, setBotIdPrevias] = useState("");
-  // Grupo de Vendas — terceiro canal, OPCIONAL (ao contrário dos dois
+  // Canal de Vendas — terceiro canal, OPCIONAL (ao contrário dos dois
   // acima): sem ele, o bot simplesmente não manda o relatório de venda.
   const [botIdVendas, setBotIdVendas] = useState("");
   const [botOrig, setBotOrig] = useState({ token: "", vip: "", prev: "", vendas: "" });
@@ -421,7 +421,7 @@ export default function ProfileDetailPage() {
                 <span className="font-normal text-zinc-500">(entra nos botões da copy)</span>
               </label>
               {/* O campo virou OPCIONAL: o painel descobre este link sozinho a
-                  partir do token do bot e do grupo VIP. Preencher aqui só serve
+                  partir do token do bot e do canal VIP. Preencher aqui só serve
                   para mandar o lead para outro lugar. */}
               <input
                 className="input"
@@ -472,12 +472,12 @@ export default function ProfileDetailPage() {
             </div>
 
             {/* Links de SAÍDA do VIP. São dois destinos possíveis para o mesmo
-                papel — puxar o lead do grupo para uma conversa 1 a 1 (LTV) — e
+                papel — puxar o lead do canal para uma conversa 1 a 1 (LTV) — e
                 cada geração do Método MK escolhe UM deles. */}
             <div className="panel rounded-xl p-4 space-y-3">
               <p className="eyebrow">WhatsApp particular (posts do VIP)</p>
               <p className="text-xs text-zinc-500 -mt-1">
-                Puxa o lead do grupo VIP para o WhatsApp. Aparece só nos posts VIP que você marcar.
+                Puxa o lead do canal VIP para o WhatsApp. Aparece só nos posts VIP que você marcar.
               </p>
               <div>
                 <label className="eyebrow mb-1.5 block">Link do WhatsApp</label>
@@ -545,7 +545,7 @@ export default function ProfileDetailPage() {
             <div className="panel rounded-xl p-4">
               <p className="eyebrow">Bot do Telegram</p>
               <p className="mt-1 text-xs text-zinc-500">
-                Token do @BotFather + IDs dos grupos. Vale para as postagens e para o bot de vendas.
+                Token do @BotFather + IDs dos canais. Vale para as postagens e para o bot de vendas.
               </p>
               <div className="mt-3 space-y-3">
                 <div>
@@ -568,7 +568,7 @@ export default function ProfileDetailPage() {
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="eyebrow mb-1.5 block">ID Grupo VIP</label>
+                    <label className="eyebrow mb-1.5 block">ID Canal VIP</label>
                     <input
                       className="input font-mono"
                       placeholder="-100..."
@@ -586,7 +586,7 @@ export default function ProfileDetailPage() {
                     )}
                   </div>
                   <div>
-                    <label className="eyebrow mb-1.5 block">ID Grupo Prévias</label>
+                    <label className="eyebrow mb-1.5 block">ID Canal Prévias</label>
                     <input
                       className="input font-mono"
                       placeholder="-100..."
@@ -594,7 +594,7 @@ export default function ProfileDetailPage() {
                       onChange={(e) => setBotIdPrevias(e.target.value)}
                     />
                     <p className="mt-1 text-[11px] text-zinc-500">
-                      Grupo gratuito de aquecimento. Também recebe as postagens.
+                      Canal gratuito de aquecimento. Também recebe as postagens.
                     </p>
                     {hasToken && (
                       <div className="mt-1.5">
@@ -604,7 +604,7 @@ export default function ProfileDetailPage() {
                   </div>
                   <div>
                     <label className="eyebrow mb-1.5 block">
-                      ID Grupo Vendas <span className="font-normal text-zinc-500">(opcional)</span>
+                      ID Canal Vendas <span className="font-normal text-zinc-500">(opcional)</span>
                     </label>
                     <input
                       className="input font-mono"

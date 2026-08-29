@@ -99,7 +99,7 @@ function requireBot(profileId: string) {
   if (!profileId) throw new ApiError(400, "Informe o profileId.");
   const bot = getBotConfigByProfile(profileId);
   if (!bot) {
-    throw new ApiError(400, "Configure primeiro o bot no cadastro do modelo (token e IDs dos grupos).");
+    throw new ApiError(400, "Configure primeiro o bot no cadastro do modelo (token e IDs dos canais).");
   }
   return bot;
 }

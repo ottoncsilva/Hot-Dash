@@ -148,7 +148,7 @@ export async function processarWebhookSyncPay(
       // Quando só o líquido vier, a taxa é preenchida pela tabela em
       // recordTransaction, sem inflar a venda.
       const client = (data.client as Record<string, unknown>) || {};
-      // Se o Grupo de Vendas já mandou o relatório dessa venda (ex.: Bobz),
+      // Se o Canal de Vendas já mandou o relatório dessa venda (ex.: Bobz),
       // ele já diz de qual modelo/bot é — nasce atribuída, sem precisar de
       // correção manual depois. Sem relatório ainda, nasce "Sem modelo" como
       // sempre (o relatório, se chegar depois, corrige sozinho).
@@ -167,8 +167,8 @@ export async function processarWebhookSyncPay(
       });
       registra(
         vinculo?.profileId
-          ? `venda nova · ${normalizeStatus(status)} · vinculada pelo Grupo de Vendas (bot ${vinculo.botId})`
-          : `venda nova · ${normalizeStatus(status)} · sem relatório do Grupo de Vendas ainda (Sem modelo)`,
+          ? `venda nova · ${normalizeStatus(status)} · vinculada pelo Canal de Vendas (bot ${vinculo.botId})`
+          : `venda nova · ${normalizeStatus(status)} · sem relatório do Canal de Vendas ainda (Sem modelo)`,
       );
     }
 

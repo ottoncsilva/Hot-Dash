@@ -32,9 +32,9 @@ export type TelegramBotConfig = {
   previewsWelcomeMessage?: string;
   /** Liga/desliga da operação do bot de vendas (cutover para o Hot-Dash). */
   operationActive: boolean;
-  /** Regra de aprovação de quem pede entrada no grupo VIP. */
+  /** Regra de aprovação de quem pede entrada no canal VIP. */
   vipApprovalMode: ApprovalMode;
-  /** Regra de aprovação de quem pede entrada no grupo de Prévias. */
+  /** Regra de aprovação de quem pede entrada no canal de Prévias. */
   previasApprovalMode: ApprovalMode;
   /** Aviso enviado enquanto a cobrança é criada. Vazio = padrão. */
   pixGeneratingMessage?: string;
@@ -210,7 +210,7 @@ export const CHECKOUT_DEFAULTS = {
 export const MESSAGE_DEFAULTS = {
   welcome:
     "Oi meu amor 😈\n\nSeja bem-vindo! Aqui embaixo estão as opções pra você entrar no meu VIP e ver tudo o que eu não posso postar por aí 🔥\n\nEscolhe a sua e vem 👇",
-  success: "✅ Pagamento aprovado meu amor! Acesse o Grupo VIP aqui:\n\n🔗 {link_vip}",
+  success: "✅ Pagamento aprovado meu amor! Acesse o Canal VIP aqui:\n\n🔗 {link_vip}",
   successButton: "🔒 Acessar Conteúdo",
 } as const;
 
@@ -1157,7 +1157,7 @@ export type SeenChat = { chatId: string; title?: string; type?: string; lastSeen
 
 /**
  * Anota um chat que apareceu num update. Só GRUPOS e CANAIS interessam — o
- * privado do lead não é candidato a "grupo VIP" e só poluiria a lista.
+ * privado do lead não é candidato a "canal VIP" e só poluiria a lista.
  *
  * O título é atualizado a cada visita (grupos são renomeados), mas nunca
  * apagado por um update que venha sem ele.

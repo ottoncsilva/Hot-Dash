@@ -128,7 +128,7 @@ async function processarCheckoutCompleto(
     // Sessão paga sem transação `pending` pré-criada (não deveria acontecer
     // no fluxo do bot, que sempre grava a transação antes de mandar o link,
     // mas cobre qualquer checkout gerado fora desse caminho) — mesmo padrão
-    // de fallback do webhook da SyncPay. Se o Grupo de Vendas já mandou o
+    // de fallback do webhook da SyncPay. Se o Canal de Vendas já mandou o
     // relatório dessa venda (ex.: Bobz), ele já diz de qual modelo/bot é.
     const vinculo = buscarRelatorioExterno("stripe", providerRef);
     recordTransaction({
@@ -145,8 +145,8 @@ async function processarCheckoutCompleto(
     });
     registra(
       vinculo?.profileId
-        ? `venda nova · paid · vinculada pelo Grupo de Vendas (bot ${vinculo.botId})`
-        : "venda nova · paid · sem relatório do Grupo de Vendas ainda (Sem modelo)",
+        ? `venda nova · paid · vinculada pelo Canal de Vendas (bot ${vinculo.botId})`
+        : "venda nova · paid · sem relatório do Canal de Vendas ainda (Sem modelo)",
     );
     return { ok: true };
   }
@@ -366,7 +366,7 @@ async function processarPaymentIntentSucedido(
 
   // Passou pelas 3 checagens: cobrança de verdade, desta conta, que o
   // Hot-Dash não iniciou e não é renovação de assinatura conhecida — grava
-  // como venda nova. Se o Grupo de Vendas já mandou o relatório dessa venda
+  // como venda nova. Se o Canal de Vendas já mandou o relatório dessa venda
   // (ex.: Bobz), ela já nasce atribuída ao modelo/bot certo; sem relatório
   // ainda, nasce "Sem modelo" como sempre (corrige na tela de Financeiro, ou
   // sozinha se o relatório chegar depois).
@@ -387,8 +387,8 @@ async function processarPaymentIntentSucedido(
   });
   registra(
     vinculo?.profileId
-      ? `venda nova (PaymentIntent fora do checkout) · paid · vinculada pelo Grupo de Vendas (bot ${vinculo.botId})`
-      : "venda nova (PaymentIntent fora do checkout) · paid · sem relatório do Grupo de Vendas ainda (Sem modelo)",
+      ? `venda nova (PaymentIntent fora do checkout) · paid · vinculada pelo Canal de Vendas (bot ${vinculo.botId})`
+      : "venda nova (PaymentIntent fora do checkout) · paid · sem relatório do Canal de Vendas ainda (Sem modelo)",
   );
   return { ok: true };
 }

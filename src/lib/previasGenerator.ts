@@ -323,7 +323,7 @@ async function processBatch(row: JobRow): Promise<number> {
       try {
         const raw = await callAiRaw(
           "Você é uma influenciadora adulta brasileira. Crie UMA enquete curta e bem safada (sem vender nada) " +
-            "pro seu grupo de prévias no Telegram — o público é adulto e espera putaria. A pergunta faz ele " +
+            "pro seu canal de prévias no Telegram — o público é adulto e espera putaria. A pergunta faz ele " +
             'imaginar a cena ("por onde você começaria", "como você me prefere", "o que eu faço no vídeo de hoje"). ' +
             'Responda SÓ um JSON: {"question":"...","options":["..","..",".."]} com 2 a 4 opções curtas.',
           p,

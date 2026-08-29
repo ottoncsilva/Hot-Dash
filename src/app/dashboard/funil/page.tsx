@@ -355,7 +355,7 @@ export default function FunilPage() {
       {/* Quantos são AGORA, logo antes de "como chegaram até aqui" — o total
           abaixo é literalmente o último ponto da série do gráfico seguinte. */}
       <p className="eyebrow mt-8">
-        grupos do telegram
+        canais do telegram
         {data?.groups.checkedAt ? (
           <span className="ml-2 normal-case tracking-normal text-zinc-600">
             (verificado{" "}
@@ -380,7 +380,7 @@ export default function FunilPage() {
         />
       </div>
 
-      <p className="eyebrow mt-8">crescimento dos grupos</p>
+      <p className="eyebrow mt-8">crescimento dos canais</p>
       <div className="mt-3 card p-4">
         <p className="text-xs text-zinc-500">
           <b>Barras</b>: total de membros por dia, consultado no Telegram. <b>Linhas</b>: entradas e saídas
@@ -737,7 +737,7 @@ function GrupoChart({
         preserveAspectRatio="none"
         className="mt-2 h-36 w-full touch-manipulation"
         role="img"
-        aria-label={`Crescimento do grupo ${rotulo}`}
+        aria-label={`Crescimento do canal ${rotulo}`}
       >
         {gridTicks.map((t) => (
           <line

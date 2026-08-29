@@ -20,7 +20,7 @@ function usd(cents: number) {
 type LastPaid = { at: number; amountCents: number; customer?: string } | null;
 
 export default function PaymentSettingsPage() {
-  // Vínculo pelo Grupo de Vendas — salva SOZINHO no clique (não espera o
+  // Vínculo pelo Canal de Vendas — salva SOZINHO no clique (não espera o
   // botão "Salvar pagamentos", que é das chaves dos provedores). `null` =
   // ainda carregando, e o interruptor fica desabilitado até saber o estado
   // real, pra não piscar "desligado" e o operador achar que está desligado.
@@ -42,7 +42,7 @@ export default function PaymentSettingsPage() {
         { vincularPeloGrupo: valor },
       );
       setVincularPeloGrupo(r.vendasExternas.vincularPeloGrupo);
-      showToast(valor ? "Vínculo pelo Grupo de Vendas LIGADO." : "Vínculo pelo Grupo de Vendas DESLIGADO.", "success");
+      showToast(valor ? "Vínculo pelo Canal de Vendas LIGADO." : "Vínculo pelo Canal de Vendas DESLIGADO.", "success");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha ao salvar.", "error");
     } finally {
@@ -319,7 +319,7 @@ export default function PaymentSettingsPage() {
         As chaves são guardadas criptografadas (AES-256) no servidor.
       </p>
 
-      {/* Vínculo pelo Grupo de Vendas. Mora aqui, e não na tela do bot, porque
+      {/* Vínculo pelo Canal de Vendas. Mora aqui, e não na tela do bot, porque
           o que ele resolve é do FINANCEIRO: venda que chega só pelo webhook,
           sem passar pelo checkout do Hot-Dash, e que sem isto nasce "Sem
           modelo". */}
@@ -327,16 +327,16 @@ export default function PaymentSettingsPage() {
         <p className="eyebrow">vendas de bot operado por fora</p>
         <div className="mt-1.5 flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-white">Vincular pelo Grupo de Vendas</p>
+            <p className="text-sm font-semibold text-white">Vincular pelo Canal de Vendas</p>
             <p className="mt-1 text-xs leading-relaxed text-zinc-500">
               Venda cobrada por um bot que outro sistema opera (ex.: o Bobz) chega no Financeiro só pelo
               webhook da SyncPay/Stripe, sem dizer de quem é — e nasce como <b className="text-amber-400/90">Sem
-              modelo</b>. Ligado, o Hot-Dash lê o relatório que esse sistema posta no Grupo de Vendas e usa o
+              modelo</b>. Ligado, o Hot-Dash lê o relatório que esse sistema posta no Canal de Vendas e usa o
               ID da transação para atribuir a venda ao modelo, ao bot e ao lead certos. Não intercepta o bot
-              de ninguém: só lê uma mensagem de grupo.
+              de ninguém: só lê uma mensagem de canal.
             </p>
             <p className="mt-2 text-xs leading-relaxed text-zinc-600">
-              Exige o token do bot cadastrado no Hot-Dash (mesmo com o controle total desligado) e o Grupo de
+              Exige o token do bot cadastrado no Hot-Dash (mesmo com o controle total desligado) e o Canal de
               Vendas preenchido no cadastro. Relatório de bot que o próprio Hot-Dash opera é ignorado — essa
               venda já nasce atribuída. Desligado, nada é atribuído sozinho e a importação de histórico
               também para.
@@ -347,7 +347,7 @@ export default function PaymentSettingsPage() {
               checked={vincularPeloGrupo === true}
               onChange={alternarVinculo}
               disabled={vincularPeloGrupo === null || vinculoSalvando}
-              ariaLabel="Vincular vendas pelo Grupo de Vendas"
+              ariaLabel="Vincular vendas pelo Canal de Vendas"
             />
           </div>
         </div>
@@ -842,7 +842,7 @@ export default function PaymentSettingsPage() {
 }
 
 /**
- * Importa o histórico de vendas de um Grupo de Vendas a partir do EXPORT do
+ * Importa o histórico de vendas de um Canal de Vendas a partir do EXPORT do
  * Telegram Desktop (`messages.html`).
  *
  * É o único jeito de recuperar o que já passou: a API do Telegram não deixa
@@ -879,7 +879,7 @@ function ImportarHistoricoCard() {
       }
       const vendas = (texto.match(/Pagamento\s+Aprovado/gi) || []).length;
       if (vendas === 0) {
-        showToast("Não achei nenhuma venda nesse arquivo. É o messages.html do Grupo de Vendas?", "error");
+        showToast("Não achei nenhuma venda nesse arquivo. É o messages.html do Canal de Vendas?", "error");
         return;
       }
       setConteudo(texto);
@@ -927,7 +927,7 @@ function ImportarHistoricoCard() {
         <div>
           <p className="text-sm font-semibold text-white">Importar histórico de vendas externas</p>
           <p className="mt-0.5 text-xs text-zinc-500">
-            Vendas que já aconteceram, de bot operado por fora. O Telegram não deixa ler o histórico do grupo
+            Vendas que já aconteceram, de bot operado por fora. O Telegram não deixa ler o histórico do canal
             para trás sozinho — o export do chat resolve.
           </p>
         </div>
@@ -936,7 +936,7 @@ function ImportarHistoricoCard() {
       {aberto && (
         <div className="mt-3">
           <p className="text-[11px] leading-relaxed text-zinc-500">
-            No <b>Telegram Desktop</b>, abra o Grupo de Vendas → menu (⋮) → <b>Exportar histórico do chat</b> →
+            No <b>Telegram Desktop</b>, abra o Canal de Vendas → menu (⋮) → <b>Exportar histórico do chat</b> →
             formato <b>HTML</b>, sem mídia. Mande aqui o arquivo <b>messages.html</b> que ele gera. Pode
             repetir quantas vezes quiser: venda já contabilizada não entra de novo.
           </p>

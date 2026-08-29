@@ -79,7 +79,7 @@ export default function DetectChat({
         <div className="mt-2 rounded-xl border border-white/10 bg-ink-850 p-2">
           {chats.length === 0 ? (
             <p className="px-1 py-2 text-[11px] leading-relaxed text-amber-300">
-              {hint || "Nenhum grupo encontrado."}
+              {hint || "Nenhum canal encontrado."}
             </p>
           ) : (
             <>
@@ -96,7 +96,7 @@ export default function DetectChat({
                   >
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-xs text-zinc-200">
-                        {c.title || (c.reachable ? "(sem título)" : "grupo não encontrado")}
+                        {c.title || (c.reachable ? "(sem título)" : "canal não encontrado")}
                       </span>
                       <span className="block truncate font-mono text-[10px] text-zinc-500">
                         {c.type === "channel" ? "canal" : c.type === "private" ? "privado" : "grupo"} ·{" "}

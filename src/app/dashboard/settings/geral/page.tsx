@@ -111,7 +111,7 @@ export default function GeneralSettingsPage() {
       <BackToSettings />
       <h1 className="mt-4 font-display text-2xl font-semibold tracking-tight">Geral</h1>
       <p className="mt-2 text-sm text-zinc-500">
-        Fuso da operação, tamanho máximo de upload e contagem de integrantes dos grupos.
+        Fuso da operação, tamanho máximo de upload e contagem de integrantes dos canais.
       </p>
 
       <h2 className="mt-6 font-display text-lg font-semibold tracking-tight">Fuso horário</h2>
@@ -173,16 +173,16 @@ export default function GeneralSettingsPage() {
       </div>
 
       <h2 className="mt-8 font-display text-lg font-semibold tracking-tight">
-        Integrantes fixos dos grupos
+        Integrantes fixos dos canais
       </h2>
       <p className="mt-1.5 text-sm text-zinc-500">
-        O Telegram conta você, o bot e os admins junto com o público. Este número é descontado de cada grupo
-        nos painéis. Padrão 2 (você + o bot); com outro admin em todos os grupos, 3.
+        O Telegram conta você, o bot e os admins junto com o público. Este número é descontado de cada canal
+        nos painéis. Padrão 2 (você + o bot); com outro admin em todos os canais, 3.
       </p>
 
       <div className="mt-3 card p-4">
         <label className="eyebrow mb-1.5 block" htmlFor="membros-fixos">
-          Descontar por grupo
+          Descontar por canal
         </label>
         <input
           id="membros-fixos"

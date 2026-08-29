@@ -299,7 +299,7 @@ export async function POST(req: NextRequest) {
         }
       }
       if (!profileId || !token || !idVip || !idAquecimento) {
-        throw new ApiError(400, "Preencha o Token do Bot e os IDs dos grupos VIP e Prévias.");
+        throw new ApiError(400, "Preencha o Token do Bot e os IDs dos canais VIP e Prévias.");
       }
       const botId = existing?.id || randomUUID();
 
@@ -349,7 +349,7 @@ export async function POST(req: NextRequest) {
         botUsername: usernameDoToken || existing?.botUsername,
         idVip: String(idVip).trim(),
         idAquecimento: String(idAquecimento).trim(),
-        // Grupo de Vendas é OPCIONAL — ao contrário de VIP/Prévias, campo
+        // Canal de Vendas é OPCIONAL — ao contrário de VIP/Prévias, campo
         // vazio é uma escolha válida (bot sem relatório de vendas), não "não
         // mudou nada". Só cai no que já estava salvo quando a tela não manda
         // o campo (ex.: uma chamada antiga da API).
@@ -447,7 +447,7 @@ export async function POST(req: NextRequest) {
     function requireBot(profileId: string) {
       if (!profileId) throw new ApiError(400, "Informe o profileId.");
       const bot = getBotConfigByProfile(profileId);
-      if (!bot) throw new ApiError(400, "Configure primeiro o bot no cadastro do modelo (token e IDs dos grupos).");
+      if (!bot) throw new ApiError(400, "Configure primeiro o bot no cadastro do modelo (token e IDs dos canais).");
       return bot;
     }
 
@@ -977,7 +977,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, webhook });
     }
 
-    // ---- Importação em lote do histórico do Grupo de Vendas (bots como o
+    // ---- Importação em lote do histórico do Canal de Vendas (bots como o
     // Bobz, que o Telegram não deixa a gente ler pra trás sozinho) — texto
     // colado com uma ou várias mensagens, não amarrado a UM bot específico
     // (cada bloco resolve o bot dele pelo "ID Bot" do próprio texto). ----
@@ -1101,7 +1101,7 @@ export async function POST(req: NextRequest) {
       let hint: string | undefined;
       if (chats.length === 0) {
         hint =
-          "Nenhum canal ou grupo conhecido ainda. Cole o ID aqui e toque em Detectar para eu conferir, ou publique algo no canal com o bot dentro.";
+          "Nenhum canal conhecido ainda. Cole o ID aqui e toque em Detectar para eu conferir, ou publique algo no canal com o bot dentro.";
       } else if (chats.every((c) => !c.isAdmin)) {
         hint =
           "O bot não é administrador de nenhum destes. Sem isso ele não aprova entrada nem gera o convite do VIP.";
@@ -1123,7 +1123,7 @@ export async function POST(req: NextRequest) {
       const checar = async (chatId: string, rotulo: string) => {
         if (!chatId) return { rotulo, chatId, ok: false, motivo: "sem ID configurado" };
         const info = await getTelegramChat(bot.botToken, chatId).catch(() => null);
-        if (!info) return { rotulo, chatId, ok: false, motivo: "o bot não enxerga este canal/grupo (ID errado ou removido)" };
+        if (!info) return { rotulo, chatId, ok: false, motivo: "o bot não enxerga este canal (ID errado ou removido)" };
         const membro = await getTelegramChatMember(bot.botToken, chatId, me.id);
         const admin = membro?.status === "administrator" || membro?.status === "creator";
         return {
@@ -1135,12 +1135,12 @@ export async function POST(req: NextRequest) {
         };
       };
       const grupos = [
-        await checar(bot.idVip, "Grupo VIP"),
-        await checar(bot.idAquecimento, "Grupo de Prévias"),
+        await checar(bot.idVip, "Canal VIP"),
+        await checar(bot.idAquecimento, "Canal de Prévias"),
         // Opcional: só entra na checagem quando configurado — vazio não é
         // problema nenhum aqui (ao contrário do VIP/Prévias, que são
         // obrigatórios), então não teria sentido aparecer como "sem ID".
-        ...(bot.idVendas?.trim() ? [await checar(bot.idVendas.trim(), "Grupo de Vendas")] : []),
+        ...(bot.idVendas?.trim() ? [await checar(bot.idVendas.trim(), "Canal de Vendas")] : []),
       ];
       return NextResponse.json({ ok: true, grupos });
     }

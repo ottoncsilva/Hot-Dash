@@ -131,7 +131,7 @@ export default function TelegramUsuariosPage() {
   async function removeUser(u: TelegramUser) {
     const ok = await confirm({
       title: "Remover da lista",
-      message: `Remover ${displayName(u)} da lista? Isso não expulsa de nenhum grupo — se a pessoa voltar a interagir com o bot, ela reaparece.`,
+      message: `Remover ${displayName(u)} da lista? Isso não expulsa de nenhum canal — se a pessoa voltar a interagir com o bot, ela reaparece.`,
     });
     if (!ok) return;
     try {
@@ -166,14 +166,14 @@ export default function TelegramUsuariosPage() {
             <IconProfiles size={22} /> Usuários
           </span>
         }
-        description="Todo mundo que o bot conhece: quem deu /start e quem entrou nos grupos VIP e de prévias."
+        description="Todo mundo que o bot conhece: quem deu /start e quem entrou nos canais VIP e de prévias."
       />
       <div className="mb-5" />
 
       {!bot && !loading && (
         <div className="card p-6 text-center text-sm text-zinc-400">
           Este modelo ainda não tem o bot configurado. Vá em <b>Modelos → editar a modelo → Bot do
-          Telegram</b> e informe o token e os IDs dos grupos.
+          Telegram</b> e informe o token e os IDs dos canais.
         </div>
       )}
 
@@ -444,7 +444,7 @@ function UserRow({
           }`}
           title={
             u.removalPending
-              ? "O prazo venceu e o bot ainda não conseguiu tirar do grupo VIP. Ele continua tentando — confira se ele é admin com permissão de banir."
+              ? "O prazo venceu e o bot ainda não conseguiu tirar do canal VIP. Ele continua tentando — confira se ele é admin com permissão de banir."
               : undefined
           }
         >
@@ -503,7 +503,7 @@ function UserRow({
             onClick={async () => {
               const ok = await confirm({
                 title: "Expulsar do VIP",
-                message: `Remover ${displayName(u)} do grupo VIP agora?`,
+                message: `Remover ${displayName(u)} do canal VIP agora?`,
               });
               if (ok) act("sub-kick");
             }}

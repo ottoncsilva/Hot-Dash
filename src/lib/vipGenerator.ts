@@ -339,7 +339,7 @@ async function processBatch(row: JobRow): Promise<number> {
     for (const p of toTry) {
       try {
         const raw = await callAiRaw(
-          'Crie UMA enquete curta e safada (sem vender nada) pro grupo VIP no Telegram, tom íntimo de quem já conhece o público. Responda SÓ um JSON: {"question":"...","options":["..","..",".."]} com 2 a 4 opções curtas.',
+          'Crie UMA enquete curta e safada (sem vender nada) pro canal VIP no Telegram, tom íntimo de quem já conhece o público. Responda SÓ um JSON: {"question":"...","options":["..","..",".."]} com 2 a 4 opções curtas.',
           p,
           { json: true, maxTokens: 300, activity: "mk" },
         );

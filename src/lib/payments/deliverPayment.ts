@@ -322,24 +322,52 @@ export async function deliverPaidTransaction(
   // atrasá-la, e num try/catch próprio — falha de push não pode derrubar
   // o webhook (o gateway reenviaria em loop).
   try {
-    const { sendPushEvent } = await import("@/lib/push");
-    const valStr = (transaction.amountCents / 100).toLocaleString("pt-BR", {
+    await avisarVendaAprovada(transaction.id);
+  } catch (pErr) {
+    console.error("Erro ao agendar push de venda:", pErr);
+  }
+}
+
+/**
+ * O ALERTA DE VENDA no celular, montado 5 segundos depois do pagamento (ver
+ * `PUSH_DELAY_MS` em `lib/push.ts`).
+ *
+ * Recebe o ID e não a transação de propósito: a linha é RELIDA no fim da
+ * espera. Numa venda de bot operado por fora, é nesses 5 segundos que o
+ * relatório do Canal de Vendas chega e preenche produto, modelo e cliente —
+ * campos que, no instante do webhook, o gateway simplesmente não tinha para
+ * dar. Passar o objeto já carregado congelaria o alerta na versão incompleta,
+ * que é o problema que a espera existe para resolver.
+ *
+ * A MODELO entra no aviso quando se sabe de quem é a venda: com vários bots
+ * vendendo ao mesmo tempo, "R$ 19,90" sem dono não diz o que aconteceu.
+ */
+export async function avisarVendaAprovada(transactionId: string): Promise<void> {
+  const { sendPushEventAoVivo } = await import("@/lib/push");
+  const { getTransaction } = await import("@/lib/transactions");
+  const { getProfile } = await import("@/lib/profiles");
+
+  await sendPushEventAoVivo("sale", async () => {
+    const tx = getTransaction(transactionId);
+    // Sumiu (apagada à mão como movimento que não era venda) ou deixou de
+    // estar paga (estorno na janela): não há venda para anunciar.
+    if (!tx || tx.status !== "paid") return null;
+
+    const valStr = (tx.amountCents / 100).toLocaleString("pt-BR", {
       style: "currency",
       // A moeda vem da PRÓPRIA transação (BRL no PIX, USD na Stripe) — um
       // valor em dólar formatado como se fosse real mentiria sobre quanto
       // entrou.
-      currency: transaction.currency || "BRL",
+      currency: tx.currency || "BRL",
     });
-    const detalhe = [transaction.description, transaction.customer].filter(Boolean).join(" · ");
-    await sendPushEvent(
-      "sale",
-      `💰 Venda aprovada — ${valStr}`,
-      detalhe || "Pagamento confirmado.",
-      "/dashboard",
-    );
-  } catch (pErr) {
-    console.error("Erro ao enviar push de venda:", pErr);
-  }
+    const modelo = tx.profileId ? (await getProfile(tx.profileId))?.name : undefined;
+    const detalhe = [modelo, tx.description, tx.customer].filter(Boolean).join(" · ");
+    return {
+      title: `💰 Venda aprovada — ${valStr}`,
+      body: detalhe || "Pagamento confirmado.",
+      url: "/dashboard/payments",
+    };
+  });
 }
 
 /**

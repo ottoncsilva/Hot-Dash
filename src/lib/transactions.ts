@@ -242,16 +242,29 @@ export function listTransactions(limit = 50, profileId?: string): Transaction[] 
 }
 
 /**
- * Corrige os valores de uma cobrança à mão.
+ * Corrige à mão o que o gateway não soube dizer.
  *
  * O gateway nem sempre manda tudo (e nem sempre manda certo): uma venda de
- * R$ 19,90 já entrou como R$ 20,70 por leitura errada do payload. Em vez de
- * mexer no banco por fora, o operador ajusta na própria tela.
+ * R$ 19,90 já entrou como R$ 20,70 por leitura errada do payload. E numa
+ * venda de BOT OPERADO POR FORA ele mal sabe o que foi vendido — produto,
+ * método, código de origem e modelo chegam vazios e só o relatório do Canal
+ * de Vendas os traz, se e quando chegar. Em vez de mexer no banco por fora,
+ * o operador ajusta na própria tela.
+ *
+ * Cada campo é OPCIONAL e independente: o que não vier fica como está. Uma
+ * string vazia é uma decisão do operador ("apagar isso"), diferente de
+ * `undefined` ("não mexi nisso") — por isso a distinção é preservada em vez
+ * de tratar tudo como falsy.
  *
  * O líquido não é editável de propósito — ele é sempre venda − taxa − split,
  * e deixar os quatro soltos abriria espaço para uma linha que não fecha.
+ *
+ * `status`, `paid_at`, `provider_ref` e moeda também ficam de fora: são a
+ * palavra do gateway sobre dinheiro que entrou (ou não). Deixar o status
+ * editável transformaria o Financeiro num campo livre — o faturamento do mês
+ * mudaria com um clique, sem nada no gateway para conferir.
  */
-export function updateTransactionAmounts(
+export function updateTransaction(
   id: string,
   input: {
     amountCents?: number;
@@ -261,6 +274,18 @@ export function updateTransactionAmounts(
     /** Modelo a que a venda pertence. "" desvincula. Venda que chega só pelo
      *  webhook nasce sem modelo — a SyncPay não sabe de qual é. */
     profileId?: string;
+    /** O PRODUTO (coluna Produto e texto de toda notificação de venda). Numa
+     *  venda de bot operado por fora ele nasce vazio: o gateway só sabe o
+     *  valor. "" volta a esvaziar. */
+    description?: string;
+    /** "pix" | "card" — o vocabulário da coluna Método e do filtro dela. */
+    method?: string;
+    /** Código do deep-link que trouxe o lead (`?start=CODIGO`). É a origem de
+     *  tráfego da venda no Funil. */
+    sourceCode?: string;
+    /** 'bot' | 'ltv' | 'painel'. É o que decide de qual funil a venda
+     *  participa; linha antiga tem NULL e o Funil de Vendas a ignora. */
+    origin?: string;
   },
 ): Transaction | null {
   const atual = getTransaction(id);
@@ -270,17 +295,57 @@ export function updateTransactionAmounts(
   const taxa = input.feeCents !== undefined && input.feeCents >= 0 ? input.feeCents : atual.feeCents ?? 0;
   const split = input.splitCents !== undefined && input.splitCents >= 0 ? input.splitCents : atual.splitCents ?? 0;
   const liquido = Math.max(0, venda - taxa - split);
-  const customer = input.customer !== undefined ? input.customer.trim() || null : atual.customer ?? null;
-  const perfil = input.profileId !== undefined ? input.profileId.trim() || null : atual.profileId ?? null;
+  /** "" = apagar; ausente = não mexer. */
+  const texto = (novo: string | undefined, antigo: string | undefined) =>
+    novo !== undefined ? novo.trim() || null : antigo ?? null;
+  const customer = texto(input.customer, atual.customer);
+  const perfil = texto(input.profileId, atual.profileId);
+  const description = texto(input.description, atual.description);
+  const method = texto(input.method, atual.method);
+  const sourceCode = texto(input.sourceCode, atual.sourceCode);
+  const origin = texto(input.origin, atual.origin);
+
+  // O BOT SEGUE A MODELO. Existe exatamente um bot por modelo
+  // (`telegram_bots.profile_id` é UNIQUE), então pedir os dois ao operador
+  // seria pedir a mesma informação duas vezes — e deixar `bot_id` vazio
+  // enquanto a modelo já está certa é o que mantinha a linha em "Sem bot" no
+  // filtro e sem @usuário na coluna Bot, mesmo depois de corrigida.
+  //
+  // Só é recalculado quando a modelo foi TOCADA nesta edição: uma venda de
+  // LTV ou lançada à mão não passou por bot nenhum, e sobrescrever o `bot_id`
+  // dela numa correção de valor inventaria um vínculo que nunca existiu.
+  let botId = atual.botId ?? null;
+  if (input.profileId !== undefined && perfil !== (atual.profileId ?? null)) {
+    botId = perfil
+      ? ((getDb().prepare("SELECT id FROM telegram_bots WHERE profile_id = ?").get(perfil) as
+          | { id: string }
+          | undefined)?.id ?? null)
+      : null; // sem modelo não há bot: o vínculo inteiro é desfeito
+  }
 
   getDb()
     .prepare(
       `UPDATE transactions
        SET amount_cents = ?, fee_cents = ?, split_cents = ?, net_amount_cents = ?,
-           customer = ?, profile_id = ?, updated_at = ?
+           customer = ?, profile_id = ?, bot_id = ?, description = ?, method = ?,
+           source_code = ?, origin = ?, updated_at = ?
        WHERE id = ?`,
     )
-    .run(venda, taxa, split, liquido, customer, perfil, Date.now(), id);
+    .run(
+      venda,
+      taxa,
+      split,
+      liquido,
+      customer,
+      perfil,
+      botId,
+      description,
+      method,
+      sourceCode,
+      origin,
+      Date.now(),
+      id,
+    );
   return getTransaction(id);
 }
 

@@ -8,6 +8,7 @@ import { MoneyInput } from "@/components/MoneyInput";
 import { IconPlus, IconSettings, IconPayments, IconCopy, IconTrash, IconEdit, IconTelegram, IconReport } from "@/components/icons";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import type { Transaction, PeriodStats } from "@/lib/transactions";
+import type { RelatorioDaTransacao } from "@/lib/externalSaleReport";
 import type { Profile } from "@/lib/types";
 import { DEFAULT_TIME_ZONE } from "@/lib/timezone";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
@@ -601,7 +602,9 @@ export default function PaymentsPage() {
         )}
       </div>
 
-      <Modal open={Boolean(editando)} onClose={() => setEditando(null)}>
+      {/* Mais largo que o padrão: o relatório do Canal de Vendas divide a
+          tela com os campos, e em `max-w-md` cada linha dele quebrava em duas. */}
+      <Modal open={Boolean(editando)} onClose={() => setEditando(null)} maxWidth="max-w-lg">
         {editando && (
           <EditarCobranca
             tx={editando}
@@ -633,6 +636,29 @@ export default function PaymentsPage() {
  * Correção manual de uma cobrança. O líquido não é campo: ele é sempre
  * venda − taxa − split, e aparece calculado para conferência antes de salvar.
  */
+/**
+ * CORRIGIR UMA COBRANÇA à mão — com o relatório do Canal de Vendas ao lado.
+ *
+ * Antes daqui só dava para mexer em valor, nome e modelo. Mas o campo que mais
+ * nasce vazio é justamente outro: numa venda de bot que o Hot-Dash NÃO opera,
+ * o gateway só sabe quanto entrou — produto, método, código de origem e modelo
+ * chegam em branco e a linha fica com travessão em metade das colunas, fora de
+ * todos os filtros e do Funil.
+ *
+ * O RELATÓRIO É A FONTE. Esses dados existem: o sistema de origem os posta no
+ * Canal de Vendas e o Hot-Dash já os guarda inteiros (17 campos), esperando o
+ * cruzamento automático. Quando ele não acontece — relatório que nunca chegou,
+ * "ID Bot" que não bate com token nenhum, campo que o gateway já tinha
+ * preenchido com outra coisa —, o dado continua ali, invisível. Mostrá-lo aqui
+ * é o que troca "corrigir no escuro" (ir procurar a mensagem no Telegram para
+ * saber o que digitar) por conferir e aceitar.
+ *
+ * Cada campo do relatório vira um botão "usar", e o que ele diz e a linha não
+ * tem é marcado. O que o relatório traz e a transação não guarda em coluna
+ * nenhuma (categoria, duração, idioma, passo do funil, tempo até converter,
+ * contato do lead) aparece como leitura — é contexto para decidir, não campo
+ * para editar.
+ */
 function EditarCobranca({
   tx,
   profiles,
@@ -650,8 +676,26 @@ function EditarCobranca({
   const [split, setSplit] = useState(emReais(tx.splitCents));
   const [nome, setNome] = useState(tx.customer || "");
   const [perfil, setPerfil] = useState(tx.profileId || "");
+  const [produto, setProduto] = useState(tx.description || "");
+  const [metodo, setMetodo] = useState(tx.method || "");
+  const [codigo, setCodigo] = useState(tx.sourceCode || "");
+  const [origem, setOrigem] = useState(tx.origin || "");
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [relatorio, setRelatorio] = useState<RelatorioDaTransacao | null>(null);
+  const [verTexto, setVerTexto] = useState(false);
+
+  // O relatório é buscado ao ABRIR, não junto da listagem: é uma consulta por
+  // linha, e a tabela do Financeiro carrega centenas delas de uma vez.
+  useEffect(() => {
+    let vivo = true;
+    apiGet<{ relatorio: RelatorioDaTransacao | null }>(`/api/payments/transactions/${tx.id}`)
+      .then((r) => vivo && setRelatorio(r.relatorio))
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, [tx.id]);
 
   const paraCentavos = (v: string) => Math.round((Number(v) || 0) * 100);
   const cVenda = paraCentavos(venda);
@@ -659,6 +703,88 @@ function EditarCobranca({
   const cSplit = paraCentavos(split);
   const valido = [cVenda, cTaxa, cSplit].every((n) => Number.isFinite(n) && n >= 0);
   const liquido = valido ? Math.max(0, cVenda - cTaxa - cSplit) : 0;
+
+  /**
+   * O que o relatório tem para cada campo EDITÁVEL, com o estado atual do
+   * formulário ao lado. É desta lista que saem os botões "usar" e o
+   * "preencher o que está vazio" — uma fonte só, para os dois não divergirem.
+   *
+   * A modelo do relatório só entra se ela ainda existir no painel: um id de
+   * modelo apagada viraria uma opção que o `select` não tem.
+   */
+  const sugestoes = useMemo(() => {
+    if (!relatorio) return [];
+    const nomeModelo = relatorio.profileId
+      ? profiles.find((p) => p.id === relatorio.profileId)?.name
+      : undefined;
+    const itens: {
+      chave: string;
+      label: string;
+      valor: string;
+      mostrar: string;
+      atual: string;
+      aplicar: () => void;
+    }[] = [];
+    const add = (
+      chave: string,
+      label: string,
+      valor: string | undefined,
+      atual: string,
+      aplicar: () => void,
+      mostrar?: string,
+    ) => {
+      if (!valor) return;
+      itens.push({ chave, label, valor, mostrar: mostrar || valor, atual, aplicar });
+    };
+    add("produto", "Produto", relatorio.planName, produto, () => setProduto(relatorio.planName!));
+    add("nome", "Nome", relatorio.customerName, nome, () => setNome(relatorio.customerName!));
+    add(
+      "modelo",
+      "Modelo",
+      nomeModelo ? relatorio.profileId : undefined,
+      perfil,
+      () => setPerfil(relatorio.profileId!),
+      nomeModelo,
+    );
+    add(
+      "metodo",
+      "Método",
+      relatorio.method,
+      metodo,
+      () => setMetodo(relatorio.method!),
+      METHOD_LABEL[relatorio.method || ""] || relatorio.method,
+    );
+    add("codigo", "Código de venda", relatorio.sourceCode, codigo, () =>
+      setCodigo(relatorio.sourceCode!),
+    );
+    // O relatório não tem um campo "origem": ele É a prova de que a venda saiu
+    // de um bot do Telegram. Só vale sugerir quando o bot foi reconhecido —
+    // sem isso não se sabe se a venda entra no Funil de Vendas.
+    add(
+      "origem",
+      "Origem",
+      relatorio.botId ? "bot" : undefined,
+      origem,
+      () => setOrigem("bot"),
+      "Bot de vendas",
+    );
+    return itens;
+  }, [relatorio, profiles, produto, nome, perfil, metodo, codigo, origem]);
+
+  /** Só o que o relatório sabe e a linha ainda não tem. É o que o botão de
+   *  preencher em massa aplica — nunca por cima do que já está escrito. */
+  const paraPreencher = sugestoes.filter((s) => !s.atual);
+
+  /**
+   * DIVERGÊNCIA DE VALOR. O relatório traz o valor que o bot de fora anunciou;
+   * a linha traz o que o gateway liquidou. Quando os dois discordam é sinal de
+   * leitura errada de um dos lados — e é o único caso em que corrigir o valor
+   * à mão tem uma referência de verdade, em vez de ser chute.
+   */
+  const divergenciaValor =
+    relatorio?.amountCents !== undefined && relatorio.amountCents !== tx.amountCents
+      ? relatorio.amountCents
+      : null;
 
   async function salvar() {
     setSalvando(true);
@@ -670,6 +796,10 @@ function EditarCobranca({
         splitCents: cSplit,
         customer: nome,
         profileId: perfil,
+        description: produto,
+        method: metodo,
+        sourceCode: codigo,
+        origin: origem,
       });
       showToast("Salvo!");
       onDone();
@@ -682,17 +812,113 @@ function EditarCobranca({
   return (
     <div>
       <p className="eyebrow">corrigir</p>
-      <h2 className="mt-1.5 font-display text-lg font-semibold">Valores da cobrança</h2>
+      <h2 className="mt-1.5 font-display text-lg font-semibold">Dados da cobrança</h2>
       <p className="mt-2 text-xs text-zinc-500">
-        Use os números do painel da SyncPay. Isso altera só o histórico aqui — não mexe em nada
-        no gateway.
+        Isso altera só o histórico aqui — não mexe em nada no gateway. Status, data de pagamento e
+        moeda não são editáveis: são a palavra do gateway sobre o dinheiro que entrou.
       </p>
       {erro && (
         <p className="mt-3 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-sm text-red-300">
           {erro}
         </p>
       )}
+
+      {relatorio && (
+        <div className="mt-4 rounded-xl border border-sky-500/20 bg-sky-500/[0.05] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="eyebrow text-sky-300/80">relatório do canal de vendas</p>
+              <p className="mt-0.5 text-[11px] text-zinc-500">
+                O que o bot operado por fora anunciou nesta venda.
+              </p>
+            </div>
+            {paraPreencher.length > 0 && (
+              <button
+                type="button"
+                onClick={() => paraPreencher.forEach((s) => s.aplicar())}
+                className="rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-[11px] font-bold text-sky-300 transition-colors hover:bg-sky-500/20"
+              >
+                Preencher {paraPreencher.length} campo{paraPreencher.length > 1 ? "s" : ""} vazio
+                {paraPreencher.length > 1 ? "s" : ""}
+              </button>
+            )}
+          </div>
+
+          {sugestoes.length > 0 && (
+            <div className="mt-2.5 grid gap-1">
+              {sugestoes.map((s) => {
+                const igual = s.atual === s.valor;
+                return (
+                  <div key={s.chave} className="flex items-center gap-2 text-xs">
+                    <span className="w-28 shrink-0 text-[11px] text-zinc-500">{s.label}</span>
+                    <span className={`min-w-0 flex-1 truncate ${igual ? "text-zinc-500" : "text-zinc-200"}`}>
+                      {s.mostrar}
+                    </span>
+                    {igual ? (
+                      <span className="shrink-0 text-[10px] uppercase tracking-wider text-zinc-600">
+                        já está
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={s.aplicar}
+                        className="shrink-0 rounded border border-white/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-sky-300 transition-colors hover:bg-white/10"
+                      >
+                        {s.atual ? "substituir" : "usar"}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {divergenciaValor !== null && (
+            <p className="mt-2.5 rounded-lg border border-amber-500/20 bg-amber-500/[0.07] px-2.5 py-1.5 text-[11px] text-amber-300">
+              O relatório diz {brl(divergenciaValor)} e a cobrança está em {brl(tx.amountCents)}.
+              Confira no painel do gateway antes de mudar o valor.
+            </p>
+          )}
+
+          {/* Contexto: o relatório traz mais do que a transação guarda. Fica
+              como leitura porque não existe coluna para isso — mas é o que
+              explica a venda (que plano, por qual passo do funil, em quanto
+              tempo, para quem). */}
+          <ContextoDoRelatorio r={relatorio} />
+
+          {relatorio.rawText && (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={() => setVerTexto((v) => !v)}
+                className="text-[11px] text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
+              >
+                {verTexto ? "esconder" : "ver"} a mensagem original
+              </button>
+              {verTexto && (
+                <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-white/10 bg-black/30 p-2 text-[10px] leading-relaxed text-zinc-400">
+                  {relatorio.rawText}
+                </pre>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="mt-4 grid gap-3">
+        <div>
+          <label className="eyebrow mb-1.5 block">Produto</label>
+          <input
+            className="input"
+            value={produto}
+            onChange={(e) => setProduto(e.target.value)}
+            placeholder="Nome do plano"
+          />
+          <p className="mt-1 text-[11px] text-zinc-600">
+            É o que aparece na coluna Produto e no texto do alerta de venda. Venda de bot operado
+            por fora chega sem ele — o gateway só sabe o valor.
+          </p>
+        </div>
         <div>
           <label className="eyebrow mb-1.5 block">Nome</label>
           <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Cliente" />
@@ -706,7 +932,39 @@ function EditarCobranca({
             ))}
           </select>
           <p className="mt-1 text-[11px] text-zinc-600">
-            Venda que chega só pelo webhook nasce sem modelo. Atribuir aqui a coloca no Funil de Vendas certo.
+            Venda que chega só pelo webhook nasce sem modelo. Atribuir aqui a coloca no Funil de
+            Vendas certo — e o bot da modelo é vinculado junto.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="eyebrow mb-1.5 block">Método</label>
+            <select className="input" value={metodo} onChange={(e) => setMetodo(e.target.value)}>
+              <option value="">Sem método</option>
+              <option value="pix">Pix</option>
+              <option value="card">Cartão</option>
+            </select>
+          </div>
+          <div>
+            <label className="eyebrow mb-1.5 block">Origem</label>
+            <select className="input" value={origem} onChange={(e) => setOrigem(e.target.value)}>
+              <option value="">Não informada</option>
+              <option value="bot">Bot de vendas</option>
+              <option value="ltv">LTV</option>
+              <option value="painel">Lançada no painel</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className="eyebrow mb-1.5 block">Código de venda</label>
+          <input
+            className="input"
+            value={codigo}
+            onChange={(e) => setCodigo(e.target.value)}
+            placeholder="Deep-link do /start"
+          />
+          <p className="mt-1 text-[11px] text-zinc-600">
+            A origem de tráfego do lead. Sem ele a venda entra no Funil sem saber de onde veio.
           </p>
         </div>
         <div className="grid grid-cols-3 gap-3">
@@ -738,6 +996,46 @@ function EditarCobranca({
           {salvando ? "Salvando..." : "Salvar"}
         </button>
       </div>
+    </div>
+  );
+}
+
+/** "0d 0h 23m 53s" a partir dos segundos — como o próprio relatório escreve. */
+function tempoCurto(segundos: number): string {
+  const d = Math.floor(segundos / 86400);
+  const h = Math.floor((segundos % 86400) / 3600);
+  const m = Math.floor((segundos % 3600) / 60);
+  const s = segundos % 60;
+  return [d && `${d}d`, h && `${h}h`, m && `${m}m`, `${s}s`].filter(Boolean).join(" ");
+}
+
+/**
+ * O que o relatório traz e a transação NÃO guarda em coluna nenhuma. Só
+ * leitura: não há onde salvar, mas é o que explica a venda para quem está
+ * decidindo o que corrigir.
+ */
+function ContextoDoRelatorio({ r }: { r: RelatorioDaTransacao }) {
+  const itens: [string, string][] = [];
+  if (r.category) itens.push(["categoria", r.category]);
+  if (r.durationLabel) itens.push(["duração", r.durationLabel]);
+  if (r.language) itens.push(["idioma", r.language]);
+  if (r.funnelStep) itens.push(["passo do funil", r.funnelStep]);
+  if (r.conversionSeconds !== undefined) itens.push(["conversão em", tempoCurto(r.conversionSeconds)]);
+  if (r.botUsername) itens.push(["bot", `@${r.botUsername}`]);
+  if (r.telegramUsername) itens.push(["lead", `@${r.telegramUsername}`]);
+  else if (r.telegramUserId) itens.push(["lead", String(r.telegramUserId)]);
+  if (r.externalTxId) itens.push(["id na origem", r.externalTxId]);
+  if (itens.length === 0) return null;
+  return (
+    <div className="mt-2.5 flex flex-wrap gap-1.5 border-t border-white/[0.06] pt-2.5">
+      {itens.map(([k, v]) => (
+        <span
+          key={k}
+          className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[10px] text-zinc-400"
+        >
+          <span className="text-zinc-600">{k}</span> {v}
+        </span>
+      ))}
     </div>
   );
 }

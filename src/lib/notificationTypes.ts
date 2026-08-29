@@ -14,7 +14,8 @@ export type PushEventType =
   | "telegramPost"
   | "mailing"
   | "whatsappDown"
-  | "telegramBotDown";
+  | "telegramBotDown"
+  | "geracaoAutomatica";
 
 export type PushEventDef = {
   id: PushEventType;
@@ -25,6 +26,13 @@ export type PushEventDef = {
 };
 
 export const PUSH_EVENTS: PushEventDef[] = [
+  {
+    id: "geracaoAutomatica",
+    label: "Geração automática travou",
+    description:
+      "A programação do dia seguinte não pôde ser montada (IA desconectada, bot sem token, link do VIP indescoberto). O canal amanhece vazio se ninguém agir — e o sentido do recurso é não precisar conferir, por isso nasce ligado.",
+    defaultOn: true,
+  },
   {
     id: "telegramBotDown",
     label: "Bot do Telegram fora do ar",

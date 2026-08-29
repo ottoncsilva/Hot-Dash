@@ -1160,6 +1160,12 @@ function migrate(d: Database.Database) {
   // ela roda assim que voltar, em vez de pular o dia.
   ensureColumn(d, "telegram_autopost_settings", "vip_auto_generate_at", "INTEGER");
   ensureColumn(d, "telegram_autopost_settings", "warmup_auto_generate_at", "INTEGER");
+  // Quando o operador foi avisado, pela última vez, de que a geração automática
+  // deste canal está travada. Separado do `_at` acima de propósito: aquele marca
+  // SUCESSO, este marca AVISO — e o agendador bate a cada minuto, então sem um
+  // marcador próprio o alerta viraria spam de minuto em minuto.
+  ensureColumn(d, "telegram_autopost_settings", "vip_auto_generate_warned_at", "INTEGER");
+  ensureColumn(d, "telegram_autopost_settings", "warmup_auto_generate_warned_at", "INTEGER");
   ensureColumn(d, "telegram_subscriptions", "last_upsell_at", "INTEGER");
   ensureColumn(d, "telegram_subscriptions", "upsell_step_index", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(d, "whatsapp_agent_settings", "ai_provider", "TEXT NOT NULL DEFAULT 'grok'");

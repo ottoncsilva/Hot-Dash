@@ -191,9 +191,12 @@ export async function register() {
         // ANTES dos lotes, de propósito: o que for enfileirado agora já começa
         // a ser escrito nesta mesma passada, em vez de esperar o próximo tique.
         try {
-          const canais = await runTelegramAutoGeneration();
-          if (canais > 0) {
-            console.log(`[hotdash] geração automática: ${canais} canal(is) com o dia seguinte enfileirado.`);
+          const r = await runTelegramAutoGeneration();
+          if (r.enfileirados > 0) {
+            console.log(`[hotdash] geração automática: ${r.enfileirados} canal(is) com o dia seguinte enfileirado.`);
+          }
+          for (const travado of r.travados) {
+            console.log(`[hotdash] geração automática TRAVADA — ${travado}`);
           }
         } catch (err) {
           console.error("[hotdash] Erro no cron (geração automática):", err);

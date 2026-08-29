@@ -849,7 +849,11 @@ export async function POST(
           providerRef: charge.providerRef,
           profileId: bot.profileId,
           botId: bot.id,
-          description: `Assinatura Telegram - ${itemName}`,
+          // Só o NOME do produto. O prefixo "Assinatura Telegram - " repetia
+          // em toda linha do Financeiro (e em toda notificação de venda) uma
+          // informação que a coluna Bot e o provedor já dão, e ainda empurrava
+          // o nome do plano para fora da largura da coluna.
+          description: itemName,
           customer: from.first_name,
           amountCents,
           currency: isIntlBuy ? moedaIntl : undefined,

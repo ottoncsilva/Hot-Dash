@@ -1682,8 +1682,11 @@ function backfillSyncPayAmounts(d: Database.Database) {
   d.prepare("UPDATE transactions SET paid_at = created_at WHERE status = 'paid' AND paid_at IS NULL").run();
 
   // As vendas que chegaram só pelo webhook ficavam com o rótulo interno
-  // "Venda (webhook)", que não diz nada para quem lê o extrato.
-  d.prepare("UPDATE transactions SET description = 'Venda SyncPay' WHERE description = 'Venda (webhook)'").run();
+  // "Venda (webhook)". Vira VAZIO, não "Venda SyncPay": a coluna é PRODUTO, e
+  // repetir ali o nome do provedor (que já tem coluna própria) ocupava o lugar
+  // do nome de verdade. Vazio a tela mostra "—", e o relatório do Canal de
+  // Vendas preenche quando chegar (ver `registrarRelatorioExterno`).
+  d.prepare("UPDATE transactions SET description = NULL WHERE description = 'Venda (webhook)'").run();
 }
 
 /**

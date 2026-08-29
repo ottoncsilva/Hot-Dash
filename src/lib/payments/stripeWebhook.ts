@@ -136,7 +136,8 @@ async function processarCheckoutCompleto(
       providerRef,
       profileId: vinculo?.profileId,
       botId: vinculo?.botId,
-      description: vinculo?.planName ? `Venda Stripe - ${vinculo.planName}` : "Venda Stripe",
+      // Só o nome do produto; sem relatório ainda, vazio (a tela mostra "—").
+      description: vinculo?.planName,
       customer:
         session.customer_details?.name ||
         session.customer_email ||
@@ -232,7 +233,7 @@ async function processarRenovacaoPaga(
     provider: "stripe",
     providerRef: invoice.id,
     profileId: bot.profileId,
-    description: `Renovação Stripe - ${plan?.name || "assinatura"}`,
+    description: plan?.name,
     amountCents: invoice.amount_paid,
     currency: (invoice.currency || "usd").toUpperCase(),
     method: "card",
@@ -386,9 +387,7 @@ async function processarPaymentIntentSucedido(
     providerRef: pi.id,
     profileId: vinculo?.profileId,
     botId: vinculo?.botId,
-    description: vinculo?.planName
-      ? `Venda Stripe - ${vinculo.planName} (fora do checkout do Hot-Dash)`
-      : "Venda Stripe (fora do checkout do Hot-Dash)",
+    description: vinculo?.planName,
     customer: pi.receipt_email || vinculo?.customerName || vinculo?.telegramUsername || undefined,
     amountCents: pi.amount_received || pi.amount,
     currency: (pi.currency || "usd").toUpperCase(),

@@ -537,8 +537,10 @@ export function listTelegramUsers(opts: {
 
   // A assinatura entra na MESMA linha: prefere a ativa e, na falta dela, a mais
   // recente. É o que permite mostrar vencimento e plano sem uma segunda lista.
-  // O plano vem da descrição da transação ("Assinatura Telegram - X"), que é o
-  // único lugar onde o nome do que foi vendido fica gravado junto da cobrança.
+  // O plano vem da descrição da transação, que é o único lugar onde o nome do
+  // que foi vendido fica gravado junto da cobrança. Hoje ela já é só o nome do
+  // produto; o prefixo antigo ("Assinatura Telegram - X") ainda é recortado
+  // abaixo para cobrir linha gravada antes da limpeza.
   const rows = db
     .prepare(
       `SELECT u.*,

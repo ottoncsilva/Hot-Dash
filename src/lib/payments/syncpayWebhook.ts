@@ -158,7 +158,11 @@ export async function processarWebhookSyncPay(
         providerRef,
         profileId: vinculo?.profileId,
         botId: vinculo?.botId,
-        description: vinculo?.planName ? `Venda SyncPay - ${vinculo.planName}` : "Venda SyncPay",
+        // Sem relatório do Canal de Vendas ainda, o produto é DESCONHECIDO —
+        // fica vazio (a tela mostra "—") em vez de "Venda SyncPay", que só
+        // repetia o provedor e ocupava o lugar do nome de verdade. Quando o
+        // relatório chegar, ele preenche (ver `registrarRelatorioExterno`).
+        description: vinculo?.planName,
         customer:
           (client.name as string) || vinculo?.customerName || vinculo?.telegramUsername || undefined,
         amountCents: grossCents ?? netCents ?? 0,

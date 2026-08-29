@@ -113,7 +113,7 @@ export function vincularCodigosNasVendas(): { relatorio: number; lead: number; u
  * servidor de subir.
  */
 export async function migrarCodigosDeRastreio(): Promise<void> {
-  const MARCA = "rastreio_codigos_v1";
+  const MARCA = "rastreio_codigos_v2";
   const db = getDb();
   try {
     if (db.prepare("SELECT value FROM settings WHERE key = ?").get(MARCA)) return;
@@ -125,6 +125,7 @@ export async function migrarCodigosDeRastreio(): Promise<void> {
     const { reprocessarRelatoriosGuardados } = await import("./externalSaleReport");
     const relatorios = reprocessarRelatoriosGuardados();
     const vinculos = vincularCodigosNasVendas();
+    const produtos = arrumarNomeDoProduto();
 
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
       MARCA,
@@ -133,11 +134,83 @@ export async function migrarCodigosDeRastreio(): Promise<void> {
     console.log(
       `[hotdash] rastreio: ${relatorios.lidos} relatórios relidos (${relatorios.comCodigo} com código); ` +
         `código amarrado em ${vinculos.relatorio + vinculos.lead + vinculos.usuario} vendas ` +
-        `(relatório ${vinculos.relatorio}, lead ${vinculos.lead}, usuário ${vinculos.usuario}).`,
+        `(relatório ${vinculos.relatorio}, lead ${vinculos.lead}, usuário ${vinculos.usuario}); ` +
+        `produto: ${produtos.semPrefixo} sem prefixo, ${produtos.zerados} zerados, ` +
+        `${produtos.peloRelatorio} preenchidos pelo relatório.`,
     );
   } catch (err) {
     console.error("[hotdash] falha migrando os códigos de rastreio:", err);
   }
+}
+
+/**
+ * Arruma o campo PRODUTO das cobranças que já estão gravadas.
+ *
+ * Três coisas, na ordem:
+ *  1. Tira o prefixo ("Assinatura Telegram - X" vira "X"). O prefixo repetia
+ *     em toda linha uma informação que as colunas Bot e provedor já dão, e
+ *     empurrava o nome do plano para fora da largura da coluna.
+ *  2. Zera os textos que NÃO são produto ("Venda SyncPay", "Venda Stripe"):
+ *     eram só o nome do provedor ocupando o lugar do nome de verdade. Vazio a
+ *     tela mostra "—", que é honesto — não se sabe o produto.
+ *  3. Preenche o que der a partir do relatório do Canal de Vendas, que é onde
+ *     o nome do plano de uma venda de bot operado por fora fica gravado.
+ *
+ * Uma vez só, marcada em `settings`.
+ */
+function arrumarNomeDoProduto(): { semPrefixo: number; zerados: number; peloRelatorio: number } {
+  const db = getDb();
+
+  // SQLite não tem regex; os prefixos são conhecidos e poucos, então cada um é
+  // recortado pelo seu tamanho exato. `LIKE` do SQLite já ignora maiúsculas em
+  // ASCII, e "Renovação" só aparece com essa grafia (é string do próprio código).
+  let semPrefixo = 0;
+  for (const prefixo of [
+    "Assinatura Telegram - ",
+    "Venda SyncPay - ",
+    "Venda Stripe - ",
+    "Renovação Stripe - ",
+  ]) {
+    semPrefixo += db
+      .prepare(
+        `UPDATE transactions SET description = TRIM(SUBSTR(description, ?))
+          WHERE description LIKE ? AND LENGTH(description) > ?`,
+      )
+      .run(prefixo.length + 1, prefixo + "%", prefixo.length).changes;
+  }
+
+  // O sufixo "(fora do checkout do Hot-Dash)" vinha colado no nome do plano.
+  const zerados = db
+    .prepare(
+      `UPDATE transactions SET description = NULL
+        WHERE description IN (
+          'Venda SyncPay', 'Venda Stripe', 'Venda (webhook)',
+          'Venda Stripe (fora do checkout do Hot-Dash)'
+        )`,
+    )
+    .run().changes;
+
+  const peloRelatorio = db
+    .prepare(
+      `UPDATE transactions
+          SET description = (
+            SELECT r.plan_name FROM external_sale_reports r
+             WHERE r.provider = transactions.provider
+               AND r.provider_ref = transactions.provider_ref
+               AND r.plan_name IS NOT NULL AND r.plan_name <> ''
+          )
+        WHERE (description IS NULL OR description = '')
+          AND provider_ref IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM external_sale_reports r
+             WHERE r.provider = transactions.provider
+               AND r.provider_ref = transactions.provider_ref
+               AND r.plan_name IS NOT NULL AND r.plan_name <> ''
+          )`,
+    )
+    .run().changes;
+
+  return { semPrefixo, zerados, peloRelatorio };
 }
 
 export type CodigoDeRastreio = {

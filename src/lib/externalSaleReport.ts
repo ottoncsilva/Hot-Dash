@@ -317,13 +317,19 @@ export function registrarRelatorioExterno(text: string): void {
           SET method      = COALESCE(method, ?),
               source_code = COALESCE(source_code, ?),
               customer    = COALESCE(customer, ?),
-              origin      = COALESCE(origin, ?)
+              origin      = COALESCE(origin, ?),
+              description = COALESCE(description, ?)
         WHERE provider = ? AND provider_ref = ?`,
     ).run(
       parsed.metodo || null,
       parsed.codigoDeVenda || null,
       parsed.nomePerfil || parsed.username || null,
       botId ? "bot" : null,
+      // O PRODUTO. Uma venda de bot operado por fora chega pelo gateway sem
+      // saber o que foi vendido — o nome só existe no relatório do Canal de
+      // Vendas, que costuma chegar depois. É este cruzamento que tira a linha
+      // do "—" e põe o plano lá, sem ninguém digitar nada.
+      parsed.plano || null,
       parsed.provider,
       parsed.providerRef,
     );

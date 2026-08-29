@@ -159,11 +159,18 @@ export async function processarWebhookSyncPay(
         profileId: vinculo?.profileId,
         botId: vinculo?.botId,
         description: vinculo?.planName ? `Venda SyncPay - ${vinculo.planName}` : "Venda SyncPay",
-        customer: (client.name as string) || vinculo?.telegramUsername || undefined,
+        customer:
+          (client.name as string) || vinculo?.customerName || vinculo?.telegramUsername || undefined,
         amountCents: grossCents ?? netCents ?? 0,
         netAmountCents: netCents,
-        method: (data.payment_method as string) || "pix",
+        // A palavra final sobre o método é do gateway; o relatório só entra
+        // quando ele não disse nada (e aí "pix" deixa de ser um chute).
+        method: (data.payment_method as string) || vinculo?.method || "pix",
         status: normalizeStatus(status),
+        // Deep-link que trouxe o lead e "veio de bot" — sem eles a venda
+        // entra no Financeiro sem origem e some do Funil de Vendas.
+        sourceCode: vinculo?.sourceCode,
+        origin: vinculo?.botId ? "bot" : undefined,
       });
       registra(
         vinculo?.profileId

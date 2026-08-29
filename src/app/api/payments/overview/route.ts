@@ -4,6 +4,7 @@ import { getAppTimeZone, getFinanceSettings, getPaymentSettingsPublic } from "@/
 import { listTransactionsInRange, periodStatsInRange } from "@/lib/transactions";
 import { activeProvider } from "@/lib/payments";
 import { getTelegramContactsByTransactions } from "@/lib/telegramDb";
+import { contatosDeRelatoriosExternos } from "@/lib/externalSaleReport";
 import { resolvePeriod } from "@/lib/periodRange";
 
 export const runtime = "nodejs";
@@ -39,6 +40,12 @@ export async function GET(req: NextRequest) {
     // do Financeiro precisa ser o registro completo, não uma amostra.
     const transactions = listTransactionsInRange(range.since, range.until, undefined, profileId);
     const contatos = getTelegramContactsByTransactions(transactions.map((t) => t.id));
+    // Venda de bot operado por fora não tem inscrição local, então não aparece
+    // acima — mas o relatório do Canal de Vendas guarda o mesmo contato. Só
+    // COMPLETA as lacunas: onde já existe inscrição, ela continua valendo.
+    for (const [txId, contato] of contatosDeRelatoriosExternos(transactions)) {
+      if (!contatos.has(txId)) contatos.set(txId, contato);
+    }
 
     return NextResponse.json({
       providers: getPaymentSettingsPublic(),

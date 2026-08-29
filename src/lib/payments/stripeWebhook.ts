@@ -137,11 +137,21 @@ async function processarCheckoutCompleto(
       profileId: vinculo?.profileId,
       botId: vinculo?.botId,
       description: vinculo?.planName ? `Venda Stripe - ${vinculo.planName}` : "Venda Stripe",
-      customer: session.customer_details?.name || session.customer_email || vinculo?.telegramUsername || undefined,
+      customer:
+        session.customer_details?.name ||
+        session.customer_email ||
+        vinculo?.customerName ||
+        vinculo?.telegramUsername ||
+        undefined,
       amountCents: grossCents ?? 0,
       currency: (session.currency || "usd").toUpperCase(),
       method: "card",
       status: normalizeStatus("paid"),
+      // O relatório do Canal de Vendas também traz o deep-link que trouxe o
+      // lead e diz que a venda veio de um bot — sem isso ela entra no
+      // Financeiro sem origem e some do Funil de Vendas.
+      sourceCode: vinculo?.sourceCode,
+      origin: vinculo?.botId ? "bot" : undefined,
     });
     registra(
       vinculo?.profileId
@@ -379,10 +389,14 @@ async function processarPaymentIntentSucedido(
     description: vinculo?.planName
       ? `Venda Stripe - ${vinculo.planName} (fora do checkout do Hot-Dash)`
       : "Venda Stripe (fora do checkout do Hot-Dash)",
-    customer: pi.receipt_email || vinculo?.telegramUsername || undefined,
+    customer: pi.receipt_email || vinculo?.customerName || vinculo?.telegramUsername || undefined,
     amountCents: pi.amount_received || pi.amount,
     currency: (pi.currency || "usd").toUpperCase(),
     method: "card",
+    // Mesma completude do outro caminho de venda fria: origem de tráfego e
+    // "veio de bot" saem do relatório do Canal de Vendas.
+    sourceCode: vinculo?.sourceCode,
+    origin: vinculo?.botId ? "bot" : undefined,
     status: normalizeStatus("paid"),
   });
   registra(

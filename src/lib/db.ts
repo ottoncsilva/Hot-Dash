@@ -1180,6 +1180,36 @@ function migrate(d: Database.Database) {
   // a coluna "Bot" da tela e para distinguir venda de bot de venda do
   // LTV/lançada à mão, que ficam sem bot mesmo). Linha antiga fica NULL.
   ensureColumn(d, "transactions", "bot_id", "TEXT");
+
+  // O relatório do Canal de Vendas traz 17 campos; até agora só 5 eram
+  // guardados. Os demais são exatamente o que faltava para uma venda de bot
+  // operado por fora ficar tão completa quanto uma do próprio Hot-Dash:
+  // método e valor (que o gateway às vezes não manda), o código do deep-link
+  // que trouxe o lead (é o que faz essa venda aparecer no Funil), o idioma
+  // (que decide a moeda), o nome do cliente e o @ do bot — este último é a
+  // única pista de QUEM é o bot quando o "ID Bot" não bate com nenhum token
+  // cadastrado. Ver `parseSalesReportMessage`.
+  ensureColumn(d, "external_sale_reports", "customer_name", "TEXT");
+  ensureColumn(d, "external_sale_reports", "bot_username", "TEXT");
+  ensureColumn(d, "external_sale_reports", "language", "TEXT");
+  ensureColumn(d, "external_sale_reports", "category", "TEXT");
+  ensureColumn(d, "external_sale_reports", "duration_label", "TEXT");
+  ensureColumn(d, "external_sale_reports", "amount_cents", "INTEGER");
+  ensureColumn(d, "external_sale_reports", "currency", "TEXT");
+  ensureColumn(d, "external_sale_reports", "method", "TEXT");
+  ensureColumn(d, "external_sale_reports", "source_code", "TEXT");
+  // Id da transação no sistema de ORIGEM (o "ID Transação Interna" dele) —
+  // não é o nosso id nem o do gateway; serve para o operador conferir os dois
+  // lados quando precisar reclamar de uma venda com quem opera o bot.
+  ensureColumn(d, "external_sale_reports", "external_tx_id", "TEXT");
+  // "Origem" no relatório é O PASSO DO FUNIL que fechou a venda ("Downsell 4 ·
+  // ...") — só aparece quando foi uma recuperação que converteu. É a única
+  // forma de saber, numa venda de bot operado por fora, se ela veio do
+  // primeiro contato ou de um resgate.
+  ensureColumn(d, "external_sale_reports", "funnel_step", "TEXT");
+  // Quanto tempo o lead levou entre a cobrança gerada e o pagamento, em
+  // segundos (o relatório escreve "0d 0h 23m 53s").
+  ensureColumn(d, "external_sale_reports", "conversion_seconds", "INTEGER");
   // Oferta do MAILING que originou a venda (nome/preço/duração ajustados só
   // para aquele disparo). Quando presente, manda na confirmação do pagamento
   // no lugar do plano original.

@@ -40,15 +40,95 @@ import { getVendasExternasSettings } from "./settings";
 
 export type RelatorioExternoParsed = {
   idBot?: string;
+  /** `@usuario` do bot que fez a venda, sem o "@". É a ÚNICA pista de quem é
+   *  o bot quando o "ID Bot" não bate com nenhum token cadastrado — sem ela,
+   *  a venda fica "Sem modelo" e nem dá pra saber qual bot registrar. */
+  botUsername?: string;
   telegramUserId?: number;
   username?: string;
   nomePerfil?: string;
   plano?: string;
+  /** "Plano Assinatura" / "Pacote Avulso". */
+  categoria?: string;
+  /** "1 mês", "vitalício"... como o sistema de origem escreveu. */
+  duracao?: string;
+  /** Idioma declarado no relatório ("pt-br", "en-us"...), minúsculo. Alimenta
+   *  o `language` do lead, que é o que decide a moeda da cobrança dele. */
+  idioma?: string;
+  valorCentavos?: number;
+  /** Código da moeda em maiúsculo ("BRL", "USD"). */
+  moeda?: string;
+  /** Normalizado no vocabulário do painel: "pix" ou "card". */
+  metodo?: string;
+  /** Código do deep-link que trouxe o lead (`?start=CODIGO`). É o que liga
+   *  esta venda a uma origem de tráfego no Funil. */
+  codigoDeVenda?: string;
+  /** Passo do funil que fechou a venda ("Downsell 4 · ..."), quando foi uma
+   *  recuperação que converteu. Ausente numa venda de primeiro contato. */
+  passoDoFunil?: string;
+  /** "0d 0h 23m 53s" convertido em segundos. */
+  segundosAteConverter?: number;
+  /** Id da transação no sistema de ORIGEM — nem o nosso, nem o do gateway. */
+  idTransacaoExterna?: string;
   providerRef?: string;
   /** Normalizado (minúsculo) — "SyncPay" no texto vira "syncpay" aqui, pra
    *  bater com o `provider` que os webhooks já usam. */
   provider?: string;
 };
+
+/**
+ * "R$ 19,90" → 1990. O relatório formata o valor com `toLocaleString("pt-BR")`,
+ * então o separador decimal é a vírgula — mas quem opera o bot por fora pode
+ * usar outro formato, e um número escrito "1,234.56" não pode virar R$ 1,23.
+ *
+ * Por isso a decisão não é pelo símbolo e sim pela POSIÇÃO: o último separador
+ * seguido de exatamente 2 dígitos é o decimal; qualquer outro é separador de
+ * milhar e cai fora. Sem separador nenhum, o número inteiro é a parte cheia
+ * ("19" = R$ 19,00) — nunca centavos, que transformaria uma venda de R$ 19 em
+ * R$ 0,19.
+ */
+function valorEmCentavos(texto: string | undefined): number | undefined {
+  // Só o PRIMEIRO número da linha: o símbolo da moeda fica de fora, e se o
+  // nome do canal veio grudado no fim (ver `ATRIBUICAO_DO_TELEGRAM`) os
+  // dígitos dele não entram na conta.
+  const limpo = (texto || "").match(/\d[\d.,]*/)?.[0] || "";
+  if (!/\d/.test(limpo)) return undefined;
+  const m = limpo.match(/[.,](\d{2})$/);
+  const inteiro = (m ? limpo.slice(0, -3) : limpo).replace(/[.,]/g, "");
+  const centavos = m ? m[1] : "00";
+  const total = Number(inteiro || "0") * 100 + Number(centavos);
+  return Number.isFinite(total) ? total : undefined;
+}
+
+/**
+ * Método de pagamento no vocabulário do painel ("pix"/"card"), que é o que a
+ * coluna Método do Financeiro e o filtro dela esperam. Aceita as escritas que
+ * aparecem na prática (pt e en, com e sem acento); o que não reconhece volta
+ * minúsculo como veio, para não inventar nem descartar.
+ */
+/**
+ * "0d 0h 23m 53s" → 1433. Soma só as unidades que aparecerem, na ordem que
+ * aparecerem — se o formato mudar e vier só "23m", continua valendo.
+ */
+function duracaoEmSegundos(texto: string | undefined): number | undefined {
+  const v = (texto || "").toLowerCase();
+  const unidades: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 };
+  let total = 0;
+  let achou = false;
+  for (const m of v.matchAll(/(\d+)\s*([dhms])/g)) {
+    total += Number(m[1]) * unidades[m[2]];
+    achou = true;
+  }
+  return achou ? total : undefined;
+}
+
+function metodoNormalizado(texto: string | undefined): string | undefined {
+  const v = (texto || "").trim().toLowerCase();
+  if (!v || v === "-") return undefined;
+  if (v.includes("pix")) return "pix";
+  if (/cart[aã]o|card|credit|cr[eé]dito|d[eé]bito|debit/.test(v)) return "card";
+  return v;
+}
 
 /**
  * Primeira palavra de um valor. Os campos que este parser usa para DECIDIR
@@ -86,13 +166,34 @@ export function parseSalesReportMessage(text: string): RelatorioExternoParsed | 
 
   const idClienteNum = Number(campos["ID Cliente"]);
   const providerRef = campos["ID Transação Gateway"];
+  /** "-" é como o relatório escreve "não tenho esse dado" — vale nada. */
+  const texto = (chave: string) => {
+    const v = campos[chave]?.trim();
+    return v && v !== "-" ? v : undefined;
+  };
 
   return {
     idBot: primeiroToken(campos["ID Bot"]),
+    botUsername: primeiroToken(texto("Bot"))?.replace(/^@/, ""),
     telegramUserId: Number.isFinite(idClienteNum) && idClienteNum > 0 ? idClienteNum : undefined,
     username: campos["Username"]?.replace(/^@/, "") || undefined,
-    nomePerfil: campos["Nome de Perfil"] && campos["Nome de Perfil"] !== "-" ? campos["Nome de Perfil"] : undefined,
+    nomePerfil: texto("Nome de Perfil"),
     plano: campos["Plano"] || undefined,
+    categoria: texto("Categoria"),
+    duracao: texto("Duração"),
+    idioma: primeiroToken(texto("Idioma"))?.toLowerCase(),
+    valorCentavos: valorEmCentavos(texto("Valor")),
+    moeda: primeiroToken(texto("Tipo Moeda"))?.toUpperCase(),
+    metodo: metodoNormalizado(texto("Método Pagamento")),
+    // "start" é o que o relatório escreve quando o lead deu /start seco, sem
+    // deep-link — é ausência de código, não um código chamado "start".
+    codigoDeVenda: (() => {
+      const c = primeiroToken(texto("Código de Venda"));
+      return c && c.toLowerCase() !== "start" ? c : undefined;
+    })(),
+    passoDoFunil: texto("Origem"),
+    segundosAteConverter: duracaoEmSegundos(texto("Tempo Conversão")),
+    idTransacaoExterna: primeiroToken(texto("ID Transação Interna")),
     providerRef: providerRef && providerRef !== "-" ? primeiroToken(providerRef) : undefined,
     provider: primeiroToken(campos["Plataforma Pagamento"])?.toLowerCase(),
   };
@@ -138,16 +239,33 @@ export function registrarRelatorioExterno(text: string): void {
       }
     }
 
+    // Todo campo entra por COALESCE: um relatório repetido (ou corrigido) só
+    // COMPLETA o que faltava, nunca apaga o que já estava preenchido.
     db.prepare(
       `INSERT INTO external_sale_reports
-         (id, provider, provider_ref, bot_id, profile_id, telegram_user_id, telegram_username, plan_name, raw_text, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (id, provider, provider_ref, bot_id, profile_id, telegram_user_id, telegram_username,
+          plan_name, customer_name, bot_username, language, category, duration_label,
+          amount_cents, currency, method, source_code, external_tx_id, funnel_step, conversion_seconds,
+          raw_text, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(provider, provider_ref) DO UPDATE SET
          bot_id = COALESCE(excluded.bot_id, external_sale_reports.bot_id),
          profile_id = COALESCE(excluded.profile_id, external_sale_reports.profile_id),
          telegram_user_id = COALESCE(excluded.telegram_user_id, external_sale_reports.telegram_user_id),
          telegram_username = COALESCE(excluded.telegram_username, external_sale_reports.telegram_username),
-         plan_name = COALESCE(excluded.plan_name, external_sale_reports.plan_name)`,
+         plan_name = COALESCE(excluded.plan_name, external_sale_reports.plan_name),
+         customer_name = COALESCE(excluded.customer_name, external_sale_reports.customer_name),
+         bot_username = COALESCE(excluded.bot_username, external_sale_reports.bot_username),
+         language = COALESCE(excluded.language, external_sale_reports.language),
+         category = COALESCE(excluded.category, external_sale_reports.category),
+         duration_label = COALESCE(excluded.duration_label, external_sale_reports.duration_label),
+         amount_cents = COALESCE(excluded.amount_cents, external_sale_reports.amount_cents),
+         currency = COALESCE(excluded.currency, external_sale_reports.currency),
+         method = COALESCE(excluded.method, external_sale_reports.method),
+         source_code = COALESCE(excluded.source_code, external_sale_reports.source_code),
+         external_tx_id = COALESCE(excluded.external_tx_id, external_sale_reports.external_tx_id),
+         funnel_step = COALESCE(excluded.funnel_step, external_sale_reports.funnel_step),
+         conversion_seconds = COALESCE(excluded.conversion_seconds, external_sale_reports.conversion_seconds)`,
     ).run(
       randomUUID(),
       parsed.provider,
@@ -157,6 +275,18 @@ export function registrarRelatorioExterno(text: string): void {
       parsed.telegramUserId || null,
       parsed.username || null,
       parsed.plano || null,
+      parsed.nomePerfil || null,
+      parsed.botUsername || null,
+      parsed.idioma || null,
+      parsed.categoria || null,
+      parsed.duracao || null,
+      parsed.valorCentavos ?? null,
+      parsed.moeda || null,
+      parsed.metodo || null,
+      parsed.codigoDeVenda || null,
+      parsed.idTransacaoExterna || null,
+      parsed.passoDoFunil || null,
+      parsed.segundosAteConverter ?? null,
       text.slice(0, 2000),
       Date.now(),
     );
@@ -173,6 +303,31 @@ export function registrarRelatorioExterno(text: string): void {
       ).run(profileId, botId || null, parsed.provider, parsed.providerRef);
     }
 
+    // O resto do relatório também COMPLETA a transação — e isso vale mesmo
+    // sem modelo resolvida, porque não depende de saber de quem é a venda.
+    // Cada campo só entra onde está NULL: a palavra final é sempre do
+    // gateway (ou de uma correção do operador na tela), nunca deste texto.
+    //
+    // `origin = 'bot'` é o que faz a venda aparecer no Funil de Vendas: ela
+    // veio de um bot do Telegram, só que operado por fora. E `source_code` é
+    // o deep-link que trouxe o lead — sem ele a venda entra no funil sem
+    // origem de tráfego nenhuma.
+    db.prepare(
+      `UPDATE transactions
+          SET method      = COALESCE(method, ?),
+              source_code = COALESCE(source_code, ?),
+              customer    = COALESCE(customer, ?),
+              origin      = COALESCE(origin, ?)
+        WHERE provider = ? AND provider_ref = ?`,
+    ).run(
+      parsed.metodo || null,
+      parsed.codigoDeVenda || null,
+      parsed.nomePerfil || parsed.username || null,
+      botId ? "bot" : null,
+      parsed.provider,
+      parsed.providerRef,
+    );
+
     // Tela de USUÁRIOS: o /start deste lead nunca vai ser capturado (o bot é
     // operado por fora, e o Hot-Dash não intercepta nada dele), mas o
     // relatório de venda já basta pra ele aparecer lá — fonte "compra", pra
@@ -186,6 +341,12 @@ export function registrarRelatorioExterno(text: string): void {
         username: parsed.username,
         firstName: parsed.nomePerfil,
         source: "compra",
+        // O deep-link que trouxe o lead e o idioma dele vinham no relatório
+        // desde sempre e eram jogados fora. O código é a origem de tráfego
+        // na tela de Usuários; o idioma é o que decide em que moeda esse
+        // lead é cobrado numa próxima venda (ver `moedaPorIdioma`).
+        sourceCode: parsed.codigoDeVenda,
+        languageCode: parsed.idioma,
       });
       // NÃO marca VIP aqui, de propósito. "VIP" na tela de Usuários é "está
       // no grupo AGORA" (ver ACTIVE_VIP em telegramUsers.ts), e comprar não
@@ -380,10 +541,26 @@ export function importarRelatoriosExternos(blob: string): ResultadoImportacao {
 export function buscarRelatorioExterno(
   provider: string,
   providerRef: string,
-): { botId?: string; profileId?: string; telegramUserId?: number; telegramUsername?: string; planName?: string } | null {
+): {
+  botId?: string;
+  profileId?: string;
+  telegramUserId?: number;
+  telegramUsername?: string;
+  planName?: string;
+  customerName?: string;
+  method?: string;
+  sourceCode?: string;
+  amountCents?: number;
+  currency?: string;
+  category?: string;
+  durationLabel?: string;
+  language?: string;
+} | null {
   const row = getDb()
     .prepare(
-      `SELECT bot_id, profile_id, telegram_user_id, telegram_username, plan_name
+      `SELECT bot_id, profile_id, telegram_user_id, telegram_username, plan_name,
+              customer_name, method, source_code, amount_cents, currency,
+              category, duration_label, language
          FROM external_sale_reports WHERE provider = ? AND provider_ref = ?`,
     )
     .get(provider.toLowerCase(), providerRef) as
@@ -393,6 +570,14 @@ export function buscarRelatorioExterno(
         telegram_user_id: number | null;
         telegram_username: string | null;
         plan_name: string | null;
+        customer_name: string | null;
+        method: string | null;
+        source_code: string | null;
+        amount_cents: number | null;
+        currency: string | null;
+        category: string | null;
+        duration_label: string | null;
+        language: string | null;
       }
     | undefined;
   if (!row) return null;
@@ -402,5 +587,66 @@ export function buscarRelatorioExterno(
     telegramUserId: row.telegram_user_id || undefined,
     telegramUsername: row.telegram_username || undefined,
     planName: row.plan_name || undefined,
+    customerName: row.customer_name || undefined,
+    method: row.method || undefined,
+    sourceCode: row.source_code || undefined,
+    amountCents: row.amount_cents ?? undefined,
+    currency: row.currency || undefined,
+    category: row.category || undefined,
+    durationLabel: row.duration_label || undefined,
+    language: row.language || undefined,
   };
+}
+
+/**
+ * Contato do Telegram das vendas EXTERNAS, para o Financeiro poder abrir a
+ * conversa com o lead nelas também.
+ *
+ * O contato "normal" sai de `telegram_subscriptions`, que só existe quando a
+ * venda passou pelo checkout do Hot-Dash. Numa venda de bot operado por fora
+ * essa inscrição nunca foi criada — mas o relatório do Canal de Vendas traz o
+ * ID Cliente e o @usuário, que é a mesma informação. Sem isto, justamente as
+ * vendas que mais precisam de vínculo manual eram as únicas sem o atalho.
+ *
+ * Devolve um mapa POR ID DE TRANSAÇÃO, para o chamador só completar as
+ * lacunas do mapa que já tem.
+ */
+export function contatosDeRelatoriosExternos(
+  transacoes: { id: string; provider: string; providerRef?: string }[],
+): Map<string, { userId: number; username?: string }> {
+  const out = new Map<string, { userId: number; username?: string }>();
+  // A chave do relatório é (provider, provider_ref); a do mapa é o id da
+  // transação. Este índice faz a volta sem uma segunda consulta.
+  const porChave = new Map<string, string>();
+  for (const t of transacoes) {
+    if (t.providerRef) porChave.set(`${t.provider.toLowerCase()}|${t.providerRef}`, t.id);
+  }
+  if (porChave.size === 0) return out;
+
+  const refs = [...porChave.keys()].map((k) => k.split("|")[1]);
+  // Mesmo teto de parâmetros por consulta do SQLite que o resto do painel
+  // respeita (999 no padrão antigo) — vai em blocos.
+  const CHUNK = 500;
+  for (let i = 0; i < refs.length; i += CHUNK) {
+    const bloco = refs.slice(i, i + CHUNK);
+    const rows = getDb()
+      .prepare(
+        `SELECT provider, provider_ref, telegram_user_id, telegram_username
+           FROM external_sale_reports
+          WHERE telegram_user_id IS NOT NULL
+            AND provider_ref IN (${bloco.map(() => "?").join(",")})`,
+      )
+      .all(...bloco) as {
+      provider: string;
+      provider_ref: string;
+      telegram_user_id: number;
+      telegram_username: string | null;
+    }[];
+    for (const r of rows) {
+      const txId = porChave.get(`${r.provider.toLowerCase()}|${r.provider_ref}`);
+      if (!txId) continue;
+      out.set(txId, { userId: r.telegram_user_id, username: r.telegram_username || undefined });
+    }
+  }
+  return out;
 }

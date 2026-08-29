@@ -41,6 +41,13 @@ export type Transaction = {
   /** Instante em que virou paga (diferente de createdAt = geração do Pix). */
   paidAt?: number;
   updatedAt: number;
+  /** Qual parte do painel gerou a cobrança: 'bot' (bot de vendas do
+   *  Telegram), 'ltv' (agente de LTV) ou 'painel' (lançada à mão). NULL em
+   *  linha antiga, de antes da coluna existir — ver `origemDaVenda` na tela
+   *  do Financeiro, que decide o rótulo quando isto vem vazio. */
+  origin?: "bot" | "ltv" | "painel";
+  /** Código do deep-link que trouxe o lead (`?start=CODIGO`). */
+  sourceCode?: string;
   /** Contato do Telegram que fez a compra, quando o webhook amarrou a venda a
    *  uma inscrição. É o que permite abrir a conversa com o lead pelo painel. */
   telegram?: { userId: number; username?: string };
@@ -66,6 +73,8 @@ type Row = {
   currency: string;
   method: string | null;
   status: string;
+  origin: string | null;
+  source_code: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -88,6 +97,8 @@ function toClient(r: Row): Transaction {
     currency: r.currency,
     method: r.method || undefined,
     status: r.status,
+    origin: (r.origin as Transaction["origin"]) || undefined,
+    sourceCode: r.source_code || undefined,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };

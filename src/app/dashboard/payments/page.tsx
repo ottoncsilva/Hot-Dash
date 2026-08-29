@@ -54,6 +54,29 @@ const METHOD_LABEL: Record<string, string> = {
 };
 
 type PaidFilter = "all" | "paid" | "unpaid";
+/** "todos" = sem filtro; o resto casa com `origemDaVenda`. */
+type OriginFilter = "all" | "bot" | "ltv" | "painel";
+
+const ORIGIN_LABEL: Record<Exclude<OriginFilter, "all">, string> = {
+  bot: "Funil (bot)",
+  ltv: "LTV",
+  painel: "Lançada à mão",
+};
+
+/**
+ * De qual parte do painel a venda veio.
+ *
+ * A coluna `origin` só existe a partir de certo ponto, então cobrança antiga
+ * vem NULL. Nesses casos o BOT decide: toda venda com bot amarrado passou por
+ * um bot de vendas — é isso que `origin = 'bot'` significa. O que sobra
+ * (NULL e sem bot) fica `undefined` de propósito, e não "painel": chutar
+ * "lançada à mão" numa venda de origem desconhecida seria inventar um dado
+ * que ninguém conferiu. Essas linhas só aparecem em "Origem: todas".
+ */
+function origemDaVenda(t: Transaction): Exclude<OriginFilter, "all"> | undefined {
+  if (t.origin) return t.origin;
+  return t.botId ? "bot" : undefined;
+}
 type SortKey = "created_desc" | "created_asc" | "paid_desc" | "paid_asc" | "amount_desc" | "amount_asc";
 
 const SORT_LABEL: Record<SortKey, string> = {
@@ -80,6 +103,12 @@ export default function PaymentsPage() {
   const [charging, setCharging] = useState(false);
   const [paidFilter, setPaidFilter] = useState<PaidFilter>("all");
   const [sort, setSort] = useState<SortKey>("created_desc");
+  // Filtros de recorte da lista. Vazio = sem filtro; as opções de bot e de
+  // método são montadas a partir do que EXISTE no período carregado, para o
+  // seletor nunca oferecer uma escolha que não devolve nada.
+  const [botFilter, setBotFilter] = useState("all");
+  const [methodFilter, setMethodFilter] = useState("all");
+  const [originFilter, setOriginFilter] = useState<OriginFilter>("all");
   // Busca em texto livre — sobre o que JÁ carregou (o período é filtrado no
   // servidor, sem teto: ver /api/payments/overview). Cobre nome, produto,
   // bot e método, porque "pesquisar" pra quem usa a tela é achar uma venda
@@ -138,6 +167,32 @@ export default function PaymentsPage() {
       ? "Período"
       : PERIOD_OPTIONS.find((p) => p.key === period.period)?.label || "Período";
 
+  /** Bots que aparecem no período — chave é o id, rótulo é o @usuário. O
+   *  "sem bot" só entra na lista quando existe alguma venda assim. */
+  const botOptions = useMemo(() => {
+    if (!data) return [];
+    const mapa = new Map<string, string>();
+    let temSemBot = false;
+    for (const t of data.transactions) {
+      if (t.botId) mapa.set(t.botId, t.botUsername ? `@${t.botUsername}` : "bot sem @");
+      else temSemBot = true;
+    }
+    const lista = [...mapa].sort((a, b) => a[1].localeCompare(b[1], "pt-BR"));
+    return temSemBot ? [...lista, ["none", "Sem bot"] as [string, string]] : lista;
+  }, [data]);
+
+  const methodOptions = useMemo(() => {
+    if (!data) return [];
+    const vistos = new Set<string>();
+    let temSemMetodo = false;
+    for (const t of data.transactions) {
+      if (t.method) vistos.add(t.method);
+      else temSemMetodo = true;
+    }
+    const lista = [...vistos].sort().map((m) => [m, METHOD_LABEL[m] || m] as [string, string]);
+    return temSemMetodo ? [...lista, ["none", "Sem método"] as [string, string]] : lista;
+  }, [data]);
+
   const filteredTransactions = useMemo(() => {
     if (!data) return [];
     let list = data.transactions;
@@ -145,10 +200,18 @@ export default function PaymentsPage() {
     if (paidFilter === "paid") list = list.filter((t) => t.status === "paid");
     else if (paidFilter === "unpaid") list = list.filter((t) => t.status !== "paid");
 
+    if (botFilter !== "all") {
+      list = list.filter((t) => (botFilter === "none" ? !t.botId : t.botId === botFilter));
+    }
+    if (methodFilter !== "all") {
+      list = list.filter((t) => (methodFilter === "none" ? !t.method : t.method === methodFilter));
+    }
+    if (originFilter !== "all") list = list.filter((t) => origemDaVenda(t) === originFilter);
+
     const termo = busca.trim().toLowerCase();
     if (termo) {
       list = list.filter((t) =>
-        [t.customer, t.description, t.botUsername, t.method, t.provider]
+        [t.customer, t.description, t.botUsername, t.method, t.provider, t.sourceCode]
           .filter(Boolean)
           .some((campo) => campo!.toLowerCase().includes(termo)),
       );
@@ -177,7 +240,7 @@ export default function PaymentsPage() {
       }
     });
     return sorted;
-  }, [data, paidFilter, sort, busca]);
+  }, [data, paidFilter, sort, busca, botFilter, methodFilter, originFilter]);
 
   return (
     <div className="page">
@@ -267,6 +330,42 @@ export default function PaymentsPage() {
             <option value="paid">Pagos: sim</option>
             <option value="unpaid">Pagos: não</option>
           </select>
+          {/* Bot e método só aparecem quando há mais de uma opção no período:
+              um seletor com uma escolha só não filtra nada e só ocupa espaço. */}
+          {botOptions.length > 1 && (
+            <select
+              className="input w-auto py-1.5 text-xs"
+              value={botFilter}
+              onChange={(e) => setBotFilter(e.target.value)}
+            >
+              <option value="all">Bot: todos</option>
+              {botOptions.map(([id, rotulo]) => (
+                <option key={id} value={id}>{rotulo}</option>
+              ))}
+            </select>
+          )}
+          {methodOptions.length > 1 && (
+            <select
+              className="input w-auto py-1.5 text-xs"
+              value={methodFilter}
+              onChange={(e) => setMethodFilter(e.target.value)}
+            >
+              <option value="all">Método: todos</option>
+              {methodOptions.map(([m, rotulo]) => (
+                <option key={m} value={m}>{rotulo}</option>
+              ))}
+            </select>
+          )}
+          <select
+            className="input w-auto py-1.5 text-xs"
+            value={originFilter}
+            onChange={(e) => setOriginFilter(e.target.value as OriginFilter)}
+          >
+            <option value="all">Origem: todas</option>
+            {(Object.keys(ORIGIN_LABEL) as Exclude<OriginFilter, "all">[]).map((k) => (
+              <option key={k} value={k}>{ORIGIN_LABEL[k]}</option>
+            ))}
+          </select>
           <select
             className="input w-auto py-1.5 text-xs"
             value={sort}
@@ -276,10 +375,22 @@ export default function PaymentsPage() {
               <option key={k} value={k}>{SORT_LABEL[k]}</option>
             ))}
           </select>
-          {(paidFilter !== "all" || sort !== "created_desc" || busca) && (
+          {(paidFilter !== "all" ||
+            sort !== "created_desc" ||
+            busca ||
+            botFilter !== "all" ||
+            methodFilter !== "all" ||
+            originFilter !== "all") && (
             <button
               type="button"
-              onClick={() => { setPaidFilter("all"); setSort("created_desc"); setBusca(""); }}
+              onClick={() => {
+                setPaidFilter("all");
+                setSort("created_desc");
+                setBusca("");
+                setBotFilter("all");
+                setMethodFilter("all");
+                setOriginFilter("all");
+              }}
               className="btn-ghost py-1.5 text-xs"
             >
               Limpar
@@ -345,6 +456,19 @@ export default function PaymentsPage() {
                             <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
                               {t.provider}
                             </span>
+                            {/* Deep-link que trouxe o lead (`?start=CODIGO`).
+                                É a origem de tráfego da venda — vem do
+                                checkout do bot ou do relatório do Canal de
+                                Vendas, e antes não aparecia em lugar nenhum
+                                do Financeiro. */}
+                            {t.sourceCode && (
+                              <span
+                                className="font-mono text-[10px] tracking-wider text-zinc-600"
+                                title="Código de origem do lead (deep-link do /start)"
+                              >
+                                #{t.sourceCode}
+                              </span>
+                            )}
                             {/* Falar com o lead. Fica AQUI, na primeira coluna,
                                 porque a tabela é larga e rola na horizontal: na
                                 coluna de ações o atalho nasceria fora da tela no
@@ -377,8 +501,19 @@ export default function PaymentsPage() {
                         </div>
                       </div>
                     </td>
+                    {/* Sem bot, a célula mostra de ONDE a venda veio em vez de
+                        um travessão: é o que explica a ausência do bot (LTV e
+                        lançamento à mão nunca passam por um) e o que dá sentido
+                        ao filtro de Origem. Origem desconhecida (linha antiga,
+                        sem bot) continua travessão — ver `origemDaVenda`. */}
                     <td className="p-3 font-mono text-[11px] text-zinc-400">
-                      {t.botUsername ? `@${t.botUsername}` : <span className="text-zinc-700">—</span>}
+                      {t.botUsername ? (
+                        `@${t.botUsername}`
+                      ) : origemDaVenda(t) && origemDaVenda(t) !== "bot" ? (
+                        <span className="text-zinc-500">{ORIGIN_LABEL[origemDaVenda(t)!]}</span>
+                      ) : (
+                        <span className="text-zinc-700">—</span>
+                      )}
                     </td>
                     <td className="max-w-[160px] truncate p-3 text-xs text-zinc-400">
                       {t.description || <span className="text-zinc-700">—</span>}

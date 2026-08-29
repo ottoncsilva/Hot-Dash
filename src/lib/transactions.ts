@@ -104,6 +104,33 @@ function toClient(r: Row): Transaction {
   };
 }
 
+/**
+ * Sufixo que marca a venda cuja cobrança se repete sozinha (assinatura da
+ * Stripe). Fica numa constante porque três lugares gravam e um quarto (a
+ * migração) reconhece — se cada um escrevesse o seu, a coluna Produto teria
+ * variações que nenhum filtro casaria.
+ */
+export const SUFIXO_RENOVACAO = " com renovação";
+
+/**
+ * Nome do produto como ele aparece na coluna Produto e nas notificações.
+ *
+ * Sem o sufixo, a renovação automática ficava indistinguível de uma venda
+ * nova: mesmo plano, mesmo valor, linhas idênticas — e a diferença entre
+ * faturamento novo e recorrente é justamente o que se quer enxergar ali.
+ */
+export function nomeDoProduto(
+  nome: string | undefined | null,
+  renovacaoAutomatica: boolean,
+): string | undefined {
+  const limpo = (nome || "").trim();
+  if (!limpo) return renovacaoAutomatica ? `Assinatura${SUFIXO_RENOVACAO}` : undefined;
+  // Não empilha o sufixo em quem já tem (relatório reprocessado, migração
+  // rodando de novo).
+  if (!renovacaoAutomatica || limpo.endsWith(SUFIXO_RENOVACAO)) return limpo;
+  return `${limpo}${SUFIXO_RENOVACAO}`;
+}
+
 export function recordTransaction(input: {
   provider: string;
   providerRef?: string;

@@ -1,5 +1,6 @@
 import "server-only";
 import { getDb } from "./db";
+import { SUFIXO_RENOVACAO } from "./transactions";
 
 /**
  * RASTREIO — o código do deep-link (`t.me/<bot>?start=CODIGO`) que trouxe o
@@ -113,7 +114,7 @@ export function vincularCodigosNasVendas(): { relatorio: number; lead: number; u
  * servidor de subir.
  */
 export async function migrarCodigosDeRastreio(): Promise<void> {
-  const MARCA = "rastreio_codigos_v2";
+  const MARCA = "rastreio_codigos_v3";
   const db = getDb();
   try {
     if (db.prepare("SELECT value FROM settings WHERE key = ?").get(MARCA)) return;
@@ -136,7 +137,8 @@ export async function migrarCodigosDeRastreio(): Promise<void> {
         `código amarrado em ${vinculos.relatorio + vinculos.lead + vinculos.usuario} vendas ` +
         `(relatório ${vinculos.relatorio}, lead ${vinculos.lead}, usuário ${vinculos.usuario}); ` +
         `produto: ${produtos.semPrefixo} sem prefixo, ${produtos.zerados} zerados, ` +
-        `${produtos.peloRelatorio} preenchidos pelo relatório.`,
+        `${produtos.peloRelatorio} preenchidos pelo relatório, ` +
+        `${produtos.renovacoes} marcados como renovação.`,
     );
   } catch (err) {
     console.error("[hotdash] falha migrando os códigos de rastreio:", err);
@@ -158,7 +160,12 @@ export async function migrarCodigosDeRastreio(): Promise<void> {
  *
  * Uma vez só, marcada em `settings`.
  */
-function arrumarNomeDoProduto(): { semPrefixo: number; zerados: number; peloRelatorio: number } {
+function arrumarNomeDoProduto(): {
+  semPrefixo: number;
+  zerados: number;
+  peloRelatorio: number;
+  renovacoes: number;
+} {
   const db = getDb();
 
   // SQLite não tem regex; os prefixos são conhecidos e poucos, então cada um é
@@ -210,7 +217,24 @@ function arrumarNomeDoProduto(): { semPrefixo: number; zerados: number; peloRela
     )
     .run().changes;
 
-  return { semPrefixo, zerados, peloRelatorio };
+  // RENOVAÇÃO nas linhas antigas. O prefixo "Renovação Stripe - " já foi
+  // recortado acima, então ele não serve mais para reconhecê-las — mas o id da
+  // FATURA da Stripe começa com "in_", e só renovação é gravada com um. É um
+  // sinal da própria Stripe, não um palpite sobre o texto.
+  //
+  // A venda INICIAL que virou assinatura não é recuperável assim (o id dela é
+  // de sessão de checkout, `cs_`, igual ao de uma avulsa). Essas ficam sem o
+  // sufixo; daqui para frente nascem com ele.
+  const renovacoes = getDb()
+    .prepare(
+      `UPDATE transactions SET description = COALESCE(description, 'Assinatura') || ?
+        WHERE provider = 'stripe'
+          AND provider_ref LIKE 'in\\_%' ESCAPE '\\'
+          AND (description IS NULL OR description NOT LIKE ?)`,
+    )
+    .run(SUFIXO_RENOVACAO, `%${SUFIXO_RENOVACAO}`).changes;
+
+  return { semPrefixo, zerados, peloRelatorio, renovacoes };
 }
 
 export type CodigoDeRastreio = {

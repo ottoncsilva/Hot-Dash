@@ -9,7 +9,7 @@ import { sendTelegramMessage, sendTelegramMedia, sendTelegramMediaGroup, sendTel
 import QRCode from "qrcode";
 import { listMedia, getMediaRow } from "@/lib/media";
 import { activeProvider, getProvider } from "@/lib/payments";
-import { recordTransaction, overview } from "@/lib/transactions";
+import { recordTransaction, overview, nomeDoProduto } from "@/lib/transactions";
 import { ensureSyncpayWebhookShortToken, applyDynamicPrice, buttonStyleProps } from "@/lib/settings";
 import { publicOrigin } from "@/lib/publicOrigin";
 import { botaoCopiar, efeitoProps } from "@/lib/telegramEffects";
@@ -852,8 +852,10 @@ export async function POST(
           // Só o NOME do produto. O prefixo "Assinatura Telegram - " repetia
           // em toda linha do Financeiro (e em toda notificação de venda) uma
           // informação que a coluna Bot e o provedor já dão, e ainda empurrava
-          // o nome do plano para fora da largura da coluna.
-          description: itemName,
+          // o nome do plano para fora da largura da coluna. O sufixo entra
+          // quando esta compra vira assinatura na Stripe (`recurring`) — é a
+          // única diferença visível entre ela e uma venda avulsa igual.
+          description: nomeDoProduto(itemName, Boolean(recurring)),
           customer: from.first_name,
           amountCents,
           currency: isIntlBuy ? moedaIntl : undefined,

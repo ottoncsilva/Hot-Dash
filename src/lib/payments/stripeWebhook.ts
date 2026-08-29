@@ -1,6 +1,6 @@
 import "server-only";
 import Stripe from "stripe";
-import { findByProviderRef, normalizeStatus, recordTransaction, updateStatusByRef } from "@/lib/transactions";
+import { findByProviderRef, nomeDoProduto, normalizeStatus, recordTransaction, updateStatusByRef } from "@/lib/transactions";
 import { logWebhookEvent } from "@/lib/webhookLog";
 import { deliverPaidTransaction } from "./deliverPayment";
 import {
@@ -137,7 +137,9 @@ async function processarCheckoutCompleto(
       profileId: vinculo?.profileId,
       botId: vinculo?.botId,
       // Só o nome do produto; sem relatório ainda, vazio (a tela mostra "—").
-      description: vinculo?.planName,
+      // `mode: "subscription"` é a própria Stripe dizendo que esta compra
+      // criou uma assinatura — não precisa deduzir de mais nada.
+      description: nomeDoProduto(vinculo?.planName, session.mode === "subscription"),
       customer:
         session.customer_details?.name ||
         session.customer_email ||
@@ -233,7 +235,8 @@ async function processarRenovacaoPaga(
     provider: "stripe",
     providerRef: invoice.id,
     profileId: bot.profileId,
-    description: plan?.name,
+    // Fatura de renovação: por definição é cobrança que se repetiu sozinha.
+    description: nomeDoProduto(plan?.name, true),
     amountCents: invoice.amount_paid,
     currency: (invoice.currency || "usd").toUpperCase(),
     method: "card",

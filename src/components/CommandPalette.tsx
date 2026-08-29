@@ -30,6 +30,8 @@ export default function CommandPalette() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
+  /** Texto vindo da lupa da sidebar, aplicado na abertura. */
+  const buscaInicial = useRef("");
 
   useEffect(() => setMounted(true), []);
 
@@ -40,7 +42,12 @@ export default function CommandPalette() {
         setOpen((v) => !v);
       }
     }
-    function onCustom() {
+    // A lupa da sidebar pode mandar o que já foi digitado no campo dela
+    // (`detail.query`): a paleta abre JÁ filtrando, em vez de o operador ter
+    // que redigitar o que acabou de escrever.
+    function onCustom(e: Event) {
+      const q = (e as CustomEvent<{ query?: string }>).detail?.query;
+      buscaInicial.current = typeof q === "string" ? q : "";
       setOpen(true);
     }
     window.addEventListener("keydown", onKey);
@@ -54,9 +61,19 @@ export default function CommandPalette() {
   useEffect(() => {
     if (!open) return;
     previouslyFocused.current = document.activeElement as HTMLElement | null;
-    setQuery("");
+    setQuery(buscaInicial.current);
+    buscaInicial.current = "";
     setActive(0);
-    const t = setTimeout(() => inputRef.current?.focus(), 0);
+    const t = setTimeout(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      // Abrindo já com texto (veio da lupa), o cursor vai para o FIM: o
+      // operador continua digitando de onde parou, em vez de escrever no meio
+      // do que já tinha escrito.
+      const n = el.value.length;
+      if (n > 0) el.setSelectionRange(n, n);
+    }, 0);
     if (profiles === null) {
       apiGet<{ profiles: Profile[] }>("/api/profiles")
         .then((d) => setProfiles(d.profiles))

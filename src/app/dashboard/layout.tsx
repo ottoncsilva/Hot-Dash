@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
@@ -310,17 +310,20 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-dvh bg-ink-950 text-white">
       {/* Sidebar Desktop */}
-      <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto overscroll-contain border-r border-white/[0.06] bg-ink-950 p-6 lg:flex lg:h-dvh">
-        <Brand />
-        <button
-          onClick={() => window.dispatchEvent(new Event("hotdash:command"))}
-          className="mt-6 flex w-full items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-300"
-        >
-          <IconSearch size={16} /> Buscar
-          <span className="ml-auto font-mono text-[10px] tracking-wider text-zinc-600">⌘K</span>
-        </button>
+      {/* `rolagem-sem-barra`: com o menu cheio a lista rola, mas a barrinha ao
+          lado dos itens polui uma coluna que já é estreita. Rola igual, só sem
+          o indicador. */}
+      <aside className="rolagem-sem-barra hidden w-64 shrink-0 flex-col overflow-y-auto overscroll-contain border-r border-white/[0.06] bg-ink-950 p-6 lg:flex lg:h-dvh">
+        {/* A busca deixou de ser um botão de linha inteira e virou uma lupa ao
+            lado da marca: junto com a saída do "control panel", isso devolveu
+            duas linhas de altura para os itens do menu — que é o que estava
+            faltando para eles caberem sem rolar. */}
+        <div className="flex items-center justify-between gap-2">
+          <Brand />
+          <BuscaFlutuante />
+        </div>
         {/* Modelo selecionada — vale para o painel inteiro, não só para a tela
-            aberta. Fica aqui, junto do Buscar, porque acompanha a navegação. */}
+            aberta. Fica aqui, no alto, porque acompanha a navegação. */}
         <ProfilePicker id="modelo-desktop" />
         <nav className="mt-4 flex flex-col gap-1">
           {renderNav(true)}
@@ -348,9 +351,11 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
           do conteúdo e some quando fechado, sem tomar a tela. Abre arrastando
           da borda esquerda; fecha arrastando para a esquerda. */}
       <MobileDrawer open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-        <div className="flex h-full flex-col overflow-y-auto overscroll-contain px-5 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))]">
-          <div className="flex items-center justify-between">
+        <div className="rolagem-sem-barra flex h-full flex-col overflow-y-auto overscroll-contain px-5 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))]">
+          <div className="flex items-center justify-between gap-2">
             <Brand />
+            <div className="flex items-center gap-1">
+            <BuscaFlutuante onAbrirPaleta={() => setMobileMenuOpen(false)} />
             <button
               onClick={() => setMobileMenuOpen(false)}
               className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-400 hover:bg-white/5 hover:text-white [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
@@ -358,6 +363,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
             >
               <IconX size={20} />
             </button>
+            </div>
           </div>
 
           <ProfilePicker id="modelo-mobile" />
@@ -385,6 +391,85 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Lupa que ABRE em campo de busca.
+ *
+ * Fechada é só o ícone, ao lado da marca. Clicando, ela cresce para a largura
+ * do campo (transição de `width`, com o ícone virando o adorno da esquerda) e o
+ * cursor já entra lá.
+ *
+ * O que a pessoa digita aqui NÃO é buscado aqui: na primeira tecla a paleta de
+ * comandos (⌘K) abre já com esse texto e assume dali em diante. É de propósito
+ * — a paleta busca modelo, tela e ação, com navegação por teclado, e ter uma
+ * segunda busca menor ao lado dela seria duas buscas para manter e uma delas
+ * sempre pior. Aqui é a porta de entrada; a busca de verdade continua sendo uma
+ * só.
+ */
+function BuscaFlutuante({ onAbrirPaleta }: { onAbrirPaleta?: () => void }) {
+  const [aberta, setAberta] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function abrirPaleta(query: string) {
+    setAberta(false);
+    onAbrirPaleta?.();
+    window.dispatchEvent(new CustomEvent("hotdash:command", { detail: { query } }));
+  }
+
+  return (
+    <div
+      className={`flex shrink-0 items-center rounded-lg border transition-all duration-300 ease-out ${
+        aberta
+          ? "w-40 border-white/15 bg-white/[0.04]"
+          : "w-9 border-transparent hover:border-white/10 hover:bg-white/5"
+      }`}
+    >
+      <button
+        type="button"
+        // A lupa só ABRE e foca — quem fecha é o Esc ou sair do campo. Se ela
+        // também fechasse, clicar nela com o campo aberto viraria um pisca: o
+        // `onBlur` fecharia no mousedown e o clique, já no estado novo,
+        // reabriria em seguida.
+        onClick={() => {
+          setAberta(true);
+          // Depois da transição começar, senão o foco rola a sidebar tentando
+          // trazer um campo que ainda tem 0 de largura.
+          setTimeout(() => inputRef.current?.focus(), 60);
+        }}
+        className="grid h-9 w-9 shrink-0 place-items-center text-zinc-400 transition-colors hover:text-white"
+        aria-label="Buscar"
+        aria-expanded={aberta}
+        title="Buscar (⌘K)"
+      >
+        <IconSearch size={16} />
+      </button>
+      <input
+        ref={inputRef}
+        type="text"
+        placeholder="Buscar..."
+        tabIndex={aberta ? undefined : -1}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v) abrirPaleta(v);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setAberta(false);
+          if (e.key === "Enter") abrirPaleta("");
+        }}
+        onBlur={() => setAberta(false)}
+        // `w-0` fechada em vez de desmontar: desmontar mataria a transição, e
+        // sem `min-w-0` o input impõe a largura padrão dele e a caixa nunca
+        // encolhe até virar só a lupa.
+        className={`min-w-0 bg-transparent pr-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none ${
+          aberta ? "w-full" : "w-0"
+        }`}
+      />
+    </div>
+  );
+}
+
+/** Só a logo. O "control panel" ao lado dela não dizia nada que a pessoa
+ *  logada no painel já não soubesse, e ocupava uma linha inteira no topo de um
+ *  menu que precisa de altura. */
 function Brand({ compact }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
@@ -396,7 +481,6 @@ function Brand({ compact }: { compact?: boolean }) {
           compact ? "h-9 w-9" : "h-10 w-10"
         }`}
       />
-      {!compact && <p className="eyebrow">control panel</p>}
     </div>
   );
 }

@@ -223,6 +223,21 @@ h3 {
   @apply bg-white/20;
 }
 
+/* Rola, mas sem mostrar a barra.
+   Usada no menu lateral: quando a lista de itens não cabe na altura da tela,
+   ela precisa rolar — mas a barrinha ao lado dos itens polui um menu que já é
+   estreito. O conteúdo continua rolando por roda, toque e teclado; só o
+   indicador some. Fora do menu a barra discreta acima continua valendo, porque
+   numa página longa a barra é o que diz que ainda há conteúdo abaixo. */
+.rolagem-sem-barra {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* Edge legado */
+}
+.rolagem-sem-barra::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
 /* Safe-area do iPhone quando instalado como app */
 .safe-top {
   padding-top: env(safe-area-inset-top);

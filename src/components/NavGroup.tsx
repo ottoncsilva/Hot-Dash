@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { IconChevronDown, IconChevronUp } from "@/components/icons";
+import { IconChevronDown } from "@/components/icons";
 
 export type NavSubItem = { label: string; href: string };
 
@@ -56,26 +56,48 @@ export default function NavGroup({
       >
         <span className="shrink-0">{icon}</span>
         <span className="min-w-0 flex-1">{label}</span>
-        <span className="shrink-0">
-          {open ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+        {/* Uma seta só, que GIRA. Trocar o ícone (baixo ↔ cima) é um corte
+            seco; girar 180° acompanha o submenu descendo. */}
+        <span
+          className={`shrink-0 transition-transform duration-300 ${open ? "rotate-180" : ""}`}
+        >
+          <IconChevronDown size={16} />
         </span>
       </button>
-      {open && (
-        <div className="mt-1 flex flex-col border-l border-white/10 pl-4">
-          {items.map((sub) => (
-            <Link
-              key={sub.href}
-              href={sub.href}
-              onClick={onNavigate}
-              className={`px-3 text-xs transition-colors ${compact ? "py-1.5" : "py-2"} ${
-                pathname === sub.href ? "text-white" : "text-zinc-500 hover:text-white"
-              }`}
-            >
-              {sub.label}
-            </Link>
-          ))}
+
+      {/* O submenu DESCE em vez de aparecer pronto.
+          A animação é feita com grid-template-rows de 0fr para 1fr, e não com
+          max-height: a altura real é medida pelo próprio navegador, então
+          serve para 2 itens e para 10 sem número mágico nenhum — e um max-height
+          chutado alto demais faz a animação "esperar" antes de a lista aparecer.
+          O `overflow-hidden` do filho é o que segura os itens durante a descida.
+          `visibility` sai do fluxo de foco quando fechado: sem isso, o Tab
+          passeava por links invisíveis de todos os grupos. */}
+      <div
+        className={`grid transition-all duration-300 ease-out ${
+          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+        }`}
+        style={{ visibility: open ? "visible" : "hidden" }}
+        aria-hidden={!open}
+      >
+        <div className="overflow-hidden">
+          <div className="mt-1 flex flex-col border-l border-white/10 pl-4">
+            {items.map((sub) => (
+              <Link
+                key={sub.href}
+                href={sub.href}
+                onClick={onNavigate}
+                tabIndex={open ? undefined : -1}
+                className={`px-3 text-xs transition-colors ${compact ? "py-1.5" : "py-2"} ${
+                  pathname === sub.href ? "text-white" : "text-zinc-500 hover:text-white"
+                }`}
+              >
+                {sub.label}
+              </Link>
+            ))}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

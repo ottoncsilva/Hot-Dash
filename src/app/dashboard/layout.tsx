@@ -56,6 +56,8 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   payments: IconPayments,
   funil: IconFunnel,
   links: IconLink,
+  rastreio_links: IconLink,
+  rastreio_codigos: IconLink,
   telegram: IconTelegram,
   geracao: IconSparkle,
   ltv: IconFire,
@@ -101,6 +103,14 @@ const LTV_SUBSECTIONS: NavSubItem[] = [
   { label: "Funil de LTV", href: "/dashboard/ltv/funil" },
 ];
 
+// "Rastreio" junta as duas pontas da origem do lead: a página do SLT (link na
+// bio) e o código do deep-link que leva ao bot. Só agrupa — a tela de Links
+// continua no caminho de sempre, nada foi movido de URL.
+const RASTREIO_SUBSECTIONS: NavSubItem[] = [
+  { label: "Links", href: "/dashboard/links" },
+  { label: "Códigos de rastreio", href: "/dashboard/links/codigos" },
+];
+
 const TELEGRAM_SUBSECTIONS: NavSubItem[] = [
   { label: "Automação de postagens", href: "/dashboard/telegram" },
   { label: "Bot de vendas", href: "/dashboard/telegram/bot" },
@@ -132,6 +142,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   const [geracaoOpen, setGeracaoOpen] = useState(false);
   const [ltvOpen, setLtvOpen] = useState(false);
   const [telegramOpen, setTelegramOpen] = useState(false);
+  const [rastreioOpen, setRastreioOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // O limite de upload vive no banco (Configurações → Geral). Buscado UMA vez,
@@ -156,6 +167,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
     if (GERACAO_SUBSECTIONS.some((s) => pathname === s.href)) setGeracaoOpen(true);
     if (pathname?.startsWith("/dashboard/ltv")) setLtvOpen(true);
     if (pathname?.startsWith("/dashboard/telegram")) setTelegramOpen(true);
+    if (pathname?.startsWith("/dashboard/links")) setRastreioOpen(true);
   }, [pathname]);
 
   useEffect(() => {
@@ -208,6 +220,23 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
             open={ltvOpen}
             onToggle={() => setLtvOpen(!ltvOpen)}
             active={pathname?.startsWith("/dashboard/ltv") ?? false}
+            pathname={pathname}
+            compact={compact}
+            onNavigate={onNavigate}
+          />
+        );
+      }
+
+      if (key === "links") {
+        return (
+          <NavGroup
+            key={key}
+            label={item.label}
+            icon={icon}
+            items={RASTREIO_SUBSECTIONS}
+            open={rastreioOpen}
+            onToggle={() => setRastreioOpen(!rastreioOpen)}
+            active={pathname?.startsWith("/dashboard/links") ?? false}
             pathname={pathname}
             compact={compact}
             onNavigate={onNavigate}

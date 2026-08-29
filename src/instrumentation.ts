@@ -32,6 +32,11 @@ export async function register() {
     } catch (err) {
       console.error("[hotdash] Erro religando os chips do Telegram:", err);
     }
+    // Amarra o código de rastreio nas vendas antigas (uma vez só, marcada em
+    // `settings`) — inclusive relendo os relatórios do Canal de Vendas que já
+    // estavam guardados. Ver `lib/rastreio.ts`. Nunca lança.
+    const { migrarCodigosDeRastreio } = await import("@/lib/rastreio");
+    await migrarCodigosDeRastreio();
     const {
       runTelegramAutopost,
       runTelegramFunnels,

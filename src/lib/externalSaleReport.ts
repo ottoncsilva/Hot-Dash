@@ -650,3 +650,38 @@ export function contatosDeRelatoriosExternos(
   }
   return out;
 }
+
+/**
+ * Relê o texto ORIGINAL de todo relatório já guardado e completa as colunas
+ * que não existiam quando ele chegou.
+ *
+ * Até agora só 5 dos 17 campos do relatório eram gravados — mas o texto
+ * inteiro sempre foi guardado em `raw_text`. Ou seja: o dado nunca se perdeu,
+ * só nunca tinha sido lido. Isso evita pedir ao operador que reimporte o
+ * export do Telegram só para preencher coluna nova.
+ *
+ * Reaproveita `registrarRelatorioExterno`, então vale tudo que vale lá: só
+ * COMPLETA (COALESCE dos dois lados), nunca sobrescreve, e a transação
+ * correspondente é completada junto — que é o que faz a venda antiga passar a
+ * ter código de rastreio.
+ *
+ * Roda com o interruptor de Configurações → Pagamentos LIGADO; desligado,
+ * `registrarRelatorioExterno` sai fora sozinho e isto não faz nada (correto:
+ * o operador pediu para não vincular pelo canal).
+ */
+export function reprocessarRelatoriosGuardados(): { lidos: number; comCodigo: number } {
+  const linhas = getDb()
+    .prepare("SELECT raw_text FROM external_sale_reports WHERE raw_text IS NOT NULL AND raw_text <> ''")
+    .all() as { raw_text: string }[];
+
+  let comCodigo = 0;
+  for (const l of linhas) {
+    // Uma linha guardada é UM relatório (o split já aconteceu na entrada), mas
+    // passa pelo parser de novo para pegar os campos novos.
+    const parsed = parseSalesReportMessage(l.raw_text);
+    if (!parsed) continue;
+    if (parsed.codigoDeVenda) comCodigo++;
+    registrarRelatorioExterno(l.raw_text);
+  }
+  return { lidos: linhas.length, comCodigo };
+}

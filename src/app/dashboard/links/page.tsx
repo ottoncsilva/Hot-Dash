@@ -77,8 +77,8 @@ export default function LinksPage() {
   return (
     <div className="page">
       <PageHeader
-        title="Links (bio)"
-        description="Páginas e links do SLT, agrupados por modelo e por rede — visualização e clique do período."
+        title="Links"
+        description="Páginas e links do SLT (link na bio), agrupados por modelo e por rede — visualização e clique do período."
       />
 
       <div className="mt-5 flex flex-wrap items-center gap-3">

@@ -2,8 +2,6 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
 import { upsertTelegramUser } from "./telegramUsers";
-import { getBotConfig } from "./telegramDb";
-import { getTelegramChatMember } from "./telegramApi";
 import { getVendasExternasSettings } from "./settings";
 
 /**
@@ -189,42 +187,15 @@ export function registrarRelatorioExterno(text: string): void {
         firstName: parsed.nomePerfil,
         source: "compra",
       });
-      // "VIP" na tela de Usuários não é "comprou" — é "está DE VERDADE no
-      // grupo agora" (mesmo critério de sempre, ver ACTIVE_VIP em
-      // telegramUsers.ts). Comprar não confirma que o convite foi aceito
-      // (pode ainda não ter entrado, ou o Bobz pode nem convidar pelo
-      // mesmo grupo que está cadastrado aqui) — por isso CONSULTA a API do
-      // Telegram agora, em vez de supor. Em segundo plano: uma chamada de
-      // rede não pode seguar a resposta ao Telegram nem derrubar o resto
-      // se falhar (bot sem token válido, grupo errado, etc.).
-      void confirmarVipPelaApi(botId, profileId, parsed.telegramUserId, parsed.username, parsed.nomePerfil);
+      // NÃO marca VIP aqui, de propósito. "VIP" na tela de Usuários é "está
+      // no grupo AGORA" (ver ACTIVE_VIP em telegramUsers.ts), e comprar não
+      // confirma isso. Consultar a API por venda também não escala: um
+      // export de histórico são centenas de vendas de uma vez. Quem mantém o
+      // VIP em dia é o monitor de grupos, que já lê a situação real. Aqui só
+      // se contabiliza o que o relatório de fato diz.
     }
   } catch (err) {
     console.error("[hotdash] erro registrando relatório externo de venda:", err);
-  }
-}
-
-/** Consulta se a pessoa está DE VERDADE no grupo VIP do bot agora — e só
- *  então marca `inVip`. Nunca lança (chamada em segundo plano, sem await). */
-async function confirmarVipPelaApi(
-  botId: string,
-  profileId: string,
-  telegramUserId: number,
-  username: string | undefined,
-  firstName: string | undefined,
-): Promise<void> {
-  try {
-    const bot = getBotConfig(botId);
-    if (!bot?.idVip) return;
-    const member = await getTelegramChatMember(bot.botToken, bot.idVip, telegramUserId);
-    const noGrupo = member?.status
-      ? ["member", "administrator", "creator", "restricted"].includes(member.status)
-      : false;
-    if (noGrupo) {
-      upsertTelegramUser({ botId, profileId, telegramUserId, username, firstName, inVip: true, source: "compra" });
-    }
-  } catch (err) {
-    console.error("[hotdash] erro conferindo VIP pela API (relatório externo):", err);
   }
 }
 
@@ -234,6 +205,39 @@ async function confirmarVipPelaApi(
  * do Grupo de Vendas já chegou primeiro, a venda nasce JÁ atribuída, em vez
  * de cair em "Sem modelo" pra corrigir na mão depois.
  */
+/**
+ * Converte o HTML de um EXPORT do Telegram Desktop (Exportar histórico →
+ * HTML, arquivo `messages.html`) no mesmo texto que sairia de um copiar e
+ * colar. É o caminho para importar o histórico INTEIRO de uma vez: colar
+ * centenas de mensagens à mão não é viável, e o export é o único jeito de
+ * pegar tudo que já passou (a API do Telegram não deixa um bot ler mensagem
+ * antiga de grupo).
+ *
+ * No export, o texto de cada mensagem vem numa linha só, com `<br>` no lugar
+ * das quebras e os valores embrulhados em `<a>` (o Telegram transforma
+ * número em link de telefone e id de cliente em menção). Basta virar as
+ * quebras em linha de verdade, tirar as marcações e desfazer as entidades —
+ * o resto do caminho é o mesmo do texto colado.
+ */
+export function extrairTextoDoHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    // <div>, </p> e afins também separam mensagens: sem isto, o fim de uma
+    // mensagem colaria na abertura da seguinte numa linha só.
+    .replace(/<\/(div|p|li|td|tr)>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0?39;|&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    // `&amp;` por último: antes das outras, viraria "&" e poderia recriar uma
+    // entidade que não existia no original.
+    .replace(/&amp;/gi, "&");
+}
+
 /**
  * Marca de abertura do relatório — a PRIMEIRA linha de toda venda, tanto no
  * formato do Bobz quanto no que o próprio Hot-Dash gera
@@ -279,7 +283,12 @@ const ATRIBUICAO_DO_TELEGRAM = /,\s*\[[^\]\n]*\d{1,2}:\d{2}[^\]\n]*\]\s*$/;
  * corte (ver `ATRIBUICAO_DO_TELEGRAM`).
  */
 export function splitSalesReportBlob(blob: string): string[] {
-  const linhas = blob.split("\n").map((l) => l.replace(ATRIBUICAO_DO_TELEGRAM, "").trimEnd());
+  // Arquivo de export do Telegram (HTML) entra aqui igual ao texto colado —
+  // é só desmontar a marcação antes. Detectado pela presença de tag, não pela
+  // extensão: o operador cola OU manda o arquivo, e nos dois casos chega
+  // texto nesta função.
+  const texto = /<br\s*\/?>|<div\b|<!doctype html/i.test(blob) ? extrairTextoDoHtml(blob) : blob;
+  const linhas = texto.split("\n").map((l) => l.replace(ATRIBUICAO_DO_TELEGRAM, "").trimEnd());
 
   // Sem a marca de abertura (formato desconhecido, ou uma venda avulsa colada
   // sem o cabeçalho dela), devolve tudo como um bloco só — é o melhor palpite

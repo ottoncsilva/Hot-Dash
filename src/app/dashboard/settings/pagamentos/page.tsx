@@ -353,6 +353,8 @@ export default function PaymentSettingsPage() {
         </div>
       </div>
 
+      <ImportarHistoricoCard />
+
       {/* Meta do mês. Mora aqui porque é número financeiro, mas quem a usa é o
           Dashboard — lá ela vira a barra de progresso do faturamento. */}
       <div className="mt-4 card p-4">
@@ -835,6 +837,138 @@ export default function PaymentSettingsPage() {
         )}
       </div>
 
+    </div>
+  );
+}
+
+/**
+ * Importa o histórico de vendas de um Grupo de Vendas a partir do EXPORT do
+ * Telegram Desktop (`messages.html`).
+ *
+ * É o único jeito de recuperar o que já passou: a API do Telegram não deixa
+ * um bot ler mensagem antiga de grupo. Cada relatório resolve sozinho de qual
+ * bot/modelo é (pelo "ID Bot" que vem escrito nele), então um arquivo com
+ * vendas de várias modelas se distribui certo.
+ *
+ * Só arquivo, sem campo de texto: o export é sempre a origem, e um histórico
+ * de verdade (centenas de vendas) não cabe num copiar e colar.
+ */
+function ImportarHistoricoCard() {
+  const [aberto, setAberto] = useState(false);
+  const [conteudo, setConteudo] = useState("");
+  const [arquivo, setArquivo] = useState("");
+  const [importando, setImportando] = useState(false);
+  const [resultado, setResultado] = useState<{
+    total: number;
+    reconhecidos: number;
+    vinculadosABot: number;
+    transacoesCorrigidas: number;
+    ignoradosBotAtivo: number;
+  } | null>(null);
+
+  async function escolherArquivo(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // permite escolher o MESMO arquivo de novo depois
+    if (!file) return;
+    setResultado(null);
+    try {
+      const texto = await file.text();
+      if (!texto.trim()) {
+        showToast("Arquivo vazio.", "error");
+        return;
+      }
+      const vendas = (texto.match(/Pagamento\s+Aprovado/gi) || []).length;
+      if (vendas === 0) {
+        showToast("Não achei nenhuma venda nesse arquivo. É o messages.html do Grupo de Vendas?", "error");
+        return;
+      }
+      setConteudo(texto);
+      setArquivo(`${file.name} · ${(file.size / 1024).toFixed(0)} KB · ${vendas} venda(s) encontrada(s)`);
+    } catch {
+      showToast("Não consegui ler o arquivo.", "error");
+    }
+  }
+
+  async function importar() {
+    if (!conteudo) return;
+    setImportando(true);
+    setResultado(null);
+    try {
+      const r = await apiSend<{
+        ok: boolean;
+        total: number;
+        reconhecidos: number;
+        vinculadosABot: number;
+        transacoesCorrigidas: number;
+        ignoradosBotAtivo: number;
+      }>("/api/telegram", "POST", { action: "import-sales-reports", text: conteudo });
+      setResultado(r);
+      if (r.transacoesCorrigidas > 0) {
+        showToast(`${r.transacoesCorrigidas} venda(s) corrigida(s) — modelo atribuída.`, "success");
+      } else if (r.reconhecidos > 0) {
+        showToast(`${r.reconhecidos} venda(s) lida(s), nenhuma precisava de correção.`, "success");
+      } else {
+        showToast("Nenhuma venda reconhecida nesse arquivo.", "error");
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha ao importar.", "error");
+    } finally {
+      setImportando(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 card p-4">
+      <button
+        type="button"
+        onClick={() => setAberto((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 text-left"
+      >
+        <div>
+          <p className="text-sm font-semibold text-white">Importar histórico de vendas externas</p>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            Vendas que já aconteceram, de bot operado por fora. O Telegram não deixa ler o histórico do grupo
+            para trás sozinho — o export do chat resolve.
+          </p>
+        </div>
+        <span className="shrink-0 text-xs text-zinc-500">{aberto ? "recolher ▲" : "expandir ▼"}</span>
+      </button>
+      {aberto && (
+        <div className="mt-3">
+          <p className="text-[11px] leading-relaxed text-zinc-500">
+            No <b>Telegram Desktop</b>, abra o Grupo de Vendas → menu (⋮) → <b>Exportar histórico do chat</b> →
+            formato <b>HTML</b>, sem mídia. Mande aqui o arquivo <b>messages.html</b> que ele gera. Pode
+            repetir quantas vezes quiser: venda já contabilizada não entra de novo.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <label className="btn-ghost cursor-pointer text-xs">
+              Escolher messages.html
+              <input type="file" accept=".html,.htm,text/html" className="hidden" onChange={escolherArquivo} />
+            </label>
+            <button onClick={importar} disabled={importando || !conteudo} className="btn-primary text-xs">
+              {importando ? "Importando..." : "Importar"}
+            </button>
+          </div>
+          {arquivo && <p className="mt-2 font-mono text-[11px] text-zinc-400">{arquivo}</p>}
+          {resultado && (
+            <p className="mt-3 border-t border-white/[0.06] pt-2 text-xs text-zinc-500">
+              {resultado.reconhecidos} venda(s) lida(s) · {resultado.vinculadosABot} vinculada(s) a um bot ·{" "}
+              <span className={resultado.transacoesCorrigidas > 0 ? "text-emerald-400" : ""}>
+                {resultado.transacoesCorrigidas} corrigida(s) agora
+              </span>
+              {resultado.ignoradosBotAtivo > 0 && (
+                <> · {resultado.ignoradosBotAtivo} ignorada(s) (bot já operado pelo Hot-Dash)</>
+              )}
+              {resultado.reconhecidos > resultado.vinculadosABot && (
+                <span className="mt-1 block text-amber-400/80">
+                  {resultado.reconhecidos - resultado.vinculadosABot} venda(s) de um bot que não está
+                  cadastrado aqui — cadastre o token dele para essas também serem atribuídas.
+                </span>
+              )}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -102,11 +102,21 @@ export default function CodigosDeRastreioPage() {
   // número do topo contradiz a lista logo abaixo dele.
   const total = useMemo(() => {
     const linhas = grupos.flatMap((g) => g.codes);
+    const paidCents = linhas.reduce((s, c) => s + c.paidCents, 0);
+    // O que chegou SEM rastreio nenhum. É a métrica que diz o tamanho do
+    // ponto cego — sozinha, a linha "sem código" fica perdida no meio da
+    // lista ordenada por faturamento, e é justamente a que precisa saltar.
+    const semCodigo = linhas.filter((c) => !c.code);
+    const semCodigoCents = semCodigo.reduce((s, c) => s + c.paidCents, 0);
     return {
-      codigos: linhas.length,
+      codigos: linhas.filter((c) => c.code).length,
       starts: linhas.reduce((s, c) => s + c.starts, 0),
       pagos: linhas.reduce((s, c) => s + c.pagos, 0),
-      paidCents: linhas.reduce((s, c) => s + c.paidCents, 0),
+      paidCents,
+      semCodigoStarts: semCodigo.reduce((s, c) => s + c.starts, 0),
+      semCodigoPagos: semCodigo.reduce((s, c) => s + c.pagos, 0),
+      semCodigoCents,
+      semCodigoPct: paidCents > 0 ? (semCodigoCents / paidCents) * 100 : 0,
     };
   }, [grupos]);
 
@@ -146,6 +156,24 @@ export default function CodigosDeRastreioPage() {
             <Chip label="Starts" value={total.starts.toLocaleString("pt-BR")} />
             <Chip label="Vendas" value={total.pagos.toLocaleString("pt-BR")} />
             <Chip label="Faturamento" value={brl(total.paidCents)} accent />
+            {/* O ponto cego do rastreio, em dinheiro. Só aparece quando existe
+                — sem nada sem código, um card zerado seria só ruído. */}
+            {(total.semCodigoCents > 0 || total.semCodigoStarts > 0) && (
+              <Chip
+                label="Sem código"
+                value={
+                  total.semCodigoCents > 0
+                    ? `${total.semCodigoPct.toFixed(0)}%`
+                    : `${total.semCodigoStarts.toLocaleString("pt-BR")} starts`
+                }
+                alerta
+                detalhe={
+                  total.semCodigoCents > 0
+                    ? `${brl(total.semCodigoCents)} · ${total.semCodigoPagos} venda${total.semCodigoPagos === 1 ? "" : "s"} · ${total.semCodigoStarts.toLocaleString("pt-BR")} starts`
+                    : "nenhuma venda, só starts"
+                }
+              />
+            )}
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -230,13 +258,32 @@ export default function CodigosDeRastreioPage() {
   );
 }
 
-function Chip({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function Chip({
+  label,
+  value,
+  accent,
+  alerta,
+  detalhe,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+  /** Âmbar: não é erro, é o que está fora do rastreio. */
+  alerta?: boolean;
+  /** Segunda linha, menor — a conta por trás do número grande. */
+  detalhe?: string;
+}) {
   return (
     <div className="card px-4 py-2.5">
       <p className="eyebrow">{label}</p>
-      <p className={`mt-0.5 font-display text-lg font-semibold ${accent ? "text-emerald-400" : "text-white"}`}>
+      <p
+        className={`mt-0.5 font-display text-lg font-semibold ${
+          alerta ? "text-amber-400" : accent ? "text-emerald-400" : "text-white"
+        }`}
+      >
         {value}
       </p>
+      {detalhe && <p className="mt-0.5 text-[11px] text-zinc-500">{detalhe}</p>}
     </div>
   );
 }
@@ -254,7 +301,19 @@ function CodigoCard({ codigo }: { codigo: CodeRow }) {
             {codigo.code ? (
               <p className="font-mono text-sm font-semibold text-white">{codigo.code}</p>
             ) : (
-              <p className="text-sm font-semibold text-zinc-400">{SEM_CODIGO}</p>
+              // Âmbar, o mesmo que a tela de Links usa para "sem rede": não é
+              // erro, é o que está fora do rastreio — e precisa saltar dentro
+              // de uma lista ordenada por faturamento, onde essa linha pode
+              // cair em qualquer posição.
+              <>
+                <p className="text-sm font-semibold text-amber-400">{SEM_CODIGO}</p>
+                <span
+                  className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-400"
+                  title="Lead que entrou pelo link sem ?start=CODIGO, ou venda cujo código não foi possível recuperar de nenhuma fonte."
+                >
+                  fora do rastreio
+                </span>
+              </>
             )}
             {codigo.starts === 0 && codigo.gerados > 0 && (
               <span

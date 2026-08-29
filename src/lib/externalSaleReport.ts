@@ -52,6 +52,18 @@ export type RelatorioExternoParsed = {
   provider?: string;
 };
 
+/**
+ * Primeira palavra de um valor. Os campos que este parser usa para DECIDIR
+ * (plataforma de pagamento, id da transação no gateway, id do bot) são
+ * identificadores sem espaço. Ficar só com a primeira palavra descarta
+ * qualquer coisa que o Telegram tenha grudado no fim da linha ao copiar
+ * várias mensagens — ver `ATRIBUICAO_DO_TELEGRAM`.
+ */
+function primeiroToken(v: string | undefined): string | undefined {
+  const t = (v || "").trim().split(/\s+/)[0];
+  return t || undefined;
+}
+
 /** Tira o(s) emoji(s)/símbolos do início da linha, até a primeira letra —
  *  robusto a qualquer emoji específico (não depende de listar cada um). */
 function semEmojiNoComeco(linha: string): string {
@@ -78,13 +90,13 @@ export function parseSalesReportMessage(text: string): RelatorioExternoParsed | 
   const providerRef = campos["ID Transação Gateway"];
 
   return {
-    idBot: campos["ID Bot"] || undefined,
+    idBot: primeiroToken(campos["ID Bot"]),
     telegramUserId: Number.isFinite(idClienteNum) && idClienteNum > 0 ? idClienteNum : undefined,
     username: campos["Username"]?.replace(/^@/, "") || undefined,
     nomePerfil: campos["Nome de Perfil"] && campos["Nome de Perfil"] !== "-" ? campos["Nome de Perfil"] : undefined,
     plano: campos["Plano"] || undefined,
-    providerRef: providerRef && providerRef !== "-" ? providerRef : undefined,
-    provider: campos["Plataforma Pagamento"]?.trim().toLowerCase() || undefined,
+    providerRef: providerRef && providerRef !== "-" ? primeiroToken(providerRef) : undefined,
+    provider: primeiroToken(campos["Plataforma Pagamento"])?.toLowerCase(),
   };
 }
 
@@ -223,27 +235,73 @@ async function confirmarVipPelaApi(
  * de cair em "Sem modelo" pra corrigir na mão depois.
  */
 /**
- * Separa um texto colado (várias mensagens do Grupo de Vendas coladas
- * juntas — do jeito que o Telegram entrega quando você seleciona várias
- * mensagens no celular e copia, ou de um histórico exportado) em blocos, um
- * por venda. O separador é a linha de atribuição que o próprio Telegram
- * insere entre mensagens copiadas: "Nome do canal, [DD de mês de AAAA às
- * HH:MM]". Uma mensagem colada avulsa (sem esse cabeçalho) vira um bloco só.
+ * Marca de abertura do relatório — a PRIMEIRA linha de toda venda, tanto no
+ * formato do Bobz quanto no que o próprio Hot-Dash gera
+ * (`buildSalesReportMessage`: "🎉 <b>Pagamento Aprovado!</b>").
+ */
+const ABERTURA_DO_RELATORIO = /pagamento\s+aprovado/i;
+
+/**
+ * Linha de atribuição que o Telegram insere ao copiar várias mensagens:
+ * "Nome do canal, [29 de ago de 2026 às 02:12]". Exige HORA dentro dos
+ * colchetes para não confundir com conteúdo do relatório que por acaso tenha
+ * colchetes.
+ *
+ * Tira SÓ o ", [data]" — a parte inequívoca. O nome do canal fica, e de
+ * propósito: dependendo do aplicativo o cabeçalho vem GRUDADO no fim da
+ * linha anterior ("🏦 Plataforma Pagamento: SyncPay Vendas Otton, [29 de
+ * ago...]"), e ali não existe separador que diga onde acaba o VALOR do campo
+ * e começa o nome do canal. Tentar adivinhar comia o "SyncPay" junto.
+ *
+ * Quem resolve o resto é `primeiroToken` abaixo: os campos que importam
+ * (plataforma, id da transação, id do bot) são identificadores de uma
+ * palavra só, então o nome do canal que sobrou grudado é descartado na
+ * leitura do campo, sem precisar adivinhar nada no texto.
+ *
+ * Era isso que quebrava a importação: o separador antigo descartava a linha
+ * inteira e levava junto a "Plataforma Pagamento" da venda anterior. Sem
+ * plataforma, o bloco era jogado fora — de quatro vendas coladas, só a
+ * última (que não tem cabeçalho depois) era reconhecida.
+ */
+const ATRIBUICAO_DO_TELEGRAM = /,\s*\[[^\]\n]*\d{1,2}:\d{2}[^\]\n]*\]\s*$/;
+
+/**
+ * Separa um texto colado (várias mensagens do Grupo de Vendas coladas juntas)
+ * em blocos, um por venda.
+ *
+ * O corte é feito pela PRIMEIRA LINHA DA PRÓPRIA VENDA ("Pagamento
+ * Aprovado"), não pelo cabeçalho do Telegram. O cabeçalho muda de formato
+ * conforme o aplicativo, o idioma e o jeito de copiar — às vezes nem vem — e
+ * depender dele era frágil. A abertura do relatório é do sistema que gera a
+ * mensagem, sempre igual.
+ *
+ * O cabeçalho do Telegram, quando existe, é limpo de cada linha antes do
+ * corte (ver `ATRIBUICAO_DO_TELEGRAM`).
  */
 export function splitSalesReportBlob(blob: string): string[] {
-  const linhas = blob.split("\n");
-  const cabecalho = /^.+,\s*\[\d{1,2} de \S+ de \d{4} às \d{2}:\d{2}\]\s*$/;
+  const linhas = blob.split("\n").map((l) => l.replace(ATRIBUICAO_DO_TELEGRAM, "").trimEnd());
+
+  // Sem a marca de abertura (formato desconhecido, ou uma venda avulsa colada
+  // sem o cabeçalho dela), devolve tudo como um bloco só — é o melhor palpite
+  // possível e mantém o caso de "colei UMA mensagem" funcionando.
+  if (!linhas.some((l) => ABERTURA_DO_RELATORIO.test(l))) {
+    const unico = linhas.join("\n").trim();
+    return unico ? [unico] : [];
+  }
+
   const blocos: string[] = [];
-  let atual: string[] = [];
+  let atual: string[] | null = null;
   for (const linha of linhas) {
-    if (cabecalho.test(linha.trim())) {
-      if (atual.length) blocos.push(atual.join("\n").trim());
-      atual = [];
-    } else {
+    if (ABERTURA_DO_RELATORIO.test(linha)) {
+      if (atual) blocos.push(atual.join("\n").trim());
+      atual = [linha];
+    } else if (atual) {
       atual.push(linha);
     }
+    // Antes da primeira abertura é lixo de cópia (cabeçalho solto, linha em
+    // branco): descartado em vez de virar um bloco que nunca casaria.
   }
-  if (atual.length) blocos.push(atual.join("\n").trim());
+  if (atual) blocos.push(atual.join("\n").trim());
   return blocos.filter(Boolean);
 }
 

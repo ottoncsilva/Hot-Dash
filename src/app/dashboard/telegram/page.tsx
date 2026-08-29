@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { showToast } from "@/lib/toast";
 import TelegramCalendar from "@/components/telegram/TelegramCalendar";
 import { useConfirm } from "@/hooks/useConfirm";
@@ -21,7 +22,9 @@ const toast = {
 type Tag = { id: string; name: string; color: string };
 
 type TelegramSettings = {
-  botToken: string;
+  /** O token NÃO vem da API (ver a rota GET: ele dá controle total do bot e
+   *  não pode circular no navegador). Só se sabe se existe um salvo. */
+  hasToken: boolean;
   idVip: string;
   idAquecimento: string;
   enabled: boolean;
@@ -79,7 +82,7 @@ export default function TelegramUnifiedPage() {
   const [generatingWarmup, setGeneratingWarmup] = useState(false);
 
   const [settings, setSettings] = useState<TelegramSettings>({
-    botToken: "",
+    hasToken: false,
     idVip: "",
     idAquecimento: "",
     enabled: false,
@@ -148,7 +151,7 @@ export default function TelegramUnifiedPage() {
       const warmupType = d.autopost?.warmup_schedule_type || (rawWarmupEnabled ? "interval" : "manual");
 
       setSettings({
-        botToken: d.bot?.botToken || "",
+        hasToken: Boolean(d.bot?.hasToken),
         idVip: d.bot?.idVip || "",
         idAquecimento: d.bot?.idAquecimento || "",
         enabled: rawVipEnabled || rawWarmupEnabled,
@@ -680,16 +683,21 @@ export default function TelegramUnifiedPage() {
       ) : (
         <div className="mt-6">
           
-          {/* As credenciais do bot (Token + IDs dos grupos) agora ficam no
-              cadastro da modelo, pois servem em mais lugares. */}
-          {(!settings.botToken || !settings.idVip || !settings.idAquecimento) && (
-            <div className="mb-8 max-w-4xl rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-4">
-              <p className="text-sm text-amber-200">
-                ⚠️ Configure o <b>Token do bot</b> e os <b>IDs dos canais</b> em{" "} <b>Modelos → editar a
-                modelo</b>. Sem isso a automação não posta.
-              </p>
-            </div>
-          )}
+          {/* As credenciais do bot (token + IDs dos canais) ficam no cadastro
+              da modelo, pois servem em mais lugares.
+
+              Este aviso vivia SEMPRE na tela, mesmo com tudo configurado: ele
+              testava `settings.botToken`, e o token nunca chega ao navegador
+              (a rota GET o remove de propósito e manda só `hasToken`). Um
+              alerta que nunca sai é um alerta que ninguém lê — e escondia o
+              caso real. Agora só aparece quando falta MESMO, e diz o que
+              falta, nesta modelo. */}
+          <AvisoDeCadastro
+            profileName={vipProfile?.name}
+            hasToken={settings.hasToken}
+            idVip={settings.idVip}
+            idAquecimento={settings.idAquecimento}
+          />
 
           <div className="grid gap-8 lg:grid-cols-2">
 
@@ -1355,6 +1363,58 @@ export default function TelegramUnifiedPage() {
         </div>
       )}
       {ConfirmDialog}
+    </div>
+  );
+}
+
+/**
+ * Só aparece quando falta MESMO alguma coisa para esta modelo postar — e diz
+ * exatamente o que falta, com o nome dela.
+ *
+ * O aviso anterior era fixo na tela porque testava o token, que a rota GET
+ * nunca devolve ao navegador (ver o comentário lá). Além de errado, um alerta
+ * permanente treina quem usa a ignorá-lo: quando faltasse de verdade, ele já
+ * seria invisível.
+ *
+ * Cada canal é citado por nome: com dois canais e um token, "configure os IDs
+ * dos canais" obriga o operador a abrir o cadastro e conferir os dois para
+ * descobrir qual está vazio.
+ */
+function AvisoDeCadastro({
+  profileName,
+  hasToken,
+  idVip,
+  idAquecimento,
+}: {
+  profileName?: string;
+  hasToken: boolean;
+  idVip: string;
+  idAquecimento: string;
+}) {
+  const faltando: string[] = [];
+  if (!hasToken) faltando.push("o Token do bot");
+  if (!idVip.trim()) faltando.push("o ID do Canal VIP");
+  if (!idAquecimento.trim()) faltando.push("o ID do Canal de Prévias");
+  if (faltando.length === 0) return null;
+
+  // "a, b e c" — lista em português, não uma enumeração com vírgula solta.
+  const lista =
+    faltando.length === 1
+      ? faltando[0]
+      : `${faltando.slice(0, -1).join(", ")} e ${faltando[faltando.length - 1]}`;
+
+  return (
+    <div className="mb-8 max-w-4xl rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-4">
+      <p className="text-sm text-amber-200">
+        ⚠️ Falta {lista} {profileName ? <>de <b>{profileName}</b></> : "desta modelo"}. Sem isso a
+        automação não posta.
+      </p>
+      <Link
+        href="/dashboard/profiles"
+        className="mt-2 inline-block text-xs font-semibold text-amber-300 underline underline-offset-2 hover:text-amber-200"
+      >
+        Abrir Modelos e completar o cadastro
+      </Link>
     </div>
   );
 }

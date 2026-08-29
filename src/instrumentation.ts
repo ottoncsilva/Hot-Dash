@@ -64,6 +64,10 @@ export async function register() {
     // dividem UMA fila e um lote por tick — ver generationJobs.ts.
     const { runPreviasGeneration } = await import("@/lib/previasGenerator");
     const { runVipGeneration } = await import("@/lib/vipGenerator");
+    // Geração automática da programação do dia seguinte (interruptor por
+    // canal na tela de Automação). Só ENFILEIRA; quem escreve a copy são os
+    // dois lotes acima, no mesmo tique.
+    const { runTelegramAutoGeneration } = await import("@/lib/telegramAutoGeneration");
 
     // Trava anti-sobreposição: se um ciclo demorar mais que o intervalo (muitas
     // mídias, IA/Telegram lentos), o próximo tick é ignorado até o atual terminar.
@@ -184,6 +188,17 @@ export async function register() {
       gerando = true;
       const ate = Date.now() + JANELA_GERACAO_MS;
       try {
+        // ANTES dos lotes, de propósito: o que for enfileirado agora já começa
+        // a ser escrito nesta mesma passada, em vez de esperar o próximo tique.
+        try {
+          const canais = await runTelegramAutoGeneration();
+          if (canais > 0) {
+            console.log(`[hotdash] geração automática: ${canais} canal(is) com o dia seguinte enfileirado.`);
+          }
+        } catch (err) {
+          console.error("[hotdash] Erro no cron (geração automática):", err);
+        }
+
         // `runPreviasGeneration`/`runVipGeneration` processam UM lote e
         // devolvem quantos posts criaram; 0 = não há mais trabalho agora.
         // Repetir enquanto houver é o que tira a espera de 60s entre lotes.

@@ -44,6 +44,10 @@ type TelegramSettings = {
   warmupSeedEmoji: string;
   warmupMkPrompt: string;
   warmupCtaButtons: string;
+  /** Geração automática do dia seguinte, um por canal — ver
+   *  `lib/telegramAutoGeneration.ts`. */
+  vipAutoGenerate: boolean;
+  warmupAutoGenerate: boolean;
 };
 
 /** Marca "estou acompanhando um job, mas ele veio sem id". Ver o uso no
@@ -85,6 +89,8 @@ export default function TelegramUnifiedPage() {
     hasToken: false,
     idVip: "",
     idAquecimento: "",
+    vipAutoGenerate: false,
+    warmupAutoGenerate: false,
     enabled: false,
     vipPostInterval: 120,
     vipTags: "",
@@ -154,6 +160,8 @@ export default function TelegramUnifiedPage() {
         hasToken: Boolean(d.bot?.hasToken),
         idVip: d.bot?.idVip || "",
         idAquecimento: d.bot?.idAquecimento || "",
+        vipAutoGenerate: Boolean(d.autopost?.vip_auto_generate),
+        warmupAutoGenerate: Boolean(d.autopost?.warmup_auto_generate),
         enabled: rawVipEnabled || rawWarmupEnabled,
         vipPostInterval: vipInt,
         vipTags: d.autopost?.vip_tags || "",
@@ -174,7 +182,13 @@ export default function TelegramUnifiedPage() {
     }).finally(() => setLoading(false));
   }, [selectedProfileId]);
 
-  const saveSettings = async () => {
+  /**
+   * `mudanca` existe para o interruptor de geração automática salvar NA HORA:
+   * `setSettings` é assíncrono, então salvar logo depois de chamá-lo mandaria
+   * o valor ANTIGO. Passando a mudança aqui, o que vai para o servidor é o que
+   * a pessoa acabou de clicar.
+   */
+  const saveSettings = async (mudanca?: Partial<TelegramSettings>, aviso?: string) => {
     try {
       const res = await fetch("/api/telegram", {
         method: "POST",
@@ -183,16 +197,28 @@ export default function TelegramUnifiedPage() {
           action: "save-telegram-config",
           profileId: selectedProfileId,
           ...settings,
+          ...mudanca,
         }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Erro ao salvar configurações.");
       }
-      toast.success("Configurações salvas com sucesso!");
+      toast.success(aviso ?? "Configurações salvas com sucesso!");
     } catch (err: any) {
       toast.error(err.message);
     }
+  };
+
+  /** Liga/desliga a geração automática de um canal e grava na hora — um
+   *  interruptor que depende do "Salvar" lá embaixo é um interruptor que volta
+   *  sozinho quando a pessoa sai da tela sem apertar. */
+  const alternarGeracaoAutomatica = (canal: "vip" | "warmup", ligado: boolean) => {
+    const chave = canal === "vip" ? "vipAutoGenerate" : "warmupAutoGenerate";
+    setSettings((s) => ({ ...s, [chave]: ligado }));
+    void saveSettings({ [chave]: ligado } as Partial<TelegramSettings>, ligado
+      ? "Geração automática ligada — o dia seguinte passa a ser montado sozinho."
+      : "Geração automática desligada.");
   };
 
   // Método MK das Prévias. A rota só ENFILEIRA e responde na hora; quem escreve
@@ -729,6 +755,12 @@ export default function TelegramUnifiedPage() {
                                  : "✨ Gerar postagens com IA em massa"}
                          </button>
                        </div>
+                       <GeracaoAutomatica
+                         canal="vip"
+                         ligado={settings.vipAutoGenerate}
+                         disponivel={settings.vipScheduleType === "mk"}
+                         onAlternar={(v) => alternarGeracaoAutomatica("vip", v)}
+                       />
                     </div>
                  </div>
 
@@ -1089,6 +1121,12 @@ export default function TelegramUnifiedPage() {
                                  : "✨ Gerar postagens com IA em massa"}
                          </button>
                        </div>
+                       <GeracaoAutomatica
+                         canal="warmup"
+                         ligado={settings.warmupAutoGenerate}
+                         disponivel={settings.warmupScheduleType === "mk"}
+                         onAlternar={(v) => alternarGeracaoAutomatica("warmup", v)}
+                       />
                     </div>
                  </div>
 
@@ -1354,7 +1392,7 @@ export default function TelegramUnifiedPage() {
                 </span>
               </span>
             </label>
-            <button type="button" onClick={saveSettings} className="rounded-lg bg-sky-600 px-8 py-3 text-sm font-semibold hover:bg-sky-500 transition-colors shadow-lg shadow-sky-900/20 whitespace-nowrap">Salvar Todas Configurações</button>
+            <button type="button" onClick={() => saveSettings()} className="rounded-lg bg-sky-600 px-8 py-3 text-sm font-semibold hover:bg-sky-500 transition-colors shadow-lg shadow-sky-900/20 whitespace-nowrap">Salvar Todas Configurações</button>
           </div>
 
           <div className="mt-8 border-t border-white/[0.06] pt-8">
@@ -1364,6 +1402,69 @@ export default function TelegramUnifiedPage() {
       )}
       {ConfirmDialog}
     </div>
+  );
+}
+
+/**
+ * Interruptor da GERAÇÃO AUTOMÁTICA, ao lado do "Gerar dias" de cada canal.
+ *
+ * Ligado, o agendador monta sozinho a programação do dia seguinte, uma vez por
+ * dia, à noite — o canal fica sempre um dia à frente e ninguém precisa abrir o
+ * painel para conferir se tem coisa programada. Ver
+ * `lib/telegramAutoGeneration.ts`.
+ *
+ * Fora do Método MK ele aparece DESLIGADO e explica por quê, em vez de sumir:
+ * um interruptor que some deixa a pessoa procurando; um que aceita o clique e
+ * não faz nada é pior ainda. Os outros modos geram dentro da própria
+ * requisição, sem fila, e não dá para pendurar isso no tique de um minuto.
+ */
+function GeracaoAutomatica({
+  canal,
+  ligado,
+  disponivel,
+  onAlternar,
+}: {
+  canal: "vip" | "warmup";
+  ligado: boolean;
+  disponivel: boolean;
+  onAlternar: (v: boolean) => void;
+}) {
+  const cor =
+    canal === "vip"
+      ? { on: "bg-sky-500", texto: "text-sky-200", borda: "border-sky-500/20" }
+      : { on: "bg-orange-500", texto: "text-orange-200", borda: "border-orange-500/20" };
+
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={ligado && disponivel}
+      disabled={!disponivel}
+      onClick={() => onAlternar(!ligado)}
+      title={
+        disponivel
+          ? "Todo dia, à noite, monta sozinho a programação do dia seguinte — sempre com as fotos que estão na galeria naquele momento."
+          : "Disponível no Método MK. Nos outros modos a geração roda na hora do clique, sem fila, e não pode ser agendada."
+      }
+      className={`flex items-center gap-2 rounded-lg border ${cor.borda} bg-black/10 px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+        disponivel ? "hover:bg-white/5" : "cursor-not-allowed opacity-40"
+      } [@media(pointer:coarse)]:min-h-[44px]`}
+    >
+      <span
+        className={`relative h-4 w-8 shrink-0 rounded-full transition-colors ${
+          ligado && disponivel ? cor.on : "bg-white/15"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all duration-200 ${
+            ligado && disponivel ? "left-[18px]" : "left-0.5"
+          }`}
+        />
+      </span>
+      <span className={ligado && disponivel ? cor.texto : "text-zinc-500"}>
+        Geração automática
+      </span>
+    </button>
   );
 }
 

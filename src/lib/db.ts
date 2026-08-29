@@ -1148,6 +1148,18 @@ function migrate(d: Database.Database) {
   ensureColumn(d, "telegram_autopost_settings", "vip_fixed_times", "TEXT");
   ensureColumn(d, "telegram_autopost_settings", "warmup_schedule_type", "TEXT DEFAULT 'interval'");
   ensureColumn(d, "telegram_autopost_settings", "warmup_fixed_times", "TEXT");
+  // GERAÇÃO AUTOMÁTICA (um interruptor por canal). Ligada, o agendador monta
+  // sozinho a programação do dia seguinte, uma vez por dia — assim o canal
+  // nunca amanhece vazio e as fotos escolhidas são as que estão na galeria
+  // HOJE, não as de duas semanas atrás.
+  ensureColumn(d, "telegram_autopost_settings", "vip_auto_generate", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(d, "telegram_autopost_settings", "warmup_auto_generate", "INTEGER NOT NULL DEFAULT 0");
+  // Quando a geração automática de cada canal rodou pela última vez. É o que
+  // segura "uma vez por dia" mesmo com o agendador batendo a cada minuto, e o
+  // que faz a rotina se recuperar sozinha: servidor fora do ar na hora marcada,
+  // ela roda assim que voltar, em vez de pular o dia.
+  ensureColumn(d, "telegram_autopost_settings", "vip_auto_generate_at", "INTEGER");
+  ensureColumn(d, "telegram_autopost_settings", "warmup_auto_generate_at", "INTEGER");
   ensureColumn(d, "telegram_subscriptions", "last_upsell_at", "INTEGER");
   ensureColumn(d, "telegram_subscriptions", "upsell_step_index", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(d, "whatsapp_agent_settings", "ai_provider", "TEXT NOT NULL DEFAULT 'grok'");

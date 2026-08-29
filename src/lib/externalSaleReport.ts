@@ -691,3 +691,93 @@ export function reprocessarRelatoriosGuardados(): { lidos: number; comCodigo: nu
   }
   return { lidos: linhas.length, comCodigo };
 }
+
+/**
+ * TUDO que o Canal de Vendas disse sobre UMA cobrança — para a tela de
+ * edição do Financeiro poder mostrar de onde tirar o que falta.
+ *
+ * Dos 17 campos que o relatório traz, só 5 viram coluna da transação
+ * (produto, método, código, cliente, origem). Os outros 12 sempre estiveram
+ * guardados aqui e nunca apareceram em lugar nenhum do painel: categoria,
+ * duração, idioma, passo do funil que fechou a venda, tempo até converter, o
+ * ID do cliente no Telegram, o @usuário, o id da transação no sistema de
+ * origem, o valor e a moeda que o sistema de origem declarou. É informação
+ * que já existe no banco e o operador não tinha como ver.
+ *
+ * O VALOR e a MOEDA do relatório valem especialmente como CONFERÊNCIA: quando
+ * o que o bot de fora anunciou não bate com o que o gateway liquidou, a
+ * diferença é exatamente o que se quer enxergar antes de corrigir a linha à
+ * mão.
+ */
+export type RelatorioDaTransacao = {
+  /** Campos que têm um correspondente editável na transação. */
+  planName?: string;
+  method?: string;
+  sourceCode?: string;
+  customerName?: string;
+  profileId?: string;
+  botId?: string;
+  /** Contexto — sem correspondente na transação, só para o operador ler. */
+  telegramUserId?: number;
+  telegramUsername?: string;
+  botUsername?: string;
+  category?: string;
+  durationLabel?: string;
+  language?: string;
+  funnelStep?: string;
+  conversionSeconds?: number;
+  externalTxId?: string;
+  amountCents?: number;
+  currency?: string;
+  /** Quando o relatório foi visto no canal. */
+  createdAt: number;
+  /** O texto original, como chegou. É a prova de onde cada campo saiu. */
+  rawText?: string;
+};
+
+export function getRelatorioDaTransacao(
+  provider: string,
+  providerRef: string | undefined,
+): RelatorioDaTransacao | null {
+  if (!providerRef) return null;
+  const row = getDb()
+    .prepare(
+      `SELECT bot_id, profile_id, telegram_user_id, telegram_username, plan_name,
+              customer_name, bot_username, language, category, duration_label,
+              amount_cents, currency, method, source_code, external_tx_id,
+              funnel_step, conversion_seconds, raw_text, created_at
+         FROM external_sale_reports WHERE provider = ? AND provider_ref = ?`,
+    )
+    .get(provider.toLowerCase(), providerRef) as Record<string, unknown> | undefined;
+  if (!row) return null;
+
+  const t = (k: string) => {
+    const v = row[k];
+    return typeof v === "string" && v.trim() ? v : undefined;
+  };
+  const n = (k: string) => {
+    const v = row[k];
+    return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+  };
+  return {
+    planName: t("plan_name"),
+    method: t("method"),
+    sourceCode: t("source_code"),
+    customerName: t("customer_name"),
+    profileId: t("profile_id"),
+    botId: t("bot_id"),
+    telegramUserId: n("telegram_user_id"),
+    telegramUsername: t("telegram_username"),
+    botUsername: t("bot_username"),
+    category: t("category"),
+    durationLabel: t("duration_label"),
+    language: t("language"),
+    funnelStep: t("funnel_step"),
+    conversionSeconds: n("conversion_seconds"),
+    externalTxId: t("external_tx_id"),
+    amountCents: n("amount_cents"),
+    currency: t("currency"),
+    createdAt: n("created_at") ?? 0,
+    rawText: t("raw_text"),
+  };
+}

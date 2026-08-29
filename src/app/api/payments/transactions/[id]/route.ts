@@ -1,15 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
-import { deleteTransaction, updateTransactionAmounts } from "@/lib/transactions";
+import { deleteTransaction, getTransaction, updateTransaction } from "@/lib/transactions";
+import { getRelatorioDaTransacao } from "@/lib/externalSaleReport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Corrige os valores de uma cobrança.
+ * A cobrança MAIS o que o Canal de Vendas disse sobre ela.
+ *
+ * A tela de edição precisa dos dois lados juntos: o que está gravado e o que
+ * o relatório do bot operado por fora afirma. É isso que transforma "corrigir
+ * no escuro" em "conferir e aceitar" — sem o relatório ao lado, o operador
+ * teria de ir procurar a mensagem no canal do Telegram para saber o que
+ * digitar no campo Produto.
+ *
+ * `relatorio` vem `null` quando a venda passou pelo checkout do Hot-Dash (não
+ * existe relatório externo dela) ou quando ele ainda não chegou no canal.
+ */
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    await requireUser(req);
+    const transaction = getTransaction(params.id);
+    if (!transaction) return NextResponse.json({ error: "Cobrança não encontrada." }, { status: 404 });
+    return NextResponse.json({
+      transaction,
+      relatorio: getRelatorioDaTransacao(transaction.provider, transaction.providerRef),
+    });
+  } catch (err) {
+    return errorResponse(err);
+  }
+}
+
+/**
+ * Corrige uma cobrança à mão.
  *
  * Existe porque o que o gateway manda nem sempre bate com o painel dele — uma
- * venda de R$ 19,90 já entrou como R$ 20,70. O líquido não vem daqui: é sempre
+ * venda de R$ 19,90 já entrou como R$ 20,70 — e porque numa venda de bot
+ * operado por fora ele mal sabe o que foi vendido: produto, método, código de
+ * origem e modelo chegam vazios. O líquido não vem daqui: é sempre
  * venda − taxa − split, calculado no servidor.
  */
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -20,12 +49,28 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       const n = Number(v);
       return Number.isFinite(n) && n >= 0 ? Math.round(n) : undefined;
     };
-    const t = updateTransactionAmounts(params.id, {
+    /** String vazia CHEGA como decisão ("apagar"); só o que não veio é
+     *  ignorado. Por isso o teste é de tipo, não de verdade. */
+    const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+    /** Vocabulário fechado: um valor fora dele não é correção, é lixo — e
+     *  gravá-lo tiraria a linha de todos os filtros de uma vez. */
+    const deLista = (v: unknown, aceitos: string[]) => {
+      const s = str(v);
+      if (s === undefined) return undefined;
+      const limpo = s.trim().toLowerCase();
+      if (!limpo) return ""; // esvaziar continua permitido
+      return aceitos.includes(limpo) ? limpo : undefined;
+    };
+    const t = updateTransaction(params.id, {
       amountCents: cents(body.amountCents),
       feeCents: cents(body.feeCents),
       splitCents: cents(body.splitCents),
-      customer: typeof body.customer === "string" ? body.customer : undefined,
-      profileId: typeof body.profileId === "string" ? body.profileId : undefined,
+      customer: str(body.customer),
+      profileId: str(body.profileId),
+      description: str(body.description),
+      method: deLista(body.method, ["pix", "card"]),
+      sourceCode: str(body.sourceCode),
+      origin: deLista(body.origin, ["bot", "ltv", "painel"]),
     });
     if (!t) return NextResponse.json({ error: "Cobrança não encontrada." }, { status: 404 });
     return NextResponse.json({ transaction: t });

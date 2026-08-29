@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useProfile } from "@/context/ProfileContext";
 import { PrecisaDeModelo } from "@/components/ProfilePicker";
 import { apiGet, apiSend, apiUpload } from "@/lib/api";
@@ -208,26 +208,32 @@ export default function MediaPage() {
     }
   }
 
-  async function removeOne(item: MediaItem) {
-    if (!(await confirm("Excluir esta mídia? Ela será removida do servidor."))) return;
-    try {
-      await apiSend(`/api/media/${item.id}`, "DELETE");
-      setMedia((m) => (m || []).filter((x) => x.id !== item.id));
-      setViewerIndex(null);
-      showToast("Mídia excluída.");
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : "Falha ao excluir.", "error");
-    }
-  }
+  // Os três callbacks abaixo saem de `useCallback` porque descem para cada
+  // quadro da grade: se a identidade deles mudasse a cada render, o `memo` do
+  // `MediaTile` não seguraria nada e o acervo inteiro voltaria a re-renderizar.
+  const removeOne = useCallback(
+    async (item: MediaItem) => {
+      if (!(await confirm("Excluir esta mídia? Ela será removida do servidor."))) return;
+      try {
+        await apiSend(`/api/media/${item.id}`, "DELETE");
+        setMedia((m) => (m || []).filter((x) => x.id !== item.id));
+        setViewerIndex(null);
+        showToast("Mídia excluída.");
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Falha ao excluir.", "error");
+      }
+    },
+    [confirm],
+  );
 
-  function toggleSelect(id: string) {
+  const toggleSelect = useCallback((id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  }
+  }, []);
   function selectAll() {
     setSelected(new Set(sortedMedia.map((m) => m.id)));
   }
@@ -446,6 +452,15 @@ export default function MediaPage() {
     }
     return list;
   }, [filteredMedia, sortBy]);
+
+  // Mesmo motivo dos outros dois: precisa de identidade estável para o `memo`
+  // do quadro valer. Só muda quando a própria lista ordenada muda.
+  const abrirNoVisualizador = useCallback(
+    (item: MediaItem) => {
+      setViewerIndex(sortedMedia.findIndex((m) => m.id === item.id));
+    },
+    [sortedMedia],
+  );
 
   // Depois de editar (sobrescrever ou salvar nova versão), a lista é
   // reordenada por createdAt e a mídia editada pode mudar de posição — segue
@@ -931,9 +946,7 @@ export default function MediaPage() {
                 selected={selected}
                 selecting={selecting}
                 onToggleSelect={toggleSelect}
-                onOpen={(item) =>
-                  setViewerIndex(sortedMedia.findIndex((m) => m.id === item.id))
-                }
+                onOpen={abrirNoVisualizador}
                 onRemove={removeOne}
               />
             </div>
@@ -947,9 +960,7 @@ export default function MediaPage() {
             selected={selected}
             selecting={selecting}
             onToggleSelect={toggleSelect}
-            onOpen={(item) =>
-              setViewerIndex(sortedMedia.findIndex((m) => m.id === item.id))
-            }
+            onOpen={abrirNoVisualizador}
             onRemove={removeOne}
           />
         </div>
@@ -1054,6 +1065,158 @@ export default function MediaPage() {
   );
 }
 
+/**
+ * Um quadro da grade. Sai `memo` de propósito: sem isso QUALQUER mudança de
+ * estado da página (entrar no modo seleção, marcar uma foto, arrastar o
+ * retângulo de seleção, que troca de estado a cada movimento do mouse)
+ * re-renderizava os N quadros do acervo inteiro — no iPad isso é o que
+ * travava a galeria. As props são todas primitivas ou estáveis (`isSelected`
+ * é booleano, não o Set; os callbacks vêm de `useCallback`), então marcar uma
+ * foto re-renderiza exatamente 1 quadro.
+ */
+const MediaTile = memo(function MediaTile({
+  item,
+  isSelected,
+  selecting,
+  acimaDaDobra,
+  onToggleSelect,
+  onOpen,
+  onRemove,
+}: {
+  item: MediaItem;
+  isSelected: boolean;
+  selecting: boolean;
+  /** Está na primeira tela: carrega já, sem lazy. */
+  acimaDaDobra: boolean;
+  onToggleSelect: (id: string) => void;
+  onOpen: (item: MediaItem) => void;
+  onRemove: (item: MediaItem) => void;
+}) {
+  return (
+    <div
+      data-media-id={item.id}
+      className={`group relative aspect-[3/4] overflow-hidden rounded-xl border bg-ink-850 transition-all ${
+        isSelected ? "border-white ring-2 ring-white/70" : "border-white/10"
+      }`}
+      // Virtualização a custo zero, feita pelo próprio navegador: quadro fora
+      // da tela não é medido, nem pintado, nem mantém a imagem decodificada na
+      // memória (uma miniatura de 360×480 ocupa ~0,7 MB depois de decodificada,
+      // independente de o JPEG ter só 50 KB — é isso que estoura a memória do
+      // Safari no iPad com um acervo grande). A altura do quadro pulado não
+      // colapsa nem faz a rolagem pular porque o `aspect-[3/4]` já a define a
+      // partir da largura da coluna, sem depender do conteúdo — por isso não
+      // precisa de `contain-intrinsic-size`. Navegador sem suporte (Safari
+      // anterior ao 18) simplesmente ignora e nada muda.
+      style={{ contentVisibility: "auto" }}
+    >
+      <button
+        onClick={() => (selecting ? onToggleSelect(item.id) : onOpen(item))}
+        className="absolute inset-0 h-full w-full"
+      >
+        <AuthImage
+          src={mediaThumbUrl(item)}
+          alt={item.filename}
+          loading={acimaDaDobra ? "eager" : "lazy"}
+          fetchPriority={acimaDaDobra ? "high" : "auto"}
+          className={`h-full w-full object-contain transition-opacity ${
+            isSelected ? "opacity-70" : ""
+          }`}
+          fallback={<div className="h-full w-full bg-ink-800" />}
+        />
+        {item.kind === "video" && (
+          <div className="pointer-events-none absolute inset-0 grid place-items-center">
+            <span className="grid h-9 w-9 place-items-center rounded-full bg-black/50 text-white backdrop-blur-sm">
+              <IconPlay size={16} />
+            </span>
+          </div>
+        )}
+      </button>
+
+      <span className="pointer-events-none absolute left-2 top-2">
+        <span className="chip bg-black/50">
+          {item.kind === "video" ? "vídeo" : "foto"}
+        </span>
+      </span>
+
+      {/* Quantas vezes já foi ao ar em cada canal do Telegram. Some no
+          modo seleção, onde o canto é do indicador de marcado. */}
+      {!selecting && (item.postCounts?.previas || item.postCounts?.vip) ? (
+        <span className="pointer-events-none absolute right-2 top-2 flex flex-col items-end gap-1">
+          {item.postCounts.previas > 0 && (
+            <span className="chip bg-black/60" title="Vezes publicada no canal de Prévias">
+              prévias ×{item.postCounts.previas}
+            </span>
+          )}
+          {item.postCounts.vip > 0 && (
+            <span className="chip bg-black/60" title="Vezes publicada no canal VIP">
+              vip ×{item.postCounts.vip}
+            </span>
+          )}
+        </span>
+      ) : null}
+
+      {item.tags.length > 0 && (
+        <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-black/50 px-1.5 py-1">
+          <TagDots tags={item.tags} />
+        </span>
+      )}
+
+      {/* Indicador de seleção (estilo Fotos da Apple): visível em toda
+          mídia assim que o modo seleção está ativo, não só no hover —
+          essencial no toque, onde não existe estado de hover. */}
+      {selecting && (
+        <span
+          className={`pointer-events-none absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full border transition-all ${
+            isSelected ? "border-white bg-white text-black" : "border-white/70 bg-black/40 text-transparent"
+          }`}
+        >
+          {isSelected && (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M5 13l4 4 10-10"
+                stroke="currentColor"
+                strokeWidth={3}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
+        </span>
+      )}
+
+      {!selecting && (
+        // No dedo os três alvos tinham 32px e ficavam a menos de 6px um
+        // do outro — e um deles apaga a foto. Aqui eles crescem para 44px
+        // e o EXCLUIR ganha uma folga extra à esquerda, para o erro custar
+        // um movimento, não um pixel.
+        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-1 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-100 pointer-events-auto transition-opacity [@media(pointer:coarse)]:gap-2 md:opacity-0 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto">
+          <CopyLinkButton
+            mediaId={item.id}
+            publicToken={item.publicToken}
+            iconOnly
+            className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white hover:bg-white/20 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
+          />
+          <SaveMediaButton
+            url={mediaFileUrl(item, { download: true })}
+            filename={item.filename}
+            mime={item.mime}
+            iconOnly
+            label="Salvar"
+            className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white hover:bg-white/20 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
+          />
+          <button
+            onClick={() => onRemove(item)}
+            className="ml-1 grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white hover:bg-red-500/40 [@media(pointer:coarse)]:ml-4 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
+            aria-label="Excluir"
+          >
+            <IconTrash size={16} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+});
+
 function MediaGrid({
   items,
   selected,
@@ -1072,144 +1235,26 @@ function MediaGrid({
 }) {
   return (
     <div className={MEDIA_GRID_COLS}>
-      {items.map((item, index) => {
-        const isSelected = selected.has(item.id);
-        // A primeira tela cabe em ~12 quadros (2 colunas no celular, até 8 no
-        // desktop largo). Essas o navegador busca com prioridade e sem lazy —
-        // `loading="lazy"` atrasa justamente o que já está visível. Da 13ª em
-        // diante volta o lazy, que é o que segura o acervo inteiro.
-        const acimaDaDobra = index < 12;
-        return (
-          <div
-            key={item.id}
-            data-media-id={item.id}
-            className={`group relative aspect-[3/4] overflow-hidden rounded-xl border bg-ink-850 transition-all ${
-              isSelected ? "border-white ring-2 ring-white/70" : "border-white/10"
-            }`}
-          >
-            <button
-              onClick={() => (selecting ? onToggleSelect(item.id) : onOpen(item))}
-              className="absolute inset-0 h-full w-full"
-            >
-              {item.kind === "image" ? (
-                <AuthImage
-                  src={mediaThumbUrl(item)}
-                  alt={item.filename}
-                  loading={acimaDaDobra ? "eager" : "lazy"}
-                  fetchPriority={acimaDaDobra ? "high" : "auto"}
-                  className={`h-full w-full object-contain transition-opacity ${
-                    isSelected ? "opacity-70" : ""
-                  }`}
-                  fallback={<div className="h-full w-full bg-ink-800" />}
-                />
-              ) : (
-                <>
-                  <AuthImage
-                    src={mediaThumbUrl(item)}
-                    alt={item.filename}
-                    loading={acimaDaDobra ? "eager" : "lazy"}
-                    fetchPriority={acimaDaDobra ? "high" : "auto"}
-                    className={`h-full w-full object-contain transition-opacity ${
-                      isSelected ? "opacity-70" : ""
-                    }`}
-                    fallback={<div className="h-full w-full bg-ink-800" />}
-                  />
-                  <div className="pointer-events-none absolute inset-0 grid place-items-center">
-                    <span className="grid h-9 w-9 place-items-center rounded-full bg-black/50 text-white backdrop-blur-sm">
-                      <IconPlay size={16} />
-                    </span>
-                  </div>
-                </>
-              )}
-            </button>
-
-            <span className="pointer-events-none absolute left-2 top-2">
-              <span className="chip bg-black/50">
-                {item.kind === "video" ? "vídeo" : "foto"}
-              </span>
-            </span>
-
-            {/* Quantas vezes já foi ao ar em cada grupo do Telegram. Some no
-                modo seleção, onde o canto é do indicador de marcado. */}
-            {!selecting && (item.postCounts?.previas || item.postCounts?.vip) ? (
-              <span className="pointer-events-none absolute right-2 top-2 flex flex-col items-end gap-1">
-                {item.postCounts.previas > 0 && (
-                  <span className="chip bg-black/60" title="Vezes publicada no canal de Prévias">
-                    prévias ×{item.postCounts.previas}
-                  </span>
-                )}
-                {item.postCounts.vip > 0 && (
-                  <span className="chip bg-black/60" title="Vezes publicada no canal VIP">
-                    vip ×{item.postCounts.vip}
-                  </span>
-                )}
-              </span>
-            ) : null}
-
-            {item.tags.length > 0 && (
-              <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-black/50 px-1.5 py-1">
-                <TagDots tags={item.tags} />
-              </span>
-            )}
-
-            {/* Indicador de seleção (estilo Fotos da Apple): visível em toda
-                mídia assim que o modo seleção está ativo, não só no hover —
-                essencial no toque, onde não existe estado de hover. */}
-            {selecting && (
-              <span
-                className={`pointer-events-none absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full border transition-all ${
-                  isSelected ? "border-white bg-white text-black" : "border-white/70 bg-black/40 text-transparent"
-                }`}
-              >
-                {isSelected && (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M5 13l4 4 10-10"
-                      stroke="currentColor"
-                      strokeWidth={3}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                )}
-              </span>
-            )}
-
-            {!selecting && (
-              // No dedo os três alvos tinham 32px e ficavam a menos de 6px um
-              // do outro — e um deles apaga a foto. Aqui eles crescem para 44px
-              // e o EXCLUIR ganha uma folga extra à esquerda, para o erro custar
-              // um movimento, não um pixel.
-              <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-1 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-100 pointer-events-auto transition-opacity [@media(pointer:coarse)]:gap-2 md:opacity-0 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto">
-                <CopyLinkButton
-                  mediaId={item.id}
-                  publicToken={item.publicToken}
-                  iconOnly
-                  className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white hover:bg-white/20 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
-                />
-                <SaveMediaButton
-                  url={mediaFileUrl(item, { download: true })}
-                  filename={item.filename}
-                  mime={item.mime}
-                  iconOnly
-                  label="Salvar"
-                  className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white hover:bg-white/20 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
-                />
-                <button
-                  onClick={() => onRemove(item)}
-                  className="ml-1 grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white hover:bg-red-500/40 [@media(pointer:coarse)]:ml-4 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
-                  aria-label="Excluir"
-                >
-                  <IconTrash size={16} />
-                </button>
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {items.map((item, index) => (
+        <MediaTile
+          key={item.id}
+          item={item}
+          isSelected={selected.has(item.id)}
+          selecting={selecting}
+          // A primeira tela cabe em ~12 quadros (2 colunas no celular, até 8
+          // no desktop largo). Essas o navegador busca com prioridade e sem
+          // lazy — `loading="lazy"` atrasa justamente o que já está visível.
+          // Da 13ª em diante volta o lazy, que é o que segura o acervo inteiro.
+          acimaDaDobra={index < 12}
+          onToggleSelect={onToggleSelect}
+          onOpen={onOpen}
+          onRemove={onRemove}
+        />
+      ))}
     </div>
   );
 }
+
 
 function EmptyState({ text, action }: { text: string; action?: React.ReactNode }) {
   return (

@@ -2,7 +2,7 @@ import "server-only";
 import { randomUUID, randomBytes } from "node:crypto";
 import { extname } from "node:path";
 import { getDb } from "./db";
-import { deleteFile, fileExists, readBuffer, saveFile } from "./storage";
+import { deleteFile, fileExists, fileStat, readBuffer, saveFile } from "./storage";
 import { extractVideoThumbnail } from "./metadata";
 import { getTagsForMedia, getTagsByMediaForProfile } from "./tags";
 import { getMediaPostCounts } from "./mediaUsage";
@@ -72,7 +72,10 @@ export async function ensureVideoThumbnail(relPath: string): Promise<string | nu
     // Mesma autocura do lado das imagens (ver `miniaturaParecePilhaDeQuadros`)
     // — o `ffmpeg -frames:v 1` já é o extrator certo, mas não custa nada
     // proteger contra um arquivo velho gerado antes dessa garantia existir.
-    if (await miniaturaParecePilhaDeQuadros(thumbPath)) {
+    if (
+      (await precisaAuditarMiniatura(thumbPath)) &&
+      (await miniaturaParecePilhaDeQuadros(thumbPath))
+    ) {
       await deleteFile(thumbPath).catch(() => {});
     } else {
       return thumbPath;
@@ -91,6 +94,32 @@ export async function ensureVideoThumbnail(relPath: string): Promise<string | nu
 /** Caminho determinístico da miniatura de uma IMAGEM (JPEG pequeno, cacheado). */
 export function imageThumbRelPath(relPath: string): string {
   return relPath.replace(/\.[^./\\]+$/, ".thumb.jpg");
+}
+
+/**
+ * Momento em que o `{ pages: 1 }` (a correção do bug do `pages`) entrou no ar.
+ * Toda miniatura gravada DEPOIS disso saiu do código já corrigido e, por
+ * construção, não pode ser uma pilha de quadros — então nem vale abrir o
+ * arquivo para conferir. A data é do commit da correção com um dia de folga,
+ * para cobrir a janela entre o commit e o deploy.
+ */
+const MINIATURA_CONFIAVEL_A_PARTIR_DE = Date.UTC(2026, 7, 27); // 2026-08-27
+
+/**
+ * Vale a pena rodar a autocura nesta miniatura? Só nas antigas. Um `stat`
+ * custa ~0,04 ms; abrir a miniatura no sharp custa ~0,47 ms — 11× mais. Na
+ * galeria isso acontece uma vez por quadro, em toda visita: com um acervo
+ * grande a soma vira segundos de CPU do servidor à toa. Depois que uma
+ * miniatura antiga é refeita, o arquivo novo já nasce com data de hoje e
+ * também sai do caminho caro para sempre.
+ */
+async function precisaAuditarMiniatura(thumbPath: string): Promise<boolean> {
+  try {
+    const { mtimeMs } = await fileStat(thumbPath);
+    return mtimeMs < MINIATURA_CONFIAVEL_A_PARTIR_DE;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -133,7 +162,10 @@ export async function ensureImageThumbnail(relPath: string): Promise<string | nu
     // Uma checagem barata (só lê o cabeçalho da miniatura JÁ pequena, não o
     // arquivo original) detecta essa proporção absurda e refaz do zero com
     // o código corrigido, sem precisar de nenhuma limpeza manual.
-    if (await miniaturaParecePilhaDeQuadros(thumbPath)) {
+    if (
+      (await precisaAuditarMiniatura(thumbPath)) &&
+      (await miniaturaParecePilhaDeQuadros(thumbPath))
+    ) {
       await deleteFile(thumbPath).catch(() => {});
     } else {
       return thumbPath;

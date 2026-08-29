@@ -138,11 +138,14 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   const [menu, setMenu] = useState<MenuEntry[]>(
     normalizeMenu(DEFAULT_MENU_ORDER.map((key) => ({ key, hidden: false })))
   );
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [geracaoOpen, setGeracaoOpen] = useState(false);
-  const [ltvOpen, setLtvOpen] = useState(false);
-  const [telegramOpen, setTelegramOpen] = useState(false);
-  const [rastreioOpen, setRastreioOpen] = useState(false);
+  // UM grupo aberto por vez (sanfona). Eram cinco booleanos independentes, e
+  // com todos abertos o menu ficava mais alto que a tela — quem procurava um
+  // item precisava rolar por submenu que já não interessava. Guardar QUAL está
+  // aberto, em vez de SE cada um está, faz o fechamento dos outros ser
+  // consequência do estado, não um efeito colateral para lembrar de escrever
+  // em cada grupo novo.
+  const [grupoAberto, setGrupoAberto] = useState<NavKey | null>(null);
+  const alternarGrupo = (key: NavKey) => setGrupoAberto((atual) => (atual === key ? null : key));
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // O limite de upload vive no banco (Configurações → Geral). Buscado UMA vez,
@@ -163,11 +166,15 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   useEffect(() => {
-    if (pathname?.startsWith("/dashboard/settings")) setSettingsOpen(true);
-    if (GERACAO_SUBSECTIONS.some((s) => pathname === s.href)) setGeracaoOpen(true);
-    if (pathname?.startsWith("/dashboard/ltv")) setLtvOpen(true);
-    if (pathname?.startsWith("/dashboard/telegram")) setTelegramOpen(true);
-    if (pathname?.startsWith("/dashboard/links")) setRastreioOpen(true);
+    // Abre o grupo da tela em que se está — e, por ser um só, fecha os outros
+    // junto. Fora de qualquer grupo (Dashboard, Galeria...), NÃO fecha o que
+    // estava aberto: o operador acabou de abrir aquele submenu para navegar, e
+    // fechá-lo debaixo do dedo dele seria pior que deixá-lo aberto.
+    if (pathname?.startsWith("/dashboard/settings")) setGrupoAberto("settings");
+    else if (GERACAO_SUBSECTIONS.some((s) => pathname === s.href)) setGrupoAberto("geracao");
+    else if (pathname?.startsWith("/dashboard/ltv")) setGrupoAberto("ltv");
+    else if (pathname?.startsWith("/dashboard/telegram")) setGrupoAberto("telegram");
+    else if (pathname?.startsWith("/dashboard/links")) setGrupoAberto("links");
   }, [pathname]);
 
   useEffect(() => {
@@ -200,8 +207,8 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
             label={item.label}
             icon={icon}
             items={GERACAO_SUBSECTIONS}
-            open={geracaoOpen}
-            onToggle={() => setGeracaoOpen(!geracaoOpen)}
+            open={grupoAberto === "geracao"}
+            onToggle={() => alternarGrupo("geracao")}
             active={GERACAO_SUBSECTIONS.some((s) => pathname === s.href)}
             pathname={pathname}
             compact={compact}
@@ -217,8 +224,8 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
             label={item.label}
             icon={icon}
             items={LTV_SUBSECTIONS}
-            open={ltvOpen}
-            onToggle={() => setLtvOpen(!ltvOpen)}
+            open={grupoAberto === "ltv"}
+            onToggle={() => alternarGrupo("ltv")}
             active={pathname?.startsWith("/dashboard/ltv") ?? false}
             pathname={pathname}
             compact={compact}
@@ -234,8 +241,8 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
             label={item.label}
             icon={icon}
             items={RASTREIO_SUBSECTIONS}
-            open={rastreioOpen}
-            onToggle={() => setRastreioOpen(!rastreioOpen)}
+            open={grupoAberto === "links"}
+            onToggle={() => alternarGrupo("links")}
             active={pathname?.startsWith("/dashboard/links") ?? false}
             pathname={pathname}
             compact={compact}
@@ -251,8 +258,8 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
             label={item.label}
             icon={icon}
             items={TELEGRAM_SUBSECTIONS}
-            open={telegramOpen}
-            onToggle={() => setTelegramOpen(!telegramOpen)}
+            open={grupoAberto === "telegram"}
+            onToggle={() => alternarGrupo("telegram")}
             active={pathname?.startsWith("/dashboard/telegram") ?? false}
             pathname={pathname}
             compact={compact}
@@ -271,8 +278,8 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
               label: sub.label,
               href: `/dashboard/settings/${sub.anchor}`,
             }))}
-            open={settingsOpen}
-            onToggle={() => setSettingsOpen(!settingsOpen)}
+            open={grupoAberto === "settings"}
+            onToggle={() => alternarGrupo("settings")}
             active={isActive(item.href)}
             pathname={pathname}
             compact={compact}

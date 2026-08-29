@@ -125,6 +125,13 @@ export default function NotificationsSettingsPage() {
         <p className="mt-3 text-[11px] text-zinc-500">
           Vendas e Pix dependem do webhook da SyncPay em Configurações → Pagamentos.
         </p>
+        {/* Explica o atraso ANTES de alguém estranhar: um aviso que chega 5s
+            depois parece atraso do celular, e não uma decisão. */}
+        <p className="mt-1 text-[11px] text-zinc-500">
+          Todo alerta sai <b>5 segundos</b> depois do evento, e é escrito nesse momento. É o
+          tempo de o relatório do Canal de Vendas chegar quando o bot é operado por fora — sem
+          essa pausa, a venda dele avisava só o valor, sem produto, modelo nem cliente.
+        </p>
       </div>
     </div>
   );

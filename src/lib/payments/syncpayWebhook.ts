@@ -1,7 +1,7 @@
 import "server-only";
 import { normalizeStatus, recordTransaction, updateStatusByRef } from "@/lib/transactions";
 import { logWebhookEvent } from "@/lib/webhookLog";
-import { deliverPaidTransaction } from "./deliverPayment";
+import { avisarVendaAprovada, deliverPaidTransaction } from "./deliverPayment";
 import { buscarRelatorioExterno } from "@/lib/externalSaleReport";
 
 /**
@@ -153,7 +153,7 @@ export async function processarWebhookSyncPay(
       // correção manual depois. Sem relatório ainda, nasce "Sem modelo" como
       // sempre (o relatório, se chegar depois, corrige sozinho).
       const vinculo = buscarRelatorioExterno("syncpay", providerRef);
-      recordTransaction({
+      const nova = recordTransaction({
         provider: "syncpay",
         providerRef,
         profileId: vinculo?.profileId,
@@ -181,6 +181,16 @@ export async function processarWebhookSyncPay(
           ? `venda nova · ${normalizeStatus(status)} · vinculada pelo Canal de Vendas (bot ${vinculo.botId})`
           : `venda nova · ${normalizeStatus(status)} · sem relatório do Canal de Vendas ainda (Sem modelo)`,
       );
+
+      // ALERTA NO CELULAR desta venda. Ela não passa por
+      // `deliverPaidTransaction` (não há inscrição para ativar nem pedido para
+      // entregar: o bot é operado por fora), e por isso era a única venda paga
+      // do painel que não avisava ninguém — justamente a que o operador não vê
+      // acontecer. O texto é montado 5 segundos depois, quando o relatório do
+      // Canal de Vendas já teve tempo de dizer o produto e a modelo.
+      if (nova.status === "paid") {
+        await avisarVendaAprovada(nova.id).catch(() => {});
+      }
     }
 
     return { ok: true };

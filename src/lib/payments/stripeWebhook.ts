@@ -2,7 +2,7 @@ import "server-only";
 import Stripe from "stripe";
 import { findByProviderRef, nomeDoProduto, normalizeStatus, recordTransaction, updateStatusByRef } from "@/lib/transactions";
 import { logWebhookEvent } from "@/lib/webhookLog";
-import { deliverPaidTransaction } from "./deliverPayment";
+import { avisarVendaAprovada, deliverPaidTransaction } from "./deliverPayment";
 import {
   findSubscriptionByStripeSubscriptionId,
   findSubscriptionByTransaction,
@@ -385,7 +385,7 @@ async function processarPaymentIntentSucedido(
   // ainda, nasce "Sem modelo" como sempre (corrige na tela de Financeiro, ou
   // sozinha se o relatório chegar depois).
   const vinculo = buscarRelatorioExterno("stripe", pi.id);
-  recordTransaction({
+  const nova = recordTransaction({
     provider: "stripe",
     providerRef: pi.id,
     profileId: vinculo?.profileId,
@@ -406,5 +406,9 @@ async function processarPaymentIntentSucedido(
       ? `venda nova (PaymentIntent fora do checkout) · paid · vinculada pelo Canal de Vendas (bot ${vinculo.botId})`
       : "venda nova (PaymentIntent fora do checkout) · paid · sem relatório do Canal de Vendas ainda (Sem modelo)",
   );
+
+  // Mesmo alerta da venda fria da SyncPay: esta cobrança não passa por
+  // `deliverPaidTransaction` e, sem isto, entrava no Financeiro em silêncio.
+  await avisarVendaAprovada(nova.id).catch(() => {});
   return { ok: true };
 }

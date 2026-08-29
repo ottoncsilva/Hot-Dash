@@ -504,6 +504,34 @@ export function setNotificationPrefs(patch: Partial<NotificationPrefs>): Notific
 }
 
 // ---- Configuração financeira manual (sem integração de plataforma de anúncios) ----
+/**
+ * VÍNCULO PELO GRUPO DE VENDAS — liga/desliga a atribuição automática de
+ * venda "fria" (SyncPay/Stripe sem passar pelo checkout do Hot-Dash) ao
+ * modelo e ao bot certos, lendo o relatório que o sistema de origem (o Bobz)
+ * posta no Grupo de Vendas. Ver `externalSaleReport.ts`.
+ *
+ * Nasce LIGADO: já era o comportamento em produção quando o interruptor
+ * passou a existir, e nascer desligado calaria a atribuição sem ninguém
+ * pedir.
+ */
+export type VendasExternasSettings = { vincularPeloGrupo: boolean };
+
+export function getVendasExternasSettings(): VendasExternasSettings {
+  return getJson<VendasExternasSettings>("vendas_externas", { vincularPeloGrupo: true });
+}
+
+export function updateVendasExternasSettings(
+  patch: Partial<VendasExternasSettings>,
+): VendasExternasSettings {
+  const cur = getVendasExternasSettings();
+  const next: VendasExternasSettings = {
+    vincularPeloGrupo:
+      patch.vincularPeloGrupo !== undefined ? Boolean(patch.vincularPeloGrupo) : cur.vincularPeloGrupo,
+  };
+  setJson("vendas_externas", next);
+  return next;
+}
+
 export type FinanceSettings = {
   /** Gastos com anúncios informados manualmente, para o período em análise. */
   adSpendCents: number;

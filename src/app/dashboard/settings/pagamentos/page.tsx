@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
 import { IconLock } from "@/components/icons";
+import Switch from "@/components/Switch";
 import { MoneyInput, type MoneyCurrency } from "@/components/MoneyInput";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import { BackToSettings, ConnectionBadge, KeyLabel, WebhookDiaryPanel } from "../_shared";
@@ -19,6 +20,36 @@ function usd(cents: number) {
 type LastPaid = { at: number; amountCents: number; customer?: string } | null;
 
 export default function PaymentSettingsPage() {
+  // Vínculo pelo Grupo de Vendas — salva SOZINHO no clique (não espera o
+  // botão "Salvar pagamentos", que é das chaves dos provedores). `null` =
+  // ainda carregando, e o interruptor fica desabilitado até saber o estado
+  // real, pra não piscar "desligado" e o operador achar que está desligado.
+  const [vincularPeloGrupo, setVincularPeloGrupo] = useState<boolean | null>(null);
+  const [vinculoSalvando, setVinculoSalvando] = useState(false);
+
+  useEffect(() => {
+    apiGet<{ vendasExternas: { vincularPeloGrupo: boolean } }>("/api/payments/vendas-externas")
+      .then((r) => setVincularPeloGrupo(r.vendasExternas.vincularPeloGrupo))
+      .catch(() => setVincularPeloGrupo(true));
+  }, []);
+
+  async function alternarVinculo(valor: boolean) {
+    setVinculoSalvando(true);
+    try {
+      const r = await apiSend<{ vendasExternas: { vincularPeloGrupo: boolean } }>(
+        "/api/payments/vendas-externas",
+        "PATCH",
+        { vincularPeloGrupo: valor },
+      );
+      setVincularPeloGrupo(r.vendasExternas.vincularPeloGrupo);
+      showToast(valor ? "Vínculo pelo Grupo de Vendas LIGADO." : "Vínculo pelo Grupo de Vendas DESLIGADO.", "success");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha ao salvar.", "error");
+    } finally {
+      setVinculoSalvando(false);
+    }
+  }
+
   const [cfg, setCfg] = useState<PaymentSettingsPublic | null>(null);
   const [syncEnabled, setSyncEnabled] = useState(false);
   const [syncClientId, setSyncClientId] = useState("");
@@ -287,6 +318,40 @@ export default function PaymentSettingsPage() {
       <p className="mt-2 text-sm text-zinc-500">
         As chaves são guardadas criptografadas (AES-256) no servidor.
       </p>
+
+      {/* Vínculo pelo Grupo de Vendas. Mora aqui, e não na tela do bot, porque
+          o que ele resolve é do FINANCEIRO: venda que chega só pelo webhook,
+          sem passar pelo checkout do Hot-Dash, e que sem isto nasce "Sem
+          modelo". */}
+      <div className="mt-4 card p-4">
+        <p className="eyebrow">vendas de bot operado por fora</p>
+        <div className="mt-1.5 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white">Vincular pelo Grupo de Vendas</p>
+            <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+              Venda cobrada por um bot que outro sistema opera (ex.: o Bobz) chega no Financeiro só pelo
+              webhook da SyncPay/Stripe, sem dizer de quem é — e nasce como <b className="text-amber-400/90">Sem
+              modelo</b>. Ligado, o Hot-Dash lê o relatório que esse sistema posta no Grupo de Vendas e usa o
+              ID da transação para atribuir a venda ao modelo, ao bot e ao lead certos. Não intercepta o bot
+              de ninguém: só lê uma mensagem de grupo.
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-zinc-600">
+              Exige o token do bot cadastrado no Hot-Dash (mesmo com o controle total desligado) e o Grupo de
+              Vendas preenchido no cadastro. Relatório de bot que o próprio Hot-Dash opera é ignorado — essa
+              venda já nasce atribuída. Desligado, nada é atribuído sozinho e a importação de histórico
+              também para.
+            </p>
+          </div>
+          <div className="shrink-0 pt-0.5">
+            <Switch
+              checked={vincularPeloGrupo === true}
+              onChange={alternarVinculo}
+              disabled={vincularPeloGrupo === null || vinculoSalvando}
+              ariaLabel="Vincular vendas pelo Grupo de Vendas"
+            />
+          </div>
+        </div>
+      </div>
 
       {/* Meta do mês. Mora aqui porque é número financeiro, mas quem a usa é o
           Dashboard — lá ela vira a barra de progresso do faturamento. */}

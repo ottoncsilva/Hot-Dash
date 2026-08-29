@@ -4,6 +4,7 @@ import { getDb } from "./db";
 import { upsertTelegramUser } from "./telegramUsers";
 import { getBotConfig } from "./telegramDb";
 import { getTelegramChatMember } from "./telegramApi";
+import { getVendasExternasSettings } from "./settings";
 
 /**
  * VÍNCULO de pagamento a lead/bot pra vendas que NÃO passam pelo checkout do
@@ -96,6 +97,11 @@ export function parseSalesReportMessage(text: string): RelatorioExternoParsed | 
  */
 export function registrarRelatorioExterno(text: string): void {
   try {
+    // Interruptor da tela (Configurações → Pagamentos). A trava fica AQUI, no
+    // núcleo, e não em cada chamador: assim vale igual pro relatório que
+    // chega ao vivo no grupo e pra importação em lote, sem dois
+    // comportamentos pra explicar.
+    if (!getVendasExternasSettings().vincularPeloGrupo) return;
     const parsed = parseSalesReportMessage(text);
     if (!parsed?.providerRef || !parsed.provider) return; // sem a chave de junção, não há o que fazer
 

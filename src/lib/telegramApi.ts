@@ -158,6 +158,26 @@ async function telegramFormFetch(
 }
 
 /**
+ * Tipos de update que o Hot-Dash PRECISA receber. Exportado porque o vigia do
+ * webhook compara esta lista com o que o Telegram diz estar registrado — sem
+ * isso, um bot registrado por uma versão antiga do sistema ficaria para sempre
+ * sem os tipos acrescentados depois, sem ninguém notar.
+ */
+export const UPDATES_NECESSARIOS = [
+  "message",
+  // Post de CANAL. O Grupo de Vendas costuma ser um canal, e não um grupo —
+  // e post de canal NÃO chega como `message`, é um tipo à parte que o
+  // Telegram só entrega se estiver listado aqui. Sem ele, o relatório de
+  // venda que o sistema de origem publica nunca chegava, mesmo com o bot
+  // sendo administrador do canal.
+  "channel_post",
+  "callback_query",
+  "chat_join_request",
+  "chat_member",
+  "my_chat_member",
+] as const;
+
+/**
  * Registra o webhook do bot apontando para o Hot-Dash. Passa `allowed_updates`
  * EXPLÍCITO — o Telegram NÃO entrega por padrão três tipos de que dependemos:
  *   • `chat_join_request` dispara a aprovação automática nos grupos VIP/Prévias;
@@ -175,13 +195,7 @@ export async function setTelegramWebhook(
 ): Promise<boolean> {
   return telegramFetch(botToken, "setWebhook", {
     url,
-    allowed_updates: [
-      "message",
-      "callback_query",
-      "chat_join_request",
-      "chat_member",
-      "my_chat_member",
-    ],
+    allowed_updates: UPDATES_NECESSARIOS,
     secret_token: secretToken || undefined,
     drop_pending_updates: false,
   });

@@ -33,24 +33,37 @@ export function registrarChegadaTelegram(
       if (c) recordSeenChat(bot.id, c);
     }
 
+    // GRUPO DE VENDAS: relatório de venda (o Bobz, ou o que for, posta ali um
+    // resumo de cada venda — mesmo formato que o próprio Hot-Dash usa pros
+    // bots que controla). É o único jeito de casar um pagamento "frio"
+    // (SyncPay/Stripe sem passar pelo nosso checkout) com o lead e o bot
+    // certos — ver `externalSaleReport.ts`.
+    //
+    // Aceita `message` E `channel_post`: na prática o "Grupo de Vendas" é um
+    // CANAL, e post de canal não chega como `message` — é um tipo de update à
+    // parte. Era por isso que a venda notificada no canal não era captada,
+    // mesmo com o bot sendo administrador lá.
+    //
+    // ESTE bot é só o "ouvinte"; o bot da VENDA é o que vem escrito no
+    // relatório ("ID Bot"), e é sobre ele que a trava de bot ativo decide —
+    // relatório de bot que o Hot-Dash já opera é ignorado lá dentro, pra não
+    // reprocessar a nossa própria saída.
+    const publicacao = update?.message || update?.channel_post;
+    if (
+      bot.idVendas &&
+      publicacao &&
+      String(publicacao.chat?.id) === bot.idVendas &&
+      typeof publicacao.text === "string"
+    ) {
+      registrarRelatorioExterno(publicacao.text);
+    }
+
+    // Daqui pra baixo é só tráfego de PESSOA (lead, entrada em grupo). Post de
+    // canal não tem autor nem lead, então sai aqui.
     const message = update?.message;
     if (!message) return;
     const { chat, text, from } = message;
     const isStart = typeof text === "string" && text.startsWith("/start");
-
-    // GRUPO DE VENDAS: mensagem de relatório (o Bobz, ou o que for, posta
-    // ali um resumo de cada venda — mesmo formato que o próprio Hot-Dash usa
-    // pros bots que controla). É o único jeito de casar um pagamento "frio"
-    // (SyncPay/Stripe sem passar pelo nosso checkout) com o lead e o bot
-    // certos — ver `externalSaleReport.ts`.
-    //
-    // ESTE bot é o "ouvinte" do grupo; o bot da VENDA é o que vem escrito no
-    // relatório ("ID Bot"), e é sobre ele que a trava de bot ativo decide —
-    // relatório de bot que o Hot-Dash já opera é ignorado lá dentro, pra não
-    // reprocessar a nossa própria saída.
-    if (bot.idVendas && String(chat?.id) === bot.idVendas && typeof text === "string") {
-      registrarRelatorioExterno(text);
-    }
 
     // Qualquer mensagem no PRIVADO confirma que o bot pode falar com a
     // pessoa — é o que a habilita a receber mailing. Nos GRUPOS, a mensagem

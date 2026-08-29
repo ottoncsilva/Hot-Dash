@@ -3,6 +3,7 @@ import { getDb } from "./db";
 import {
   getTelegramWebhookInfo,
   setTelegramWebhook,
+  UPDATES_NECESSARIOS,
   telegramWebhookSecret,
   diagnosticoDoToken,
 } from "./telegramApi";
@@ -129,6 +130,23 @@ export async function runTelegramWebhookWatch(opts?: { force?: boolean }): Promi
       const info = await getTelegramWebhookInfo(bot.bot_token);
       const urlErrada = !info.url || info.url !== esperada;
 
+      // A LISTA de tipos de update também precisa estar em dia. Um bot
+      // registrado por uma versão antiga do sistema fica preso na lista
+      // daquela época: quando um tipo novo passa a ser necessário (foi o caso
+      // do `channel_post`, sem o qual o relatório publicado no canal de vendas
+      // nunca chegava), o webhook continua "certo" pela URL e o dado some em
+      // silêncio. Comparar aqui é o que conserta sozinho, sem o operador
+      // precisar reconfigurar bot nenhum.
+      //
+      // Lista VAZIA ou ausente no getWebhookInfo não quer dizer "nenhum": o
+      // Telegram devolve assim quando o webhook foi registrado sem
+      // `allowed_updates` (o padrão dele, que já cobre quase tudo). Nesse caso
+      // re-registramos mesmo assim, para passar a valer a nossa lista
+      // explícita — é ela que garante os tipos que o padrão NÃO inclui.
+      const registrados = info.allowed_updates || [];
+      const faltamTipos =
+        registrados.length === 0 || UPDATES_NECESSARIOS.some((t) => !registrados.includes(t));
+
       // O Telegram guarda o último erro que ele mesmo teve ao nos chamar. Um
       // erro recente COM updates presos significa que a entrega está parada de
       // verdade agora — não é um erro velho de uma queda já resolvida.
@@ -137,12 +155,16 @@ export async function runTelegramWebhookWatch(opts?: { force?: boolean }): Promi
         agora - info.last_error_date * 1000 < 15 * 60 * 1000 &&
         (info.pending_update_count || 0) > 0;
 
-      if (urlErrada || erroRecente) {
+      if (urlErrada || erroRecente || faltamTipos) {
         await setTelegramWebhook(bot.bot_token, esperada, telegramWebhookSecret(bot.id));
         reregistrados++;
         console.log(
           `[hotdash] webhook do bot de ${quem} re-registrado (${
-            urlErrada ? `apontava para ${info.url || "lugar nenhum"}` : "entrega travada"
+            urlErrada
+              ? `apontava para ${info.url || "lugar nenhum"}`
+              : faltamTipos
+                ? "faltavam tipos de update (ex.: post de canal)"
+                : "entrega travada"
           }).`,
         );
       }

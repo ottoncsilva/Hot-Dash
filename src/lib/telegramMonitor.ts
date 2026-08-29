@@ -1,6 +1,11 @@
 import "server-only";
 import { getDb } from "./db";
-import { getTelegramChat, getTelegramChatMemberCount, getTelegramMe } from "./telegramApi";
+import {
+  getTelegramChat,
+  getTelegramChatMember,
+  getTelegramChatMemberCount,
+  getTelegramMe,
+} from "./telegramApi";
 import { getAppTimeZone, getFixedGroupMembers } from "./settings";
 import { partsInTimeZone } from "./timezone";
 
@@ -378,4 +383,151 @@ export async function runTelegramGroupMonitor(opts?: {
   }
 
   return atualizados;
+}
+
+/**
+ * QUEM ESTÁ NO CANAL VIP, num bot que o Hot-Dash NÃO opera.
+ *
+ * O problema: a tela Telegram → Usuários decide "VIP" pela assinatura ativa, e
+ * num bot operado por fora nenhuma assinatura é criada — a venda não passa
+ * pelo nosso checkout. O webhook também é do outro sistema, então `in_vip`
+ * nunca mudava sozinho. Resultado: todo mundo aparecia como lead, para sempre,
+ * inclusive quem estava dentro do canal.
+ *
+ * A saída é a mesma que já sustenta o monitor de grupos: PERGUNTAR. O
+ * `getChatMember` responde com o token, sem depender de update nenhum. Então
+ * em vez de esperar o Telegram avisar (ele não vai), o painel pergunta, pessoa
+ * por pessoa, em rodízio.
+ *
+ * SÓ PARA BOT COM A OPERAÇÃO DESLIGADA. No bot que o Hot-Dash opera o webhook
+ * já mantém `in_vip` ao vivo e a assinatura é a verdade — perguntar de novo
+ * seria gastar cota de API para reescrever o que já se sabe.
+ *
+ * O QUE ISTO **NÃO** FAZ: descobrir gente. A API de bot não lista membros de
+ * canal — só responde sobre um id que você já tem. Então isto confere quem o
+ * painel já conhece (quem veio pelo relatório do Canal de Vendas). Quem entrou
+ * no VIP sem nunca ter aparecido num relatório continua invisível, e não há
+ * como mudar isso pelo lado do bot.
+ */
+
+/** Quantas pessoas conferir por rodada. Com o tique de 1 minuto, 60 por vez dá
+ *  uma volta completa em ~10 min numa base de 600 — e mantém o gasto bem longe
+ *  do limite de ~30 chamadas por segundo do Telegram. */
+const VIP_SYNC_LOTE = 60;
+/** Espaço entre chamadas. Não é cautela vaga: é o que impede a rodada de virar
+ *  uma rajada de 60 chamadas no mesmo segundo. */
+const VIP_SYNC_PAUSA_MS = 120;
+/** Uma pessoa não é reconferida antes disso — o rodízio pula quem foi visto há
+ *  pouco em vez de gastar a rodada nos mesmos nomes. */
+const VIP_SYNC_INTERVALO_MS = 10 * 60 * 1000;
+/** Falhas seguidas num mesmo bot antes de desistir dele nesta rodada. Bot que
+ *  não é admin do canal responde erro em TODAS as consultas: sem isto, um bot
+ *  mal configurado comeria a rodada inteira e os outros nunca seriam vistos. */
+const VIP_SYNC_FALHAS_SEGUIDAS = 3;
+
+/**
+ * Situações em que o Telegram diz que a pessoa ESTÁ no canal. `restricted` é
+ * ambíguo por natureza (silenciada, mas pode estar dentro ou fora) e por isso
+ * traz o `is_member` junto — é ele que decide.
+ */
+function estaNoCanal(m: { status?: string; is_member?: boolean } | null): boolean | null {
+  if (!m?.status) return null; // não deu para saber: preserva o que já havia
+  if (m.status === "restricted") return m.is_member === true;
+  return ["creator", "administrator", "member"].includes(m.status);
+}
+
+export async function runTelegramVipMembershipSync(opts?: {
+  profileId?: string;
+  /** Ignora o intervalo por pessoa — a tela pedindo "confere agora". */
+  force?: boolean;
+  limite?: number;
+}): Promise<{ conferidos: number; dentro: number; falhas: number }> {
+  const db = getDb();
+  const filtro = opts?.profileId ? " AND b.profile_id = ?" : "";
+  const params = opts?.profileId ? [opts.profileId] : [];
+  const bots = db
+    .prepare(
+      `SELECT b.id, b.bot_token, b.id_vip
+         FROM telegram_bots b
+        WHERE b.bot_token IS NOT NULL AND b.bot_token <> ''
+          AND b.id_vip IS NOT NULL AND b.id_vip <> ''
+          AND COALESCE(b.operation_active, 0) = 0${filtro}`,
+    )
+    .all(...params) as { id: string; bot_token: string; id_vip: string }[];
+
+  const teto = Math.max(1, opts?.limite ?? VIP_SYNC_LOTE);
+  const corte = opts?.force ? Date.now() : Date.now() - VIP_SYNC_INTERVALO_MS;
+  let conferidos = 0;
+  let dentro = 0;
+  let falhas = 0;
+
+  for (const bot of bots) {
+    if (conferidos >= teto) break;
+    // Mais antigos primeiro (NULL na frente): é o que faz o rodízio cobrir a
+    // base inteira em vez de ficar preso nos mesmos nomes.
+    const pessoas = db
+      .prepare(
+        `SELECT telegram_user_id FROM telegram_users
+          WHERE bot_id = ? AND (vip_checked_at IS NULL OR vip_checked_at < ?)
+          ORDER BY vip_checked_at IS NOT NULL, vip_checked_at ASC
+          LIMIT ?`,
+      )
+      .all(bot.id, corte, teto - conferidos) as { telegram_user_id: number }[];
+
+    let seguidas = 0;
+    for (const p of pessoas) {
+      if (conferidos >= teto) break;
+      const membro = await getTelegramChatMember(bot.bot_token, bot.id_vip, p.telegram_user_id);
+      const situacao = estaNoCanal(membro);
+      conferidos++;
+
+      if (situacao === null) {
+        falhas++;
+        seguidas++;
+        // Marca a hora mesmo assim: sem isso o rodízio travaria de vez em quem
+        // não dá resposta (id de usuário que não existe mais, por exemplo).
+        db.prepare("UPDATE telegram_users SET vip_checked_at = ? WHERE bot_id = ? AND telegram_user_id = ?")
+          .run(Date.now(), bot.id, p.telegram_user_id);
+        if (seguidas >= VIP_SYNC_FALHAS_SEGUIDAS) break; // o canal todo está fora de alcance
+        await new Promise((r) => setTimeout(r, VIP_SYNC_PAUSA_MS));
+        continue;
+      }
+
+      seguidas = 0;
+      if (situacao) dentro++;
+      db.prepare(
+        `UPDATE telegram_users SET in_vip = ?, vip_checked_at = ?
+          WHERE bot_id = ? AND telegram_user_id = ?`,
+      ).run(situacao ? 1 : 0, Date.now(), bot.id, p.telegram_user_id);
+      await new Promise((r) => setTimeout(r, VIP_SYNC_PAUSA_MS));
+    }
+  }
+
+  return { conferidos, dentro, falhas };
+}
+
+/**
+ * Como a rodada está indo, para a tela de Usuários poder dizer de onde vem o
+ * "VIP" num bot operado por fora — e que ele é um retrato de minutos atrás, não
+ * um estado ao vivo. Sem isso o operador não teria como distinguir "ninguém é
+ * VIP" de "ainda não conferi ninguém".
+ */
+export function vipSyncStatus(botId: string): {
+  checkedAt: number | null;
+  conferidos: number;
+  pendentes: number;
+} {
+  const r = getDb()
+    .prepare(
+      `SELECT MAX(vip_checked_at) AS ultimo,
+              SUM(vip_checked_at IS NOT NULL) AS conferidos,
+              SUM(vip_checked_at IS NULL) AS pendentes
+         FROM telegram_users WHERE bot_id = ?`,
+    )
+    .get(botId) as { ultimo: number | null; conferidos: number | null; pendentes: number | null };
+  return {
+    checkedAt: r?.ultimo ?? null,
+    conferidos: r?.conferidos ?? 0,
+    pendentes: r?.pendentes ?? 0,
+  };
 }

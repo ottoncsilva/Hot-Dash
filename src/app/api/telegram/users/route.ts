@@ -10,6 +10,7 @@ import {
   type UserFilter,
 } from "@/lib/telegramUsers";
 import { sendTelegramMessage } from "@/lib/telegramApi";
+import { runTelegramVipMembershipSync, vipSyncStatus } from "@/lib/telegramMonitor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,6 +51,11 @@ export async function GET(req: NextRequest) {
       users,
       total,
       stats: userStats(bot.id),
+      // NUM BOT OPERADO POR FORA o "VIP" não vem de assinatura nenhuma (não
+      // existe) e sim de perguntar ao Telegram quem está no canal, em rodízio.
+      // A tela precisa dizer isso: sem a data da última conferência, "nenhum
+      // VIP" e "ainda não conferi ninguém" são a mesma tela em branco.
+      vipSync: bot.operationActive ? null : vipSyncStatus(bot.id),
     });
   } catch (err) {
     return errorResponse(err);
@@ -69,6 +75,24 @@ export async function POST(req: NextRequest) {
       if (!user) throw new ApiError(404, "Usuário não encontrado.");
       deleteTelegramUser(user.id);
       return NextResponse.json({ ok: true });
+    }
+
+    // Confere AGORA quem está no canal VIP, sem esperar o rodízio de fundo.
+    // Só faz sentido em bot operado por fora — no que o Hot-Dash opera o
+    // webhook já mantém isso ao vivo.
+    if (action === "sync-vip") {
+      const profileId = String(body.profileId || "");
+      if (!profileId) throw new ApiError(400, "Informe o profileId.");
+      const bot = getBotConfigByProfile(profileId);
+      if (!bot) throw new ApiError(400, "Bot não configurado para este modelo.");
+      if (bot.operationActive) {
+        throw new ApiError(400, "Este bot é operado pelo Hot-Dash — o VIP já é atualizado sozinho.");
+      }
+      if (!bot.idVip) throw new ApiError(400, "Cadastre o canal VIP deste bot antes de conferir.");
+      // Teto próprio, maior que o do rodízio de fundo: aqui alguém está
+      // olhando a tela esperando, e o pedido é pontual.
+      const r = await runTelegramVipMembershipSync({ profileId, force: true, limite: 150 });
+      return NextResponse.json({ ok: true, ...r, vipSync: vipSyncStatus(bot.id) });
     }
 
     // Mensagem avulsa para uma pessoa (o aviãozinho da lista).

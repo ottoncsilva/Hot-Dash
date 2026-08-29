@@ -46,7 +46,9 @@ export async function register() {
     } = await import("@/lib/telegramCron");
     // Monitor dos grupos: consulta a API do Telegram e por isso funciona com a
     // operação do bot desligada, quando nenhum update chega pelo webhook.
-    const { runTelegramGroupMonitor } = await import("@/lib/telegramMonitor");
+    const { runTelegramGroupMonitor, runTelegramVipMembershipSync } = await import(
+      "@/lib/telegramMonitor"
+    );
     // Vigia do webhook: sem ele, um registro perdido derruba o bot de vendas em
     // silêncio — nada de /start, nada de aprovar entrada nas Prévias.
     const { runTelegramWebhookWatch } = await import("@/lib/telegramWebhookWatch");
@@ -115,6 +117,19 @@ export async function register() {
           await runTelegramGroupMonitor();
         } catch (err) {
           console.error("[hotdash] Erro no cron (monitor de grupos):", err);
+        }
+        try {
+          // Quem está no canal VIP nos bots operados por fora. Mesma ideia do
+          // monitor acima (consulta, não webhook), só que pessoa por pessoa e
+          // em rodízio — ver `runTelegramVipMembershipSync`.
+          const r = await runTelegramVipMembershipSync();
+          if (r.conferidos > 0) {
+            console.log(
+              `[hotdash] VIP de bot externo: ${r.conferidos} conferido(s), ${r.dentro} no canal, ${r.falhas} sem resposta.`,
+            );
+          }
+        } catch (err) {
+          console.error("[hotdash] Erro no cron (presença no VIP de bot externo):", err);
         }
         try {
           await runTelegramWebhookWatch();

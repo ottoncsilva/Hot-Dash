@@ -302,9 +302,34 @@ export const AUDIENCE_HINTS: Record<Audience, string> = {
  * `?` é sempre o instante atual (em ms) — quem chama monta os parâmetros na
  * mesma ordem em que os públicos aparecem.
  */
-const ACTIVE_VIP = `EXISTS (SELECT 1 FROM telegram_subscriptions s
+/**
+ * É VIP AGORA.
+ *
+ * Dois caminhos, porque existem dois mundos:
+ *
+ * 1. BOT QUE O HOT-DASH OPERA — a assinatura ativa é a verdade. Ela tem
+ *    vencimento, foi criada pelo nosso checkout e é o que o despejo
+ *    (`runTelegramEviction`) usa para tirar quem venceu. Continua sendo o
+ *    critério, exatamente como antes.
+ *
+ * 2. BOT OPERADO POR FORA — não existe assinatura nenhuma: a venda não passou
+ *    pelo nosso checkout, e nenhum update chega pelo webhook (ele pertence ao
+ *    outro sistema). Pelo critério 1, TODO MUNDO era lead para sempre, mesmo
+ *    quem estava dentro do canal — o card de VIPs ficava em zero e a aba de
+ *    VIPs, vazia. Aqui a verdade é a única que dá para obter: a presença real
+ *    no canal, perguntada ao Telegram por `getChatMember` (só precisa do
+ *    token) e guardada em `in_vip` — ver `runTelegramVipMembershipSync`.
+ *
+ * A presença de canal NÃO vale para o bot que o Hot-Dash opera, de propósito.
+ * Lá `in_vip = 1` sem assinatura ativa é justamente o caso "venceu e ainda não
+ * saiu do canal" (`removal_pending`), que a tela mostra como EXPIRADO — chamar
+ * essa pessoa de VIP esconderia o único aviso de que o despejo está falhando.
+ */
+const ACTIVE_VIP = `(EXISTS (SELECT 1 FROM telegram_subscriptions s
    WHERE s.bot_id = u.bot_id AND s.telegram_user_id = u.telegram_user_id
-     AND s.status = 'active' AND s.expires_at > ?)`;
+     AND s.status = 'active' AND s.expires_at > ?)
+   OR (u.in_vip = 1 AND EXISTS (SELECT 1 FROM telegram_bots b
+        WHERE b.id = u.bot_id AND COALESCE(b.operation_active, 0) = 0)))`;
 
 const EVER_PAID = `EXISTS (SELECT 1 FROM telegram_subscriptions s
    WHERE s.bot_id = u.bot_id AND s.telegram_user_id = u.telegram_user_id

@@ -1109,6 +1109,14 @@ function migrate(d: Database.Database) {
   // é o que faz "a partir daí tudo traduzido" valer permanentemente pra
   // aquele lead.
   ensureColumn(d, "telegram_users", "language", "TEXT");
+  // Quando o Telegram foi consultado pela última vez sobre a presença DESTA
+  // pessoa no canal VIP. Só existe para bot que o Hot-Dash NÃO opera: nele
+  // nenhum update chega pelo webhook, `in_vip` nunca mudava sozinho e não
+  // havia assinatura nenhuma para dizer quem é VIP — a tela de Usuários
+  // mostrava todo mundo como lead. Ver `runTelegramVipMembershipSync`.
+  // NULL = nunca conferido, e é por este campo que a rodada escolhe quem
+  // conferir primeiro.
+  ensureColumn(d, "telegram_users", "vip_checked_at", "INTEGER");
   // Traduções guardadas da mensagem de pagamento aprovado — geradas por IA
   // (botão "Traduzir", mesmo padrão do "Gerar com IA") e cacheadas, nunca
   // traduzidas ao vivo a cada envio.

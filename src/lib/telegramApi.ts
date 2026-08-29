@@ -257,12 +257,14 @@ export async function getTelegramChatMember(
   botToken: string,
   chatId: string,
   userId: number,
-): Promise<{ status?: string } | null> {
+): Promise<{ status?: string; is_member?: boolean } | null> {
   try {
+    // `is_member` só vem em `restricted`, e é o que desempata: silenciado pode
+    // estar dentro ou fora do canal, e o `status` sozinho não diz qual.
     return (await telegramFetch(botToken, "getChatMember", {
       chat_id: chatId,
       user_id: userId,
-    })) as { status?: string };
+    })) as { status?: string; is_member?: boolean };
   } catch {
     return null;
   }

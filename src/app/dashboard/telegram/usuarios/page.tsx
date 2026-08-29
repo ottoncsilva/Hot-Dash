@@ -45,6 +45,9 @@ type TelegramUser = {
 };
 
 type Stats = { total: number; vips: number; expirados: number; leads: number; bloqueados: number };
+/** Como vai o rodízio que pergunta ao Telegram quem está no canal VIP. Só vem
+ *  preenchido em bot que o Hot-Dash NÃO opera. */
+type VipSync = { checkedAt: number | null; conferidos: number; pendentes: number };
 type Filter = "todos" | "vips" | "expirados" | "leads" | "bloqueados";
 
 const FILTERS: { value: Filter; label: string }[] = [
@@ -92,6 +95,10 @@ export default function TelegramUsuariosPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [dmTarget, setDmTarget] = useState<TelegramUser | null>(null);
+  /** Só existe em bot operado por fora: lá o VIP não vem de assinatura, vem de
+   *  perguntar ao Telegram quem está no canal. `null` = bot do Hot-Dash. */
+  const [vipSync, setVipSync] = useState<VipSync | null>(null);
+  const [conferindo, setConferindo] = useState(false);
 
   useEffect(() => {
   }, []);
@@ -112,11 +119,13 @@ export default function TelegramUsuariosPage() {
         users: TelegramUser[];
         total: number;
         stats: Stats;
+        vipSync: VipSync | null;
       }>(`/api/telegram/users?${qs.toString()}`);
       setBot(d.bot);
       setUsers(d.users || []);
       setTotal(d.total || 0);
       setStats(d.stats);
+      setVipSync(d.vipSync ?? null);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha ao carregar.", "error");
     } finally {
@@ -140,6 +149,30 @@ export default function TelegramUsuariosPage() {
       load();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha.", "error");
+    }
+  }
+
+  /** Confere agora, sem esperar o rodízio de fundo. */
+  async function conferirVip() {
+    if (!profileId) return;
+    setConferindo(true);
+    try {
+      const r = await apiSend<{ conferidos: number; dentro: number; falhas: number }>(
+        "/api/telegram/users",
+        "POST",
+        { action: "sync-vip", profileId },
+      );
+      showToast(
+        r.conferidos === 0
+          ? "Todo mundo já foi conferido há pouco."
+          : `${r.conferidos} conferido(s) · ${r.dentro} no canal${r.falhas ? ` · ${r.falhas} sem resposta` : ""}`,
+        r.falhas && !r.dentro ? "error" : "success",
+      );
+      load();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha ao conferir.", "error");
+    } finally {
+      setConferindo(false);
     }
   }
 
@@ -196,6 +229,13 @@ export default function TelegramUsuariosPage() {
             <StatCard label="Leads" value={stats.leads} className="text-sky-400" />
             <StatCard label="Bloqueados" value={stats.bloqueados} className="text-red-400" />
           </div>
+
+          {/* BOT OPERADO POR FORA: aqui o VIP não vem de assinatura (não existe
+              nenhuma — a venda não passou pelo nosso checkout) e sim de
+              perguntar ao Telegram quem está no canal, em rodízio. Dizer isso
+              na tela é o que separa "ninguém é VIP" de "ainda não conferi
+              ninguém" — que sem a data seriam a mesma tela vazia. */}
+          {vipSync && <FaixaVipExterno sync={vipSync} onConferir={conferirVip} ocupado={conferindo} />}
 
           <form
             className="mt-4 flex gap-2"
@@ -521,6 +561,68 @@ function UserRow({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * A explicação de onde vem o "VIP" quando o bot é operado por fora.
+ *
+ * Nesse bot não existe assinatura nenhuma (a venda não passou pelo checkout do
+ * Hot-Dash) e nenhum update chega pelo webhook — antes disto, todo mundo
+ * aparecia como lead para sempre, inclusive quem estava dentro do canal. Agora
+ * o painel PERGUNTA ao Telegram, pessoa por pessoa, em rodízio de fundo.
+ *
+ * A faixa existe porque isso muda o que a tela significa: o VIP aqui é um
+ * retrato de minutos atrás, não um estado ao vivo, e "0 VIPs" pode ser
+ * simplesmente "ainda não conferi ninguém". Sem a data e o quanto falta, as
+ * duas situações são a mesma tela vazia.
+ */
+function FaixaVipExterno({
+  sync,
+  onConferir,
+  ocupado,
+}: {
+  sync: VipSync;
+  onConferir: () => void;
+  ocupado: boolean;
+}) {
+  const quando = sync.checkedAt
+    ? new Date(sync.checkedAt).toLocaleString("pt-BR", {
+        day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+      })
+    : null;
+  return (
+    <div className="mt-3 rounded-xl border border-sky-500/20 bg-sky-500/[0.05] px-3 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs text-zinc-300">
+            Este bot é <b>operado por fora</b>: quem está no VIP é conferido perguntando ao
+            Telegram, pessoa por pessoa.
+          </p>
+          <p className="mt-0.5 text-[11px] text-zinc-500">
+            {quando
+              ? `Última conferência ${quando}.`
+              : "Nenhuma conferência ainda — a primeira rodada começa em até 1 minuto."}
+            {sync.pendentes > 0 && ` Faltam ${sync.pendentes} de ${sync.conferidos + sync.pendentes}.`}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onConferir}
+          disabled={ocupado}
+          className="shrink-0 rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-[11px] font-bold text-sky-300 transition-colors hover:bg-sky-500/20 disabled:opacity-40"
+        >
+          {ocupado ? "Conferindo..." : "Conferir agora"}
+        </button>
+      </div>
+      {/* O limite honesto: a API de bot não lista membros de canal, só responde
+          sobre um id que já se tem. Quem nunca apareceu num relatório de venda
+          é invisível aqui, e não há como mudar isso pelo lado do bot. */}
+      <p className="mt-1.5 border-t border-white/[0.06] pt-1.5 text-[11px] text-zinc-600">
+        Só é possível conferir quem o painel já conhece (veio de um relatório do Canal de Vendas).
+        O Telegram não deixa um bot listar os membros de um canal.
+      </p>
     </div>
   );
 }

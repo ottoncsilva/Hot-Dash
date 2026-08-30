@@ -881,6 +881,118 @@ function migrate(d: Database.Database) {
       PRIMARY KEY (account_id, dia),
       FOREIGN KEY (account_id) REFERENCES ltv_accounts(id) ON DELETE CASCADE
     );
+
+    -- ================================================================
+    -- INSTAGRAM — estrutura PRÓPRIA, separada do LTV de propósito.
+    --
+    -- Parece o LTV e não é: lá a conversa existe para aquecer e vender no
+    -- próprio chat, sem prazo. Aqui o canal é topo de funil, a conversa é
+    -- curta e o destino é o link da bio — e, principalmente, a Meta impõe uma
+    -- JANELA DE 24 HORAS a partir da última mensagem do lead, depois da qual
+    -- responder é proibido. Esse relógio não existe no WhatsApp nem no
+    -- Telegram, e enfiá-lo nas tabelas ltv_* contaminaria os dois canais que
+    -- hoje funcionam com um conceito que não é deles.
+    -- ================================================================
+
+    -- Uma conta do Instagram conectada. Uma modelo pode ter várias (é comum:
+    -- a principal, a de backup, a de nicho) — por isso profile_id não é único.
+    -- ig_user_id é: a mesma conta não pode ser conectada a duas modelos, o que
+    -- deixaria dois agentes respondendo a mesma DM.
+    CREATE TABLE IF NOT EXISTS ig_accounts (
+      id               TEXT PRIMARY KEY,
+      profile_id       TEXT NOT NULL,
+      ig_user_id       TEXT NOT NULL UNIQUE,   -- id da conta profissional na Meta
+      username         TEXT,
+      -- Token de usuário do Instagram, cifrado. Dura 60 dias e MORRE se não
+      -- for renovado nesse prazo (ver runInstagramTokenRefresh).
+      token_enc        TEXT,
+      token_expires_at INTEGER,
+      status           TEXT NOT NULL DEFAULT 'disconnected', -- connected|expired|error
+      status_detail    TEXT,
+      active           INTEGER NOT NULL DEFAULT 1,
+      connected_at     INTEGER,
+      created_at       INTEGER NOT NULL,
+      updated_at       INTEGER NOT NULL,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ig_accounts_profile ON ig_accounts(profile_id);
+
+    -- Ajustes do agente POR CONTA. Curto de propósito: as instruções de
+    -- conversa são as mesmas para todas as modelos (ver lib/instagram/prompt.ts)
+    -- e a persona vem do cadastro da modelo. O que sobra aqui é operação.
+    CREATE TABLE IF NOT EXISTS ig_agent_settings (
+      account_id   TEXT PRIMARY KEY,
+      enabled      INTEGER NOT NULL DEFAULT 0,
+      -- Para onde empurrar o lead: 'bio', 'stories' ou 'ambos'. Nunca um link
+      -- no texto — só a instrução de onde ele está.
+      cta_target   TEXT NOT NULL DEFAULT 'bio',
+      delay_min_s  INTEGER NOT NULL DEFAULT 4,
+      delay_max_s  INTEGER NOT NULL DEFAULT 15,
+      daily_limit  INTEGER NOT NULL DEFAULT 200,
+      -- Quantas respostas a IA dá numa conversa antes de parar. O canal não é
+      -- para aquecer: passou disso e o lead não foi para o link, insistir só
+      -- gasta janela e chama atenção.
+      max_turns    INTEGER NOT NULL DEFAULT 6,
+      extra_notes  TEXT,
+      created_at   INTEGER NOT NULL,
+      updated_at   INTEGER NOT NULL,
+      FOREIGN KEY (account_id) REFERENCES ig_accounts(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS ig_chats (
+      id                  TEXT PRIMARY KEY,
+      account_id          TEXT NOT NULL,
+      peer_ref            TEXT NOT NULL,   -- IGSID do lead, com escopo NESTA conta
+      peer_name           TEXT,
+      peer_username       TEXT,
+      state               TEXT NOT NULL DEFAULT 'active',  -- 'active' | 'paused'
+      -- O RELÓGIO DA META: última mensagem recebida DO LEAD. É dele que saem
+      -- as 24 horas em que se pode responder — separado de last_interaction_at,
+      -- que anda também quando somos nós que falamos e não estende janela
+      -- nenhuma.
+      last_inbound_at     INTEGER NOT NULL,
+      last_interaction_at INTEGER NOT NULL,
+      -- Quantas respostas a IA já deu nesta conversa (ver max_turns).
+      turns               INTEGER NOT NULL DEFAULT 0,
+      -- Já mandou o lead para a bio/stories ao menos uma vez.
+      cta_sent            INTEGER NOT NULL DEFAULT 0,
+      created_at          INTEGER NOT NULL,
+      FOREIGN KEY (account_id) REFERENCES ig_accounts(id) ON DELETE CASCADE,
+      UNIQUE(account_id, peer_ref)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ig_chats_conta
+      ON ig_chats(account_id, last_interaction_at DESC);
+
+    CREATE TABLE IF NOT EXISTS ig_messages (
+      id         TEXT PRIMARY KEY,
+      chat_id    TEXT NOT NULL,
+      role       TEXT NOT NULL,   -- 'user' | 'assistant'
+      content    TEXT NOT NULL,
+      type       TEXT NOT NULL DEFAULT 'text',
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (chat_id) REFERENCES ig_chats(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ig_messages_chat
+      ON ig_messages(chat_id, created_at);
+
+    -- IDEMPOTÊNCIA: a Meta REENVIA o evento se a nossa resposta demorar ou
+    -- falhar. Sem isto, a mesma DM viraria duas respostas — que no Instagram
+    -- não é só feio, é comportamento de robô no canal mais vigiado dos três.
+    CREATE TABLE IF NOT EXISTS ig_seen_messages (
+      mid        TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ig_daily_usage (
+      account_id TEXT NOT NULL,
+      dia        TEXT NOT NULL,   -- 'AAAA-MM-DD' no fuso do painel
+      sent       INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (account_id, dia),
+      FOREIGN KEY (account_id) REFERENCES ig_accounts(id) ON DELETE CASCADE
+    );
   `);
 
   // Migrações incrementais (adiciona colunas que ainda não existem em bancos já criados).

@@ -34,6 +34,7 @@ import {
   IconFunnel,
   IconFire,
   IconLink,
+  IconInstagram,
 } from "@/components/icons";
 import NavGroup, { type NavSubItem } from "@/components/NavGroup";
 import CommandPalette from "@/components/CommandPalette";
@@ -64,6 +65,7 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   ltv_chat: IconBot,
   ltv_whatsapp: IconWhatsapp,
   ltv_telegram: IconSend,
+  ltv_instagram: IconInstagram,
   ltv_funil: IconFunnel,
   schedule: IconCalendar,
   settings: IconSettings,
@@ -100,6 +102,10 @@ const LTV_SUBSECTIONS: NavSubItem[] = [
   { label: "Chat ao vivo", href: "/dashboard/ltv/chat" },
   { label: "LTV WhatsApp", href: "/dashboard/ltv/whatsapp" },
   { label: "LTV Telegram", href: "/dashboard/ltv/telegram" },
+  // Mora sob o LTV por conveniência de navegação (é onde as conversas com lead
+  // ficam), mas o motor é OUTRO — ver lib/instagram/agent.ts. Por isso o rótulo
+  // não leva o prefixo "LTV" dos irmãos: aqui não se aquece nem se vende.
+  { label: "Instagram", href: "/dashboard/ltv/instagram" },
   { label: "Funil de LTV", href: "/dashboard/ltv/funil" },
 ];
 

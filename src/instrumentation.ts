@@ -52,6 +52,9 @@ export async function register() {
     // Vigia do webhook: sem ele, um registro perdido derruba o bot de vendas em
     // silêncio — nada de /start, nada de aprovar entrada nas Prévias.
     const { runTelegramWebhookWatch } = await import("@/lib/telegramWebhookWatch");
+    // Token do Instagram: dura 60 dias e MORRE se não for renovado no prazo —
+    // e a morte é silenciosa, todas as contas param juntas. Renova com folga.
+    const { runInstagramTokenRefresh } = await import("@/lib/instagram/tokens");
     // Faxina da memória do LTV: guarda 40 dias por lead e apaga o resto.
     const { runLtvRetencao } = await import("@/lib/ltvRetencao");
     // Retoma quem sumiu no meio do papo do LTV (só nas contas com isso
@@ -135,6 +138,14 @@ export async function register() {
           await runTelegramWebhookWatch();
         } catch (err) {
           console.error("[hotdash] Erro no cron (vigia do webhook):", err);
+        }
+        try {
+          const r = await runInstagramTokenRefresh();
+          if (r.renovados > 0) {
+            console.log(`[hotdash] Instagram: ${r.renovados} token(s) renovado(s) por mais 60 dias.`);
+          }
+        } catch (err) {
+          console.error("[hotdash] Erro no cron (token do Instagram):", err);
         }
         try {
           const apagadas = runLtvRetencao();

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { deleteTransaction, getTransaction, updateTransaction } from "@/lib/transactions";
 import { getRelatorioDaTransacao } from "@/lib/externalSaleReport";
+import { listBotsComModelo } from "@/lib/telegramDb";
+import { listProfiles } from "@/lib/profiles";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,15 +19,29 @@ export const dynamic = "force-dynamic";
  *
  * `relatorio` vem `null` quando a venda passou pelo checkout do Hot-Dash (não
  * existe relatório externo dela) ou quando ele ainda não chegou no canal.
+ *
+ * Vai junto a lista de BOTS (com a modelo dona) que a edição usa para atribuir
+ * a venda. Ela vem daqui, e não numa carga da página inteira, porque só a
+ * janela de edição precisa dela — a tabela do Financeiro carrega centenas de
+ * linhas e não usa nada disso.
  */
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     await requireUser(req);
     const transaction = getTransaction(params.id);
     if (!transaction) return NextResponse.json({ error: "Cobrança não encontrada." }, { status: 404 });
+    const bots = listBotsComModelo();
+    const comBot = new Set(bots.map((b) => b.profileId));
     return NextResponse.json({
       transaction,
       relatorio: getRelatorioDaTransacao(transaction.provider, transaction.providerRef),
+      bots,
+      // Modelos SEM bot cadastrado. Existem (venda de LTV, lançamento à mão) e
+      // sumiriam do alcance se a escolha fosse só de bot — a correção pedida
+      // não pode tirar do operador algo que ele já conseguia fazer.
+      perfisSemBot: (await listProfiles())
+        .filter((p) => !comBot.has(p.id))
+        .map((p) => ({ id: p.id, name: p.name })),
     });
   } catch (err) {
     return errorResponse(err);
@@ -66,6 +82,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       feeCents: cents(body.feeCents),
       splitCents: cents(body.splitCents),
       customer: str(body.customer),
+      botId: str(body.botId),
       profileId: str(body.profileId),
       description: str(body.description),
       method: deLista(body.method, ["pix", "card"]),

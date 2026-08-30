@@ -131,6 +131,55 @@ export function nomeDoProduto(
   return `${limpo}${SUFIXO_RENOVACAO}`;
 }
 
+/**
+ * O MÉTODO DE PAGAMENTO no vocabulário do painel: "pix" ou "card".
+ *
+ * Existe porque o gateway não tem vocabulário nenhum. A SyncPay manda o
+ * `payment_method` como vier — "pix", "PIX", "Pix" — e isso era gravado cru.
+ * O resultado é que a mesma forma de pagamento virava TRÊS na tela: três
+ * linhas diferentes no filtro de Método, três fatias no gráfico, e nenhuma
+ * somando com a outra.
+ *
+ * A normalização mora aqui, dentro de `recordTransaction`, e não em cada
+ * webhook: é o único ponto por onde toda venda passa, então não há como um
+ * caminho novo esquecer de chamar.
+ *
+ * O que não é reconhecido volta em minúsculas, como veio. Chutar "pix" para um
+ * método desconhecido seria inventar um dado; minúsculo pelo menos junta as
+ * variações de caixa da mesma coisa.
+ */
+export function normalizarMetodo(raw: string | undefined | null): string | undefined {
+  const v = (raw || "").trim().toLowerCase();
+  if (!v || v === "-") return undefined;
+  if (v.includes("pix")) return "pix";
+  if (/cart[aã]o|card|credit|cr[eé]dito|d[eé]bito|debit/.test(v)) return "card";
+  return v;
+}
+
+/**
+ * Arruma o método das cobranças JÁ gravadas — as que entraram como "PIX" ou
+ * "Pix" antes de a normalização existir.
+ *
+ * Sem isto, a correção só valeria para vendas novas e o filtro continuaria
+ * mostrando as três variantes do histórico. Idempotente: rodar de novo não
+ * muda nada além do que ainda estiver fora do padrão.
+ */
+export function normalizarMetodosGravados(): number {
+  const db = getDb();
+  const linhas = db
+    .prepare("SELECT DISTINCT method FROM transactions WHERE method IS NOT NULL AND method <> ''")
+    .all() as { method: string }[];
+  let mudadas = 0;
+  for (const l of linhas) {
+    const certo = normalizarMetodo(l.method);
+    if (!certo || certo === l.method) continue;
+    mudadas += db
+      .prepare("UPDATE transactions SET method = ? WHERE method = ?")
+      .run(certo, l.method).changes;
+  }
+  return mudadas;
+}
+
 export function recordTransaction(input: {
   provider: string;
   providerRef?: string;
@@ -197,7 +246,7 @@ export function recordTransaction(input: {
       split,
       input.status === "paid" ? now : null,
       input.currency || "BRL",
-      input.method || null,
+      normalizarMetodo(input.method) || null,
       input.status,
       input.sourceCode || null,
       input.origin || null,
@@ -271,8 +320,14 @@ export function updateTransaction(
     feeCents?: number;
     splitCents?: number;
     customer?: string;
-    /** Modelo a que a venda pertence. "" desvincula. Venda que chega só pelo
-     *  webhook nasce sem modelo — a SyncPay não sabe de qual é. */
+    /** Bot que fez a venda. É por ELE que a tela atribui: escolher o bot já
+     *  diz a modelo (um bot por modelo), enquanto escolher a modelo deixava o
+     *  `bot_id` vazio e a linha ficava em "Sem bot" no filtro. "" desvincula
+     *  os dois. */
+    botId?: string;
+    /** Modelo a que a venda pertence. Continua aceito para o caso que o bot
+     *  não cobre: modelo SEM bot cadastrado (venda de LTV ou lançada à mão).
+     *  "" desvincula. */
     profileId?: string;
     /** O PRODUTO (coluna Produto e texto de toda notificação de venda). Numa
      *  venda de bot operado por fora ele nasce vazio: o gateway só sabe o
@@ -305,22 +360,44 @@ export function updateTransaction(
   const sourceCode = texto(input.sourceCode, atual.sourceCode);
   const origin = texto(input.origin, atual.origin);
 
-  // O BOT SEGUE A MODELO. Existe exatamente um bot por modelo
-  // (`telegram_bots.profile_id` é UNIQUE), então pedir os dois ao operador
-  // seria pedir a mesma informação duas vezes — e deixar `bot_id` vazio
-  // enquanto a modelo já está certa é o que mantinha a linha em "Sem bot" no
-  // filtro e sem @usuário na coluna Bot, mesmo depois de corrigida.
+  // A MODELO SEGUE O BOT. Existe exatamente um bot por modelo
+  // (`telegram_bots.profile_id` é UNIQUE), então os dois são a mesma
+  // informação — e a tela pergunta pelo BOT, que é o lado que carrega o outro.
+  // Pelo caminho inverso (escolher a modelo) o `bot_id` ficava vazio, e era
+  // isso que mantinha a linha em "Sem bot" no filtro e sem @usuário na coluna
+  // Bot mesmo depois de corrigida.
   //
-  // Só é recalculado quando a modelo foi TOCADA nesta edição: uma venda de
-  // LTV ou lançada à mão não passou por bot nenhum, e sobrescrever o `bot_id`
-  // dela numa correção de valor inventaria um vínculo que nunca existiu.
+  // `profileId` continua aceito sozinho para o caso que o bot não cobre:
+  // modelo SEM bot cadastrado (venda de LTV ou lançada à mão). Aí o vínculo de
+  // bot é desfeito, porque essa venda não passou por bot nenhum.
   let botId = atual.botId ?? null;
-  if (input.profileId !== undefined && perfil !== (atual.profileId ?? null)) {
+  let perfilFinal = perfil;
+  if (input.botId !== undefined) {
+    const escolhido = input.botId.trim();
+    if (escolhido) {
+      const dono = getDb()
+        .prepare("SELECT id, profile_id FROM telegram_bots WHERE id = ?")
+        .get(escolhido) as { id: string; profile_id: string } | undefined;
+      if (dono) {
+        botId = dono.id;
+        perfilFinal = dono.profile_id;
+      }
+      // Bot que não existe mais: não mexe em nada. Apagar a atribuição por
+      // causa de um id velho seria perder um dado certo por um erro nosso.
+    } else {
+      // "" = desvincular. Sem bot escolhido e sem modelo informada, a venda
+      // volta a ser "Sem modelo" — que é o que o operador pediu.
+      botId = null;
+      if (input.profileId === undefined) perfilFinal = null;
+    }
+  } else if (input.profileId !== undefined && perfil !== (atual.profileId ?? null)) {
+    // Caminho da modelo sem bot: atribui a modelo e desfaz qualquer bot que
+    // estivesse pendurado ali.
     botId = perfil
       ? ((getDb().prepare("SELECT id FROM telegram_bots WHERE profile_id = ?").get(perfil) as
           | { id: string }
           | undefined)?.id ?? null)
-      : null; // sem modelo não há bot: o vínculo inteiro é desfeito
+      : null;
   }
 
   getDb()
@@ -337,7 +414,7 @@ export function updateTransaction(
       split,
       liquido,
       customer,
-      perfil,
+      perfilFinal,
       botId,
       description,
       method,
@@ -642,10 +719,14 @@ export function importProviderRows(
   return res;
 }
 
-/** Agrupa o método de pagamento bruto do provedor num rótulo de exibição. */
-function methodBucket(method: string | null): "Pix" | "Cartão" | "Boleto" | "Outros" {
+/** Agrupa o método de pagamento num rótulo de exibição. Desde a normalização
+ *  (ver `normalizarMetodo`) ele já chega padronizado, mas o `includes` fica:
+ *  é o que cobre linha antiga que a migração ainda não tocou. "PIX" em caixa
+ *  alta é o mesmo rótulo da coluna Método, para as duas telas não chamarem a
+ *  mesma coisa de dois jeitos. */
+function methodBucket(method: string | null): "PIX" | "Cartão" | "Boleto" | "Outros" {
   const m = (method || "").toLowerCase();
-  if (m.includes("pix")) return "Pix";
+  if (m.includes("pix")) return "PIX";
   if (m.includes("card") || m.includes("cart")) return "Cartão";
   if (m.includes("boleto")) return "Boleto";
   return "Outros";

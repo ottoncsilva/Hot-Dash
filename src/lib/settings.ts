@@ -34,6 +34,78 @@ function setJson(key: string, value: unknown): void {
     .run(key, JSON.stringify(value));
 }
 
+// ---- Instagram (app da Meta) ----
+/**
+ * Credenciais do app da Meta que atende TODAS as modelos.
+ *
+ * São globais de propósito: o app é um só (modelo self-serve, ver a decisão em
+ * `lib/instagram/api.ts`), e as contas do Instagram é que se conectam a ele uma
+ * a uma. Guardar isso por modelo criaria N apps para cadastrar e N App Reviews
+ * para pedir no dia em que a operação virar Tech Provider.
+ *
+ * O `verifyToken` é uma string inventada por quem configura: a Meta a devolve
+ * no aperto de mão do webhook, e é ela que prova que a chamada veio de lá.
+ */
+export type InstagramAppSettingsPublic = {
+  appId: string;
+  hasSecret: boolean;
+  verifyToken: string;
+  /** Base pública do painel, para montar a redirect_uri do OAuth. */
+  publicBaseUrl: string;
+};
+
+type InstagramAppStored = {
+  appId?: string;
+  appSecretEnc?: string;
+  verifyToken?: string;
+  publicBaseUrl?: string;
+};
+
+const IG_APP_KEY = "instagram_app";
+
+export function getInstagramAppSettings(): InstagramAppSettingsPublic {
+  const s = getJson<InstagramAppStored>(IG_APP_KEY, {});
+  return {
+    appId: s.appId || "",
+    hasSecret: Boolean(s.appSecretEnc),
+    verifyToken: s.verifyToken || "",
+    publicBaseUrl: (s.publicBaseUrl || "").replace(/\/+$/, ""),
+  };
+}
+
+/** O segredo em claro — só para o servidor, nunca para o navegador. */
+export function getInstagramAppSecret(): string | null {
+  const s = getJson<InstagramAppStored>(IG_APP_KEY, {});
+  if (!s.appSecretEnc) return null;
+  try {
+    return decryptSecret(s.appSecretEnc);
+  } catch {
+    return null;
+  }
+}
+
+export function updateInstagramAppSettings(patch: {
+  appId?: string;
+  appSecret?: string;
+  verifyToken?: string;
+  publicBaseUrl?: string;
+}): InstagramAppSettingsPublic {
+  const s = getJson<InstagramAppStored>(IG_APP_KEY, {});
+  if (patch.appId !== undefined) s.appId = patch.appId.trim() || undefined;
+  if (patch.verifyToken !== undefined) s.verifyToken = patch.verifyToken.trim() || undefined;
+  if (patch.publicBaseUrl !== undefined) {
+    s.publicBaseUrl = patch.publicBaseUrl.trim().replace(/\/+$/, "") || undefined;
+  }
+  // Segredo só é tocado quando VEM no patch: a tela nunca recebe o valor de
+  // volta, então salvar o formulário sem digitá-lo de novo não pode apagá-lo.
+  if (patch.appSecret !== undefined) {
+    const t = patch.appSecret.trim();
+    s.appSecretEnc = t ? encryptSecret(t) : undefined;
+  }
+  setJson(IG_APP_KEY, s);
+  return getInstagramAppSettings();
+}
+
 // ---- uazapi (WhatsApp) ----
 // Uma conta da uazapi tem um SERVIDOR (https://seunome.uazapi.com) e um
 // admintoken. O admintoken cria instâncias; cada instância nasce com um token
@@ -598,7 +670,15 @@ export type AiProvider =
  * medição real, 423,6K tokens de raciocínio produziram 13,1K de texto e
  * responderam por 76% da fatura.
  */
-export type AiActivity = "mk" | "schedule" | "caption" | "whatsapp" | "caixinha" | "videoprompt" | "downsell";
+export type AiActivity =
+  | "mk"
+  | "schedule"
+  | "caption"
+  | "whatsapp"
+  | "caixinha"
+  | "videoprompt"
+  | "downsell"
+  | "instagram";
 
 export const AI_ACTIVITIES: { key: AiActivity; label: string; hint: string }[] = [
   {
@@ -630,6 +710,11 @@ export const AI_ACTIVITIES: { key: AiActivity; label: string; hint: string }[] =
     key: "videoprompt",
     label: "Prompt final do Gerador de Vídeo",
     hint: "Lê a foto e a caixinha e escreve o roteiro do vídeo. Precisa de um modelo com visão.",
+  },
+  {
+    key: "instagram",
+    label: "DM do Instagram",
+    hint: "Conversa curta que só encaminha para o link da bio. Respostas de uma ou duas linhas, sem conteúdo explícito — o modelo mais barato dá conta, e o canal é o mais vigiado dos três.",
   },
   {
     key: "downsell",

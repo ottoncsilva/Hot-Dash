@@ -1,6 +1,6 @@
 import "server-only";
 import { getDb } from "./db";
-import { SUFIXO_RENOVACAO } from "./transactions";
+import { normalizarMetodosGravados, SUFIXO_RENOVACAO } from "./transactions";
 
 /**
  * RASTREIO — o código do deep-link (`t.me/<bot>?start=CODIGO`) que trouxe o
@@ -114,7 +114,15 @@ export function vincularCodigosNasVendas(): { relatorio: number; lead: number; u
  * servidor de subir.
  */
 export async function migrarCodigosDeRastreio(): Promise<void> {
-  const MARCA = "rastreio_codigos_v3";
+  // A marca sobe a cada mudança de REGRA de leitura, porque as linhas já
+  // gravadas não são alcançadas sozinhas: depender de um relatório novo da
+  // mesma venda é esperar por algo que não vem. Todas as etapas são
+  // idempotentes, então rodar de novo não desfaz nada.
+  //  v4: `''` deixou de contar como campo preenchido (ver o NULLIF em
+  //      `registrarRelatorioExterno`) — havia linha travada para sempre.
+  //  v5: "start" passou a ser um CÓDIGO, e o método deixou de ser gravado cru
+  //      ("PIX"/"Pix"/"pix" eram três coisas na tela).
+  const MARCA = "rastreio_codigos_v5";
   const db = getDb();
   try {
     if (db.prepare("SELECT value FROM settings WHERE key = ?").get(MARCA)) return;
@@ -127,6 +135,8 @@ export async function migrarCodigosDeRastreio(): Promise<void> {
     const relatorios = reprocessarRelatoriosGuardados();
     const vinculos = vincularCodigosNasVendas();
     const produtos = arrumarNomeDoProduto();
+    // "PIX"/"Pix"/"pix" viravam três métodos diferentes no filtro e no gráfico.
+    const metodos = normalizarMetodosGravados();
 
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
       MARCA,
@@ -138,7 +148,8 @@ export async function migrarCodigosDeRastreio(): Promise<void> {
         `(relatório ${vinculos.relatorio}, lead ${vinculos.lead}, usuário ${vinculos.usuario}); ` +
         `produto: ${produtos.semPrefixo} sem prefixo, ${produtos.zerados} zerados, ` +
         `${produtos.peloRelatorio} preenchidos pelo relatório, ` +
-        `${produtos.renovacoes} marcados como renovação.`,
+        `${produtos.renovacoes} marcados como renovação; ` +
+        `método normalizado em ${metodos} vendas.`,
     );
   } catch (err) {
     console.error("[hotdash] falha migrando os códigos de rastreio:", err);

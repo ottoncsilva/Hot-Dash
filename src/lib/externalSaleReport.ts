@@ -3,6 +3,9 @@ import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
 import { upsertTelegramUser } from "./telegramUsers";
 import { getVendasExternasSettings } from "./settings";
+// A normalização do método é a MESMA do resto do painel, de propósito: duas
+// cópias divergem no dia em que uma ganha um caso novo e a outra não.
+import { normalizarMetodo } from "./transactions";
 
 /**
  * VÍNCULO de pagamento a lead/bot pra vendas que NÃO passam pelo checkout do
@@ -101,12 +104,6 @@ function valorEmCentavos(texto: string | undefined): number | undefined {
 }
 
 /**
- * Método de pagamento no vocabulário do painel ("pix"/"card"), que é o que a
- * coluna Método do Financeiro e o filtro dela esperam. Aceita as escritas que
- * aparecem na prática (pt e en, com e sem acento); o que não reconhece volta
- * minúsculo como veio, para não inventar nem descartar.
- */
-/**
  * "0d 0h 23m 53s" → 1433. Soma só as unidades que aparecerem, na ordem que
  * aparecerem — se o formato mudar e vier só "23m", continua valendo.
  */
@@ -122,13 +119,7 @@ function duracaoEmSegundos(texto: string | undefined): number | undefined {
   return achou ? total : undefined;
 }
 
-function metodoNormalizado(texto: string | undefined): string | undefined {
-  const v = (texto || "").trim().toLowerCase();
-  if (!v || v === "-") return undefined;
-  if (v.includes("pix")) return "pix";
-  if (/cart[aã]o|card|credit|cr[eé]dito|d[eé]bito|debit/.test(v)) return "card";
-  return v;
-}
+
 
 /**
  * Primeira palavra de um valor. Os campos que este parser usa para DECIDIR
@@ -184,13 +175,14 @@ export function parseSalesReportMessage(text: string): RelatorioExternoParsed | 
     idioma: primeiroToken(texto("Idioma"))?.toLowerCase(),
     valorCentavos: valorEmCentavos(texto("Valor")),
     moeda: primeiroToken(texto("Tipo Moeda"))?.toUpperCase(),
-    metodo: metodoNormalizado(texto("Método Pagamento")),
-    // "start" é o que o relatório escreve quando o lead deu /start seco, sem
-    // deep-link — é ausência de código, não um código chamado "start".
-    codigoDeVenda: (() => {
-      const c = primeiroToken(texto("Código de Venda"));
-      return c && c.toLowerCase() !== "start" ? c : undefined;
-    })(),
+    metodo: normalizarMetodo(texto("Método Pagamento")),
+    // "start" É UM CÓDIGO. É o que o relatório escreve quando o lead chegou sem
+    // deep-link, e essa é uma origem de tráfego como outra qualquer: "veio
+    // direto pelo bot". Antes era descartado como se fosse ausência de dado, e
+    // isso jogava essas vendas no mesmo balde de "(sem código)" — que é outra
+    // coisa: venda de que não se sabe nada. Separadas, o Funil distingue quem
+    // chegou pelo bot sem link de quem não se conseguiu rastrear.
+    codigoDeVenda: primeiroToken(texto("Código de Venda")),
     passoDoFunil: texto("Origem"),
     segundosAteConverter: duracaoEmSegundos(texto("Tempo Conversão")),
     idTransacaoExterna: primeiroToken(texto("ID Transação Interna")),
@@ -298,8 +290,10 @@ export function registrarRelatorioExterno(text: string): void {
     // hora certa, ou uma correção manual que o operador já fez na tela).
     if (profileId) {
       db.prepare(
-        `UPDATE transactions SET profile_id = ?, bot_id = COALESCE(bot_id, ?)
-          WHERE provider = ? AND provider_ref = ? AND profile_id IS NULL`,
+        `UPDATE transactions
+            SET profile_id = ?, bot_id = COALESCE(NULLIF(bot_id, ''), ?)
+          WHERE provider = ? AND provider_ref = ?
+            AND (profile_id IS NULL OR profile_id = '')`,
       ).run(profileId, botId || null, parsed.provider, parsed.providerRef);
     }
 
@@ -312,13 +306,22 @@ export function registrarRelatorioExterno(text: string): void {
     // veio de um bot do Telegram, só que operado por fora. E `source_code` é
     // o deep-link que trouxe o lead — sem ele a venda entra no funil sem
     // origem de tráfego nenhuma.
+    //
+    // `NULLIF(col, '')` ANTES do COALESCE: campo vazio é campo vazio, escrito
+    // como NULL ou como string em branco. Sem isso, uma linha que tivesse
+    // chegado com `''` (dado antigo, importação, um caminho que gravou vazio)
+    // ficava presa para sempre — o COALESCE via `''` como valor preenchido e
+    // recusava o dado do relatório. Era o caso em que produto e método
+    // apareciam e o código de venda não, na mesma linha. A migração de boot já
+    // tratava `''` (ver `vincularCodigosNasVendas`); o caminho AO VIVO não, e
+    // os dois precisam concordar.
     db.prepare(
       `UPDATE transactions
-          SET method      = COALESCE(method, ?),
-              source_code = COALESCE(source_code, ?),
-              customer    = COALESCE(customer, ?),
-              origin      = COALESCE(origin, ?),
-              description = COALESCE(description, ?)
+          SET method      = COALESCE(NULLIF(method, ''), ?),
+              source_code = COALESCE(NULLIF(source_code, ''), ?),
+              customer    = COALESCE(NULLIF(customer, ''), ?),
+              origin      = COALESCE(NULLIF(origin, ''), ?),
+              description = COALESCE(NULLIF(description, ''), ?)
         WHERE provider = ? AND provider_ref = ?`,
     ).run(
       parsed.metodo || null,

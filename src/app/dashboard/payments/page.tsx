@@ -49,10 +49,23 @@ const STATUS_LABEL: Record<string, string> = {
   chargeback: "chargeback",
 };
 
+/** Como cada método aparece na tela. O valor GRAVADO é minúsculo ("pix",
+ *  "card") — é o vocabulário interno, usado por filtro, gráfico e comparação;
+ *  aqui é só a fachada. */
 const METHOD_LABEL: Record<string, string> = {
-  pix: "Pix",
+  pix: "PIX",
   card: "Cartão",
 };
+
+/** Um bot na lista da edição — vem com a modelo dona junto, porque é ela que
+ *  a escolha do bot atribui. */
+type BotOpcao = { id: string; botUsername?: string; profileId: string; profileName: string };
+
+/** "@lana_bot · Lana". O @ vem primeiro porque é o que identifica o bot; a
+ *  modelo aparece do lado para o operador conferir que é a dona certa. */
+function rotuloDoBot(b: BotOpcao): string {
+  return `${b.botUsername ? "@" + b.botUsername : "bot sem @"} · ${b.profileName}`;
+}
 
 type PaidFilter = "all" | "paid" | "unpaid";
 /** "todos" = sem filtro; o resto casa com `origemDaVenda`. */
@@ -608,7 +621,6 @@ export default function PaymentsPage() {
         {editando && (
           <EditarCobranca
             tx={editando}
-            profiles={profiles}
             onClose={() => setEditando(null)}
             onDone={() => {
               setEditando(null);
@@ -661,12 +673,10 @@ export default function PaymentsPage() {
  */
 function EditarCobranca({
   tx,
-  profiles,
   onClose,
   onDone,
 }: {
   tx: Transaction;
-  profiles: Profile[];
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -675,7 +685,18 @@ function EditarCobranca({
   const [taxa, setTaxa] = useState(emReais(tx.feeCents));
   const [split, setSplit] = useState(emReais(tx.splitCents));
   const [nome, setNome] = useState(tx.customer || "");
-  const [perfil, setPerfil] = useState(tx.profileId || "");
+  /**
+   * UMA escolha para bot e modelo. O valor guarda os dois lados de propósito:
+   * `bot:<id>` quando a venda veio de um bot (que já diz a modelo) e
+   * `perfil:<id>` para a modelo que não tem bot cadastrado. Dois `select`
+   * separados perguntariam duas vezes a mesma coisa e deixariam o operador
+   * escolher um par que não existe.
+   */
+  const [vinculo, setVinculo] = useState(
+    tx.botId ? `bot:${tx.botId}` : tx.profileId ? `perfil:${tx.profileId}` : "",
+  );
+  const [bots, setBots] = useState<BotOpcao[]>([]);
+  const [perfisSemBot, setPerfisSemBot] = useState<{ id: string; name: string }[]>([]);
   const [produto, setProduto] = useState(tx.description || "");
   const [metodo, setMetodo] = useState(tx.method || "");
   const [codigo, setCodigo] = useState(tx.sourceCode || "");
@@ -689,8 +710,17 @@ function EditarCobranca({
   // linha, e a tabela do Financeiro carrega centenas delas de uma vez.
   useEffect(() => {
     let vivo = true;
-    apiGet<{ relatorio: RelatorioDaTransacao | null }>(`/api/payments/transactions/${tx.id}`)
-      .then((r) => vivo && setRelatorio(r.relatorio))
+    apiGet<{
+      relatorio: RelatorioDaTransacao | null;
+      bots: BotOpcao[];
+      perfisSemBot: { id: string; name: string }[];
+    }>(`/api/payments/transactions/${tx.id}`)
+      .then((r) => {
+        if (!vivo) return;
+        setRelatorio(r.relatorio);
+        setBots(r.bots || []);
+        setPerfisSemBot(r.perfisSemBot || []);
+      })
       .catch(() => {});
     return () => {
       vivo = false;
@@ -714,9 +744,9 @@ function EditarCobranca({
    */
   const sugestoes = useMemo(() => {
     if (!relatorio) return [];
-    const nomeModelo = relatorio.profileId
-      ? profiles.find((p) => p.id === relatorio.profileId)?.name
-      : undefined;
+    // O relatório resolve o BOT pelo "ID Bot" da mensagem; a modelo é
+    // consequência. A sugestão aponta o mesmo valor que o dropdown usa.
+    const botDoRelatorio = relatorio.botId ? bots.find((b) => b.id === relatorio.botId) : undefined;
     const itens: {
       chave: string;
       label: string;
@@ -739,12 +769,12 @@ function EditarCobranca({
     add("produto", "Produto", relatorio.planName, produto, () => setProduto(relatorio.planName!));
     add("nome", "Nome", relatorio.customerName, nome, () => setNome(relatorio.customerName!));
     add(
-      "modelo",
-      "Modelo",
-      nomeModelo ? relatorio.profileId : undefined,
-      perfil,
-      () => setPerfil(relatorio.profileId!),
-      nomeModelo,
+      "bot",
+      "Bot",
+      botDoRelatorio ? `bot:${botDoRelatorio.id}` : undefined,
+      vinculo,
+      () => setVinculo(`bot:${botDoRelatorio!.id}`),
+      botDoRelatorio ? rotuloDoBot(botDoRelatorio) : undefined,
     );
     add(
       "metodo",
@@ -769,7 +799,7 @@ function EditarCobranca({
       "Bot de vendas",
     );
     return itens;
-  }, [relatorio, profiles, produto, nome, perfil, metodo, codigo, origem]);
+  }, [relatorio, bots, produto, nome, vinculo, metodo, codigo, origem]);
 
   /** Só o que o relatório sabe e a linha ainda não tem. É o que o botão de
    *  preencher em massa aplica — nunca por cima do que já está escrito. */
@@ -795,7 +825,13 @@ function EditarCobranca({
         feeCents: cTaxa,
         splitCents: cSplit,
         customer: nome,
-        profileId: perfil,
+        // Um lado só vai por vez: `bot:` carrega a modelo junto no servidor;
+        // `perfil:` é a modelo sem bot. Vazio desvincula os dois.
+        ...(vinculo.startsWith("bot:")
+          ? { botId: vinculo.slice(4) }
+          : vinculo.startsWith("perfil:")
+            ? { profileId: vinculo.slice(7), botId: "" }
+            : { botId: "", profileId: "" }),
         description: produto,
         method: metodo,
         sourceCode: codigo,
@@ -924,16 +960,23 @@ function EditarCobranca({
           <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Cliente" />
         </div>
         <div>
-          <label className="eyebrow mb-1.5 block">Modelo</label>
-          <select className="input" value={perfil} onChange={(e) => setPerfil(e.target.value)}>
-            <option value="">Sem modelo</option>
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
+          <label className="eyebrow mb-1.5 block">Bot</label>
+          <select className="input" value={vinculo} onChange={(e) => setVinculo(e.target.value)}>
+            <option value="">Sem bot / sem modelo</option>
+            {bots.map((b) => (
+              <option key={b.id} value={`bot:${b.id}`}>{rotuloDoBot(b)}</option>
+            ))}
+            {/* Modelo sem bot cadastrado: venda de LTV ou lançada à mão nunca
+                passou por um. Fica no fim, separada, para a escolha normal
+                continuar sendo o bot. */}
+            {perfisSemBot.map((p) => (
+              <option key={p.id} value={`perfil:${p.id}`}>{p.name} · sem bot</option>
             ))}
           </select>
           <p className="mt-1 text-[11px] text-zinc-600">
-            Venda que chega só pelo webhook nasce sem modelo. Atribuir aqui a coloca no Funil de
-            Vendas certo — e o bot da modelo é vinculado junto.
+            Escolher o bot já atribui a modelo dona dele — é um bot por modelo. Venda que chega só
+            pelo webhook nasce sem os dois; atribuir aqui a coloca no Funil de Vendas certo e a tira
+            do filtro &quot;Sem bot&quot;.
           </p>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -941,8 +984,8 @@ function EditarCobranca({
             <label className="eyebrow mb-1.5 block">Método</label>
             <select className="input" value={metodo} onChange={(e) => setMetodo(e.target.value)}>
               <option value="">Sem método</option>
-              <option value="pix">Pix</option>
-              <option value="card">Cartão</option>
+              <option value="pix">{METHOD_LABEL.pix}</option>
+              <option value="card">{METHOD_LABEL.card}</option>
             </select>
           </div>
           <div>

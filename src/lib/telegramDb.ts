@@ -594,6 +594,35 @@ export function getBotConfigByProfile(profileId: string): TelegramBotConfig | nu
   return row ? toBotConfig(row) : null;
 }
 
+/**
+ * Todos os bots com o nome da modelo dona, para a tela poder oferecer UMA
+ * escolha onde antes havia duas.
+ *
+ * Bot e modelo são 1 para 1 (`telegram_bots.profile_id` é UNIQUE), então pedir
+ * os dois é pedir a mesma informação duas vezes — e escolher a modelo deixava
+ * o `bot_id` da venda vazio, o que a mantinha em "Sem bot" no filtro do
+ * Financeiro mesmo depois de corrigida.
+ *
+ * NÃO devolve o token: quem chama é uma tela.
+ */
+export function listBotsComModelo(): { id: string; botUsername?: string; profileId: string; profileName: string }[] {
+  return (
+    getDb()
+      .prepare(
+        `SELECT b.id, b.bot_username, b.profile_id, p.name AS profile_name
+           FROM telegram_bots b
+           JOIN profiles p ON p.id = b.profile_id
+          ORDER BY p.name COLLATE NOCASE`,
+      )
+      .all() as { id: string; bot_username: string | null; profile_id: string; profile_name: string }[]
+  ).map((r) => ({
+    id: r.id,
+    botUsername: r.bot_username || undefined,
+    profileId: r.profile_id,
+    profileName: r.profile_name,
+  }));
+}
+
 export function getBotConfig(id: string): TelegramBotConfig | null {
   const row = getDb().prepare("SELECT * FROM telegram_bots WHERE id = ?").get(id) as any;
   return row ? toBotConfig(row) : null;

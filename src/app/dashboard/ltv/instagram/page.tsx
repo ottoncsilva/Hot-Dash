@@ -25,6 +25,8 @@ import type { InstagramAppSettingsPublic } from "@/lib/settings";
 
 type ContaComAjustes = IgAccount & { settings: IgAgentSettings };
 type Cadastrada = { username: string; url?: string };
+/** Como está o recebimento de mensagens, perguntado à Meta. */
+type Webhook = { ativo: boolean; callbackUrl?: string; campos: string[]; erro?: string };
 type Persona = {
   name: string;
   toneTags: string[];
@@ -50,6 +52,8 @@ export default function InstagramPage() {
   const { profileId } = useProfile();
   const [carregando, setCarregando] = useState(true);
   const [app, setApp] = useState<InstagramAppSettingsPublic | null>(null);
+  const [webhook, setWebhook] = useState<Webhook | null>(null);
+  const [webhookUrl, setWebhookUrl] = useState("");
   const [contas, setContas] = useState<ContaComAjustes[]>([]);
   const [cadastradas, setCadastradas] = useState<Cadastrada[]>([]);
   const [persona, setPersona] = useState<Persona | null>(null);
@@ -60,11 +64,15 @@ export default function InstagramPage() {
     try {
       const d = await apiGet<{
         app: InstagramAppSettingsPublic;
+        webhook: Webhook | null;
+        webhookUrl: string;
         contas: ContaComAjustes[];
         cadastradas: Cadastrada[];
         persona: Persona | null;
       }>(`/api/instagram/accounts?profileId=${pid}`);
       setApp(d.app);
+      setWebhook(d.webhook);
+      setWebhookUrl(d.webhookUrl || "");
       setContas(d.contas);
       setCadastradas(d.cadastradas);
       setPersona(d.persona);
@@ -120,7 +128,15 @@ export default function InstagramPage() {
         description="Responde as mensagens diretas e manda o lead para o link da bio. Não vende por aqui — o canal é topo de funil."
       />
 
-      <AppBlock app={app} onSaved={(a) => setApp(a)} />
+      <AppBlock
+        app={app}
+        webhook={webhook}
+        webhookUrl={webhookUrl}
+        onSaved={(a, w) => {
+          setApp(a);
+          if (w !== undefined) setWebhook(w);
+        }}
+      />
 
       {persona && <PersonaBlock persona={persona} />}
 
@@ -183,22 +199,26 @@ export default function InstagramPage() {
  */
 function AppBlock({
   app,
+  webhook,
+  webhookUrl,
   onSaved,
 }: {
   app: InstagramAppSettingsPublic | null;
-  onSaved: (a: InstagramAppSettingsPublic) => void;
+  webhook: Webhook | null;
+  webhookUrl: string;
+  onSaved: (a: InstagramAppSettingsPublic, w?: Webhook | null) => void;
 }) {
   const [aberto, setAberto] = useState(false);
   const [appId, setAppId] = useState("");
   const [secret, setSecret] = useState("");
-  const [verify, setVerify] = useState("");
   const [base, setBase] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const [ligando, setLigando] = useState(false);
+  const [erroWebhook, setErroWebhook] = useState<string | null>(null);
 
   useEffect(() => {
     if (!app) return;
     setAppId(app.appId);
-    setVerify(app.verifyToken);
     setBase(app.publicBaseUrl);
     // O segredo nunca volta do servidor: o campo nasce vazio e só é enviado
     // quando alguém digita algo novo.
@@ -209,21 +229,25 @@ function AppBlock({
 
   async function salvar() {
     setSalvando(true);
+    setErroWebhook(null);
     try {
-      const r = await apiSend<{ app: InstagramAppSettingsPublic }>(
-        "/api/instagram/accounts",
-        "POST",
-        {
-          action: "save-app",
-          appId,
-          verifyToken: verify,
-          publicBaseUrl: base,
-          ...(secret ? { appSecret: secret } : {}),
-        },
-      );
-      onSaved(r.app);
+      const r = await apiSend<{
+        app: InstagramAppSettingsPublic;
+        webhook: Webhook | null;
+        webhookErro?: string;
+      }>("/api/instagram/accounts", "POST", {
+        action: "save-app",
+        appId,
+        publicBaseUrl: base,
+        ...(secret ? { appSecret: secret } : {}),
+      });
+      onSaved(r.app, r.webhook);
       setSecret("");
-      showToast("Salvo!", "success");
+      setErroWebhook(r.webhookErro || null);
+      showToast(
+        r.webhook?.ativo ? "Salvo — e o recebimento de mensagens já está ligado." : "Salvo!",
+        r.webhookErro ? "error" : "success",
+      );
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Falha ao salvar.", "error");
     } finally {
@@ -231,8 +255,28 @@ function AppBlock({
     }
   }
 
+  /** Tentar de novo sem reeditar nada — o motivo mais comum de falha é o painel
+   *  ainda não estar no ar no endereço informado, e isso se resolve esperando. */
+  async function ligarWebhook() {
+    setLigando(true);
+    setErroWebhook(null);
+    try {
+      const r = await apiSend<{ ok: boolean; erro?: string; webhook: Webhook }>(
+        "/api/instagram/accounts",
+        "POST",
+        { action: "configurar-webhook" },
+      );
+      if (app) onSaved(app, r.webhook);
+      setErroWebhook(r.erro || null);
+      showToast(r.ok ? "Recebimento ligado." : r.erro || "A Meta recusou.", r.ok ? "success" : "error");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha.", "error");
+    } finally {
+      setLigando(false);
+    }
+  }
+
   const callback = base ? `${base.replace(/\/+$/, "")}/api/instagram/callback` : "";
-  const webhook = base ? `${base.replace(/\/+$/, "")}/api/webhooks/instagram` : "";
 
   return (
     <div className="mt-5 card p-4">
@@ -248,11 +292,20 @@ function AppBlock({
           <span>
             <span className="block text-sm font-medium text-zinc-100">Aplicativo da Meta</span>
             <span className="block text-[11px] text-zinc-500">
-              Um só para todas as modelos. {pronto ? "Configurado." : "Ainda falta preencher."}
+              Um só para todas as modelos.{" "}
+              {!pronto
+                ? "Ainda falta preencher."
+                : webhook?.ativo
+                  ? "Configurado, recebendo mensagens."
+                  : "Configurado — falta ligar o recebimento."}
             </span>
           </span>
         </span>
-        <span className={`shrink-0 text-[11px] ${pronto ? "text-emerald-400" : "text-amber-400"}`}>
+        <span
+          className={`shrink-0 text-[11px] ${
+            pronto && webhook?.ativo ? "text-emerald-400" : "text-amber-400"
+          }`}
+        >
           {aberto ? "fechar" : pronto ? "ver" : "preencher"}
         </span>
       </button>
@@ -275,8 +328,11 @@ function AppBlock({
 
           {base && (
             <div className="grid gap-2">
-              <UrlParaCopiar label="OAuth Redirect URI" url={callback} />
-              <UrlParaCopiar label="URL do Webhook (campo messages)" url={webhook} />
+              {/* A ÚNICA URL que ainda precisa ser colada à mão. As configurações
+                  de login do app não são expostas pela API da Meta — o
+                  recebimento de mensagens é, e por isso ele se resolve sozinho
+                  logo abaixo. */}
+              <UrlParaCopiar label="OAuth Redirect URI (colar na Meta)" url={callback} />
             </div>
           )}
 
@@ -299,22 +355,115 @@ function AppBlock({
               Também é ele que assina o webhook — sem o segredo certo, nenhuma mensagem é aceita.
             </p>
           </div>
-          <div>
-            <label className="eyebrow mb-1.5 block">Verify token do webhook</label>
-            <input
-              className="input"
-              value={verify}
-              onChange={(e) => setVerify(e.target.value)}
-              placeholder="uma palavra qualquer que você inventa"
-            />
-            <p className="mt-1 text-[11px] text-zinc-600">
-              Você escolhe esta palavra e repete no painel da Meta. Ela é conferida no aperto de
-              mão do webhook.
-            </p>
-          </div>
           <button type="button" onClick={salvar} disabled={salvando} className="btn-primary">
-            {salvando ? "Salvando..." : "Salvar aplicativo"}
+            {salvando ? "Salvando e ligando..." : "Salvar aplicativo"}
           </button>
+
+          <RecebimentoBlock
+            webhook={webhook}
+            webhookUrl={webhookUrl}
+            erro={erroWebhook}
+            ocupado={ligando}
+            pronto={pronto}
+            onLigar={ligarWebhook}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * O RECEBIMENTO DE MENSAGENS, e se ele está mesmo de pé.
+ *
+ * Este era o passo que o operador fazia à mão no console da Meta e o único que
+ * errava em silêncio: esquecer de assinar o campo `messages` deixa tudo com
+ * cara de certo e nada chega. Agora o painel se cadastra sozinho ao salvar as
+ * credenciais — e o que se vê aqui não é o que ACHAMOS que configuramos, é o
+ * que a Meta respondeu quando a tela perguntou.
+ *
+ * Quando falha, a mensagem de erro dela vale mais que qualquer instrução
+ * genérica: é ela que diz se o endereço está fora do ar, se veio http em vez
+ * de https, ou se o aperto de mão não bateu. Por isso ela aparece inteira, e
+ * a URL fica à mão para o caminho manual, que continua existindo.
+ */
+function RecebimentoBlock({
+  webhook,
+  webhookUrl,
+  erro,
+  ocupado,
+  pronto,
+  onLigar,
+}: {
+  webhook: Webhook | null;
+  webhookUrl: string;
+  erro: string | null;
+  ocupado: boolean;
+  pronto: boolean;
+  onLigar: () => void;
+}) {
+  if (!pronto) return null;
+
+  const ativo = Boolean(webhook?.ativo);
+  // Cadastrado, mas entregando em OUTRO lugar. Acontece ao trocar o domínio do
+  // painel: a Meta continua mandando para o endereço velho, e sem dizer isso a
+  // tela mostraria "não configurado" sem explicar por quê.
+  const outroDestino =
+    webhook && !webhook.ativo && webhook.callbackUrl && webhook.callbackUrl !== webhookUrl;
+
+  return (
+    <div
+      className={`rounded-xl border p-3 ${
+        ativo ? "border-emerald-500/25 bg-emerald-500/[0.05]" : "border-amber-500/25 bg-amber-500/[0.06]"
+      }`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className={`text-xs font-medium ${ativo ? "text-emerald-300" : "text-amber-300"}`}>
+            {ativo ? "Recebendo mensagens" : "Recebimento não está de pé"}
+          </p>
+          <p className="mt-0.5 text-[11px] text-zinc-500">
+            {ativo
+              ? "A Meta confirmou que entrega as mensagens neste painel. Nada a fazer no site dela."
+              : "O painel tenta ligar sozinho ao salvar. Se não deu, tente de novo aqui."}
+          </p>
+        </div>
+        {!ativo && (
+          <button
+            type="button"
+            onClick={onLigar}
+            disabled={ocupado}
+            className="shrink-0 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-[11px] font-bold text-amber-300 transition-colors hover:bg-amber-500/20 disabled:opacity-40"
+          >
+            {ocupado ? "Ligando..." : "Ligar agora"}
+          </button>
+        )}
+      </div>
+
+      {erro && (
+        <p className="mt-2 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-2.5 py-1.5 text-[11px] leading-relaxed text-red-300">
+          A Meta respondeu: {erro}
+        </p>
+      )}
+
+      {outroDestino && (
+        <p className="mt-2 text-[11px] leading-relaxed text-amber-400/80">
+          O aplicativo está cadastrado, mas entregando em <code>{webhook!.callbackUrl}</code> — não
+          neste painel. Trocou o endereço? Clique em Ligar agora para apontar para cá.
+        </p>
+      )}
+
+      {webhook?.erro && !erro && (
+        <p className="mt-2 text-[11px] text-zinc-500">Não deu para conferir com a Meta: {webhook.erro}</p>
+      )}
+
+      {!ativo && webhookUrl && (
+        <div className="mt-2.5 border-t border-white/[0.06] pt-2.5">
+          <p className="mb-1.5 text-[11px] text-zinc-600">
+            Se preferir fazer à mão no site da Meta, o endereço é este — e o campo a assinar é{" "}
+            <code>messages</code>. A palavra de verificação o painel guarda sozinho.
+          </p>
+          <UrlParaCopiar label="URL do Webhook" url={webhookUrl} />
         </div>
       )}
     </div>

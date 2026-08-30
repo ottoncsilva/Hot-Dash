@@ -242,3 +242,141 @@ export function assinaturaConfere(corpoCru: string, header: string | null): bool
   const b = Buffer.from(header);
   return a.length === b.length && timingSafeEqual(a, b);
 }
+
+/**
+ * ================================================================
+ * O WEBHOOK, LIGADO SOZINHO
+ * ================================================================
+ *
+ * Configurar o recebimento de mensagens era o passo mais fácil de errar do
+ * cadastro inteiro — e o único que erra em SILÊNCIO: esquecer de assinar o
+ * campo `messages` deixa tudo com cara de certo (a conta conecta, nenhum erro
+ * aparece na tela da Meta) e simplesmente nada chega.
+ *
+ * A Graph API expõe isso em `/{app-id}/subscriptions`, e a autenticação é um
+ * token de APP — `{app_id}|{app_secret}`, os dois valores que o operador já
+ * colou no painel. Ou seja: dá para o painel se cadastrar sozinho, sem ninguém
+ * navegar pelo console da Meta.
+ *
+ * Cadastrar dispara o aperto de mão na hora: a Meta chama o nosso endpoint com
+ * o `hub.challenge`, e só aceita se a resposta bater. Isso é uma vantagem
+ * escondida — o erro aparece AGORA, com mensagem, em vez de virar um "não
+ * chega nada" descoberto dias depois.
+ *
+ * Aqui é `graph.facebook.com` e não `graph.instagram.com`: esta chamada é sobre
+ * o APLICATIVO, não sobre a conta de uma modelo.
+ */
+
+const GRAPH_FB = "https://graph.facebook.com";
+/** O objeto do webhook. É o mesmo nome que vem no `object` de cada evento. */
+const WEBHOOK_OBJECT = "instagram";
+/** Só mensagens. Cada campo a mais é tráfego que ninguém lê e uma superfície a
+ *  mais para tratar no endpoint. */
+const WEBHOOK_FIELDS = "messages";
+
+/** Token de aplicativo: identifica o APP, não uma pessoa. Vale para as
+ *  chamadas sobre o próprio app, como a assinatura do webhook. */
+function appAccessToken(): string | null {
+  const { appId } = getInstagramAppSettings();
+  const secret = getInstagramAppSecret();
+  return appId && secret ? `${appId}|${secret}` : null;
+}
+
+export type WebhookStatus = {
+  /** O recebimento está ligado E apontando para este painel. */
+  ativo: boolean;
+  /** Para onde a Meta está mandando hoje. Diferente do nosso quer dizer que o
+   *  app está cadastrado, mas entregando em outro lugar. */
+  callbackUrl?: string;
+  campos: string[];
+  /** Preenchido quando não deu para conferir (rede, credencial errada). */
+  erro?: string;
+};
+
+/** A URL que a Meta precisa chamar para entregar as mensagens. */
+export function webhookUrl(): string {
+  const base = getInstagramAppSettings().publicBaseUrl;
+  return base ? `${base}/api/webhooks/instagram` : "";
+}
+
+/**
+ * Como está o recebimento AGORA, perguntado à Meta — não o que achamos que
+ * configuramos. É a diferença entre a tela dizer "ligado" e a tela dizer
+ * "ligado porque acabei de conferir".
+ */
+export async function statusDoWebhook(): Promise<WebhookStatus> {
+  const token = appAccessToken();
+  const { appId } = getInstagramAppSettings();
+  if (!token || !appId) return { ativo: false, campos: [], erro: "App ID ou chave secreta não cadastrados." };
+
+  try {
+    const data = await json(
+      await fetch(
+        `${GRAPH_FB}/${GRAPH_VERSION}/${appId}/subscriptions?${new URLSearchParams({ access_token: token })}`,
+      ),
+    );
+    const lista = (data.data as { object?: string; callback_url?: string; active?: boolean; fields?: unknown[] }[]) || [];
+    const nosso = lista.find((s) => s.object === WEBHOOK_OBJECT);
+    if (!nosso) return { ativo: false, campos: [] };
+
+    const campos = (nosso.fields || [])
+      .map((f) => (typeof f === "string" ? f : (f as { name?: string }).name))
+      .filter((n): n is string => Boolean(n));
+
+    return {
+      // "Ativo" exige as três coisas: existir, apontar para ESTE painel e
+      // trazer o campo `messages`. Sem as três, alguma DM não chega — e dizer
+      // "ligado" nesse estado seria pior que dizer nada.
+      ativo:
+        Boolean(nosso.active) &&
+        nosso.callback_url === webhookUrl() &&
+        campos.includes(WEBHOOK_FIELDS),
+      callbackUrl: nosso.callback_url,
+      campos,
+    };
+  } catch (e) {
+    return { ativo: false, campos: [], erro: e instanceof Error ? e.message : "Falha ao consultar a Meta." };
+  }
+}
+
+/**
+ * Liga o recebimento de mensagens. Idempotente: chamar de novo com os mesmos
+ * valores só reconfirma.
+ *
+ * A Meta faz o aperto de mão DENTRO desta chamada — ela bate no nosso endpoint
+ * com o `hub.challenge` antes de responder. Então uma falha aqui já diz qual
+ * é o problema (URL fora do ar, verify token diferente, http em vez de https)
+ * em vez de deixar o operador adivinhando depois.
+ */
+export async function configurarWebhook(): Promise<{ ok: true } | { ok: false; erro: string }> {
+  const token = appAccessToken();
+  const { appId, verifyToken } = getInstagramAppSettings();
+  const callback = webhookUrl();
+
+  if (!token || !appId) return { ok: false, erro: "Cadastre o App ID e a chave secreta da Meta primeiro." };
+  if (!callback) return { ok: false, erro: "Cadastre o endereço público do painel primeiro." };
+  if (!verifyToken) return { ok: false, erro: "Sem a palavra de verificação do webhook." };
+  if (!callback.startsWith("https://")) {
+    // A Meta recusa http, e a mensagem dela não diz isso com todas as letras.
+    return { ok: false, erro: "O endereço do painel precisa começar com https:// — a Meta recusa http." };
+  }
+
+  try {
+    await json(
+      await fetch(`${GRAPH_FB}/${GRAPH_VERSION}/${appId}/subscriptions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          object: WEBHOOK_OBJECT,
+          callback_url: callback,
+          fields: WEBHOOK_FIELDS,
+          verify_token: verifyToken,
+          access_token: token,
+        }),
+      }),
+    );
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, erro: e instanceof Error ? e.message : "A Meta recusou a configuração." };
+  }
+}

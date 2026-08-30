@@ -43,6 +43,7 @@ import {
   unbanTelegramMember,
 } from "@/lib/telegramApi";
 import { overview } from "@/lib/transactions";
+import { numerosDaProvaSocial } from "@/lib/provaSocial";
 import { listMedia } from "@/lib/media";
 import { resolvePublicOrigin, webhookOriginProblem } from "@/lib/publicOrigin";
 import { buttonStyleProps, sanitizeButtonStyles, BUTTON_ROLES } from "@/lib/settings";
@@ -232,11 +233,17 @@ export async function GET(req: NextRequest) {
     const subscriptions = bot ? listSubscriptions(bot.id) : [];
     // Métricas de venda do modelo (reaproveita o painel financeiro).
     const metrics = overview(profileId);
-    // Assinantes ativos AGORA — junto com metrics.today.paidCount, são os
-    // 2 números que decidem se a prova social do bot de verdade dispara ou
-    // fica calada hoje (ver webhook). A prévia usa os dois para não mentir
-    // sobre quando a mensagem realmente sai.
     const activeSubscriptions = bot ? countActiveSubscriptions(bot.id) : 0;
+    // Os números que a prova social VAI MOSTRAR — já com o piso aplicado (ver
+    // `lib/provaSocial.ts`). A prévia recebe estes, e não os crus: mostrar o
+    // número real ali faria a tela do operador discordar do que o lead recebe,
+    // justo na mensagem em que essa diferença importa.
+    const provaSocial = bot
+      ? numerosDaProvaSocial(bot.id, {
+          vendasHoje: metrics.today.paidCount,
+          assinantes: activeSubscriptions,
+        })
+      : null;
 
     return NextResponse.json({
       bot,
@@ -247,6 +254,7 @@ export async function GET(req: NextRequest) {
       subscriptions,
       metrics,
       activeSubscriptions,
+      provaSocial,
       pixDefaults: PIX_DEFAULTS,
       checkoutDefaults: CHECKOUT_DEFAULTS,
       // Passos-modelo do Alerta de Renovação, para o botão "Puxar padrão" —

@@ -234,12 +234,10 @@ export function FunnelPreview({
   pixCaption: string;
   pixSocialProof: boolean;
   pixSocialProofText: string;
-  /** Números REAIS de hoje desta modelo (vendas pagas hoje / assinantes
-   *  ativos agora) — os mesmos 2 que o bot de verdade confere antes de
-   *  mandar a prova social (`hoje > 0 || assinantes > 0`, ver webhook).
-   *  Sem eles a prévia sempre mostrava a linha com números de exemplo,
-   *  mesmo nos dias em que o bot de verdade fica calado — não eram 100%
-   *  realistas. Ausentes/undefined = ainda carregando, trata como 0. */
+  /** Os números que a prova social vai MOSTRAR — já com o piso aplicado no
+   *  servidor (ver `lib/provaSocial.ts`), não os brutos. É o que o lead
+   *  recebe, e é por isso que a prévia não os recalcula.
+   *  Ausentes/undefined = ainda carregando, trata como 0. */
   vendasHojeReal?: number;
   assinantesAtivosReal?: number;
   pixButtons: Btn[];
@@ -432,18 +430,17 @@ export function FunnelPreview({
       ? legenda.replace(/{pix_code}/gi, PIX_CODIGO_EXEMPLO)
       : `${legenda}\n\n${PIX_CODIGO_EXEMPLO}`;
   }
-  // Números REAIS desta modelo hoje — mesma dupla que o bot de verdade
-  // confere antes de mandar a prova social. Mesmo gate aqui: se os dois
-  // estiverem zerados, a prévia também fica calada, em vez de fingir com
-  // números de exemplo que o bot nunca mandaria hoje.
+  // Os números vêm PRONTOS do servidor, já com o piso da prova social
+  // aplicado (ver `lib/provaSocial.ts`). A prévia não recalcula nada: uma
+  // segunda cópia da regra aqui divergiria da real no dia em que uma das duas
+  // mudasse — e a prévia existe justamente para mostrar o que o lead recebe.
   const vendasHoje = vendasHojeReal || 0;
   const assinantesAtivos = assinantesAtivosReal || 0;
-  const provaSocialLinha =
-    pixSocialProof && (vendasHoje > 0 || assinantesAtivos > 0)
-      ? (pixSocialProofTextoAtivo.trim() || PIX_PADRAO_PREVIEW.socialProofText)
-          .replace(/{vendas_hoje}/gi, String(vendasHoje))
-          .replace(/{assinantes}/gi, String(assinantesAtivos))
-      : "";
+  const provaSocialLinha = pixSocialProof
+    ? (pixSocialProofTextoAtivo.trim() || PIX_PADRAO_PREVIEW.socialProofText)
+        .replace(/{vendas_hoje}/gi, String(vendasHoje))
+        .replace(/{assinantes}/gi, String(assinantesAtivos))
+    : "";
 
   // "Verificar Status" confirma no SEGUNDO toque — mesma sensação de "toquei
   // de novo depois de pagar de verdade" que o lead teria, sem precisar de um

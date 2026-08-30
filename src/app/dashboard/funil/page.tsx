@@ -10,6 +10,81 @@ import { DEFAULT_PERIOD } from "@/lib/periods";
 import { useProfile } from "@/context/ProfileContext";
 import { niceTicks } from "@/lib/chartTicks";
 
+/** Quantas fontes o resumo lista antes de somar o resto numa linha só. Oito é
+ *  o que cabe na tela do celular sem rolar — o que passa disso é cauda, e
+ *  cauda interessa como total, não item a item (a tabela abaixo tem todas). */
+const RESUMO_FONTES_TETO = 8;
+
+/**
+ * As fontes de tráfego em forma de resumo: quem trouxe dinheiro, quanto, e com
+ * quantas vendas.
+ *
+ * Vem ordenado por receita da própria consulta (`trafficSources`), então a
+ * primeira linha é sempre a fonte que mais faturou no período e na modelo
+ * selecionados. Código vazio é o lead que deu `/start` seco, sem deep-link —
+ * aparece como "(sem código)" em vez de sumir, porque costuma ser uma das
+ * maiores fatias e escondê-la faria as outras parecerem maiores do que são.
+ *
+ * Fonte com zero venda continua na lista: um código que traz gente e não
+ * converte é exatamente o que se quer enxergar aqui.
+ */
+function ResumoFontes({ fontes }: { fontes?: Fonte[] }) {
+  if (!fontes) {
+    return (
+      <div className="mt-3 card p-4">
+        <div className="h-12 animate-pulse rounded bg-white/[0.03]" />
+      </div>
+    );
+  }
+  if (fontes.length === 0) {
+    return (
+      <div className="mt-3 card p-4">
+        <p className="text-xs text-zinc-600">Sem tráfego no período.</p>
+      </div>
+    );
+  }
+
+  const topo = fontes.slice(0, RESUMO_FONTES_TETO);
+  const resto = fontes.slice(RESUMO_FONTES_TETO);
+  const restoCents = resto.reduce((n, f) => n + f.paidCents, 0);
+  const restoVendas = resto.reduce((n, f) => n + f.pixPaid, 0);
+
+  return (
+    <div className="mt-3 card p-4">
+      <div className="space-y-2">
+        {topo.map((f, i) => (
+          <div key={f.code || "(sem)"} className="flex items-center justify-between gap-3 text-sm">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="grid h-5 w-5 shrink-0 place-items-center rounded bg-white/5 font-mono text-[10px] text-zinc-400">
+                {i + 1}
+              </span>
+              {f.code ? (
+                <span className="truncate font-mono text-xs text-zinc-200">{f.code}</span>
+              ) : (
+                <span className="truncate font-mono text-xs text-zinc-500">(sem código)</span>
+              )}
+            </span>
+            <span className="shrink-0 font-mono text-xs text-zinc-500">
+              {f.pixPaid} venda(s){" "}
+              {/* Receita zerada em cinza: o alinhamento da coluna se mantém, mas
+                  o verde fica reservado para dinheiro que entrou de verdade. */}
+              <span className={f.paidCents > 0 ? "text-emerald-400" : "text-zinc-600"}>
+                {brl(f.paidCents)}
+              </span>
+            </span>
+          </div>
+        ))}
+      </div>
+      {resto.length > 0 && (
+        <p className="mt-2.5 border-t border-white/[0.06] pt-2.5 text-[11px] text-zinc-600">
+          + {resto.length} outro(s) código(s) · {restoVendas} venda(s) ·{" "}
+          <span className={restoCents > 0 ? "text-emerald-400/80" : ""}>{brl(restoCents)}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** Um dia da série de crescimento dos grupos. Espelha o que a rota devolve —
  *  declarado aqui porque o módulo que a produz é `server-only`. */
 type GroupGrowthPoint = {
@@ -395,7 +470,17 @@ export default function FunilPage() {
         <p className="eyebrow">fontes de tráfego</p>
         <p className="text-[11px] text-zinc-600">faturamento por código de divulgação</p>
       </div>
-      <div className="mt-3 card overflow-x-auto p-0">
+
+      {/* RESUMO antes do detalhe. A tabela abaixo tem tudo (views, cliques,
+          starts, conversão), mas são 8 colunas que só cabem rolando de lado —
+          no celular a resposta de "de onde veio o dinheiro" ficava a três
+          arrastadas de distância. Este card responde isso de cara, na mesma
+          forma do "planos que mais convertem" logo abaixo. Come os mesmos
+          `data.fontes`: um só filtro para os dois, sem chance de divergirem. */}
+      <ResumoFontes fontes={data?.fontes} />
+
+      <p className="mt-4 text-[11px] text-zinc-600">Detalhe por código, do topo do funil à receita:</p>
+      <div className="mt-2 card overflow-x-auto p-0">
         <table className="w-full min-w-[560px] text-left text-sm">
           <thead>
             <tr className="border-b border-white/[0.06] font-mono text-[10px] uppercase tracking-wider text-zinc-500">

@@ -1691,9 +1691,11 @@ function SuccessRow({
   const areaRef = useRef<HTMLTextAreaElement>(null);
 
   // Sem {link_vip} escrito no texto, o envio ANEXA o link no fim e sempre põe o
-  // botão de acesso — o cliente nunca fica sem caminho para o grupo. Ainda
-  // assim o aviso continua, porque o texto sai diferente do que está escrito
-  // aqui, e é melhor o operador saber disso antes da primeira venda.
+  // botão de acesso — o cliente nunca fica sem caminho para o grupo (ver
+  // `buildAccessMessage`). A nota continua, porque o texto sai diferente do que
+  // está escrito aqui; mas ela é INFORMAÇÃO, não problema. Em âmbar, no meio de
+  // um formulário onde âmbar significa "falta preencher", ela era lida como
+  // erro em algo que está funcionando.
   const semMarcador = !/{link_vip}/i.test(texto);
 
   // Tradução pode ficar desatualizada se o PT for editado depois — aviso
@@ -1771,8 +1773,10 @@ function SuccessRow({
       </p>
 
       {semMarcador && (
-        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-2.5 text-xs text-amber-300">
-          Sem <b>{"{link_vip}"}</b>, o link entra no fim da mensagem.
+        <p className="mt-3 rounded-lg border border-white/10 bg-white/[0.03] p-2.5 text-xs text-zinc-400">
+          Você não escreveu <b className="text-zinc-200">{"{link_vip}"}</b> no texto — tudo certo:
+          o link do VIP entra sozinho no fim da mensagem, e o botão vai junto. Escreva{" "}
+          <b className="text-zinc-200">{"{link_vip}"}</b> se quiser escolher o lugar dele.
         </p>
       )}
 

@@ -271,8 +271,14 @@ export function updateTransaction(
     feeCents?: number;
     splitCents?: number;
     customer?: string;
-    /** Modelo a que a venda pertence. "" desvincula. Venda que chega só pelo
-     *  webhook nasce sem modelo — a SyncPay não sabe de qual é. */
+    /** Bot que fez a venda. É por ELE que a tela atribui: escolher o bot já
+     *  diz a modelo (um bot por modelo), enquanto escolher a modelo deixava o
+     *  `bot_id` vazio e a linha ficava em "Sem bot" no filtro. "" desvincula
+     *  os dois. */
+    botId?: string;
+    /** Modelo a que a venda pertence. Continua aceito para o caso que o bot
+     *  não cobre: modelo SEM bot cadastrado (venda de LTV ou lançada à mão).
+     *  "" desvincula. */
     profileId?: string;
     /** O PRODUTO (coluna Produto e texto de toda notificação de venda). Numa
      *  venda de bot operado por fora ele nasce vazio: o gateway só sabe o
@@ -305,22 +311,44 @@ export function updateTransaction(
   const sourceCode = texto(input.sourceCode, atual.sourceCode);
   const origin = texto(input.origin, atual.origin);
 
-  // O BOT SEGUE A MODELO. Existe exatamente um bot por modelo
-  // (`telegram_bots.profile_id` é UNIQUE), então pedir os dois ao operador
-  // seria pedir a mesma informação duas vezes — e deixar `bot_id` vazio
-  // enquanto a modelo já está certa é o que mantinha a linha em "Sem bot" no
-  // filtro e sem @usuário na coluna Bot, mesmo depois de corrigida.
+  // A MODELO SEGUE O BOT. Existe exatamente um bot por modelo
+  // (`telegram_bots.profile_id` é UNIQUE), então os dois são a mesma
+  // informação — e a tela pergunta pelo BOT, que é o lado que carrega o outro.
+  // Pelo caminho inverso (escolher a modelo) o `bot_id` ficava vazio, e era
+  // isso que mantinha a linha em "Sem bot" no filtro e sem @usuário na coluna
+  // Bot mesmo depois de corrigida.
   //
-  // Só é recalculado quando a modelo foi TOCADA nesta edição: uma venda de
-  // LTV ou lançada à mão não passou por bot nenhum, e sobrescrever o `bot_id`
-  // dela numa correção de valor inventaria um vínculo que nunca existiu.
+  // `profileId` continua aceito sozinho para o caso que o bot não cobre:
+  // modelo SEM bot cadastrado (venda de LTV ou lançada à mão). Aí o vínculo de
+  // bot é desfeito, porque essa venda não passou por bot nenhum.
   let botId = atual.botId ?? null;
-  if (input.profileId !== undefined && perfil !== (atual.profileId ?? null)) {
+  let perfilFinal = perfil;
+  if (input.botId !== undefined) {
+    const escolhido = input.botId.trim();
+    if (escolhido) {
+      const dono = getDb()
+        .prepare("SELECT id, profile_id FROM telegram_bots WHERE id = ?")
+        .get(escolhido) as { id: string; profile_id: string } | undefined;
+      if (dono) {
+        botId = dono.id;
+        perfilFinal = dono.profile_id;
+      }
+      // Bot que não existe mais: não mexe em nada. Apagar a atribuição por
+      // causa de um id velho seria perder um dado certo por um erro nosso.
+    } else {
+      // "" = desvincular. Sem bot escolhido e sem modelo informada, a venda
+      // volta a ser "Sem modelo" — que é o que o operador pediu.
+      botId = null;
+      if (input.profileId === undefined) perfilFinal = null;
+    }
+  } else if (input.profileId !== undefined && perfil !== (atual.profileId ?? null)) {
+    // Caminho da modelo sem bot: atribui a modelo e desfaz qualquer bot que
+    // estivesse pendurado ali.
     botId = perfil
       ? ((getDb().prepare("SELECT id FROM telegram_bots WHERE profile_id = ?").get(perfil) as
           | { id: string }
           | undefined)?.id ?? null)
-      : null; // sem modelo não há bot: o vínculo inteiro é desfeito
+      : null;
   }
 
   getDb()
@@ -337,7 +365,7 @@ export function updateTransaction(
       split,
       liquido,
       customer,
-      perfil,
+      perfilFinal,
       botId,
       description,
       method,

@@ -1,6 +1,6 @@
 import "server-only";
-import { randomBytes } from "node:crypto";
 import { getDb } from "./db";
+import { randomBytes } from "node:crypto";
 import { decryptSecret, encryptSecret } from "./crypto";
 import {
   normalizeMenu,
@@ -43,8 +43,12 @@ function setJson(key: string, value: unknown): void {
  * a uma. Guardar isso por modelo criaria N apps para cadastrar e N App Reviews
  * para pedir no dia em que a operação virar Tech Provider.
  *
- * O `verifyToken` é uma string inventada por quem configura: a Meta a devolve
- * no aperto de mão do webhook, e é ela que prova que a chamada veio de lá.
+ * O `verifyToken` NÃO é escolhido por ninguém: nasce sorteado na primeira vez
+ * que o app é salvo. Ele é um segredo compartilhado com a Meta — a única coisa
+ * que prova, no aperto de mão do webhook, que a chamada veio de lá. Pedir ao
+ * operador que "invente uma palavra" produzia senha de operador ("hotdash123")
+ * para um campo que ele nunca mais ia digitar, já que quem o repete para a Meta
+ * agora é o próprio painel (ver `configurarWebhook`).
  */
 export type InstagramAppSettingsPublic = {
   appId: string;
@@ -93,6 +97,9 @@ export function updateInstagramAppSettings(patch: {
   const s = getJson<InstagramAppStored>(IG_APP_KEY, {});
   if (patch.appId !== undefined) s.appId = patch.appId.trim() || undefined;
   if (patch.verifyToken !== undefined) s.verifyToken = patch.verifyToken.trim() || undefined;
+  // Nasce sorteado e nunca mais muda: trocá-lo depois derrubaria o webhook já
+  // registrado na Meta, que guarda o valor antigo do outro lado.
+  if (!s.verifyToken) s.verifyToken = randomBytes(24).toString("hex");
   if (patch.publicBaseUrl !== undefined) {
     s.publicBaseUrl = patch.publicBaseUrl.trim().replace(/\/+$/, "") || undefined;
   }

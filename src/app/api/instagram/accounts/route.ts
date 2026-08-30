@@ -10,6 +10,7 @@ import {
   type IgAgentSettings,
 } from "@/lib/instagram/db";
 import { getInstagramAppSettings, updateInstagramAppSettings } from "@/lib/settings";
+import { configurarWebhook, statusDoWebhook, webhookUrl } from "@/lib/instagram/api";
 import { getProfile } from "@/lib/profiles";
 
 export const runtime = "nodejs";
@@ -31,11 +32,17 @@ export async function GET(req: NextRequest) {
     if (!profileId) throw new ApiError(400, "Informe a modelo.");
 
     const perfil = await getProfile(profileId);
+    const app = getInstagramAppSettings();
+    // Perguntado à Meta, não deduzido: a tela precisa dizer "conferi agora",
+    // não "acho que configurei". Sem App ID/segredo não há o que perguntar.
+    const webhook = app.appId && app.hasSecret ? await statusDoWebhook() : null;
     const contas = listAccounts(profileId).map((c) => ({ ...c, settings: getAgentSettings(c.id) }));
     const conectadas = new Set(contas.map((c) => (c.username || "").toLowerCase()).filter(Boolean));
 
     return NextResponse.json({
-      app: getInstagramAppSettings(),
+      app,
+      webhook,
+      webhookUrl: webhookUrl(),
       contas,
       // Do cadastro da modelo, só o que ainda não está conectado.
       cadastradas: (perfil?.accounts || [])
@@ -67,13 +74,38 @@ export async function POST(req: NextRequest) {
 
     // Credenciais do app da Meta — valem para TODAS as modelos.
     if (action === "save-app") {
+      const app = updateInstagramAppSettings({
+        appId: typeof body.appId === "string" ? body.appId : undefined,
+        appSecret: typeof body.appSecret === "string" ? body.appSecret : undefined,
+        publicBaseUrl: typeof body.publicBaseUrl === "string" ? body.publicBaseUrl : undefined,
+      });
+
+      // LIGA O RECEBIMENTO NA MESMA AÇÃO. Era o passo mais fácil de esquecer do
+      // cadastro inteiro, e o único que falha calado: sem ele a conta conecta,
+      // nenhum erro aparece, e nenhuma mensagem chega. Agora acontece sozinho,
+      // e a Meta faz o aperto de mão dentro desta chamada — então um endereço
+      // errado vira mensagem de erro AQUI, não um mistério dias depois.
+      //
+      // Falhar não desfaz o que foi salvo: as credenciais valem, e a tela
+      // oferece tentar de novo (ou fazer à mão) com o motivo na frente.
+      const r = app.appId && app.hasSecret && app.publicBaseUrl ? await configurarWebhook() : null;
+
       return NextResponse.json({
-        app: updateInstagramAppSettings({
-          appId: typeof body.appId === "string" ? body.appId : undefined,
-          appSecret: typeof body.appSecret === "string" ? body.appSecret : undefined,
-          verifyToken: typeof body.verifyToken === "string" ? body.verifyToken : undefined,
-          publicBaseUrl: typeof body.publicBaseUrl === "string" ? body.publicBaseUrl : undefined,
-        }),
+        app,
+        webhookUrl: webhookUrl(),
+        webhook: r?.ok ? await statusDoWebhook() : null,
+        webhookErro: r && !r.ok ? r.erro : undefined,
+      });
+    }
+
+    // Tentar de novo, sozinho, sem precisar reeditar as credenciais.
+    if (action === "configurar-webhook") {
+      const r = await configurarWebhook();
+      return NextResponse.json({
+        ok: r.ok,
+        erro: r.ok ? undefined : r.erro,
+        webhook: await statusDoWebhook(),
+        webhookUrl: webhookUrl(),
       });
     }
 

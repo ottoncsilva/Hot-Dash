@@ -131,6 +131,55 @@ export function nomeDoProduto(
   return `${limpo}${SUFIXO_RENOVACAO}`;
 }
 
+/**
+ * O MÉTODO DE PAGAMENTO no vocabulário do painel: "pix" ou "card".
+ *
+ * Existe porque o gateway não tem vocabulário nenhum. A SyncPay manda o
+ * `payment_method` como vier — "pix", "PIX", "Pix" — e isso era gravado cru.
+ * O resultado é que a mesma forma de pagamento virava TRÊS na tela: três
+ * linhas diferentes no filtro de Método, três fatias no gráfico, e nenhuma
+ * somando com a outra.
+ *
+ * A normalização mora aqui, dentro de `recordTransaction`, e não em cada
+ * webhook: é o único ponto por onde toda venda passa, então não há como um
+ * caminho novo esquecer de chamar.
+ *
+ * O que não é reconhecido volta em minúsculas, como veio. Chutar "pix" para um
+ * método desconhecido seria inventar um dado; minúsculo pelo menos junta as
+ * variações de caixa da mesma coisa.
+ */
+export function normalizarMetodo(raw: string | undefined | null): string | undefined {
+  const v = (raw || "").trim().toLowerCase();
+  if (!v || v === "-") return undefined;
+  if (v.includes("pix")) return "pix";
+  if (/cart[aã]o|card|credit|cr[eé]dito|d[eé]bito|debit/.test(v)) return "card";
+  return v;
+}
+
+/**
+ * Arruma o método das cobranças JÁ gravadas — as que entraram como "PIX" ou
+ * "Pix" antes de a normalização existir.
+ *
+ * Sem isto, a correção só valeria para vendas novas e o filtro continuaria
+ * mostrando as três variantes do histórico. Idempotente: rodar de novo não
+ * muda nada além do que ainda estiver fora do padrão.
+ */
+export function normalizarMetodosGravados(): number {
+  const db = getDb();
+  const linhas = db
+    .prepare("SELECT DISTINCT method FROM transactions WHERE method IS NOT NULL AND method <> ''")
+    .all() as { method: string }[];
+  let mudadas = 0;
+  for (const l of linhas) {
+    const certo = normalizarMetodo(l.method);
+    if (!certo || certo === l.method) continue;
+    mudadas += db
+      .prepare("UPDATE transactions SET method = ? WHERE method = ?")
+      .run(certo, l.method).changes;
+  }
+  return mudadas;
+}
+
 export function recordTransaction(input: {
   provider: string;
   providerRef?: string;
@@ -197,7 +246,7 @@ export function recordTransaction(input: {
       split,
       input.status === "paid" ? now : null,
       input.currency || "BRL",
-      input.method || null,
+      normalizarMetodo(input.method) || null,
       input.status,
       input.sourceCode || null,
       input.origin || null,
@@ -670,10 +719,14 @@ export function importProviderRows(
   return res;
 }
 
-/** Agrupa o método de pagamento bruto do provedor num rótulo de exibição. */
-function methodBucket(method: string | null): "Pix" | "Cartão" | "Boleto" | "Outros" {
+/** Agrupa o método de pagamento num rótulo de exibição. Desde a normalização
+ *  (ver `normalizarMetodo`) ele já chega padronizado, mas o `includes` fica:
+ *  é o que cobre linha antiga que a migração ainda não tocou. "PIX" em caixa
+ *  alta é o mesmo rótulo da coluna Método, para as duas telas não chamarem a
+ *  mesma coisa de dois jeitos. */
+function methodBucket(method: string | null): "PIX" | "Cartão" | "Boleto" | "Outros" {
   const m = (method || "").toLowerCase();
-  if (m.includes("pix")) return "Pix";
+  if (m.includes("pix")) return "PIX";
   if (m.includes("card") || m.includes("cart")) return "Cartão";
   if (m.includes("boleto")) return "Boleto";
   return "Outros";

@@ -121,9 +121,17 @@ export function registrarChegadaTelegram(
     if (isStart && from) {
       // Deep-link de divulgação: t.me/<bot>?start=CODIGO chega como
       // "/start CODIGO". É o que liga a venda à origem do tráfego.
-      const sourceCode = (String(text).slice("/start".length).trim().split(/\s+/)[0] || "")
-        .replace(/[^\w-]/g, "")
-        .slice(0, 40);
+      //
+      // Sem código nenhum, fica "start" — que É uma origem: "chegou direto no
+      // bot, sem link de divulgação". É o mesmo nome que o relatório do Canal
+      // de Vendas usa para essa situação (`buildSalesReportMessage` escreve
+      // `sourceCode || "start"`), e é isso que faz as vendas do bot próprio e
+      // as do bot operado por fora caírem no MESMO balde do Funil em vez de
+      // duas contagens da mesma coisa.
+      const sourceCode =
+        (String(text).slice("/start".length).trim().split(/\s+/)[0] || "")
+          .replace(/[^\w-]/g, "")
+          .slice(0, 40) || "start";
       upsertTelegramLead({
         id: `${bot.id}_${from.id}`,
         profileId: bot.profileId,

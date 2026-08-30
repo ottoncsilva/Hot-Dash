@@ -49,8 +49,11 @@ const STATUS_LABEL: Record<string, string> = {
   chargeback: "chargeback",
 };
 
+/** Como cada método aparece na tela. O valor GRAVADO é minúsculo ("pix",
+ *  "card") — é o vocabulário interno, usado por filtro, gráfico e comparação;
+ *  aqui é só a fachada. */
 const METHOD_LABEL: Record<string, string> = {
-  pix: "Pix",
+  pix: "PIX",
   card: "Cartão",
 };
 
@@ -981,8 +984,8 @@ function EditarCobranca({
             <label className="eyebrow mb-1.5 block">Método</label>
             <select className="input" value={metodo} onChange={(e) => setMetodo(e.target.value)}>
               <option value="">Sem método</option>
-              <option value="pix">Pix</option>
-              <option value="card">Cartão</option>
+              <option value="pix">{METHOD_LABEL.pix}</option>
+              <option value="card">{METHOD_LABEL.card}</option>
             </select>
           </div>
           <div>

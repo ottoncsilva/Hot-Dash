@@ -307,7 +307,7 @@ const CAMPOS_AVULSOS: Record<CampoMensagemAvulsa, { papel: string; regrasExtra?:
   pixSocialProof: {
     papel: "uma linha curta de prova social exibida do lado do código PIX, bem na hora em que a pessoa vai pagar.",
     regrasExtra:
-      'PROIBIDO inventar qualquer número ("47 pessoas", "23 vendas hoje") — seria propaganda enganosa nessa tela, a um toque do pagamento. Use SOMENTE as variáveis {vendas_hoje} e {assinantes} (números reais do painel) se quiser citar quantidade; sem elas, fale de prova social sem número nenhum (ex.: confiança, gente satisfeita, sem citar contagem).',
+      'PROIBIDO inventar qualquer número ("47 pessoas", "23 vendas hoje") — seria propaganda enganosa nessa tela, a um toque do pagamento. Use SOMENTE as variáveis {vendas_hoje} e {assinantes} (preenchidas pelo painel, com piso mínimo — ver lib/provaSocial.ts) se quiser citar quantidade; sem elas, fale de prova social sem número nenhum (ex.: confiança, gente satisfeita, sem citar contagem).',
   },
   pixNotPaid: {
     papel: "a mensagem mostrada quando o lead clica em 'verificar status' e o pagamento AINDA não caiu — lembra ele de finalizar.",

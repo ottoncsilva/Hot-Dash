@@ -6,6 +6,7 @@ import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTe
 import { registrarChegadaTelegram, registraMudancaDeGrupo } from "@/lib/telegramIngest";
 import { getMailingOffer } from "@/lib/telegramMailing";
 import { sendTelegramMessage, sendTelegramMedia, sendTelegramMediaGroup, sendTelegramVoiceUrl, sendTelegramPhotoBuffer, approveTelegramJoinRequest, declineTelegramJoinRequest, telegramWebhookSecret } from "@/lib/telegramApi";
+import { aplicarProvaSocial } from "@/lib/provaSocial";
 import QRCode from "qrcode";
 import { listMedia, getMediaRow } from "@/lib/media";
 import { activeProvider, getProvider } from "@/lib/payments";
@@ -181,19 +182,24 @@ async function enviarAberturaBrasil(
 
   // PROVA SOCIAL — sempre por ÚLTIMO: depois dos planos, do "Not from
   // Brazil?" (que já vem junto da mensagem de boas-vindas) e do "pagar no
-  // cartão" acima. É o fechamento da abertura, não o meio dela. Números
-  // REAIS desta modelo, nunca inventados: se o dia ainda estiver zerado, a
-  // mensagem simplesmente não sai — dizer "0 pessoas hoje" seria pior que
-  // não dizer nada.
+  // cartão" acima. É o fechamento da abertura, não o meio dela.
+  //
+  // O portão de antes era `hoje > 0 || assinantes > 0`, um OU onde devia ser
+  // um E: com assinantes ativos e nenhuma venda no dia, a linha saía
+  // "0 pessoa(s) garantiram o acesso hoje" — prova social negativa, que vende
+  // menos que prova social nenhuma. Agora os números passam por um PISO
+  // (ver `lib/provaSocial.ts`), então não existe mais o caso do zero e a linha
+  // pode sair sempre que o operador a ligou.
   if (bot.pixSocialProof && plans.length > 0) {
-    const hoje = overview(bot.profileId).today.paidCount;
-    const assinantes = countActiveSubscriptions(bot.id);
-    if (hoje > 0 || assinantes > 0) {
-      const linha = (bot.pixSocialProofText?.trim() || PIX_DEFAULTS.socialProofText)
-        .replace(/{vendas_hoje}/gi, String(hoje))
-        .replace(/{assinantes}/gi, String(assinantes));
-      await sendTelegramMessage(bot.botToken, String(chat.id), linha);
-    }
+    const linha = aplicarProvaSocial(
+      bot.pixSocialProofText?.trim() || PIX_DEFAULTS.socialProofText,
+      bot.id,
+      {
+        vendasHoje: overview(bot.profileId).today.paidCount,
+        assinantes: countActiveSubscriptions(bot.id),
+      },
+    );
+    await sendTelegramMessage(bot.botToken, String(chat.id), linha);
   }
 }
 
@@ -411,17 +417,18 @@ export async function POST(
           });
         }
 
-        // PROVA SOCIAL traduzida — mesmos números reais, mesmos marcadores.
+        // PROVA SOCIAL traduzida — mesmo piso, mesmos marcadores. Passa pela
+        // MESMA função da abertura em português: eram dois `replace` soltos, e
+        // foi por isso que o zero apareceu nos dois de uma vez.
         if (bot.pixSocialProof && rows.length > 0) {
-          const hoje = overview(bot.profileId).today.paidCount;
-          const assinantes = countActiveSubscriptions(bot.id);
-          if (hoje > 0 || assinantes > 0) {
-            const provaBase =
-              (idioma === "en" ? bot.pixSocialProofTextEn : bot.pixSocialProofTextEs)?.trim() ||
-              PROVA_SOCIAL_INTL_DEFAULTS[idioma];
-            const linha = provaBase.replace(/{vendas_hoje}/gi, String(hoje)).replace(/{assinantes}/gi, String(assinantes));
-            await sendTelegramMessage(bot.botToken, String(message.chat.id), linha);
-          }
+          const provaBase =
+            (idioma === "en" ? bot.pixSocialProofTextEn : bot.pixSocialProofTextEs)?.trim() ||
+            PROVA_SOCIAL_INTL_DEFAULTS[idioma];
+          const linha = aplicarProvaSocial(provaBase, bot.id, {
+            vendasHoje: overview(bot.profileId).today.paidCount,
+            assinantes: countActiveSubscriptions(bot.id),
+          });
+          await sendTelegramMessage(bot.botToken, String(message.chat.id), linha);
         }
         return NextResponse.json({ ok: true });
       }

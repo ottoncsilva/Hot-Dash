@@ -306,10 +306,10 @@ export default function BotVendasPage() {
   const [pixBtnQr, setPixBtnQr] = useState("");
   const [pixBtnCopy, setPixBtnCopy] = useState("");
   const [pixAudio, setPixAudio] = useState("");
-  // Números REAIS de hoje desta modelo — os mesmos 2 que o bot de verdade
-  // confere antes de mandar a prova social (webhook: `hoje > 0 || assinantes
-  // > 0`). O preview usa os dois pra só mostrar a linha quando o bot de
-  // verdade também mostraria, em vez de fingir com números de exemplo.
+  // Os números que a prova social VAI MOSTRAR, já com o piso aplicado no
+  // servidor (ver `lib/provaSocial.ts`). Não são os brutos: a prévia precisa
+  // dizer o que o lead recebe, e essa linha é exatamente onde os dois passaram
+  // a diferir.
   const [vendasHojeReal, setVendasHojeReal] = useState(0);
   const [assinantesAtivosReal, setAssinantesAtivosReal] = useState(0);
   // Resposta de "ainda não pago" — lifted pra navegação clicável do preview
@@ -368,10 +368,11 @@ export default function BotVendasPage() {
         buttonRoles: ButtonRoleInfo[];
         metrics?: { today?: { paidCount?: number } };
         activeSubscriptions?: number;
+        provaSocial?: { vendasHoje: number; assinantes: number } | null;
       }>(`/api/telegram?profileId=${profileId}`);
       setBot(d.bot);
-      setVendasHojeReal(d.metrics?.today?.paidCount || 0);
-      setAssinantesAtivosReal(d.activeSubscriptions || 0);
+      setVendasHojeReal(d.provaSocial?.vendasHoje ?? d.metrics?.today?.paidCount ?? 0);
+      setAssinantesAtivosReal(d.provaSocial?.assinantes ?? d.activeSubscriptions ?? 0);
       setPlans(d.plans || []);
       setButtons(d.customButtons || []);
       setSubs(d.subscriptions || []);

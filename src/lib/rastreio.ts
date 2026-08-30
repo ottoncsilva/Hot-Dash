@@ -114,7 +114,14 @@ export function vincularCodigosNasVendas(): { relatorio: number; lead: number; u
  * servidor de subir.
  */
 export async function migrarCodigosDeRastreio(): Promise<void> {
-  const MARCA = "rastreio_codigos_v3";
+  // v4: até a v3, o preenchimento AO VIVO pelo relatório do Canal de Vendas
+  // tratava `''` como campo preenchido e recusava o dado (ver o NULLIF em
+  // `registrarRelatorioExterno`). As linhas que ficaram travadas assim não são
+  // alcançadas pela correção sozinha — só um novo relatório da MESMA venda as
+  // tocaria, e ele não vem. Subir a marca faz a releitura dos relatórios já
+  // guardados rodar de novo, agora com a regra certa. Todas as etapas são
+  // idempotentes, então rodar de novo não desfaz nada.
+  const MARCA = "rastreio_codigos_v4";
   const db = getDb();
   try {
     if (db.prepare("SELECT value FROM settings WHERE key = ?").get(MARCA)) return;

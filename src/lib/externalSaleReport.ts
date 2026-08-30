@@ -298,8 +298,10 @@ export function registrarRelatorioExterno(text: string): void {
     // hora certa, ou uma correção manual que o operador já fez na tela).
     if (profileId) {
       db.prepare(
-        `UPDATE transactions SET profile_id = ?, bot_id = COALESCE(bot_id, ?)
-          WHERE provider = ? AND provider_ref = ? AND profile_id IS NULL`,
+        `UPDATE transactions
+            SET profile_id = ?, bot_id = COALESCE(NULLIF(bot_id, ''), ?)
+          WHERE provider = ? AND provider_ref = ?
+            AND (profile_id IS NULL OR profile_id = '')`,
       ).run(profileId, botId || null, parsed.provider, parsed.providerRef);
     }
 
@@ -312,13 +314,22 @@ export function registrarRelatorioExterno(text: string): void {
     // veio de um bot do Telegram, só que operado por fora. E `source_code` é
     // o deep-link que trouxe o lead — sem ele a venda entra no funil sem
     // origem de tráfego nenhuma.
+    //
+    // `NULLIF(col, '')` ANTES do COALESCE: campo vazio é campo vazio, escrito
+    // como NULL ou como string em branco. Sem isso, uma linha que tivesse
+    // chegado com `''` (dado antigo, importação, um caminho que gravou vazio)
+    // ficava presa para sempre — o COALESCE via `''` como valor preenchido e
+    // recusava o dado do relatório. Era o caso em que produto e método
+    // apareciam e o código de venda não, na mesma linha. A migração de boot já
+    // tratava `''` (ver `vincularCodigosNasVendas`); o caminho AO VIVO não, e
+    // os dois precisam concordar.
     db.prepare(
       `UPDATE transactions
-          SET method      = COALESCE(method, ?),
-              source_code = COALESCE(source_code, ?),
-              customer    = COALESCE(customer, ?),
-              origin      = COALESCE(origin, ?),
-              description = COALESCE(description, ?)
+          SET method      = COALESCE(NULLIF(method, ''), ?),
+              source_code = COALESCE(NULLIF(source_code, ''), ?),
+              customer    = COALESCE(NULLIF(customer, ''), ?),
+              origin      = COALESCE(NULLIF(origin, ''), ?),
+              description = COALESCE(NULLIF(description, ''), ?)
         WHERE provider = ? AND provider_ref = ?`,
     ).run(
       parsed.metodo || null,

@@ -248,11 +248,83 @@ function arrumarNomeDoProduto(): {
   return { semPrefixo, zerados, peloRelatorio, renovacoes };
 }
 
+/**
+ * O código de rastreio que uma URL de link carrega (`t.me/<bot>?start=CODIGO`).
+ *
+ * Mesma extração da tela de Links (`/api/links`), e de propósito: as duas
+ * precisam concordar sobre o que é o código de um link, senão o clique aparece
+ * numa tela e some na outra.
+ */
+function codigoDaUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (!/(^|\.)t\.me$/i.test(u.hostname) && !/(^|\.)telegram\.me$/i.test(u.hostname)) return null;
+    const bruto = (u.searchParams.get("start") || u.searchParams.get("startgroup") || "").trim();
+    return bruto.replace(/[^\w-]/g, "").slice(0, 40) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Clique nos links do SLT, agrupado pelo CÓDIGO que cada link carrega.
+ *
+ * É a etapa que faltava no funil: entre "clicou no link da bio" e "deu /start
+ * no bot" existe uma perda que nenhuma tela mostrava — o clique abre o
+ * Telegram, aparece o bot, e a pessoa não aperta Iniciar.
+ *
+ * A VISUALIZAÇÃO da página NÃO entra aqui, de propósito. Ela é da página, não
+ * do código: uma página com três links de códigos diferentes teria a mesma
+ * visualização contada três vezes, e o funil mentiria para cima. Visualização
+ * fica na tela de Links, onde a unidade é a página.
+ *
+ * Link sem `?start=` (o convite de grupo das prévias, um site) não entra em
+ * código nenhum — o clique existe e aparece em Links, mas não há como
+ * segui-lo até a venda.
+ */
+export function cliquesPorCodigo(
+  sinceMs: number | null,
+  untilMs: number | null,
+): Map<string, number> {
+  const db = getDb();
+  const clauses: string[] = ["event_type = 'link_clicked'", "link_url IS NOT NULL", "link_url != ''"];
+  const params: number[] = [];
+  if (sinceMs !== null) {
+    clauses.push("created_at >= ?");
+    params.push(sinceMs);
+  }
+  if (untilMs !== null) {
+    clauses.push("created_at < ?");
+    params.push(untilMs);
+  }
+  const linhas = db
+    .prepare(
+      `SELECT link_url, COUNT(*) c FROM slt_events
+        WHERE ${clauses.join(" AND ")}
+        GROUP BY link_url`,
+    )
+    .all(...params) as { link_url: string; c: number }[];
+
+  const mapa = new Map<string, number>();
+  for (const l of linhas) {
+    const code = codigoDaUrl(l.link_url);
+    if (!code) continue;
+    // Minúsculas na chave: o código chega do `/start` como foi digitado no
+    // link, e "Insta2" e "insta2" são o mesmo código para quem opera.
+    const k = code.toLowerCase();
+    mapa.set(k, (mapa.get(k) || 0) + l.c);
+  }
+  return mapa;
+}
+
 export type CodigoDeRastreio = {
   /** O código em si. String vazia = venda/lead que chegou SEM código. */
   code: string;
   profileId: string | null;
   profileName: string;
+  /** Clique num link do SLT que carrega este código. 0 = nenhum link do SLT
+   *  aponta para ele (o lead veio da bio direta, de story, de mensagem). */
+  cliques: number;
   /** /start com este código no período. */
   starts: number;
   /** Cobranças geradas (pagas ou não). */
@@ -358,6 +430,7 @@ export function codigosDeRastreio(
         code,
         profileId,
         profileName: profileId ? nomes.get(profileId) || "Modelo removida" : "Sem modelo",
+        cliques: 0,
         starts: 0,
         gerados: 0,
         pagos: 0,
@@ -372,6 +445,7 @@ export function codigosDeRastreio(
   };
 
   for (const r of leads) pega(r.code, r.profile_id).starts += r.c;
+
   for (const r of vendas) {
     const linha = pega(r.code, r.profile_id);
     linha.gerados += r.gerados;
@@ -380,6 +454,48 @@ export function codigosDeRastreio(
     linha.netCents += r.liq_cents;
     linha.pendingCents += r.pend_cents;
     linha.bots = (r.bots || "").split(",").filter(Boolean).sort();
+  }
+
+  // O CLIQUE, vindo do SLT, POR ÚLTIMO — depois de leads e vendas.
+  //
+  // A ordem importa: o clique é distribuído entre as linhas que já existem do
+  // código, e um código pode aparecer só nas vendas (lead que deu /start antes
+  // da janela, ou base ainda sem `telegram_leads`). Distribuir antes das
+  // vendas fazia o clique cair no vazio e a coluna ficar zerada.
+  //
+  // O evento do SLT não sabe de qual MODELO é — ele guarda a página e a URL,
+  // não o perfil —, então o total do código vai entre as linhas dele na
+  // proporção dos starts. Sem starts, na proporção das cobranças; sem nenhum
+  // dos dois, inteiro na primeira linha. Em qualquer caso a soma continua
+  // sendo o clique real: distribuir nunca inventa clique.
+  const cliques = cliquesPorCodigo(sinceMs, untilMs);
+  const linhasPorCodigo = new Map<string, CodigoDeRastreio[]>();
+  for (const linha of mapa.values()) {
+    const k = linha.code.toLowerCase();
+    linhasPorCodigo.set(k, [...(linhasPorCodigo.get(k) || []), linha]);
+  }
+  for (const [code, total] of cliques) {
+    const linhas = linhasPorCodigo.get(code);
+    if (!linhas || linhas.length === 0) continue;
+    const peso = (l: CodigoDeRastreio) => (l.starts > 0 ? l.starts : 0);
+    let soma = linhas.reduce((n, l) => n + peso(l), 0);
+    let porLinha = peso;
+    if (soma === 0) {
+      porLinha = (l) => l.gerados;
+      soma = linhas.reduce((n, l) => n + l.gerados, 0);
+    }
+    if (soma === 0) {
+      linhas[0].cliques += total;
+      continue;
+    }
+    let distribuido = 0;
+    linhas.forEach((l, i) => {
+      // A última fica com o resto, para a soma bater exatamente com o total.
+      const parte =
+        i === linhas.length - 1 ? total - distribuido : Math.round((total * porLinha(l)) / soma);
+      l.cliques += parte;
+      distribuido += parte;
+    });
   }
 
   return [...mapa.values()].sort(

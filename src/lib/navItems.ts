@@ -43,13 +43,13 @@ export const NAV_ITEMS: Record<NavKey, NavItem> = {
   funil: { key: "funil", label: "Funil de Vendas", href: "/dashboard/funil" },
   // "Rastreio" é o grupo: de onde o lead veio, do link na bio até o código do
   // /start. Aponta para o primeiro filho, como os outros grupos.
-  links: { key: "links", label: "Rastreio", href: "/dashboard/links" },
-  rastreio_links: { key: "rastreio_links", label: "Links", href: "/dashboard/links" },
+  links: { key: "links", label: "Rastreio", href: "/dashboard/links/codigos" },
   rastreio_codigos: {
     key: "rastreio_codigos",
     label: "Códigos de rastreio",
     href: "/dashboard/links/codigos",
   },
+  rastreio_links: { key: "rastreio_links", label: "Links", href: "/dashboard/links" },
   telegram: { key: "telegram", label: "Telegram", href: "/dashboard/telegram" },
   // O grupo aponta para o primeiro filho: clicar no cabeçalho abre o submenu,
   // mas o href ainda precisa levar a algum lugar real.

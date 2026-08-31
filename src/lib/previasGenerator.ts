@@ -109,6 +109,28 @@ const ANGLES_COM_FOTO = [
 // Enfileiramento
 // --------------------------------------------------------------------------
 
+/**
+ * Acervo que pode ir PRAS PRÉVIAS: as mídias do perfil filtradas pelas
+ * ETIQUETAS PERMITIDAS do canal (`warmup_tags`). Nenhuma etiqueta marcada
+ * libera o acervo inteiro, que é o comportamento que a tela já descreve.
+ *
+ * Vive aqui porque agora tem DOIS leitores: o enfileiramento, que precisa saber
+ * quantos vídeos existem para não pedir mais do que dá (ver a cota de vídeo em
+ * previasAi), e o lote, que monta a fila de consumo.
+ */
+function midiasElegiveis(profileId: string): MediaItem[] {
+  const settings = getDb()
+    .prepare("SELECT warmup_tags FROM telegram_autopost_settings WHERE profile_id = ?")
+    .get(profileId) as { warmup_tags?: string } | undefined;
+  const permitidas = (settings?.warmup_tags || "")
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
+  return listMedia(profileId).filter(
+    (m) => permitidas.length === 0 || m.tags.some((t) => permitidas.includes(t.name.toLowerCase())),
+  );
+}
+
 /** Job em aberto (pending/processing) do perfil, se houver. */
 export function getActivePreviasJob(profileId: string): PreviasJob | null {
   return getActiveJob(profileId, "previas");
@@ -140,10 +162,16 @@ export function enqueuePreviasJob(profileId: string, days: number): PreviasJob {
     .all(profileId) as { scheduled_at: number }[];
   const taken = existing.map((e) => e.scheduled_at);
 
+  // Teto da cota de vídeo do método. A fila de mídia recicla quando o acervo
+  // acaba, então um plano que pede 5 vídeos de um canal com 2 não inventa vídeo
+  // — faz o mesmo clipe sair duas vezes no mesmo dia. Contando aqui, o dia pede
+  // no máximo o que existe e o restante continua saindo em foto.
+  const videosNoAcervo = midiasElegiveis(profileId).filter((m) => m.kind === "video").length;
+
   const slots: JobSlot[] = [];
   for (let dayOffset = 0; dayOffset <= days; dayOffset++) {
     const base = mkDayFromToday(dayOffset, tz);
-    for (const slot of planDay()) {
+    for (const slot of planDay(videosNoAcervo)) {
       const at = mkSlotToUtcMs(base, slot.time, tz, true);
       if (at <= Date.now()) continue; // não agenda no passado
       if (taken.some((t) => Math.abs(t - at) < 5 * 60 * 1000)) continue;
@@ -206,14 +234,8 @@ async function processBatch(row: JobRow): Promise<number> {
   markProcessing(row.id);
 
   const settings = db
-    .prepare(
-      "SELECT warmup_tags, warmup_cta_buttons FROM telegram_autopost_settings WHERE profile_id = ?",
-    )
-    .get(profile.id) as { warmup_tags?: string; warmup_cta_buttons?: string } | undefined;
-  const allowedTagNames = (settings?.warmup_tags || "")
-    .split(",")
-    .map((t) => t.trim().toLowerCase())
-    .filter(Boolean);
+    .prepare("SELECT warmup_cta_buttons FROM telegram_autopost_settings WHERE profile_id = ?")
+    .get(profile.id) as { warmup_cta_buttons?: string } | undefined;
   const ctaList = (settings?.warmup_cta_buttons ?? "").trim() || DEFAULT_CTA_BUTTONS;
 
   // Cadeia de provedores (grok primeiro — costuma aceitar conteúdo adulto).
@@ -240,11 +262,7 @@ async function processBatch(row: JobRow): Promise<number> {
   // mesma geração já consumiram — sem isso cada lote recomeçaria a fila e as
   // primeiras fotos da ordem sairiam repetidas a cada 8 posts.
   const queue = createMediaQueue(
-    listMedia(profile.id).filter(
-      (m) =>
-        allowedTagNames.length === 0 ||
-        m.tags.some((t) => allowedTagNames.includes(t.name.toLowerCase())),
-    ),
+    midiasElegiveis(profile.id),
     getMediaPostCounts(profile.id),
     "previas",
     getScheduledMediaUses(profile.id, "previas"),

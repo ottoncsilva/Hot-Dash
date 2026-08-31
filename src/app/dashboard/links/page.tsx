@@ -6,14 +6,24 @@ import { apiGet, apiSend } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import ToggleChip from "@/components/ToggleChip";
-import { IconEdit, IconEye, IconLink } from "@/components/icons";
+import { IconEdit } from "@/components/icons";
 import { showToast } from "@/lib/toast";
 import { useProfile } from "@/context/ProfileContext";
 import type { SltNetwork } from "@/lib/sltNetworks";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import { DEFAULT_PERIOD, type PeriodKey } from "@/lib/periods";
 
-type LinkRow = { id: string; label: string; url: string; platform: string; clicks: number };
+type LinkRow = {
+  id: string;
+  label: string;
+  url: string;
+  platform: string;
+  clicks: number;
+  /** O `?start=CODIGO` que o link carrega. null = clique que não dá para seguir até a venda. */
+  code: string | null;
+  sales: number;
+  revenueCents: number;
+};
 type PageRow = {
   pageId: string;
   slug: string;
@@ -42,7 +52,7 @@ const POR_LINK_TETO = 40;
 
 /**
  * "custom" é o que a SLT chama um link que não é rede social nenhuma — ou
- * seja, a maioria deles. Escrever isso em cada linha não informava nada e só
+ * seja, quase todos. Escrever isso em cada linha não informava nada e só
  * poluía a lista, então a etiqueta de plataforma só aparece quando ela DIZ
  * alguma coisa (instagram, telegram, whatsapp…).
  */
@@ -52,6 +62,10 @@ function mostrarPlataforma(p: string): boolean {
   return !PLATAFORMA_MUDA.has((p || "").trim().toLowerCase());
 }
 
+function brl(cents: number) {
+  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
 function pct(parte: number, total: number): string {
   if (total <= 0) return "0%";
   const v = (parte / total) * 100;
@@ -59,21 +73,61 @@ function pct(parte: number, total: number): string {
 }
 
 /**
- * TODAS as páginas do SLT (link na bio), agrupadas por MODELO do Hot-Dash.
+ * O nome que DISTINGUE uma página das outras da mesma modelo.
  *
- * A API do SLT não sabe o que é uma "modelo" — cada página é atribuída AQUI
- * (uma vez só, dura até trocar), e o que puxa cliques/visualizações e catálogo
- * é sempre da mesma conta (ver Configurações → Links da Bio).
+ * A SLT devolve `display_name` (o título grande da página) e `label` (a nota
+ * do operador). Nesta conta o `display_name` é sempre o nome da modelo — as
+ * cinco páginas da Adriana se chamam todas "Adriana Queiroz" — e quem separa
+ * uma da outra é o `label` ("Adriana Queiroz Insta 2"). Por isso o label vem
+ * primeiro: sem ele a lista vira cinco linhas com o mesmo nome.
+ */
+function nomeDaPagina(p: { label: string; displayName: string; slug: string }): string {
+  return p.label.trim() || p.displayName.trim() || p.slug;
+}
+
+function enderecoDaPagina(p: { activeDomain: string; slug: string }): string {
+  return `${p.activeDomain || "slt.bio"}/${p.slug}`;
+}
+
+/**
+ * Soma venda e receita SEM contar o mesmo código duas vezes.
+ *
+ * O mesmo `?start=insta1` pode estar em dois links (a página de teste e a de
+ * produção, o botão e o hiperlink). O clique de cada um é dele; a VENDA é do
+ * código, e é a mesma venda. Somar link a link inflaria a receita — então o
+ * total anda por código distinto.
+ */
+function somarVendas(links: LinkRow[]): { sales: number; cents: number } {
+  const vistos = new Set<string>();
+  let sales = 0;
+  let cents = 0;
+  for (const l of links) {
+    if (!l.code) continue;
+    const c = l.code.toLowerCase();
+    if (vistos.has(c)) continue;
+    vistos.add(c);
+    sales += l.sales;
+    cents += l.revenueCents;
+  }
+  return { sales, cents };
+}
+
+/**
+ * TODAS as páginas do SLT (link na bio), agrupadas por MODELO do Hot-Dash.
  *
  * A LEITURA vem antes da configuração. Atribuir modelo e rede é coisa que se
  * faz uma vez por página e não se toca mais; olhar quanto cada link rendeu é
- * o que se faz todo dia. Por isso os dois seletores saíram da linha de frente
- * do card e foram para um diálogo atrás do lápis — o que sobra na tela é o
- * desempenho: visualização, clique, participação de cada link.
+ * o que se faz todo dia. Por isso os dois seletores ficam atrás do lápis e o
+ * que ocupa a tela é o desempenho — clique, participação e o dinheiro que o
+ * link trouxe.
+ *
+ * O DINHEIRO chega aqui pelo `?start=CODIGO` do próprio link, não pelo slug
+ * da página: o slug é o endereço ("adriana2") e o código é escolhido à parte
+ * ("insta2"), então casar pelo slug erraria calado. Link sem código aparece
+ * como "sem código" e sem receita — o clique existe, mas não há como segui-lo.
  *
  * O período usa o MESMO seletor do Dashboard/Funil de Vendas — "últimos 7
- * dias" aqui é a MESMA janela de lá, e a mesma que compara direto com o
- * painel da própria SLT (que usa esses recortes também).
+ * dias" aqui é a MESMA janela de lá.
  */
 export default function LinksPage() {
   const [data, setData] = useState<Data | null>(null);
@@ -125,13 +179,19 @@ export default function LinksPage() {
   );
 
   const total = useMemo(() => {
-    const views = paginas.reduce((s, p) => s + p.views, 0);
-    const clicks = paginas.reduce((s, p) => s + p.clicks, 0);
-    const links = paginas.reduce((s, p) => s + p.links.length, 0);
-    return { views, clicks, links, paginas: paginas.length };
+    const todosLinks = paginas.flatMap((p) => p.links);
+    const { sales, cents } = somarVendas(todosLinks);
+    return {
+      views: paginas.reduce((s, p) => s + p.views, 0),
+      clicks: paginas.reduce((s, p) => s + p.clicks, 0),
+      // Clique que dá pra seguir: o que caiu num link com `?start=`.
+      rastreaveis: todosLinks.reduce((s, l) => s + (l.code ? l.clicks : 0), 0),
+      sales,
+      cents,
+    };
   }, [paginas]);
 
-  const nomeDaPagina = useMemo(() => {
+  const modeloDaPagina = useMemo(() => {
     const m = new Map<string, string>();
     for (const g of data?.groups || []) for (const p of g.pages) m.set(p.pageId, g.profileName);
     return m;
@@ -146,7 +206,7 @@ export default function LinksPage() {
     <div className="page">
       <PageHeader
         title="Links"
-        description="Páginas e links do SLT (link na bio) — visualização, clique e a participação de cada link no período."
+        description="Páginas e links do SLT (link na bio) — clique, participação e o que cada código de deep-link trouxe em venda."
       />
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
@@ -219,7 +279,7 @@ export default function LinksPage() {
                 : "Nenhuma página encontrada nessa conta do SLT."}
             </p>
           ) : vista === "link" ? (
-            <PorLink paginas={paginas} nomeDaPagina={nomeDaPagina} totalCliques={total.clicks} />
+            <PorLink paginas={paginas} modeloDaPagina={modeloDaPagina} />
           ) : (
             <div className="mt-4 space-y-6">
               {semModelo.length > 0 && (
@@ -282,26 +342,128 @@ function Secao({
   );
 }
 
-/** A faixa de números do período, já respeitando o filtro de modelo. */
-function Resumo({ total }: { total: { views: number; clicks: number; links: number; paginas: number } }) {
+/** A faixa de números do recorte: do clique até o dinheiro, na mesma linha. */
+function Resumo({
+  total,
+}: {
+  total: { views: number; clicks: number; rastreaveis: number; sales: number; cents: number };
+}) {
+  const n = (v: number) => v.toLocaleString("pt-BR");
   return (
-    <div className="mt-4 card grid grid-cols-2 divide-x divide-y divide-white/[0.06] sm:grid-cols-4 sm:divide-y-0">
-      <Numero rotulo="Visualizações" valor={total.views.toLocaleString("pt-BR")} />
-      <Numero rotulo="Cliques" valor={total.clicks.toLocaleString("pt-BR")} />
+    <div className="mt-4 card grid grid-cols-2 divide-x divide-y divide-white/[0.06] sm:grid-cols-3 lg:grid-cols-5 lg:divide-y-0">
+      <Numero rotulo="Visualizações" valor={n(total.views)} nota="nas páginas" />
+      <Numero rotulo="Cliques" valor={n(total.clicks)} nota="em algum link" />
       <Numero
-        rotulo="Cliques por visita"
-        valor={total.views > 0 ? (total.clicks / total.views).toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"}
+        rotulo="Rastreáveis"
+        valor={n(total.rastreaveis)}
+        nota={`${pct(total.rastreaveis, total.clicks)} dos cliques têm código`}
+        cor="text-sky-300"
       />
-      <Numero rotulo="Páginas / links" valor={`${total.paginas} / ${total.links}`} />
+      <Numero rotulo="Vendas" valor={n(total.sales)} nota="vindas destes códigos" />
+      <Numero
+        rotulo="Receita"
+        valor={brl(total.cents)}
+        nota="o que estes links trouxeram"
+        cor="text-emerald-400"
+      />
     </div>
   );
 }
 
-function Numero({ rotulo, valor }: { rotulo: string; valor: string }) {
+function Numero({
+  rotulo,
+  valor,
+  nota,
+  cor = "text-white",
+}: {
+  rotulo: string;
+  valor: string;
+  nota?: string;
+  cor?: string;
+}) {
   return (
     <div className="p-4">
       <p className="eyebrow">{rotulo}</p>
-      <p className="mt-1 font-display text-2xl text-white">{valor}</p>
+      <p className={`mt-1 font-display text-2xl ${cor}`}>{valor}</p>
+      {nota && <p className="mt-0.5 text-[11px] text-zinc-600">{nota}</p>}
+    </div>
+  );
+}
+
+/**
+ * A pílula do código. ROXA quando o link carrega um `?start=` — é a marca
+ * visual de "este clique dá para seguir até a venda". Cinza e apagada quando
+ * não carrega: não é erro, é um link que simplesmente não é rastreável.
+ */
+function PilulaCodigo({ code }: { code: string | null }) {
+  if (!code) {
+    return (
+      <span className="shrink-0 rounded-md border border-white/10 bg-white/[0.03] px-1.5 py-0.5 font-mono text-[10px] text-zinc-600">
+        sem código
+      </span>
+    );
+  }
+  return (
+    <span
+      className="shrink-0 rounded-md border border-violet-500/30 bg-violet-500/10 px-1.5 py-0.5 font-mono text-[10px] text-violet-300"
+      title={`Deep-link: t.me/<bot>?start=${code}`}
+    >
+      ?start={code}
+    </span>
+  );
+}
+
+/**
+ * Barra + clique + participação, em azul. A barra é proporcional ao MAIOR
+ * link do grupo, não ao total: o que se quer de relance é quem ganha de quem,
+ * e contra o total tudo vira um tracinho.
+ */
+function BarraDeCliques({
+  clicks,
+  total,
+  maior,
+  dica,
+}: {
+  clicks: number;
+  total: number;
+  maior: number;
+  dica: string;
+}) {
+  const largura = maior > 0 ? Math.max(2, Math.round((clicks / maior) * 100)) : 0;
+  return (
+    <div className="group/barra flex shrink-0 items-center gap-2" title={dica}>
+      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-white/[0.06] sm:w-28">
+        <div
+          className="h-full rounded-full bg-sky-500 transition-all duration-300 group-hover/barra:bg-sky-400"
+          style={{ width: `${largura}%` }}
+        />
+      </div>
+      <span className="w-11 text-right font-mono text-[11px] text-zinc-200">
+        {clicks.toLocaleString("pt-BR")}
+      </span>
+      <span className="w-10 text-right font-mono text-[11px] text-sky-400">{pct(clicks, total)}</span>
+    </div>
+  );
+}
+
+/** Receita e vendas do código, ou o traço de "não dá para saber". */
+function ValorDoLink({ link }: { link: LinkRow }) {
+  if (!link.code) {
+    return (
+      <div className="w-24 shrink-0 text-right">
+        <p className="font-mono text-[11px] text-zinc-700">—</p>
+        <p className="text-[10px] text-zinc-700">não rastreável</p>
+      </div>
+    );
+  }
+  return (
+    <div className="w-24 shrink-0 text-right">
+      <p className={`font-mono text-[11px] ${link.revenueCents > 0 ? "text-emerald-400" : "text-zinc-600"}`}>
+        {brl(link.revenueCents)}
+      </p>
+      <p className="text-[10px] text-zinc-600">
+        {link.sales} {link.sales === 1 ? "venda" : "vendas"}
+      </p>
     </div>
   );
 }
@@ -317,19 +479,28 @@ function PaginaCard({
 }) {
   // O denominador do % é a soma dos cliques DOS LINKS, não o clique da página:
   // as duas contagens vêm de consultas diferentes (página por slug, link por
-  // URL) e podem não bater. Somar os próprios links é o que garante que as
+  // URL) e podem não bater. Somar os próprios links garante que as
   // participações fechem em 100% e ninguém precise conferir na mão.
   const totalLinks = pagina.links.reduce((s, l) => s + l.clicks, 0);
   const links = [...pagina.links].sort((a, b) => b.clicks - a.clicks);
   const maior = links[0]?.clicks || 0;
-  const url = `${pagina.activeDomain || "slt.bio"}/${pagina.slug}`;
+  const { sales, cents } = somarVendas(pagina.links);
+  const endereco = enderecoDaPagina(pagina);
 
   return (
     <div className="card p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-white">{pagina.displayName}</p>
+          <p className="text-sm font-semibold text-white">{nomeDaPagina(pagina)}</p>
+          <a
+            href={`https://${endereco}`}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-0.5 inline-block font-mono text-[11px] text-zinc-600 hover:text-zinc-300"
+          >
+            {endereco}
+          </a>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {pagina.trafficSource ? (
               <span className="chip">{redeLabel.get(pagina.trafficSource) || pagina.trafficSource}</span>
             ) : (
@@ -343,53 +514,65 @@ function PaginaCard({
               </span>
             )}
           </div>
-          {pagina.label && <p className="mt-0.5 truncate text-xs text-zinc-500">{pagina.label}</p>}
-          <a
-            href={`https://${url}`}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-0.5 inline-block font-mono text-[11px] text-zinc-600 hover:text-zinc-300"
-          >
-            {url}
-          </a>
         </div>
         <button
           type="button"
           onClick={onEditar}
           className="btn-ghost h-8 shrink-0 px-3 text-xs"
-          aria-label={`Editar ${pagina.displayName}`}
+          aria-label={`Editar ${nomeDaPagina(pagina)}`}
         >
           <IconEdit size={14} />
           Editar
         </button>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs">
-        <span className="inline-flex items-center gap-1.5 text-zinc-400">
-          <IconEye size={13} />
-          <b className="text-zinc-200">{pagina.views.toLocaleString("pt-BR")}</b> visualizações
+      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-zinc-400">
+        <span>
+          Views <b className="text-zinc-200">{pagina.views.toLocaleString("pt-BR")}</b>
         </span>
-        <span className="inline-flex items-center gap-1.5 text-zinc-400">
-          <IconLink size={13} />
-          <b className="text-zinc-200">{pagina.clicks.toLocaleString("pt-BR")}</b> cliques
+        <span>
+          Cliques <b className="text-zinc-200">{pagina.clicks.toLocaleString("pt-BR")}</b>
         </span>
         {pagina.views > 0 && (
-          <span className="text-zinc-400">
+          <span>
+            Cliques por visita{" "}
             <b className="text-zinc-200">
               {(pagina.clicks / pagina.views).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}
-            </b>{" "}
-            cliques por visita
+            </b>
           </span>
         )}
+        <span>
+          Receita <b className={cents > 0 ? "text-emerald-400" : "text-zinc-200"}>{brl(cents)}</b>
+        </span>
+        <span>
+          Vendas <b className="text-zinc-200">{sales}</b>
+        </span>
       </div>
 
       {links.length > 0 && (
-        <div className="mt-3 border-t border-white/10 pt-2.5">
-          <div className="space-y-1.5">
-            {links.map((l) => (
-              <LinhaDoLink key={l.id} link={l} total={totalLinks} maior={maior} />
-            ))}
-          </div>
+        <div className="mt-3 space-y-1 border-t border-white/10 pt-2.5">
+          {links.map((l) => (
+            <div key={l.id} className="flex items-center gap-3 rounded-lg px-1 py-1 text-xs hover:bg-white/[0.03]">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                {mostrarPlataforma(l.platform) && (
+                  <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] lowercase text-zinc-500">
+                    {l.platform}
+                  </span>
+                )}
+                <span className="truncate text-zinc-200" title={l.url}>
+                  {l.label || l.url}
+                </span>
+              </div>
+              <PilulaCodigo code={l.code} />
+              <BarraDeCliques
+                clicks={l.clicks}
+                total={totalLinks}
+                maior={maior}
+                dica={`${l.clicks} de ${totalLinks} cliques desta página · ${l.url}`}
+              />
+              <ValorDoLink link={l} />
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -397,63 +580,33 @@ function PaginaCard({
 }
 
 /**
- * Uma linha da lista de links de uma página: rótulo, destino, clique, o QUANTO
- * daquele clique é dele (%) e a barra que deixa a comparação imediata — a
- * barra é proporcional ao MAIOR link da página, não ao total, porque o que se
- * quer ver de relance é quem ganha de quem.
- */
-function LinhaDoLink({ link, total, maior }: { link: LinkRow; total: number; maior: number }) {
-  return (
-    <div className="flex items-center gap-2 text-xs">
-      {mostrarPlataforma(link.platform) && (
-        <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] lowercase text-zinc-500">
-          {link.platform}
-        </span>
-      )}
-      <span className="min-w-0 flex-1 truncate text-zinc-300" title={link.url}>
-        {link.label || link.url}
-      </span>
-      <span className="hidden min-w-0 max-w-[28%] shrink truncate font-mono text-[11px] text-zinc-600 sm:block">
-        {link.url}
-      </span>
-      <div className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-white/[0.06]">
-        <div
-          className="h-full rounded-full bg-white/40"
-          style={{ width: `${maior > 0 ? Math.round((link.clicks / maior) * 100) : 0}%` }}
-        />
-      </div>
-      <span className="w-10 shrink-0 text-right font-mono text-[11px] text-zinc-300">{link.clicks}</span>
-      <span className="w-11 shrink-0 text-right font-mono text-[11px] text-zinc-500">
-        {pct(link.clicks, total)}
-      </span>
-    </div>
-  );
-}
-
-/**
- * Todos os links do recorte numa lista só, do que mais rendeu ao que menos
- * rendeu. É a resposta para "qual link está puxando o clique?", que a visão
- * por página não dá quando a modelo tem cinco páginas.
+ * Todos os links do recorte numa lista só, do que mais rendeu ao que menos.
+ *
+ * Cada linha tem que se explicar sozinha, porque aqui não existe o card da
+ * página em volta: o rótulo do link ("Telegram VIP"), o código que ele
+ * carrega, DE QUE PÁGINA ele veio (pelo nome que a distingue e pelo endereço)
+ * e de que modelo. Sem isso a lista vira seis linhas iguais chamadas
+ * "Prévias" — que foi exatamente o que não podia acontecer.
  */
 function PorLink({
   paginas,
-  nomeDaPagina,
-  totalCliques,
+  modeloDaPagina,
 }: {
   paginas: PageRow[];
-  nomeDaPagina: Map<string, string>;
-  totalCliques: number;
+  modeloDaPagina: Map<string, string>;
 }) {
   const linhas = paginas
     .flatMap((p) =>
       p.links.map((l) => ({
         ...l,
-        pagina: p.displayName,
-        modelo: nomeDaPagina.get(p.pageId) || "",
+        chave: `${p.pageId}|${l.id}`,
+        pagina: nomeDaPagina(p),
+        endereco: enderecoDaPagina(p),
+        modelo: modeloDaPagina.get(p.pageId) || "Sem modelo",
       })),
     )
     .sort((a, b) => b.clicks - a.clicks);
-  const total = linhas.reduce((s, l) => s + l.clicks, 0) || totalCliques;
+  const total = linhas.reduce((s, l) => s + l.clicks, 0);
   const maior = linhas[0]?.clicks || 0;
   const mostradas = linhas.slice(0, POR_LINK_TETO);
   const resto = linhas.slice(POR_LINK_TETO);
@@ -470,7 +623,7 @@ function PorLink({
   return (
     <div className="mt-4 card divide-y divide-white/[0.06]">
       {mostradas.map((l) => (
-        <div key={`${l.id}-${l.pagina}`} className="flex items-center gap-3 px-4 py-2.5 text-xs">
+        <div key={l.chave} className="flex items-center gap-3 px-4 py-2.5 text-xs hover:bg-white/[0.02]">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               {mostrarPlataforma(l.platform) && (
@@ -481,22 +634,20 @@ function PorLink({
               <span className="truncate text-zinc-200" title={l.url}>
                 {l.label || l.url}
               </span>
+              <PilulaCodigo code={l.code} />
             </div>
-            <p className="mt-0.5 truncate text-[11px] text-zinc-600">
-              {l.modelo ? `${l.modelo} · ` : ""}
-              {l.pagina}
+            <p className="mt-0.5 truncate text-[11px] text-zinc-500">
+              {l.modelo} · {l.pagina}{" "}
+              <span className="font-mono text-zinc-600">{l.endereco}</span>
             </p>
           </div>
-          <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-white/[0.06] sm:w-28">
-            <div
-              className="h-full rounded-full bg-white/40"
-              style={{ width: `${maior > 0 ? Math.round((l.clicks / maior) * 100) : 0}%` }}
-            />
-          </div>
-          <span className="w-12 shrink-0 text-right font-mono text-[11px] text-zinc-200">{l.clicks}</span>
-          <span className="w-11 shrink-0 text-right font-mono text-[11px] text-zinc-500">
-            {pct(l.clicks, total)}
-          </span>
+          <BarraDeCliques
+            clicks={l.clicks}
+            total={total}
+            maior={maior}
+            dica={`${l.clicks} de ${total} cliques do recorte · ${l.url}`}
+          />
+          <ValorDoLink link={l} />
         </div>
       ))}
       {resto.length > 0 && (
@@ -543,10 +694,8 @@ function DialogoEditar({
   return (
     <Modal open onClose={onFechar}>
       <p className="eyebrow">Configurar página</p>
-      <h2 className="mt-1 font-display text-lg text-white">{pagina.displayName}</h2>
-      <p className="mt-0.5 font-mono text-[11px] text-zinc-600">
-        {pagina.activeDomain || "slt.bio"}/{pagina.slug}
-      </p>
+      <h2 className="mt-1 font-display text-lg text-white">{nomeDaPagina(pagina)}</h2>
+      <p className="mt-0.5 font-mono text-[11px] text-zinc-600">{enderecoDaPagina(pagina)}</p>
 
       <div className="mt-5 space-y-4">
         <div>

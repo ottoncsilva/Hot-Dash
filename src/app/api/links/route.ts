@@ -5,11 +5,36 @@ import { listProfiles } from "@/lib/profiles";
 import { getSltCatalogue } from "@/lib/sltSync";
 import { sltPageStats, sltLinkClicks } from "@/lib/salesFunnel";
 import { isValidSltNetworkKey, listSltNetworks } from "@/lib/sltNetworksStore";
+import { codigosDeRastreio } from "@/lib/rastreio";
 import { getAppTimeZone } from "@/lib/settings";
 import { resolvePeriod } from "@/lib/periodRange";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * O código de rastreio que ESTE link carrega — `t.me/<bot>?start=CODIGO`.
+ *
+ * É a única ligação confiável entre um link do SLT e o dinheiro que ele
+ * trouxe. A tentação era casar pelo slug da página ("adriana2"), mas o slug
+ * é o endereço da página e o código é escolhido à parte ("insta2"): os dois
+ * quase nunca são a mesma palavra, e o cruzamento por slug erra calado.
+ *
+ * Link sem `?start=` (convite de grupo `t.me/+ABC`, site, qualquer outra
+ * coisa) devolve null e a tela mostra "sem código" — é honesto: aquele
+ * clique existe, mas não há como segui-lo até a venda.
+ */
+function codigoDoLink(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (!/(^|\.)t\.me$/i.test(u.hostname) && !/(^|\.)telegram\.me$/i.test(u.hostname)) return null;
+    const bruto = (u.searchParams.get("start") || u.searchParams.get("startgroup") || "").trim();
+    const limpo = bruto.replace(/[^\w-]/g, "").slice(0, 40);
+    return limpo || null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Tela de Links: o catálogo de páginas/links do SLT (lido do banco, gravado
@@ -44,6 +69,26 @@ export async function GET(req: NextRequest) {
     // Cliques por LINK (não só por página) — chave página+URL, mesmo par
     // que casa com o catálogo abaixo.
     const cliquesPorLink = new Map(sltLinkClicks(range.since, range.until).map((s) => [`${s.pageId}|${s.linkUrl}`, s.clicks]));
+    // Venda por CÓDIGO de rastreio, do mesmo período — é o que transforma
+    // "esse link levou 187 cliques" em "esse link fez R$ 76". Vem pronto de
+    // `codigosDeRastreio`, a mesma fonte da tela Códigos de rastreio, então
+    // as duas telas nunca contam diferente.
+    const rastreio = codigosDeRastreio(range.since, range.until);
+    const vendaPorPerfilCodigo = new Map<string, { sales: number; cents: number }>();
+    const vendaPorCodigo = new Map<string, { sales: number; cents: number }>();
+    for (const r of rastreio) {
+      if (!r.code) continue;
+      const c = r.code.toLowerCase();
+      const doPerfil = vendaPorPerfilCodigo.get(`${r.profileId || ""}|${c}`) || { sales: 0, cents: 0 };
+      doPerfil.sales += r.pagos;
+      doPerfil.cents += r.paidCents;
+      vendaPorPerfilCodigo.set(`${r.profileId || ""}|${c}`, doPerfil);
+      const total = vendaPorCodigo.get(c) || { sales: 0, cents: 0 };
+      total.sales += r.pagos;
+      total.cents += r.paidCents;
+      vendaPorCodigo.set(c, total);
+    }
+
     const mapa = getDb()
       .prepare("SELECT page_id, profile_id, traffic_source FROM slt_page_profiles")
       .all() as { page_id: string; profile_id: string | null; traffic_source: string | null }[];
@@ -60,6 +105,7 @@ export async function GET(req: NextRequest) {
 
     const paginas = catalogo.pages.map((p) => {
       const s = stats.get(p.slug);
+      const perfilDaPagina = profileDoPage.get(p.id) || null;
       return {
         pageId: p.id,
         slug: p.slug,
@@ -67,16 +113,31 @@ export async function GET(req: NextRequest) {
         label: p.label || "",
         published: p.published !== false,
         activeDomain: p.active_domain || "",
-        links: (linksPorPagina.get(p.id) || []).map((l) => ({
-          id: l.id,
-          label: l.label,
-          url: l.url,
-          platform: l.platform,
-          clicks: cliquesPorLink.get(`${p.id}|${l.url}`) || 0,
-        })),
+        links: (linksPorPagina.get(p.id) || []).map((l) => {
+          const code = codigoDoLink(l.url);
+          // Página COM modelo só olha a venda daquela modelo: o mesmo código
+          // ("previas", "insta1") é reusado por várias, e somar todas aqui
+          // creditaria a uma o que outra vendeu. Sem modelo atribuída, aí sim
+          // o total do código é a melhor resposta disponível.
+          const venda = code
+            ? perfilDaPagina
+              ? vendaPorPerfilCodigo.get(`${perfilDaPagina}|${code.toLowerCase()}`)
+              : vendaPorCodigo.get(code.toLowerCase())
+            : undefined;
+          return {
+            id: l.id,
+            label: l.label,
+            url: l.url,
+            platform: l.platform,
+            clicks: cliquesPorLink.get(`${p.id}|${l.url}`) || 0,
+            code,
+            sales: venda?.sales || 0,
+            revenueCents: venda?.cents || 0,
+          };
+        }),
         views: s?.views || 0,
         clicks: s?.clicks || 0,
-        profileId: profileDoPage.get(p.id) || null,
+        profileId: perfilDaPagina,
         trafficSource: redeDoPage.get(p.id) || null,
       };
     });

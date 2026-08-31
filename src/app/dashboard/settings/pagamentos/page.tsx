@@ -696,7 +696,7 @@ export default function PaymentSettingsPage() {
               <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
                 Saldo na Stripe
               </p>
-              <p className="mt-0.5 text-xs text-zinc-500">Disponível e a caminho.</p>
+              <p className="mt-0.5 text-xs text-zinc-500">Total, e como ele está dividido.</p>
             </div>
             <button
               type="button"
@@ -715,39 +715,64 @@ export default function PaymentSettingsPage() {
                 </p>
               ) : (
                 <>
-                  <p className="text-zinc-300">
-                    USD:{" "}
-                    <span className="text-emerald-400">
-                      {stripeBalance.availableCents !== null ? usd(stripeBalance.availableCents) : "—"}
-                    </span>
-                    {stripeBalance.pendingCents !== null && stripeBalance.pendingCents > 0 && (
-                      <>
-                        {" "}
-                        · a caminho <span className="text-zinc-400">{usd(stripeBalance.pendingCents)}</span>
-                      </>
-                    )}
-                  </p>
-                  {/* Uma linha por moeda que não seja o dólar, e só quando
-                      existe saldo nela: BRL do "cartão no Brasil", EUR e GBP
-                      da cobrança na moeda do lead. Nunca somadas entre si. */}
-                  {stripeBalance.outras?.map((o) => {
-                    const fmt = (c: number) =>
-                      (c / 100).toLocaleString(o.currency === "BRL" ? "pt-BR" : "en-US", {
-                        style: "currency",
-                        currency: o.currency,
-                      });
-                    return (
-                      <p key={o.currency} className="text-zinc-300">
-                        {o.currency}: <span className="text-emerald-400">{fmt(o.availableCents)}</span>
-                        {!!o.pendingCents && (
-                          <>
-                            {" "}
-                            · a caminho <span className="text-zinc-400">{fmt(o.pendingCents)}</span>
-                          </>
-                        )}
-                      </p>
-                    );
-                  })}
+                  {/* O TOTAL de cada moeda em destaque, e a divisão embaixo.
+                      Antes só o disponível aparecia — e o disponível pode ser
+                      NEGATIVO (taxa cobrada antes do repasse cair), o que fazia
+                      uma conta com dinheiro a caminho parecer conta no
+                      vermelho. Total = disponível + a caminho.
+
+                      Uma moeda por bloco, NUNCA somadas entre si: o saldo em
+                      dólar e o em real são dois dinheiros diferentes. */}
+                  {(() => {
+                    const linhas = [
+                      {
+                        currency: "USD",
+                        availableCents: stripeBalance.availableCents,
+                        pendingCents: stripeBalance.pendingCents,
+                      },
+                      ...(stripeBalance.outras || []),
+                    ]
+                      .filter((l) => l.availableCents !== null && l.availableCents !== undefined)
+                      .map((l) => ({
+                        currency: l.currency,
+                        disp: l.availableCents as number,
+                        vindo: l.pendingCents || 0,
+                        total: (l.availableCents as number) + (l.pendingCents || 0),
+                      }))
+                      // Moeda zerada dos dois lados é ruído: uma conta que só
+                      // opera em real não precisa ver "$ 0,00" toda vez.
+                      .filter((l) => l.disp !== 0 || l.vindo !== 0)
+                      .sort((a, b) => b.total - a.total);
+
+                    if (linhas.length === 0) {
+                      return <p className="text-zinc-500">Sem saldo em nenhuma moeda.</p>;
+                    }
+
+                    return linhas.map((l) => {
+                      const fmt = (c: number) =>
+                        (c / 100).toLocaleString(l.currency === "BRL" ? "pt-BR" : "en-US", {
+                          style: "currency",
+                          currency: l.currency,
+                        });
+                      return (
+                        <div key={l.currency} className="pt-1 first:pt-0">
+                          <p className="font-display text-lg font-semibold text-white">
+                            {fmt(l.total)}
+                            <span className="ml-1.5 font-mono text-[10px] font-normal tracking-wider text-zinc-600">
+                              {l.currency}
+                            </span>
+                          </p>
+                          <p className="text-zinc-500">
+                            disponível{" "}
+                            <span className={l.disp < 0 ? "text-amber-400/90" : "text-emerald-400"}>
+                              {fmt(l.disp)}
+                            </span>{" "}
+                            · a caminho <span className="text-zinc-400">{fmt(l.vindo)}</span>
+                          </p>
+                        </div>
+                      );
+                    });
+                  })()}
                 </>
               )}
             </div>

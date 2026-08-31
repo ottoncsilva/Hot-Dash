@@ -10,6 +10,7 @@ type CodeRow = {
   code: string;
   profileId: string | null;
   profileName: string;
+  cliques: number;
   starts: number;
   gerados: number;
   pagos: number;
@@ -120,6 +121,40 @@ export default function CodigosDeRastreioPage() {
     };
   }, [grupos]);
 
+  /** Os cards do topo numa lista só: a grade precisa saber quantos são para
+   *  escolher o número de colunas e para tratar a contagem ímpar. */
+  const cardsDoTopo = useMemo(() => {
+    const cards: {
+      label: string;
+      value: string;
+      accent?: boolean;
+      alerta?: boolean;
+      detalhe?: string;
+    }[] = [
+      { label: "Códigos", value: String(total.codigos) },
+      { label: "Starts", value: total.starts.toLocaleString("pt-BR") },
+      { label: "Vendas", value: total.pagos.toLocaleString("pt-BR") },
+      { label: "Faturamento", value: brl(total.paidCents), accent: true },
+    ];
+    // O ponto cego do rastreio, em dinheiro. Só entra quando existe — sem nada
+    // fora do rastreio, um card zerado seria só ruído.
+    if (total.semCodigoCents > 0 || total.semCodigoStarts > 0) {
+      cards.push({
+        label: "Sem código",
+        value:
+          total.semCodigoCents > 0
+            ? `${total.semCodigoPct.toFixed(0)}%`
+            : `${total.semCodigoStarts.toLocaleString("pt-BR")} starts`,
+        alerta: true,
+        detalhe:
+          total.semCodigoCents > 0
+            ? `${brl(total.semCodigoCents)} · ${total.semCodigoPagos} venda${total.semCodigoPagos === 1 ? "" : "s"} · ${total.semCodigoStarts.toLocaleString("pt-BR")} starts`
+            : "nenhuma venda, só starts",
+      });
+    }
+    return cards;
+  }, [total]);
+
   const modelos = useMemo(
     () => (data?.groups || []).map((g) => [g.profileId || "", g.profileName] as [string, string]),
     [data],
@@ -150,29 +185,27 @@ export default function CodigosDeRastreioPage() {
 
       {data && (
         <>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <Chip label="Códigos" value={String(total.codigos)} />
-            <Chip label="Starts" value={total.starts.toLocaleString("pt-BR")} />
-            <Chip label="Vendas" value={total.pagos.toLocaleString("pt-BR")} />
-            <Chip label="Faturamento" value={brl(total.paidCents)} accent />
-            {/* O ponto cego do rastreio, em dinheiro. Só aparece quando existe
-                — sem nada sem código, um card zerado seria só ruído. */}
-            {(total.semCodigoCents > 0 || total.semCodigoStarts > 0) && (
+          {/* Grade, não `flex-wrap`: com largura livre cada card ficava de um
+              tamanho e o último sobrava sozinho numa linha, mais estreito que
+              os outros. Em grade todos têm a mesma largura e a linha fecha. */}
+          <div
+            className={`mt-4 grid grid-cols-2 gap-2 ${
+              cardsDoTopo.length === 5 ? "lg:grid-cols-5" : "lg:grid-cols-4"
+            }`}
+          >
+            {cardsDoTopo.map((c, i) => (
               <Chip
-                label="Sem código"
-                value={
-                  total.semCodigoCents > 0
-                    ? `${total.semCodigoPct.toFixed(0)}%`
-                    : `${total.semCodigoStarts.toLocaleString("pt-BR")} starts`
-                }
-                alerta
-                detalhe={
-                  total.semCodigoCents > 0
-                    ? `${brl(total.semCodigoCents)} · ${total.semCodigoPagos} venda${total.semCodigoPagos === 1 ? "" : "s"} · ${total.semCodigoStarts.toLocaleString("pt-BR")} starts`
-                    : "nenhuma venda, só starts"
+                key={c.label}
+                {...c}
+                /* Contagem ímpar deixa o último órfão na grade de 2 colunas do
+                   celular: ele ocupa a linha inteira em vez de meia. */
+                className={
+                  cardsDoTopo.length % 2 === 1 && i === cardsDoTopo.length - 1
+                    ? "col-span-2 lg:col-span-1"
+                    : ""
                 }
               />
-            )}
+            ))}
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -263,6 +296,7 @@ function Chip({
   accent,
   alerta,
   detalhe,
+  className = "",
 }: {
   label: string;
   value: string;
@@ -271,9 +305,10 @@ function Chip({
   alerta?: boolean;
   /** Segunda linha, menor — a conta por trás do número grande. */
   detalhe?: string;
+  className?: string;
 }) {
   return (
-    <div className="card px-4 py-2.5">
+    <div className={`card px-4 py-2.5 ${className}`}>
       <p className="eyebrow">{label}</p>
       <p
         className={`mt-0.5 font-display text-lg font-semibold ${
@@ -288,14 +323,17 @@ function Chip({
 }
 
 function CodigoCard({ codigo }: { codigo: CodeRow }) {
-  const conversao = codigo.starts > 0 ? (codigo.pagos / codigo.starts) * 100 : null;
-  const fechamento = codigo.gerados > 0 ? (codigo.pagos / codigo.gerados) * 100 : null;
   const ticket = codigo.pagos > 0 ? Math.round(codigo.paidCents / codigo.pagos) : 0;
 
   return (
     <div className="card p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+      {/* Sem `flex-wrap`: com ele o bloco do dinheiro caía para a linha de
+          baixo só nos cards de rótulo comprido ("sem código" + a etiqueta), e
+          o valor ficava à esquerda num card e à direita no de cima. Agora a
+          coluna do dinheiro é fixa à direita em todos, e quem espreme é o
+          rótulo, que já quebra sozinho. */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             {codigo.code ? (
               <p className="font-mono text-sm font-semibold text-white">{codigo.code}</p>
@@ -339,32 +377,75 @@ function CodigoCard({ codigo }: { codigo: CodeRow }) {
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-        <span className="text-zinc-400">
-          Starts: <b className="text-zinc-200">{codigo.starts.toLocaleString("pt-BR")}</b>
-        </span>
-        <span className="text-zinc-400">
-          Cobranças: <b className="text-zinc-200">{codigo.gerados.toLocaleString("pt-BR")}</b>
-        </span>
-        <span className="text-zinc-400">
-          Vendas: <b className="text-zinc-200">{codigo.pagos.toLocaleString("pt-BR")}</b>
-        </span>
-        {conversao !== null && (
-          <span className="text-zinc-400" title="Vendas pagas ÷ starts">
-            Start → venda: <b className="text-zinc-200">{conversao.toFixed(1)}%</b>
-          </span>
-        )}
-        {fechamento !== null && (
-          <span className="text-zinc-400" title="Vendas pagas ÷ cobranças geradas">
-            Cobrança → paga: <b className="text-zinc-200">{fechamento.toFixed(1)}%</b>
-          </span>
-        )}
-        {ticket > 0 && (
-          <span className="text-zinc-400">
-            Ticket: <b className="text-zinc-200">{brl(ticket)}</b>
-          </span>
-        )}
+      {/* O FUNIL, uma etapa por coluna, com a queda entre elas embaixo.
+          Antes eram seis números soltos numa fila que quebrava em qualquer
+          ponto — dava para ler cada um, não dava para ver ONDE se perde.
+
+          O CLIQUE vem da tela de Links (o link do SLT que carrega este
+          código). Ele é a etapa que faltava: entre clicar no link da bio e
+          apertar Iniciar no bot há uma perda que nenhuma tela mostrava.
+
+          Traço, e não zero, quando não há clique: zero afirma que ninguém
+          clicou; traço diz que não há de onde saber — é o caso das Prévias,
+          cujo link é convite de grupo e não carrega código. */}
+      <div className="mt-3 grid grid-cols-4 gap-px overflow-hidden rounded-lg bg-white/[0.06]">
+        <Etapa rotulo="Cliques" valor={codigo.cliques > 0 ? n(codigo.cliques) : "—"} />
+        <Etapa
+          rotulo="Starts"
+          valor={n(codigo.starts)}
+          queda={codigo.cliques > 0 ? pct(codigo.starts, codigo.cliques) : null}
+        />
+        <Etapa rotulo="Cobranças" valor={n(codigo.gerados)} queda={pct(codigo.gerados, codigo.starts)} />
+        <Etapa rotulo="Vendas" valor={n(codigo.pagos)} queda={pct(codigo.pagos, codigo.gerados)} destaque />
       </div>
+
+      {ticket > 0 && (
+        <p className="mt-2 text-xs text-zinc-500">
+          Ticket médio <b className="text-zinc-300">{brl(ticket)}</b>
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Número com separador de milhar, do jeito que o painel escreve em todo lugar. */
+function n(v: number): string {
+  return v.toLocaleString("pt-BR");
+}
+
+/**
+ * A passagem de uma etapa para a seguinte, em porcentagem.
+ *
+ * `null` quando a etapa anterior é zero: dividir por zero não dá 0%, dá
+ * "não dá para saber" — e escrever 0% ali acusaria uma queda que não houve.
+ */
+function pct(parte: number, total: number): string | null {
+  if (total <= 0) return null;
+  const v = (parte / total) * 100;
+  return `${v >= 10 ? v.toFixed(0) : v.toFixed(1)}%`;
+}
+
+/** Uma etapa do funil: o número em cima, a passagem desde a etapa anterior embaixo. */
+function Etapa({
+  rotulo,
+  valor,
+  queda,
+  destaque,
+}: {
+  rotulo: string;
+  valor: string;
+  queda?: string | null;
+  destaque?: boolean;
+}) {
+  return (
+    <div className="bg-ink-850 px-2.5 py-2">
+      <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">{rotulo}</p>
+      <p className={`mt-0.5 font-display text-base font-semibold ${destaque ? "text-emerald-400" : "text-white"}`}>
+        {valor}
+      </p>
+      {/* Espaço reservado mesmo sem valor: sem isso os cards da lista ficam de
+          alturas diferentes e o ritmo da coluna some. */}
+      <p className="mt-0.5 h-3.5 font-mono text-[10px] text-zinc-600">{queda ?? ""}</p>
     </div>
   );
 }

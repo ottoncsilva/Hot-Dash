@@ -363,7 +363,10 @@ export default function PaymentsPage() {
       </div>
 
       {/* Lista de PIX gerados */}
-      <div className="mt-8 flex flex-wrap items-end justify-between gap-3">
+      {/* Tudo encostado à ESQUERDA. Com `justify-between` o rótulo ficava
+          numa ponta e os filtros na outra, separados por meia tela vazia no
+          desktop — pareciam de outro bloco. */}
+      <div className="mt-8 flex flex-wrap items-end gap-x-4 gap-y-3">
         <p className="eyebrow">
           pix gerados
           {data && (
@@ -382,28 +385,30 @@ export default function PaymentsPage() {
             quando há mais de uma opção), então grade fixa continuaria órfã em
             número ímpar. A regra abaixo resolve na origem: com contagem ímpar,
             o último ocupa as duas colunas. Nunca sobra um sozinho e estreito. */}
-        <div className="w-full sm:w-auto">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-end">
           <input
-            className="input w-full py-1.5 text-xs sm:w-64"
+            className="input w-full py-1.5 text-xs sm:w-56"
             placeholder="Buscar cliente, produto, bot..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
 
+          {/* CAIXA DE MARCAR, não lista. Eram três opções ("todos", "sim",
+              "não") num seletor que ocupava o mesmo espaço de um filtro
+              inteiro para uma pergunta de sim-ou-não. Marcada, mostra só o que
+              foi pago; desmarcada, mostra tudo. */}
+          <label className="flex shrink-0 cursor-pointer items-center gap-2 py-1.5 text-xs text-zinc-400 hover:text-zinc-200">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-emerald-500"
+              checked={paidFilter === "paid"}
+              onChange={(e) => setPaidFilter(e.target.checked ? "paid" : "all")}
+            />
+            Só pagos
+          </label>
+
           {(() => {
-            const seletores: React.ReactNode[] = [
-              <select
-                key="pagos"
-                className="input w-full py-1.5 text-xs"
-                aria-label="Filtrar por pagamento"
-                value={paidFilter}
-                onChange={(e) => setPaidFilter(e.target.value as PaidFilter)}
-              >
-                <option value="all">Pagos: todos</option>
-                <option value="paid">Pagos: sim</option>
-                <option value="unpaid">Pagos: não</option>
-              </select>,
-            ];
+            const seletores: React.ReactNode[] = [];
             // Bot e método só entram quando há mais de uma opção no período:
             // um seletor com uma escolha só não filtra nada e ocupa lugar.
             if (botOptions.length > 1)
@@ -463,7 +468,7 @@ export default function PaymentsPage() {
             );
             const impar = seletores.length % 2 === 1;
             return (
-              <div className="mt-2 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end">
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-nowrap sm:items-end">
                 {seletores.map((sel, i) => (
                   <div
                     key={i}

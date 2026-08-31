@@ -113,8 +113,12 @@ const LTV_SUBSECTIONS: NavSubItem[] = [
 // bio) e o código do deep-link que leva ao bot. Só agrupa — a tela de Links
 // continua no caminho de sempre, nada foi movido de URL.
 const RASTREIO_SUBSECTIONS: NavSubItem[] = [
-  { label: "Links", href: "/dashboard/links" },
+  // Códigos vem PRIMEIRO: é o funil de ponta a ponta (clique → start →
+  // cobrança → venda), a tela que se abre todo dia. Links é a de
+  // CONFIGURAÇÃO — atribuir página a modelo e definir rede —, coisa que se faz
+  // uma vez por página.
   { label: "Códigos de rastreio", href: "/dashboard/links/codigos" },
+  { label: "Links", href: "/dashboard/links" },
 ];
 
 const TELEGRAM_SUBSECTIONS: NavSubItem[] = [

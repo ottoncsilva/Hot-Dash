@@ -215,18 +215,25 @@ function HeroFaturamento({
         vendas aprovadas{periodo ? ` · ${periodo}` : ""}
       </p>
 
-      <div className="mt-2 flex flex-wrap items-end gap-x-8 gap-y-3">
-        <div>
-          <p className="font-display text-3xl font-semibold text-white sm:text-4xl">
-            {carregando ? esqueleto("w-40") : brl(data.stats.paidCents)}
+      {/* GRADE de duas colunas, não `flex-wrap`. Com flex, o líquido descia
+          para a linha de baixo assim que o faturamento ganhava um dígito —
+          "R$ 761,95" cabia ao lado, "R$ 8.709,21" não. Cada valor tem metade
+          da largura garantida, e o corpo encolhe no celular para os dois
+          caberem em qualquer valor. */}
+      <div className="mt-2 grid grid-cols-2 gap-x-4 sm:max-w-2xl sm:gap-x-8">
+        <div className="min-w-0">
+          <p className="whitespace-nowrap font-display text-[24px] font-semibold leading-tight text-white sm:text-4xl">
+            {carregando ? esqueleto("w-32 sm:w-40") : brl(data.stats.paidCents)}
           </p>
-          <p className="mt-0.5 text-[11px] text-zinc-600">faturamento bruto</p>
+          <p className="mt-1 text-[11px] leading-snug text-zinc-600">faturamento bruto</p>
         </div>
-        <div>
-          <p className="font-display text-2xl font-semibold text-emerald-400 sm:text-3xl">
-            {carregando ? esqueleto("w-32") : brl(data.netRevenueCents)}
+        <div className="min-w-0">
+          <p className="whitespace-nowrap font-display text-[22px] font-semibold leading-tight text-emerald-400 sm:text-3xl">
+            {carregando ? esqueleto("w-28 sm:w-32") : brl(data.netRevenueCents)}
           </p>
-          <p className="mt-0.5 text-[11px] text-zinc-600">líquido, já sem a taxa do gateway</p>
+          <p className="mt-1 text-[11px] leading-snug text-zinc-600">
+            líquido, já sem a taxa do gateway
+          </p>
         </div>
       </div>
 
@@ -507,20 +514,31 @@ function BotSalesPanel({
           antes de mostrar o faturamento. */}
       <HeroFaturamento data={data} periodo={rotuloPeriodo} />
 
-      {/* Meta do mês, logo abaixo dos números de faturamento — é o que ela
-          mede. Só aparece quando existe meta configurada: barra de progresso
-          contra zero não diz nada. NÃO segue o seletor de modelo (a meta é uma
-          só da operação); por isso o rodapé diz "todos os modelos". */}
-      {data && data.metaMensalCents > 0 && (
-        <BarraMeta feitoCents={data.metaFeitoCents} metaCents={data.metaMensalCents} />
-      )}
-
-      {/* Faturamento por período */}
-      <div className="mt-3 card p-4">
-        <p className="eyebrow">faturamento por período</p>
-        <div className="mt-3">
-          {data ? <RevenueChart series={data.series} /> : <ChartSkeleton />}
+      {/* A META e o GRÁFICO trocam de ordem conforme a tela.
+          No CELULAR o gráfico vem primeiro e a meta logo abaixo dele: a tela é
+          estreita e alta, e empurrar o gráfico para baixo da barra fazia ele
+          nascer fora da primeira rolagem. No iPad e no desktop a meta volta
+          para cima, colada nos números de faturamento — que é o que ela mede.
+          É a MESMA barra nos dois casos, só reordenada por CSS; renderizar
+          duas vezes deixaria duas metas no HTML. */}
+      <div className="mt-3 flex flex-col gap-3">
+        {/* Faturamento por período */}
+        <div className="order-1 card p-4 sm:order-2">
+          <p className="eyebrow">faturamento por período</p>
+          <div className="mt-3">
+            {data ? <RevenueChart series={data.series} /> : <ChartSkeleton />}
+          </div>
         </div>
+
+        {/* Meta do mês. Só aparece quando existe meta configurada: barra de
+            progresso contra zero não diz nada. NÃO segue o seletor de modelo
+            (a meta é uma só da operação); por isso o rodapé diz "todos os
+            modelos". */}
+        {data && data.metaMensalCents > 0 && (
+          <div className="order-2 sm:order-1">
+            <BarraMeta feitoCents={data.metaFeitoCents} metaCents={data.metaMensalCents} />
+          </div>
+        )}
       </div>
 
       {/* Os dois saldos, depois do gráfico. São foto do AGORA e NÃO seguem o
@@ -687,8 +705,10 @@ function ChartSkeleton() {
 function BarraMeta({ feitoCents, metaCents }: { feitoCents: number; metaCents: number }) {
   const pctFeito = Math.round((feitoCents / metaCents) * 100);
   const bateu = feitoCents >= metaCents;
+  // Sem margem própria: quem espaça é o contêiner que a ordena junto do
+  // gráfico (`gap-3`), e margem aqui somaria com ele.
   return (
-    <div className="mt-3 card p-4">
+    <div className="card p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="eyebrow">meta do mês</p>
         <p className={`font-display text-sm font-semibold ${bateu ? "text-emerald-400" : "text-zinc-300"}`}>

@@ -34,6 +34,32 @@ function telegramChatLink(contato: { userId: number; username?: string }): {
   return { href: `tg://user?id=${contato.userId}`, certo: false };
 }
 
+/**
+ * O valor de UMA venda, na moeda DELA.
+ *
+ * A lista formatava tudo com "R$" fixo: uma cobrança de US$ 1,00 aparecia
+ * como "R$ 1,00", lado a lado com uma de R$ 1,00 de verdade, sem nada que
+ * as diferenciasse. A moeda já vinha gravada na transação desde sempre —
+ * só a tela é que ignorava.
+ *
+ * Isto é para LINHA, com a moeda da própria venda. Para TOTAL continua
+ * valendo `brl()`: os totais são somas em real (o servidor já não mistura
+ * moedas), e o que é de outra moeda aparece em linha própria.
+ */
+function valorDaVenda(cents: number, moeda?: string): string {
+  const m = (moeda || "BRL").toUpperCase();
+  try {
+    return (cents / 100).toLocaleString(m === "BRL" ? "pt-BR" : "en-US", {
+      style: "currency",
+      currency: m,
+    });
+  } catch {
+    // Moeda desconhecida (gateway novo, dado velho): mostra o código em vez
+    // de quebrar a linha inteira.
+    return `${m} ${(cents / 100).toFixed(2)}`;
+  }
+}
+
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", {
     style: "currency",
@@ -162,7 +188,7 @@ export default function PaymentsPage() {
 
   async function excluir(t: Transaction) {
     const nome = t.customer || t.description || "esta cobrança";
-    if (!confirm(`Remover ${nome} de ${brl(t.amountCents)} do histórico? Isso não cancela nada na SyncPay.`)) return;
+    if (!confirm(`Remover ${nome} de ${valorDaVenda(t.amountCents, t.currency)} do histórico? Isso não cancela nada na SyncPay.`)) return;
     setExcluindo(t.id);
     try {
       await apiSend(`/api/payments/transactions/${t.id}`, "DELETE");
@@ -566,23 +592,26 @@ export default function PaymentsPage() {
                         {STATUS_LABEL[t.status] || t.status}
                       </span>
                     </td>
+                    {/* Os quatro valores da linha saem na MOEDA DA VENDA — taxa,
+                        split e líquido são recortes do mesmo dinheiro, então
+                        seguem a moeda dele. */}
                     <td className={`p-3 text-right font-display font-semibold ${pago ? "text-white" : "text-zinc-500"}`}>
-                      {brl(t.amountCents)}
+                      {valorDaVenda(t.amountCents, t.currency)}
                     </td>
                     <td className="p-3 text-right font-mono text-xs text-zinc-500">
-                      {taxa === undefined ? "—" : `-${brl(taxa)}`}
+                      {taxa === undefined ? "—" : `-${valorDaVenda(taxa, t.currency)}`}
                     </td>
                     <td className="p-3 text-right font-mono text-xs">
                       {split === undefined ? (
                         <span className="text-zinc-700">—</span>
                       ) : split > 0 ? (
-                        <span className="text-amber-400/80">-{brl(split)}</span>
+                        <span className="text-amber-400/80">-{valorDaVenda(split, t.currency)}</span>
                       ) : (
-                        <span className="text-zinc-700">-{brl(0)}</span>
+                        <span className="text-zinc-700">-{valorDaVenda(0, t.currency)}</span>
                       )}
                     </td>
                     <td className={`p-3 text-right font-display font-semibold ${pago ? "text-emerald-400" : "text-zinc-600"}`}>
-                      {liquido === undefined ? "—" : brl(liquido)}
+                      {liquido === undefined ? "—" : valorDaVenda(liquido, t.currency)}
                     </td>
                     {/* Remover: o webhook da SyncPay é por conta e traz
                         movimento que não é venda (saque, por exemplo). */}

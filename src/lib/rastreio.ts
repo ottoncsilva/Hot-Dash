@@ -311,7 +311,13 @@ export function codigosDeRastreio(
     .all(...l.params) as { code: string; profile_id: string | null; c: number }[];
 
   const t = janela("t.created_at");
-  const txWhere = [...t.clauses, "COALESCE(t.origin, '') <> 'ltv'"];
+  // Só REAL: o código de rastreio soma faturamento, e centavo de dólar não
+  // se soma com centavo de real. Ver `SO_REAL` em transactions.ts.
+  const txWhere = [
+    ...t.clauses,
+    "COALESCE(t.origin, '') <> 'ltv'",
+    "COALESCE(t.currency,'BRL') = 'BRL'",
+  ];
   const vendas = db
     .prepare(
       `SELECT COALESCE(t.source_code, '') code, t.profile_id,

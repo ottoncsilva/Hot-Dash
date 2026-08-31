@@ -264,7 +264,8 @@ export function recordTransaction(input: {
 export function totalPaidCentsByProfile(profileId: string): number {
   const r = getDb()
     .prepare(
-      "SELECT COALESCE(SUM(amount_cents),0) s FROM transactions WHERE status = 'paid' AND profile_id = ?",
+      `SELECT COALESCE(SUM(amount_cents),0) s FROM transactions
+        WHERE status = 'paid' AND ${SO_REAL} AND profile_id = ?`,
     )
     .get(profileId) as { s: number };
   return r.s;
@@ -732,6 +733,74 @@ function methodBucket(method: string | null): "PIX" | "Cartão" | "Boleto" | "Ou
   return "Outros";
 }
 
+/**
+ * DINHEIRO NÃO SE SOMA ENTRE MOEDAS.
+ *
+ * A tabela guarda a moeda de cada venda (`transactions.currency`), mas TODA
+ * soma de faturamento ignorava a coluna: uma venda de US$ 20 entrava como
+ * 2000 centavos no mesmo `SUM` que R$ 20,00, e o painel exibia o resultado
+ * com "R$" na frente. Quanto mais internacional a operação, mais errado o
+ * número — e errado para MENOS, porque o dólar vale mais que o real.
+ *
+ * Toda consulta de valor passa a ser em REAL. O que é cobrado em outra moeda
+ * sai do total e aparece separado (ver `receitaPorMoeda`), que é o único jeito
+ * honesto: converter exigiria a cotação do DIA de cada venda, que não temos.
+ *
+ * `COALESCE` porque a coluna nasceu depois: venda anterior à migração tem
+ * `currency` nulo e é real.
+ */
+const SO_REAL = "COALESCE(currency,'BRL') = 'BRL'";
+/** A mesma regra quando a consulta dá apelido à tabela (`t`). */
+const SO_REAL_T = "COALESCE(t.currency,'BRL') = 'BRL'";
+
+/** Uma linha por moeda estrangeira do período — o que saiu do total em real. */
+export type ReceitaEstrangeira = {
+  currency: string;
+  paidCount: number;
+  paidCents: number;
+  netCents: number;
+};
+
+/**
+ * O faturamento que NÃO é em real, do mesmo período, uma linha por moeda.
+ *
+ * Existe para o total em real poder ser só de real sem esconder venda nenhuma:
+ * o que sai do "Faturamento" aparece aqui, com o símbolo certo. Sem isso, tirar
+ * a venda internacional da soma seria trocar um número errado por um número
+ * incompleto — e o operador ia procurar a venda que "sumiu".
+ */
+export function receitaPorMoeda(
+  sinceMs: number | null,
+  untilMs: number | null,
+  profileId?: string,
+): ReceitaEstrangeira[] {
+  const clauses: string[] = ["status = 'paid'", `NOT (${SO_REAL})`];
+  const params: (number | string)[] = [];
+  if (sinceMs !== null) {
+    clauses.push("created_at >= ?");
+    params.push(sinceMs);
+  }
+  if (untilMs !== null) {
+    clauses.push("created_at < ?");
+    params.push(untilMs);
+  }
+  if (profileId) {
+    clauses.push("profile_id = ?");
+    params.push(profileId);
+  }
+  return getDb()
+    .prepare(
+      `SELECT COALESCE(currency,'BRL') currency, COUNT(*) paidCount,
+              COALESCE(SUM(amount_cents),0) paidCents,
+              COALESCE(SUM(COALESCE(net_amount_cents, amount_cents)),0) netCents
+         FROM transactions
+        WHERE ${clauses.join(" AND ")}
+        GROUP BY COALESCE(currency,'BRL')
+        ORDER BY paidCents DESC`,
+    )
+    .all(...params) as ReceitaEstrangeira[];
+}
+
 export type PeriodStats = {
   /** Faturamento BRUTO (valor cheio das vendas pagas). */
   paidCents: number;
@@ -952,7 +1021,7 @@ function computePeriodStats(
         // senão cai no valor cheio, para vendas antigas não sumirem do total.
         `SELECT COUNT(*) c, COALESCE(SUM(amount_cents),0) s,
                 COALESCE(SUM(COALESCE(net_amount_cents, amount_cents)),0) n
-         FROM transactions WHERE status = ? ${where}`,
+         FROM transactions WHERE status = ? AND ${SO_REAL} ${where}`,
       )
       .get(status, ...params) as { c: number; s: number; n: number };
 
@@ -964,7 +1033,7 @@ function computePeriodStats(
   const methodRows = db
     .prepare(
       `SELECT COALESCE(method,'') method, COUNT(*) c, COALESCE(SUM(amount_cents),0) s
-       FROM transactions WHERE status = 'paid' ${where}
+       FROM transactions WHERE status = 'paid' AND ${SO_REAL} ${where}
        GROUP BY method`,
     )
     .all(...params) as { method: string; c: number; s: number }[];
@@ -1020,7 +1089,8 @@ export function revenueSeriesForDays(days: number, profileId?: string): { day: s
     const dayEnd = addDaysInTimeZone(dayStart, 1, tz);
     const params: (string | number)[] = [dayStart, dayEnd];
     let sql =
-      "SELECT COALESCE(SUM(amount_cents),0) s FROM transactions WHERE status = 'paid' AND created_at >= ? AND created_at < ?";
+      `SELECT COALESCE(SUM(amount_cents),0) s FROM transactions
+       WHERE status = 'paid' AND ${SO_REAL} AND created_at >= ? AND created_at < ?`;
     if (profileId) {
       sql += " AND profile_id = ?";
       params.push(profileId);
@@ -1092,7 +1162,8 @@ function hourlySeriesForDay(dayStartMs: number, profileId?: string): { day: stri
     const hourEnd = hourStart + 3_600_000;
     const params: (string | number)[] = [hourStart, hourEnd];
     let sql =
-      "SELECT COALESCE(SUM(amount_cents),0) s FROM transactions WHERE status = 'paid' AND created_at >= ? AND created_at < ?";
+      `SELECT COALESCE(SUM(amount_cents),0) s FROM transactions
+       WHERE status = 'paid' AND ${SO_REAL} AND created_at >= ? AND created_at < ?`;
     if (profileId) {
       sql += " AND profile_id = ?";
       params.push(profileId);
@@ -1124,7 +1195,8 @@ function seriesBetween(
     const dayEnd = addDaysInTimeZone(dayStart, 1, tz);
     const params: (string | number)[] = [dayStart, dayEnd];
     let sql =
-      "SELECT COALESCE(SUM(amount_cents),0) s FROM transactions WHERE status = 'paid' AND created_at >= ? AND created_at < ?";
+      `SELECT COALESCE(SUM(amount_cents),0) s FROM transactions
+       WHERE status = 'paid' AND ${SO_REAL} AND created_at >= ? AND created_at < ?`;
     if (profileId) {
       sql += " AND profile_id = ?";
       params.push(profileId);

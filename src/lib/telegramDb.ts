@@ -981,6 +981,9 @@ export function planSalesStats(botId: string): Map<string, { count: number; cent
          FROM telegram_subscriptions s
          JOIN transactions t ON t.id = s.transaction_id
         WHERE s.bot_id = ? AND s.plan_id IS NOT NULL AND t.status = 'paid'
+          -- Só REAL: o total por plano é em reais, e centavo de dólar não
+          -- se soma com centavo de real (ver SO_REAL em transactions.ts).
+          AND COALESCE(t.currency,'BRL') = 'BRL'
         GROUP BY s.plan_id`,
     )
     .all(botId) as { planId: string; c: number; cents: number | null }[];

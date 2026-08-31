@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { syncPayFeeCents } from "./payments/syncpayExport";
+import { stripCaptionLabels } from "./captionLabels";
 
 /**
  * Banco de dados SQLite no disco da VPS — a fonte de verdade de todos os
@@ -1509,6 +1510,7 @@ function migrate(d: Database.Database) {
   migrarWhatsappParaLtv(d);
   marcarOrigemDasCobrancasDoLtv(d);
   backfillPersonaDoLtv(d);
+  limparNotaDasLegendasAgendadas(d);
 
   d.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_media_public_token ON media(public_token) WHERE public_token IS NOT NULL;`,
@@ -2170,6 +2172,53 @@ function ensurePostNetworksAccountId(d: Database.Database) {
     DROP TABLE post_networks;
     ALTER TABLE post_networks_new RENAME TO post_networks;
   `);
+}
+
+/**
+ * Tira a nota da IA das legendas AGENDADAS e ainda não publicadas.
+ *
+ * O envio já limpa a legenda na saída (`telegramCron`), então nada sujo iria ao
+ * ar mesmo sem isto. Esta faxina é pelo CALENDÁRIO: o operador abre a agenda,
+ * lê "(Primeira palavra: Vem)" no fim de trinta posts e conclui que a correção
+ * não pegou. Ver a agenda igual ao que o grupo vai receber é metade do
+ * conserto.
+ *
+ * Só toca em `status = 'scheduled'`: post já publicado é registro do que foi ao
+ * ar, e reescrever isso apagaria a prova do defeito. E só grava a linha em que
+ * a limpeza mudou alguma coisa e sobrou texto.
+ *
+ * Roda uma vez só (marca `legendas_sem_nota` em settings).
+ */
+function limparNotaDasLegendasAgendadas(d: Database.Database) {
+  const feito = d.prepare("SELECT value FROM settings WHERE key = ?").get("legendas_sem_nota");
+  if (feito) return;
+
+  const linhas = d
+    .prepare(
+      `SELECT id, caption FROM posts
+        WHERE status = 'scheduled' AND caption IS NOT NULL AND TRIM(caption) <> ''`,
+    )
+    .all() as { id: string; caption: string }[];
+
+  const gravar = d.prepare("UPDATE posts SET caption = ? WHERE id = ?");
+  let mexidas = 0;
+  const tudo = d.transaction(() => {
+    for (const l of linhas) {
+      const limpa = stripCaptionLabels(l.caption).trim();
+      if (limpa && limpa !== l.caption) {
+        gravar.run(limpa, l.id);
+        mexidas++;
+      }
+    }
+    d.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "legendas_sem_nota",
+      JSON.stringify({ em: Date.now(), postsLimpos: mexidas }),
+    );
+  });
+  tudo();
+  if (mexidas > 0) {
+    console.log(`[hotdash] legendas agendadas limpas da nota da IA: ${mexidas}`);
+  }
 }
 
 /** Adiciona uma coluna à tabela se ela ainda não existir (migração idempotente). */

@@ -59,16 +59,26 @@ function buildPrompt(req: CaptionRequest): string {
     "- Use emojis com moderação.",
     "- Em redes de feed (Instagram/TikTok) pode incluir 3 a 6 hashtags relevantes no final; em Telegram e mensagens diretas NÃO use hashtags.",
     "- Se for Stories ou mensagem, seja curta e direta; se for Feed/Reels, pode desenvolver um pouco mais.",
-    // O rótulo ("Legenda para Telegram (VIP):", "Legenda final:") já foi ao ar
-    // dentro dos posts do canal. O modelo o inventa copiando a própria
-    // instrução acima, então não basta pedir "só a legenda": é preciso dizer,
-    // literalmente, que a primeira palavra da RESPOSTA é a primeira palavra da
-    // LEGENDA. A limpeza em captionLabels.ts continua valendo como rede — mas a
-    // rede é a segunda linha de defesa, não a primeira.
-    "- Responda SOMENTE com o texto da legenda, sem aspas nem explicações.",
-    "- NÃO escreva título, rótulo, cabeçalho nem introdução antes da legenda. Nada de 'Legenda:', 'Legenda final:', 'Legenda para Telegram', 'Caption:', 'Aqui está a legenda:', 'Opção 1'. A PRIMEIRA PALAVRA da sua resposta tem que ser a primeira palavra da legenda que a modelo vai postar.",
+    // O modelo inventa o rótulo COPIANDO a própria instrução que tenta impedi-lo.
+    // Já aconteceu duas vezes, das duas pontas:
+    //
+    //   • pedir "só a legenda" trouxe "Legenda para Telegram (VIP):" na frente;
+    //   • a correção — "a PRIMEIRA PALAVRA da sua resposta tem que ser a
+    //     primeira palavra da legenda" — virou nota no fim: "(Primeira palavra:
+    //     Vem)", "(começa exatamente assim)", "(Resposta final - somente a
+    //     legenda)". Nomear um campo é convidar o modelo a preenchê-lo.
+    //
+    // Por isso a regra agora não descreve pedaço nenhum da resposta: descreve a
+    // resposta INTEIRA, com o teste de sanidade que o operador usaria — se a
+    // modelo não postaria aquilo no grupo, não é para estar ali. A limpeza em
+    // captionLabels.ts continua valendo como rede; a rede é a segunda linha de
+    // defesa, não a primeira.
+    "- Sua resposta INTEIRA é a legenda, do primeiro ao último caractere. Ela vai direto para o grupo, sem ninguém revisar.",
+    "- Nada ANTES da legenda: sem título, rótulo, cabeçalho ou introdução. Nada de 'Legenda:', 'Legenda final:', 'Legenda para Telegram', 'Caption:', 'Aqui está a legenda:', 'Opção 1'.",
+    "- Nada DEPOIS da legenda: sem observação, sem nota entre parênteses, sem confirmar que você seguiu as regras, sem avisar que a legenda acabou nem dizer com que palavra ela começa.",
+    "- Sem aspas em volta e sem alternativas — uma legenda só.",
+    "- Se algum trecho da sua resposta não for algo que a modelo postaria no grupo, ele não pode estar ali.",
     "- Não repita o nome da rede nem o tipo do post na resposta — isso é contexto pra você, não faz parte da legenda.",
-    "- Uma legenda só, sem alternativas e sem comentário depois.",
   ]
     .filter(Boolean)
     .join("\n");

@@ -15,6 +15,17 @@ export type PeriodState = { period: PeriodKey; from: string; to: string };
  * cada chip do tamanho do próprio texto — "Hoje" estreito, "Últimos 30 dias"
  * largo. A fileira é assimétrica; nada de colunas iguais.
  *
+ * AS DUAS LINHAS TERMINAM RENTES À DIREITA. Isso é `justify-between`, que no
+ * flex age por LINHA: a folga que sobra em cada uma vira vão entre os chips
+ * dela, e as duas fecham na mesma margem. Com vão fixo cada linha parava onde
+ * o texto acabasse, e a fileira ficava com a direita serrilhada. No iPad e no
+ * desktop volta a `justify-start`: lá é uma linha só e sobra largura demais —
+ * espalhar oito chips por ela abriria buracos entre eles.
+ *
+ * O ÍCONE FICA SÓ NA LINHA DE CIMA, e é item da mesma fileira: ele desloca o
+ * começo da primeira linha e a segunda nasce colada na borda do contêiner,
+ * como na referência.
+ *
  * O QUE FAZ AS DUAS LINHAS CABEREM: a métrica do chip escala com a largura da
  * tela (`clamp` no corpo, no respiro e no vão). Com medida fixa não tem jeito
  * — a conta da linha mais larga, a de baixo, é
@@ -62,7 +73,9 @@ export default function PeriodPicker({
 
   return (
     <div className="w-full min-w-0">
-      <div className={`flex flex-wrap items-center rounded-2xl border border-white/[0.06] bg-white/[0.02] p-2 ${VAO}`}>
+      <div
+        className={`flex flex-wrap items-center justify-between rounded-2xl border border-white/[0.06] bg-white/[0.02] p-2 md:justify-start ${VAO}`}
+      >
         <span className="shrink-0 text-zinc-500" aria-hidden>
           <IconCalendar size={16} />
         </span>

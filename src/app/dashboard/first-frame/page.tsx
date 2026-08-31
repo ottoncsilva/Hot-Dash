@@ -251,8 +251,6 @@ export default function FirstFramePage() {
               <IconFilm size={22} /> First Frame
             </span>
           }
-          description="Suba vários vídeos e pegue o primeiro frame de cada um — ou outro quadro, pela linha do
-          tempo. Baixa tudo num ZIP."
         />
       </div>
 

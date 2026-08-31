@@ -404,7 +404,6 @@ export default function CensuraPage() {
               <IconBlur size={22} /> Censura com IA
             </span>
           }
-          description="Detecta partes explícitas e cobre automaticamente. Foto sai pronta na tela; vídeo é processado no servidor."
         />
       </div>
 

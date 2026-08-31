@@ -199,7 +199,6 @@ export default function TelegramUsuariosPage() {
             <IconProfiles size={22} /> Usuários
           </span>
         }
-        description="Todo mundo que o bot conhece: quem deu /start e quem entrou nos canais VIP e de prévias."
       />
       <div className="mb-5" />
 

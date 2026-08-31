@@ -190,7 +190,6 @@ export default function MailingPage() {
             <IconSend size={22} /> Mailing
           </span>
         }
-        description="Dispara uma mensagem para os leads do VIP, das prévias e para quem deu /start no bot."
       />
       <div className="mb-5" />
 

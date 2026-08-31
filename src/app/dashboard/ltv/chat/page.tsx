@@ -163,7 +163,6 @@ function PainelLtv() {
       <PageHeader
         eyebrow={profile?.name}
         title="Painel LTV"
-        description="Todos os leads que a sua modelo atendeu, quanto cada um já gastou e a conversa completa."
       />
 
       <div className="mt-4 flex gap-2">

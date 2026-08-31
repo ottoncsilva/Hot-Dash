@@ -206,7 +206,6 @@ export default function LinksPage() {
     <div className="page">
       <PageHeader
         title="Links"
-        description="Páginas e links do SLT (link na bio) — clique, participação e o que cada código de deep-link trouxe em venda."
       />
 
       <div className="mt-5 flex flex-wrap items-center gap-3">

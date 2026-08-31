@@ -131,7 +131,6 @@ export default function CodigosDeRastreioPage() {
     <div className="page">
       <PageHeader
         title="Códigos de rastreio"
-        description="Todo código de deep-link do /start, por modelo — quantos leads trouxe, quantas vendas fechou e quanto faturou no período."
       />
 
       <div className="mt-5 flex flex-wrap items-center gap-3">

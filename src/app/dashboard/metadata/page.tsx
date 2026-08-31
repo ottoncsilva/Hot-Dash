@@ -141,13 +141,6 @@ export default function MetadataPage() {
     <div className="page-narrow">
       <PageHeader
         title="Limpar Metadados"
-        description={
-          <>
-            Remove EXIF, GPS, data, câmera e rastros de software (IA) de fotos e
-            vídeos. Processado na hora —{" "}
-            <span className="text-zinc-300">nada é armazenado</span>.
-          </>
-        }
       />
 
       {/* Zona de upload */}

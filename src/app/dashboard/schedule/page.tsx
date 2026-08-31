@@ -310,7 +310,6 @@ export default function SchedulePage() {
     <div className="page">
       <PageHeader
         title="Cronograma"
-        description="Planeje as postagens de cada personagem — a publicação é feita manualmente no celular de cada perfil."
         actions={
           <>
             <button onClick={() => setTemplateOpen(true)} className="btn-ghost">

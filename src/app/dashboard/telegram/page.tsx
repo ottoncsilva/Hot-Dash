@@ -691,7 +691,6 @@ export default function TelegramUnifiedPage() {
     <div className="page pb-20 text-white">
       <PageHeader
         title="Automação do Telegram"
-        description="Configure o Bot, as legendas geradas pela inteligência artificial (Grok) e o cronograma."
       />
 
       {/* A modelo é escolhida no menu; aqui só se confirma QUAL está sendo

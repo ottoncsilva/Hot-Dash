@@ -105,7 +105,6 @@ export default function FunilLtvPage() {
       <PageHeader
         eyebrow="LTV"
         title="Funil de LTV"
-        description="A jornada de quem chega pela conversa: lead → PIX gerado → pago. O funil do bot de vendas fica em Funil de Vendas."
       />
 
       <div className="mt-4 flex flex-wrap items-center gap-3">

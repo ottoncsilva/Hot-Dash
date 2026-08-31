@@ -125,7 +125,6 @@ export default function InstagramPage() {
             <IconInstagram size={22} /> Instagram
           </span>
         }
-        description="Responde as mensagens diretas e manda o lead para o link da bio. Não vende por aqui — o canal é topo de funil."
       />
 
       <AppBlock

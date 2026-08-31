@@ -134,7 +134,6 @@ export default function LtvTelegramPage() {
             <IconSend size={22} /> LTV no Telegram
           </span>
         }
-        description="A IA fala pela conta real da modelo (chip dedicado) e faz LTV automaticamente."
       />
 
       {carregando ? (

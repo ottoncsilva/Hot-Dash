@@ -150,7 +150,6 @@ export default function LtvWhatsappPage() {
             <IconWhatsapp size={22} /> LTV no WhatsApp
           </span>
         }
-        description="Sua modelo conversa com os leads no WhatsApp e faz LTV automaticamente."
       />
 
       {carregando ? (

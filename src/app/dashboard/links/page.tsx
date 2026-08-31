@@ -474,36 +474,51 @@ function BarraDeCliques({
   const largura = maior > 0 ? Math.max(2, Math.round((clicks / maior) * 100)) : 0;
   return (
     <div className="group/barra flex shrink-0 items-center gap-2" title={dica}>
-      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-white/[0.06] sm:w-28">
+      {/* A BARRA some no celular, o número e o % ficam. Ela existe para ranquear
+          de relance uma linha contra as outras; em 390px, espremida a 12px, não
+          ranqueia nada e ainda empurrava a linha para fora do card — era o que
+          fazia a etiqueta da plataforma escrever por cima da pílula do código e
+          o "não rastreável" sair cortado na borda. O % faz o mesmo trabalho em
+          um quarto do espaço. */}
+      <div className="hidden h-1.5 w-20 overflow-hidden rounded-full bg-white/[0.06] sm:block sm:w-28">
         <div
           className="h-full rounded-full bg-sky-500 transition-all duration-300 group-hover/barra:bg-sky-400"
           style={{ width: `${largura}%` }}
         />
       </div>
-      <span className="w-11 text-right font-mono text-[11px] text-zinc-200">
+      <span className="text-right font-mono text-[11px] text-zinc-200 sm:w-11">
         {clicks.toLocaleString("pt-BR")}
       </span>
-      <span className="w-10 text-right font-mono text-[11px] text-sky-400">{pct(clicks, total)}</span>
+      <span className="text-right font-mono text-[11px] text-sky-400 sm:w-10">{pct(clicks, total)}</span>
     </div>
   );
 }
 
 /** Receita e vendas do código, ou o traço de "não dá para saber". */
+/**
+ * Receita e vendas do código, ou o traço de "não dá para saber".
+ *
+ * DUAS LINHAS no desktop, UMA no celular. É a mesma informação: lá em cima o
+ * empilhamento alinha a coluna do dinheiro; aqui embaixo ele custava 13px por
+ * link, e três links por card viravam 40px de card só para quebrar linha onde
+ * cabia lado a lado.
+ */
 function ValorDoLink({ link }: { link: LinkRow }) {
+  const caixa = "flex shrink-0 items-baseline justify-end gap-1.5 sm:block sm:w-24 sm:text-right";
   if (!link.code) {
     return (
-      <div className="w-24 shrink-0 text-right">
+      <div className={caixa}>
         <p className="font-mono text-[11px] text-zinc-700">—</p>
         <p className="text-[10px] text-zinc-700">não rastreável</p>
       </div>
     );
   }
   return (
-    <div className="w-24 shrink-0 text-right">
+    <div className={caixa}>
       <p className={`font-mono text-[11px] ${link.revenueCents > 0 ? "text-emerald-400" : "text-zinc-600"}`}>
         {brl(link.revenueCents)}
       </p>
-      <p className="text-[10px] text-zinc-600">
+      <p className="whitespace-nowrap text-[10px] text-zinc-600">
         {link.sales} {link.sales === 1 ? "venda" : "vendas"}
       </p>
     </div>
@@ -530,45 +545,51 @@ function PaginaCard({
   const endereco = enderecoDaPagina(pagina);
 
   return (
-    <div className="card p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+    <div className="card p-3">
+      {/* CABEÇALHO NUMA LINHA SÓ.
+          Eram três: nome, endereço e a fileira de etiquetas — 24px gastos para
+          dizer "Instagram". A rede e o estado da página são qualificadores do
+          nome, não conteúdo próprio, então vão para a direita, ao lado do
+          Editar, onde já havia espaço vazio. O endereço encosta no nome porque
+          é o mesmo assunto: qual página é esta. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
           <p className="text-sm font-semibold text-white">{nomeDaPagina(pagina)}</p>
           <a
             href={`https://${endereco}`}
             target="_blank"
             rel="noreferrer"
-            className="mt-0.5 inline-block font-mono text-[11px] text-zinc-600 hover:text-zinc-300"
+            className="truncate font-mono text-[11px] text-zinc-600 hover:text-zinc-300"
           >
             {endereco}
           </a>
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            {pagina.trafficSource ? (
-              <span className="chip">{redeLabel.get(pagina.trafficSource) || pagina.trafficSource}</span>
-            ) : (
-              <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-400">
-                sem rede
-              </span>
-            )}
-            {!pagina.published && (
-              <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-400">
-                despublicada
-              </span>
-            )}
-          </div>
         </div>
-        <button
-          type="button"
-          onClick={onEditar}
-          className="btn-ghost h-8 shrink-0 px-3 text-xs"
-          aria-label={`Editar ${nomeDaPagina(pagina)}`}
-        >
-          <IconEdit size={14} />
-          Editar
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {pagina.trafficSource ? (
+            <span className="chip">{redeLabel.get(pagina.trafficSource) || pagina.trafficSource}</span>
+          ) : (
+            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-400">
+              sem rede
+            </span>
+          )}
+          {!pagina.published && (
+            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-400">
+              despublicada
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={onEditar}
+            className="btn-ghost h-8 shrink-0 px-3 text-xs"
+            aria-label={`Editar ${nomeDaPagina(pagina)}`}
+          >
+            <IconEdit size={14} />
+            Editar
+          </button>
+        </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-zinc-400">
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-zinc-400">
         <span>
           Views <b className="text-zinc-200">{pagina.views.toLocaleString("pt-BR")}</b>
         </span>
@@ -592,10 +613,18 @@ function PaginaCard({
       </div>
 
       {links.length > 0 && (
-        <div className="mt-3 space-y-1 border-t border-white/10 pt-2.5">
+        <div className="mt-2 space-y-0.5 border-t border-white/10 pt-2">
           {links.map((l) => (
-            <div key={l.id} className="flex items-center gap-3 rounded-lg px-1 py-1 text-xs hover:bg-white/[0.03]">
-              <div className="flex min-w-0 flex-1 items-center gap-2">
+            // Duas linhas no celular, uma a partir de `sm`. Em 390px os quatro
+            // blocos de largura fixa não cabiam lado a lado e passavam por
+            // cima uns dos outros. `sm:contents` dissolve o agrupamento do
+            // celular no desktop, então lá continua a mesma linha única de
+            // sempre — sem duplicar marcação para as duas larguras.
+            <div
+              key={l.id}
+              className="rounded-lg px-1 py-1 text-xs hover:bg-white/[0.03] sm:flex sm:items-center sm:gap-3 sm:py-0.5"
+            >
+              <div className="flex min-w-0 items-center gap-2 sm:flex-1">
                 {mostrarPlataforma(l.platform) && (
                   <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] lowercase text-zinc-500">
                     {l.platform}
@@ -605,14 +634,16 @@ function PaginaCard({
                   {l.label || l.url}
                 </span>
               </div>
-              <PilulaCodigo code={l.code} />
-              <BarraDeCliques
-                clicks={l.clicks}
-                total={totalLinks}
-                maior={maior}
-                dica={`${l.clicks} de ${totalLinks} cliques desta página · ${l.url}`}
-              />
-              <ValorDoLink link={l} />
+              <div className="mt-1 flex items-center justify-end gap-3 sm:mt-0 sm:contents">
+                <PilulaCodigo code={l.code} />
+                <BarraDeCliques
+                  clicks={l.clicks}
+                  total={totalLinks}
+                  maior={maior}
+                  dica={`${l.clicks} de ${totalLinks} cliques desta página · ${l.url}`}
+                />
+                <ValorDoLink link={l} />
+              </div>
             </div>
           ))}
         </div>
@@ -665,8 +696,11 @@ function PorLink({
   return (
     <div className="mt-4 card divide-y divide-white/[0.06]">
       {mostradas.map((l) => (
-        <div key={l.chave} className="flex items-center gap-3 px-4 py-2.5 text-xs hover:bg-white/[0.02]">
-          <div className="min-w-0 flex-1">
+        <div
+          key={l.chave}
+          className="px-3 py-2 text-xs hover:bg-white/[0.02] sm:flex sm:items-center sm:gap-3 sm:px-4 sm:py-2"
+        >
+          <div className="min-w-0 sm:flex-1">
             <div className="flex items-center gap-2">
               {mostrarPlataforma(l.platform) && (
                 <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] lowercase text-zinc-500">
@@ -683,13 +717,15 @@ function PorLink({
               <span className="font-mono text-zinc-600">{l.endereco}</span>
             </p>
           </div>
-          <BarraDeCliques
-            clicks={l.clicks}
-            total={total}
-            maior={maior}
-            dica={`${l.clicks} de ${total} cliques do recorte · ${l.url}`}
-          />
-          <ValorDoLink link={l} />
+          <div className="mt-1 flex items-center justify-end gap-3 sm:mt-0 sm:contents">
+            <BarraDeCliques
+              clicks={l.clicks}
+              total={total}
+              maior={maior}
+              dica={`${l.clicks} de ${total} cliques do recorte · ${l.url}`}
+            />
+            <ValorDoLink link={l} />
+          </div>
         </div>
       ))}
       {resto.length > 0 && (

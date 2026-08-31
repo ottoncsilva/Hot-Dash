@@ -142,20 +142,26 @@ export default function ProdutosBlock({
     <div className="flex flex-col gap-5">
       {/* Amostras: escolhidas a dedo direto na Galeria — não mais por
           etiqueta. A cada prévia a IA sorteia uma destas, então cada lead vê
-          uma foto diferente sem que a modelo precise pensar em etiquetar
-          nada. */}
+          uma mídia diferente sem que a modelo precise pensar em etiquetar
+          nada.
+
+          Aceita VÍDEO além de foto. O seletor era `apenasImagens`, e isso
+          escondia duas coisas de uma vez: o botão de enviar do aparelho só
+          aceitava `image/*`, e a lista de etiquetas do filtro — que é montada
+          a partir das mídias carregadas — saía sem NENHUMA etiqueta de vídeo,
+          como se elas não existissem. Os dois adaptadores de envio (WhatsApp e
+          Telegram) já mandavam vídeo; faltava poder escolher um. */}
       <div className="rounded-xl border border-fuchsia-500/25 bg-fuchsia-500/[0.06] p-4">
         <p className="text-sm leading-relaxed text-zinc-300">
           <strong className="text-white">Amostras / prévias:</strong> a IA sorteia uma destas
-          fotos para mandar como prévia leve e esquentar o lead. Escolha na Galeria ou suba uma
-          foto nova direto por aqui.
+          mídias para mandar como prévia leve e esquentar o lead. Pode ser foto ou vídeo. Escolha
+          na Galeria ou suba um arquivo novo direto por aqui.
         </p>
         <div className="mt-3">
           <MediaPicker
             profileId={profileId}
             selected={sampleMediaIds}
             onChange={onSampleMediaIds}
-            apenasImagens
             max={30}
             onArquivo={subirAmostra}
             enviando={subindoAmostra}

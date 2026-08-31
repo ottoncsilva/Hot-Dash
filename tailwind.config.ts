@@ -33,6 +33,30 @@ const config: Config = {
         // O salto de 950 para 900 é grande de propósito: antes o card era
         // `bg-white/[0.02]` sobre um fundo quase preto, ou seja, ficava a 2%
         // do fundo e o sistema inteiro parecia um bloco preto só.
+        /* CINZAS DO TEXTO, subidos para passar em contraste.
+           Os originais do Tailwind foram desenhados para fundo CLARO. Sobre o
+           quase-preto do painel eles reprovavam: zinc-500 dava 3,40:1 (mínimo
+           para texto é 4,5), zinc-600 dava 2,13 e zinc-700, 1,57 — e zinc-500 é
+           a cor mais usada do sistema, 465 vezes, incluindo a classe .eyebrow
+           em 11px.
+
+           Os valores abaixo mantêm a mesma relação entre canais (a família
+           continua levemente azulada) e sobem só o brilho, medidos contra os
+           três fundos reais: ink-950, ink-900 e ink-850.
+
+               500  3,40:1 → 5,95:1    texto secundário
+               600  2,13:1 → 4,60:1    notas e legendas
+               700  1,57:1 → 3,01:1    só decorativo (o "zero" apagado)
+
+           OBSERVAÇÃO: sobre fundo escuro a faixa entre 4,5:1 e 7:1 é estreita,
+           então 500 e 600 ficaram perto. O painel tem quatro tons discretos
+           (400/500/600/700) onde dois resolveriam — reduzir a escala é a
+           correção de fundo, esta aqui é a que cabia sem tocar em 98 arquivos. */
+        zinc: {
+          500: "#9b9ba2",
+          600: "#87878d",
+          700: "#69696f",
+        },
         ink: {
           950: "#08080b",
           900: "#17181d",

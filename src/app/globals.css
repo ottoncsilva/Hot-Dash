@@ -51,6 +51,21 @@ body {
     @apply rounded-lg border border-white/[0.06] bg-ink-850;
   }
 
+  /* ONDE O TECLADO ESTÁ.
+     O sistema inteiro tinha UMA regra de foco (a borda do .input) e zero
+     `focus-visible` em 98 arquivos. O que sobrava era o contorno padrão do
+     navegador: um fio escuro sobre fundo quase preto, invisível na prática —
+     apertar Tab não dizia nada.
+
+     `focus-visible` e não `focus`: aparece para quem navega por teclado e NÃO
+     para quem clica com o mouse. É justamente essa diferença que faz tanta
+     gente remover o contorno padrão — ele aparecia no clique e incomodava. */
+  :focus-visible {
+    outline: 2px solid theme(colors.emerald.400);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
   /* Botões */
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5
@@ -73,7 +88,7 @@ body {
      transparência faz ele ficar sempre um degrau acima de onde está. */
   .input {
     @apply w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5
-      text-sm text-zinc-100 placeholder:text-zinc-600 outline-none
+      text-sm text-zinc-100 placeholder:text-zinc-600
       transition-all focus:border-white/30 focus:bg-white/[0.07];
   }
 }
@@ -435,5 +450,28 @@ h3 {
     padding-bottom: 3pt;
     margin-top: 16pt !important;
     margin-bottom: 6pt !important;
+  }
+}
+
+/* MOVIMENTO REDUZIDO.
+   63 dos 98 arquivos de interface usam `transition-` ou `animate-`, e não havia
+   uma linha sequer respeitando a preferência do sistema. Quem liga "reduzir
+   movimento" no iOS faz isso por enxaqueca, vertigem ou sensibilidade
+   vestibular — o aparelho avisava o navegador e o painel ignorava.
+
+   Não é "desligar animação": é levá-la a uma duração imperceptível, mantendo o
+   ESTADO FINAL. Zerar `animation` quebraria componente que depende do fim da
+   animação para existir na tela; 0,01ms chega ao mesmo lugar sem movimento e
+   ainda dispara o evento de término.
+
+   Rolagem suave também entra: rolar sozinho é movimento como qualquer outro. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

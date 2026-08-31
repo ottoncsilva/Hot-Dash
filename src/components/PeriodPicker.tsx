@@ -30,7 +30,7 @@ export default function PeriodPicker({
   return (
     <div className="w-full min-w-0">
       <div className="flex items-start gap-2 rounded-xl border border-white/[0.07] bg-white/[0.02] p-1.5">
-        <span className="mt-[5px] hidden shrink-0 pl-1 text-zinc-600 sm:block" aria-hidden>
+        <span className="mt-[7px] shrink-0 pl-1 pr-0.5 text-zinc-500" aria-hidden>
           <IconCalendar size={14} />
         </span>
         <div className="flex flex-wrap items-center gap-1">

@@ -120,11 +120,7 @@ export default function DashboardHome() {
 
   return (
     <div className="page">
-      <PageHeader
-        size="lg"
-        title="Dashboard"
-        description="Resumo financeiro e operacional das suas personagens."
-      />
+      <PageHeader size="lg" title="Dashboard" />
 
       {aiConnected !== null && providers !== null && (
         <SetupChecklist

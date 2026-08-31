@@ -16,7 +16,7 @@ import CurvaSort, {
   ordenarFaixas,
   type CurvaOrdem,
 } from "@/components/CurvaSort";
-import { DEFAULT_PERIOD, type PeriodKey } from "@/lib/periods";
+import { DEFAULT_PERIOD, PERIOD_OPTIONS, type PeriodKey } from "@/lib/periods";
 import { useProfile } from "@/context/ProfileContext";
 import { niceTicks } from "@/lib/chartTicks";
 
@@ -179,6 +179,89 @@ export default function DashboardHome() {
         <Stat label="Modelos" value={profileCount} />
         <Stat label="Contas sociais" value={accountCount} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * O cartão de topo do Dashboard: faturamento e líquido lado a lado, e embaixo
+ * os números que qualificam os dois — vendas, ticket médio, starts e a
+ * conversão do PIX.
+ *
+ * Os DOIS valores em tamanho grande, não um só. Bruto sem líquido esconde a
+ * taxa do gateway; líquido sem bruto esconde o tamanho da operação. Quem opera
+ * olha os dois na mesma piscada, e é por isso que eles dividem a primeira
+ * linha em vez de virarem dois cartões separados.
+ *
+ * Nada aqui é informação nova nem informação que saiu de outro lugar: são os
+ * mesmos números que já estavam na grade de cartões, reorganizados por
+ * importância.
+ */
+function HeroFaturamento({
+  data,
+  periodo,
+}: {
+  data: BotOverviewData | null;
+  periodo: string;
+}) {
+  const carregando = !data;
+  const esqueleto = (w: string) => (
+    <span className={`inline-block h-8 ${w} animate-pulse rounded bg-white/5 align-middle`} />
+  );
+
+  return (
+    <div className="mt-4 card p-5">
+      <p className="eyebrow">
+        vendas aprovadas{periodo ? ` · ${periodo}` : ""}
+      </p>
+
+      <div className="mt-2 flex flex-wrap items-end gap-x-8 gap-y-3">
+        <div>
+          <p className="font-display text-3xl font-semibold text-white sm:text-4xl">
+            {carregando ? esqueleto("w-40") : brl(data.stats.paidCents)}
+          </p>
+          <p className="mt-0.5 text-[11px] text-zinc-600">faturamento bruto</p>
+        </div>
+        <div>
+          <p className="font-display text-2xl font-semibold text-emerald-400 sm:text-3xl">
+            {carregando ? esqueleto("w-32") : brl(data.netRevenueCents)}
+          </p>
+          <p className="mt-0.5 text-[11px] text-zinc-600">líquido, já sem a taxa do gateway</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <MiniNumero
+          rotulo="Vendas"
+          valor={data ? String(data.stats.paidCount) : null}
+        />
+        <MiniNumero
+          rotulo="Ticket médio"
+          valor={data ? brl(data.stats.avgTicketCents) : null}
+        />
+        <MiniNumero
+          rotulo="Starts"
+          valor={data ? String(data.funnel.totalStarts) : null}
+        />
+        <MiniNumero
+          rotulo="Conv. PIX"
+          valor={
+            data ? (data.funnel.paymentConversion === null ? "—" : pct(data.funnel.paymentConversion)) : null
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Um número de apoio do cartão de topo — menor que o faturamento de propósito. */
+function MiniNumero({ rotulo, valor }: { rotulo: string; valor: string | null }) {
+  return (
+    <div className="panel px-3 py-2.5">
+      <p className="font-mono text-[10px] uppercase tracking-widest2 text-zinc-500">{rotulo}</p>
+      <p className="mt-1 font-display text-lg font-semibold text-white">
+        {valor ?? <span className="inline-block h-5 w-12 animate-pulse rounded bg-white/5" />}
+      </p>
     </div>
   );
 }
@@ -392,6 +475,9 @@ function BotSalesPanel({
   }, [period, profileId, reloadKey, innerReload]);
 
   const profileName = (id: string) => profiles?.find((p) => p.id === id)?.name || id;
+  // "vendas aprovadas · HOJE" — o cartão precisa dizer de que janela
+  // aquele número é, senão os R$ 761,95 do dia são lidos como do mês.
+  const rotuloPeriodo = PERIOD_OPTIONS.find((o) => o.key === period.period)?.label || "";
 
   return (
     <div className="mt-6">
@@ -413,21 +499,34 @@ function BotSalesPanel({
         </div>
       )}
 
-      {/* Cards principais */}
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <MetricCard label="Faturamento" value={data ? brl(data.stats.paidCents) : null} accent />
-        <MetricCard
-          label="Faturamento Líquido"
-          value={data ? brl(data.netRevenueCents) : null}
-          hint="Já sem a taxa do gateway"
-          accent
-        />
-        <MetricCard label="Total Starts" value={data ? String(data.funnel.totalStarts) : null} />
+      {/* O CARTÃO DE CIMA: os dois números que o operador abre o painel para
+          ver — o faturamento e o líquido — juntos, grandes, e com o resto da
+          leitura do período pendurado neles. Antes eram seis cartões iguais
+          numa grade, todos do mesmo tamanho: o dinheiro tinha o mesmo peso
+          visual que o saldo do gateway, e no celular a primeira tela acabava
+          antes de mostrar o faturamento. */}
+      <HeroFaturamento data={data} periodo={rotuloPeriodo} />
+
+      {/* Meta do mês, logo abaixo dos números de faturamento — é o que ela
+          mede. Só aparece quando existe meta configurada: barra de progresso
+          contra zero não diz nada. NÃO segue o seletor de modelo (a meta é uma
+          só da operação); por isso o rodapé diz "todos os modelos". */}
+      {data && data.metaMensalCents > 0 && (
+        <BarraMeta feitoCents={data.metaFeitoCents} metaCents={data.metaMensalCents} />
+      )}
+
+      {/* Faturamento por período */}
+      <div className="mt-3 card p-4">
+        <p className="eyebrow">faturamento por período</p>
+        <div className="mt-3">
+          {data ? <RevenueChart series={data.series} /> : <ChartSkeleton />}
+        </div>
       </div>
-      <div className="mt-3 grid gap-3 sm:grid-cols-4">
-        <MetricCard label="Quantidade de Vendas" value={data ? String(data.stats.paidCount) : null} />
-        <MetricCard label="Ticket Médio" value={data ? brl(data.stats.avgTicketCents) : null} />
-        {/* Saldo é uma foto do AGORA — não muda com o período escolhido. */}
+
+      {/* Os dois saldos, depois do gráfico. São foto do AGORA e NÃO seguem o
+          período escolhido — ficar no topo, ao lado de números que mudam com
+          o filtro, fazia parecer que mudavam junto. */}
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <MetricCard
           label="Saldo na SyncPay"
           value={
@@ -474,22 +573,6 @@ function BotSalesPanel({
                   : "Disponível agora"
           }
         />
-      </div>
-
-      {/* Meta do mês, logo abaixo dos números de faturamento — é o que ela
-          mede. Só aparece quando existe meta configurada: barra de progresso
-          contra zero não diz nada. NÃO segue o seletor de modelo (a meta é uma
-          só da operação); por isso o rodapé diz "todos os modelos". */}
-      {data && data.metaMensalCents > 0 && (
-        <BarraMeta feitoCents={data.metaFeitoCents} metaCents={data.metaMensalCents} />
-      )}
-
-      {/* Faturamento por período */}
-      <div className="mt-3 card p-4">
-        <p className="eyebrow">faturamento por período</p>
-        <div className="mt-3">
-          {data ? <RevenueChart series={data.series} /> : <ChartSkeleton />}
-        </div>
       </div>
 
       {/* Conversões do bot */}

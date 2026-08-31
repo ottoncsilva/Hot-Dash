@@ -266,11 +266,12 @@ async function runTelegramAutopostImpl(): Promise<number> {
       const wantsWaCta = post.post_type === "VIP" && post.cta === 1 && Boolean(waLink);
 
       let replyMarkup: { inline_keyboard: { text: string; url: string }[][] } | undefined;
-      // ÚLTIMA barreira contra o rótulo da IA ("Legenda final:", "Legenda para
-      // Telegram (VIP):"). A limpeza acontece na geração (ai.cleanCaption), mas
-      // o dia inteiro já está agendado no banco: sem limpar aqui, tudo o que foi
-      // gerado antes desta correção continuaria indo ao ar com o título — e o
-      // operador só descobre depois de publicado, no grupo.
+      // ÚLTIMA barreira contra o rótulo da IA na frente ("Legenda final:",
+      // "Legenda para Telegram (VIP):") e contra a nota no fim ("(Primeira
+      // palavra: Vem)"). A limpeza acontece na geração (ai.cleanCaption), mas o
+      // dia inteiro já está agendado no banco: sem limpar aqui, tudo o que foi
+      // gerado antes desta correção continuaria indo ao ar sujo — e o operador
+      // só descobre depois de publicado, no grupo.
       const legenda = stripCaptionLabels(post.caption || "");
       let finalCaption = escapeHtmlAllowingLinks(legenda);
 

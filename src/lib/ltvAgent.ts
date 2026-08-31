@@ -213,6 +213,11 @@ function adaptadorDe(conta: LtvAccount, chat: LtvChat): Adaptador {
  * (`sampleMediaIds`), filtrados contra o que ainda existe de fato na
  * Galeria. Sem o filtro, uma foto apagada depois de escolhida ficaria presa
  * na lista para sempre e a IA tentaria mandar uma mídia que já não existe.
+ *
+ * VÍDEO conta como amostra. A consulta exigia `kind = 'image'`, então um vídeo
+ * escolhido na tela era descartado aqui sem aviso nenhum: some da lista, a IA
+ * nunca o manda, e na tela ele continua marcado como se estivesse valendo. Os
+ * dois adaptadores de envio já sabem mandar vídeo (ver `midia`).
  */
 function amostrasValidas(profileId: string, sampleMediaIds: string[]): string[] {
   if (!sampleMediaIds.length) return [];
@@ -220,7 +225,7 @@ function amostrasValidas(profileId: string, sampleMediaIds: string[]): string[] 
   const rows = getDb()
     .prepare(
       `SELECT id FROM media
-        WHERE profile_id = ? AND kind = 'image' AND COALESCE(hidden, 0) = 0
+        WHERE profile_id = ? AND kind IN ('image', 'video') AND COALESCE(hidden, 0) = 0
           AND id IN (${placeholders})`,
     )
     .all(profileId, ...sampleMediaIds) as { id: string }[];
@@ -359,23 +364,25 @@ function montarPrompt(
   partes.push(
     statusAmostras === "disponivel"
       ? [
-          'Você tem FOTOS DE AMOSTRA cadastradas. Use tipo "amostra" para mandar uma prévia e esquentar o',
-          "lead — o sistema escolhe qual foto mandar, você só decide QUANDO usar esse tipo. REGRA CRÍTICA:",
-          'toda vez que a "resposta" disser (ou der a entender) que você mandou, tirou ou vai mandar uma foto',
-          '— \"te mandei uma provinha\", \"olha o que tirei pra você\", \"[foto]\", etc. — o \"tipo\" daquela',
-          'mesma mensagem TEM que ser "amostra" de verdade. Nunca escreva no texto que enviou uma foto sem',
-          "realmente enviar — pro lead isso chega como só texto, sem imagem nenhuma, e quebra a ilusão.",
+          'Você tem PRÉVIAS DE AMOSTRA cadastradas — podem ser foto OU vídeo. Use tipo "amostra" para',
+          "mandar uma e esquentar o lead: o sistema escolhe qual arquivo vai, você só decide QUANDO usar",
+          "esse tipo. Como você não sabe de antemão se vai sair foto ou vídeo, escreva de um jeito que",
+          'sirva pros dois ("te mandei uma provinha", "olha isso", "fiz isso pensando em você") em vez de',
+          'cravar "foto" ou "vídeo". REGRA CRÍTICA: toda vez que a "resposta" disser (ou der a entender)',
+          'que você mandou, tirou, gravou ou vai mandar alguma coisa, o "tipo" daquela mesma mensagem TEM',
+          "que ser \"amostra\" de verdade. Nunca escreva no texto que enviou sem realmente enviar — pro lead",
+          "isso chega como só texto, sem mídia nenhuma, e quebra a ilusão.",
         ].join(" ")
       : statusAmostras === "esgotada"
         ? [
             'Você JÁ MANDOU TODAS AS PRÉVIAS que tinha pra ESSE lead — nunca use tipo "amostra" com ele de',
-            "novo, e nunca escreva que vai mandar mais uma foto (mentira derruba a confiança na hora). Se",
+            "novo, e nunca escreva que vai mandar mais uma (mentira derruba a confiança na hora). Se",
             "ele pedir mais prévia, NÃO repita nem invente que mandou: jogue a conversa pra frente com",
             "texto, criando uma correlação com o assunto — descreva no detalhe o que ele já viu, aumente o",
             "clima só com palavras, ou puxe pro fechamento (\"essas fotos foram só um gostinho, o resto é",
             'no pacote"). Sempre tipo "texto" com ele a partir daqui.',
           ].join(" ")
-        : 'VOCÊ NÃO TEM FOTOS DE AMOSTRA CADASTRADAS: nunca use tipo "amostra", e nunca escreva que mandou ou vai mandar uma foto — fale só do que ela mostra, sem prometer o envio.',
+        : 'VOCÊ NÃO TEM PRÉVIAS DE AMOSTRA CADASTRADAS: nunca use tipo "amostra", e nunca escreva que mandou ou vai mandar foto ou vídeo — fale só do que você mostra, sem prometer o envio.',
   );
 
   const contextos = audios.map((a) => a.context).filter(Boolean);
@@ -633,6 +640,10 @@ async function executarAcao(
     if (mediaId) {
       const legenda = textos[0] || "";
       await adaptador.midia(mediaId, legenda);
+      // O tipo "imagem" aqui é o MARCADOR de amostra enviada, não a natureza do
+      // arquivo: é exatamente por ele que `amostrasEnviadas` sabe o que este
+      // lead já viu e o sorteio não repete. Vale para vídeo também — trocar o
+      // rótulo faria a mesma prévia sair duas vezes pro mesmo lead.
       insertMessage({ chatId: chat.id, role: "assistant", content: legenda, type: "imagem", mediaId });
       contarEnvio(conta.id);
       // Sobrou mais de 1 mensagem no array — o resto vira bolha(s) depois da mídia.

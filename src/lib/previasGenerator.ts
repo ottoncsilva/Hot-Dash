@@ -18,7 +18,12 @@ import { getProfile } from "./profiles";
 import { getBotConfigByProfile } from "./telegramDb";
 import { linkDoVip } from "./vipLink";
 import { listMedia, getMediaRow, renderVisionImageBase64 } from "./media";
-import { createMediaQueue, getMediaPostCounts, getScheduledMediaUses } from "./mediaUsage";
+import {
+  createMediaQueue,
+  ehVideoCensurado,
+  getMediaPostCounts,
+  getScheduledMediaUses,
+} from "./mediaUsage";
 import { generateCaption, callAiRaw, isSystemicAiError, SystemicAiError } from "./ai";
 import { extractVideoThumbnail, extname } from "./metadata";
 import { readBuffer } from "./storage";
@@ -109,6 +114,28 @@ const ANGLES_COM_FOTO = [
 // Enfileiramento
 // --------------------------------------------------------------------------
 
+/**
+ * Acervo que pode ir PRAS PRÉVIAS: as mídias do perfil filtradas pelas
+ * ETIQUETAS PERMITIDAS do canal (`warmup_tags`). Nenhuma etiqueta marcada
+ * libera o acervo inteiro, que é o comportamento que a tela já descreve.
+ *
+ * Vive aqui porque agora tem DOIS leitores: o enfileiramento, que precisa saber
+ * quantos vídeos existem para não pedir mais do que dá (ver a cota de vídeo em
+ * previasAi), e o lote, que monta a fila de consumo.
+ */
+function midiasElegiveis(profileId: string): MediaItem[] {
+  const settings = getDb()
+    .prepare("SELECT warmup_tags FROM telegram_autopost_settings WHERE profile_id = ?")
+    .get(profileId) as { warmup_tags?: string } | undefined;
+  const permitidas = (settings?.warmup_tags || "")
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
+  return listMedia(profileId).filter(
+    (m) => permitidas.length === 0 || m.tags.some((t) => permitidas.includes(t.name.toLowerCase())),
+  );
+}
+
 /** Job em aberto (pending/processing) do perfil, se houver. */
 export function getActivePreviasJob(profileId: string): PreviasJob | null {
   return getActiveJob(profileId, "previas");
@@ -140,10 +167,21 @@ export function enqueuePreviasJob(profileId: string, days: number): PreviasJob {
     .all(profileId) as { scheduled_at: number }[];
   const taken = existing.map((e) => e.scheduled_at);
 
+  // Teto da cota de vídeo do método, POR PAPEL: o censurado é o que vende, o
+  // resto do acervo de vídeo é o que engaja (ver a cota em previasAi). A fila de
+  // mídia recicla quando acaba, então um plano que pede 5 vídeos de um canal com
+  // 2 não inventa vídeo — faz o mesmo clipe sair duas vezes no mesmo dia.
+  // Contando aqui, o dia pede no máximo o que existe de cada um.
+  const videos = midiasElegiveis(profileId).filter((m) => m.kind === "video");
+  const acervo = {
+    videosCensurados: videos.filter(ehVideoCensurado).length,
+    videosOutros: videos.filter((m) => !ehVideoCensurado(m)).length,
+  };
+
   const slots: JobSlot[] = [];
   for (let dayOffset = 0; dayOffset <= days; dayOffset++) {
     const base = mkDayFromToday(dayOffset, tz);
-    for (const slot of planDay()) {
+    for (const slot of planDay(acervo)) {
       const at = mkSlotToUtcMs(base, slot.time, tz, true);
       if (at <= Date.now()) continue; // não agenda no passado
       if (taken.some((t) => Math.abs(t - at) < 5 * 60 * 1000)) continue;
@@ -206,14 +244,8 @@ async function processBatch(row: JobRow): Promise<number> {
   markProcessing(row.id);
 
   const settings = db
-    .prepare(
-      "SELECT warmup_tags, warmup_cta_buttons FROM telegram_autopost_settings WHERE profile_id = ?",
-    )
-    .get(profile.id) as { warmup_tags?: string; warmup_cta_buttons?: string } | undefined;
-  const allowedTagNames = (settings?.warmup_tags || "")
-    .split(",")
-    .map((t) => t.trim().toLowerCase())
-    .filter(Boolean);
+    .prepare("SELECT warmup_cta_buttons FROM telegram_autopost_settings WHERE profile_id = ?")
+    .get(profile.id) as { warmup_cta_buttons?: string } | undefined;
   const ctaList = (settings?.warmup_cta_buttons ?? "").trim() || DEFAULT_CTA_BUTTONS;
 
   // Cadeia de provedores (grok primeiro — costuma aceitar conteúdo adulto).
@@ -240,11 +272,7 @@ async function processBatch(row: JobRow): Promise<number> {
   // mesma geração já consumiram — sem isso cada lote recomeçaria a fila e as
   // primeiras fotos da ordem sairiam repetidas a cada 8 posts.
   const queue = createMediaQueue(
-    listMedia(profile.id).filter(
-      (m) =>
-        allowedTagNames.length === 0 ||
-        m.tags.some((t) => allowedTagNames.includes(t.name.toLowerCase())),
-    ),
+    midiasElegiveis(profile.id),
     getMediaPostCounts(profile.id),
     "previas",
     getScheduledMediaUses(profile.id, "previas"),
@@ -386,15 +414,28 @@ async function processBatch(row: JobRow): Promise<number> {
       continue;
     }
 
-    // Próxima mídia da fila (vídeo cai para foto quando não há vídeo).
+    // Próxima mídia da fila. O vídeo é pedido pelo PAPEL do post: o de venda
+    // puxa da fila de censurado, o de engajamento puxa dos outros vídeos. Vídeo
+    // cai para foto quando não há vídeo nenhum.
     let media: MediaItem | null = null;
     let type = slot.type;
-    if (slot.kind === "video") media = queue.take("video");
+    if (slot.type === "CENSORED_VIDEO") media = queue.take("video-censurado");
+    else if (slot.type === "VIDEO_REELS") media = queue.take("video-outro");
+    else if (slot.kind === "video") media = queue.take("video");
     else if (slot.kind === "foto") media = queue.take("photo");
 
     // O acervo acabou de vídeo e a fila devolveu uma FOTO: rebaixa o tipo, senão
     // a legenda promete "gravei um vídeo" e vai uma foto anexada.
-    if (slot.kind === "video" && media?.kind === "image") type = "PHOTO_PREMIUM";
+    if (slot.kind === "video" && media?.kind === "image") {
+      type = slot.intent === "converte" ? "PHOTO_PREMIUM" : "SELFIE";
+    }
+
+    // Acabou o acervo CENSURADO e a fila devolveu um vídeo comum: o post
+    // continua sendo de venda, mas a legenda não pode mais falar da tarja que
+    // esse vídeo não tem. Vira o convite genérico de vídeo premium.
+    if (type === "CENSORED_VIDEO" && media?.kind === "video" && !ehVideoCensurado(media)) {
+      type = "VIDEO_PREMIUM";
+    }
 
     // A fila acabou de vez: sem trocar o tipo, a IA escreveria sobre uma imagem
     // ("olha esse vestido") e o post sairia só com texto. Troca por um tipo da

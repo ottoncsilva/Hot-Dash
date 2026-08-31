@@ -23,6 +23,39 @@ import type { MediaItem, MediaPostCounts } from "./types";
 /** Os dois grupos do Telegram que o Método MK alimenta. */
 export type MkAudience = "previas" | "vip";
 
+/**
+ * A etiqueta que separa o vídeo de PRÉVIA CORTADA dos outros vídeos do acervo.
+ *
+ * Não é um nome escolhido aqui: o editor de vídeo já a aplica SOZINHO quando o
+ * operador borra ou cobre alguma coisa (ver VideoEditor), do mesmo jeito que a
+ * foto censurada recebe "Censurada". Ou seja, quem manda nessa classificação é
+ * o próprio fluxo de censura — o método só lê o resultado.
+ *
+ * É essa a distinção que o Método MK usa para decidir o PAPEL do vídeo: o
+ * censurado é o que converte (a curiosidade de ver sem a tarja é o que faz
+ * clicar), e todo o resto do acervo de vídeo — reels, lifestyle, duplo sentido —
+ * serve para engajar.
+ */
+export const TAG_VIDEO_CENSURADO = "Video Censurado";
+
+/** Normalização tolerante a acento/caixa/espaço — a mesma de `getOrCreateTag`,
+ *  para "Vídeo censurado" e "Video Censurado" contarem como a mesma etiqueta. */
+function normTag(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const ALVO_CENSURADO = normTag(TAG_VIDEO_CENSURADO);
+
+/** Este vídeo é uma prévia CORTADA (tem a etiqueta de censura)? */
+export function ehVideoCensurado(m: MediaItem): boolean {
+  return m.kind === "video" && m.tags.some((t) => normTag(t.name) === ALVO_CENSURADO);
+}
+
 /** Converte o `post_type` do post no grupo de destino. "Aquecimento" é o
  *  rótulo legado de "Prévias" (posts manuais antigos). */
 export function audienceFromPostType(postType: string): MkAudience | null {
@@ -228,6 +261,12 @@ export function pickReplacementMedia(
 }
 
 /**
+ * O que um post PEDE da fila. "photo"/"video" é o pedido genérico (o VIP só usa
+ * esses); as Prévias pedem o vídeo pelo PAPEL dele — ver `TAG_VIDEO_CENSURADO`.
+ */
+export type MediaSlot = "photo" | "video" | "video-censurado" | "video-outro";
+
+/**
  * Fila de consumo de mídia de uma geração do Método MK (a mesma para Prévias e
  * VIP). Entrega sempre a próxima da ordem e, quando o acervo do dia acaba,
  * recomeça a rodada em vez de devolver nada — antes disso o post ia ao ar sem
@@ -250,6 +289,12 @@ export function createMediaQueue(
 ) {
   const allPhotos = pool.filter((m) => m.kind === "image");
   const allVideos = pool.filter((m) => m.kind === "video");
+  // Os vídeos ainda saem em DUAS filas, porque têm papéis diferentes no método:
+  // o censurado é a prévia cortada que converte, o resto engaja. Filas
+  // separadas é o que impede a fila única de gastar o vídeo censurado num post
+  // de engajamento e deixar o post de venda sem material de venda.
+  const videosCensurados = allVideos.filter(ehVideoCensurado);
+  const videosOutros = allVideos.filter((m) => !ehVideoCensurado(m));
   // Usos desta execução, ainda não gravados em media_post_log. `seedUses` traz
   // os de lotes ANTERIORES da mesma geração — a geração roda em vários ticks do
   // agendador, e sem isso cada lote recomeçaria a fila do zero e as primeiras
@@ -257,6 +302,8 @@ export function createMediaQueue(
   const uses = new Map<string, number>(seedUses);
   let photoQueue = sortCandidates(allPhotos, counts, audience, uses);
   let videoQueue = sortCandidates(allVideos, counts, audience, uses);
+  let censuradoQueue = sortCandidates(videosCensurados, counts, audience, uses);
+  let outroQueue = sortCandidates(videosOutros, counts, audience, uses);
 
   function consume(item: MediaItem | null): MediaItem | null {
     if (item) uses.set(item.id, (uses.get(item.id) ?? 0) + 1);
@@ -268,12 +315,41 @@ export function createMediaQueue(
     return consume(photoQueue.shift() || null);
   }
 
+  function takeVideo(): MediaItem | null {
+    if (videoQueue.length === 0) videoQueue = sortCandidates(allVideos, counts, audience, uses);
+    const next = videoQueue.shift();
+    return next ? consume(next) : takePhoto();
+  }
+
   return {
-    take(kind: "photo" | "video"): MediaItem | null {
-      if (kind === "video") {
-        if (videoQueue.length === 0) videoQueue = sortCandidates(allVideos, counts, audience, uses);
-        const next = videoQueue.shift();
-        return next ? consume(next) : takePhoto();
+    /**
+     * `photo` e `video` são o comportamento de sempre (o VIP usa só esses dois):
+     * vídeo cai para foto quando não há vídeo nenhum.
+     *
+     * `video-censurado` e `video-outro` são as sub-filas das Prévias. A primeira
+     * cai para os outros vídeos quando o acervo censurado acaba — quem percebe
+     * a troca e rebaixa o TIPO do post é o gerador, olhando a mídia devolvida.
+     * A segunda devolve `null` em vez de cair para o censurado: gastar a prévia
+     * cortada num post de engajamento, que nem botão do VIP leva, é queimar
+     * justamente o material que faz o cara clicar.
+     */
+    take(slot: MediaSlot): MediaItem | null {
+      if (slot === "video") return takeVideo();
+      if (slot === "video-censurado") {
+        if (videosCensurados.length === 0) return takeVideo();
+        if (censuradoQueue.length === 0) {
+          censuradoQueue = sortCandidates(videosCensurados, counts, audience, uses);
+        }
+        const next = censuradoQueue.shift();
+        return next ? consume(next) : takeVideo();
+      }
+      if (slot === "video-outro") {
+        if (videosOutros.length === 0) return null;
+        if (outroQueue.length === 0) {
+          outroQueue = sortCandidates(videosOutros, counts, audience, uses);
+        }
+        const next = outroQueue.shift();
+        return next ? consume(next) : null;
       }
       return takePhoto();
     },

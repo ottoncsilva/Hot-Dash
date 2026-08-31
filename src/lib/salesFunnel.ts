@@ -105,6 +105,9 @@ export function topPlans(
     where.push("t.profile_id = ?");
     params.push(profileId);
   }
+  // Só REAL: somar centavos de dólar com centavos de real dá um número que
+  // não é dinheiro nenhum. Mesma regra de `SO_REAL` em transactions.ts.
+  where.push("COALESCE(t.currency,'BRL') = 'BRL'");
   const rows = db
     .prepare(
       `SELECT p.id plan_id, p.name plan_name, SUM(t.amount_cents) cents, COUNT(*) cnt
@@ -223,6 +226,10 @@ function metricas(
   // Mesmo recorte de `salesFunnel`: o Funil de Vendas mede o bot, e o PIX do
   // LTV é contado no Funil de LTV.
   txWhere.push("COALESCE(origin, '') <> 'ltv'");
+  // Só REAL — ver `SO_REAL` em transactions.ts.
+  txWhere.push("COALESCE(currency,'BRL') = 'BRL'");
+  // Só REAL — ver `SO_REAL` em transactions.ts.
+  txWhere.push("COALESCE(currency,'BRL') = 'BRL'");
   const onde = txWhere.length ? `WHERE ${txWhere.join(" AND ")}` : "";
 
   const geral = db
@@ -489,7 +496,13 @@ export type ProfileRevenue = {
 export function revenueByProfile(sinceMs: number | null, untilMs: number | null = null): ProfileRevenue[] {
   const db = getDb();
   const { clauses, params } = range(sinceMs, untilMs);
-  const where = ["t.status = 'paid'", "t.profile_id IS NOT NULL", ...clauses.map((c) => `t.${c}`)];
+  // Só REAL — ver `SO_REAL` em transactions.ts.
+  const where = [
+    "t.status = 'paid'",
+    "COALESCE(t.currency,'BRL') = 'BRL'",
+    "t.profile_id IS NOT NULL",
+    ...clauses.map((c) => `t.${c}`),
+  ];
   const rows = db
     .prepare(
       `SELECT pr.id profile_id, pr.name profile_name,

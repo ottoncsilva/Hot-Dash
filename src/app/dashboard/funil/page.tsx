@@ -6,6 +6,7 @@ import { apiGet } from "@/lib/api";
 import type { Profile } from "@/lib/types";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import PageHeader from "@/components/PageHeader";
+import ReceitaEstrangeira, { type LinhaMoeda } from "@/components/ReceitaEstrangeira";
 import { DEFAULT_PERIOD } from "@/lib/periods";
 import { useProfile } from "@/context/ProfileContext";
 import { niceTicks } from "@/lib/chartTicks";
@@ -182,6 +183,8 @@ type Dados = {
   linhas: Linha[];
   planos: { planId: string; name: string; cents: number; count: number }[];
   fontes: Fonte[];
+  /** Venda em moeda que não é real — fora dos totais, de propósito. */
+  receitaEstrangeira?: LinhaMoeda[];
   comparativo: Comparativo;
   /** Base do Telegram — foto do AGORA, não segue o período selecionado. */
   users: { total: number; vips: number; expirados: number; leads: number; bloqueados: number };
@@ -477,6 +480,8 @@ export default function FunilPage() {
           arrastadas de distância. Este card responde isso de cara, na mesma
           forma do "planos que mais convertem" logo abaixo. Come os mesmos
           `data.fontes`: um só filtro para os dois, sem chance de divergirem. */}
+      <ReceitaEstrangeira linhas={data?.receitaEstrangeira} className="mt-3" />
+
       <ResumoFontes fontes={data?.fontes} />
 
       <p className="mt-4 text-[11px] text-zinc-600">Detalhe por código, do topo do funil à receita:</p>

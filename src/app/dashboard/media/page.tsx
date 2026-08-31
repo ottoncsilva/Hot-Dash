@@ -632,11 +632,33 @@ export default function MediaPage() {
         }}
       />
 
-      {/* Etiquetas + agrupamento + ordenação.
+      {/* A DATA VEM PRIMEIRO. É o filtro que corta mais mídia de uma vez
+          ("o que entrou hoje"), e era o terceiro da fila — depois de duas
+          linhas de etiquetas e publicação. Agora abre a peneira. */}
+      {media && media.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="eyebrow">inserção</span>
+          <PeriodPicker value={filterPeriod} onChange={setFilterPeriod} />
+          {filterPeriod.period !== "all" && (
+            <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
+              {filteredMedia.length} de {media.length}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Etiquetas, publicação, agrupamento e ordenação — a linha de
+          refino, depois da data.
+
+          PUBLICAÇÃO virou menu suspenso, como as etiquetas. Eram três chips
+          longos ("postada nas prévias", "postada no vip") soltos na tela:
+          duas linhas inteiras no celular para um filtro que se usa de vez em
+          quando. Fechado, o gatilho ocupa uma palavra e ainda diz quantos
+          estão ativos.
+
           Desktop: tudo numa linha, com agrupar/ordenar empurrados para a
-          direita. Celular: o gatilho das etiquetas ocupa a linha inteira e o
-          par agrupar/ordenar cai para a linha de baixo (`w-full sm:w-auto`) —
-          espremidos os três não cabem sem virar texto de duas letras. */}
+          direita. Celular: os gatilhos ficam lado a lado e o par
+          agrupar/ordenar cai para a linha de baixo (`w-full sm:w-auto`). */}
       {profiles.length > 0 && (
         <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
           {tags.length > 0 && (
@@ -669,6 +691,35 @@ export default function MediaPage() {
               )}
             </FilterDropdown>
           )}
+
+          <FilterDropdown label="publicação" count={filterPosted.size}>
+            <div className="flex flex-wrap gap-2">
+              {POSTED_FILTERS.map((f) => (
+                <ToggleChip
+                  key={f.key}
+                  active={filterPosted.has(f.key)}
+                  onClick={() =>
+                    setFilterPosted((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(f.key)) next.delete(f.key);
+                      else next.add(f.key);
+                      return next;
+                    })
+                  }
+                >
+                  {f.label}
+                </ToggleChip>
+              ))}
+            </div>
+            {filterPosted.size > 0 && (
+              <button
+                onClick={() => setFilterPosted(new Set())}
+                className="mt-3 font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-white"
+              >
+                limpar publicação
+              </button>
+            )}
+          </FilterDropdown>
 
           <div className="flex w-full items-center gap-3 sm:ml-auto sm:w-auto">
             {tags.length > 0 && (
@@ -703,74 +754,29 @@ export default function MediaPage() {
         </div>
       )}
 
-      {/* Filtro por data de inserção na galeria */}
+      {/* TIPO fica em chips: são dois, curtos, e ligar/desligar "vídeo" é o
+          gesto mais repetido da tela — esconder isso atrás de um menu custaria
+          um clique a mais toda vez. */}
       {media && media.length > 0 && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span className="eyebrow">inserção</span>
-          <PeriodPicker value={filterPeriod} onChange={setFilterPeriod} />
-          {filterPeriod.period !== "all" && (
-            <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
-              {filteredMedia.length} de {media.length}
-            </span>
+          <span className="eyebrow">tipo</span>
+          {KIND_FILTERS.map((k) => (
+            <ToggleChip
+              key={k.key}
+              active={filterKinds.has(k.key)}
+              onClick={() => toggleFilterKind(k.key)}
+            >
+              {k.label}
+            </ToggleChip>
+          ))}
+          {filterKinds.size > 0 && (
+            <button
+              onClick={() => setFilterKinds(new Set())}
+              className="font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-white"
+            >
+              limpar
+            </button>
           )}
-        </div>
-      )}
-
-      {/* Publicação + Tipo.
-          Desktop: os dois grupos na MESMA linha, separados por um espaço maior
-          que o de dentro de cada grupo — é o espaçamento que faz a leitura,
-          sem precisar de divisória. Celular: viram duas linhas (`flex-col`),
-          porque juntos passam de sete chips e amontoariam. */}
-      {media && media.length > 0 && (
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-8 sm:gap-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="eyebrow">publicação</span>
-            {POSTED_FILTERS.map((f) => (
-              <ToggleChip
-                key={f.key}
-                active={filterPosted.has(f.key)}
-                onClick={() =>
-                  setFilterPosted((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(f.key)) next.delete(f.key);
-                    else next.add(f.key);
-                    return next;
-                  })
-                }
-              >
-                {f.label}
-              </ToggleChip>
-            ))}
-            {filterPosted.size > 0 && (
-              <button
-                onClick={() => setFilterPosted(new Set())}
-                className="font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-white"
-              >
-                limpar
-              </button>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="eyebrow">tipo</span>
-            {KIND_FILTERS.map((k) => (
-              <ToggleChip
-                key={k.key}
-                active={filterKinds.has(k.key)}
-                onClick={() => toggleFilterKind(k.key)}
-              >
-                {k.label}
-              </ToggleChip>
-            ))}
-            {filterKinds.size > 0 && (
-              <button
-                onClick={() => setFilterKinds(new Set())}
-                className="font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-white"
-              >
-                limpar
-              </button>
-            )}
-          </div>
         </div>
       )}
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { receitaPorMoeda } from "@/lib/transactions";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import {
   funnelByProfile,
@@ -34,6 +35,8 @@ export async function GET(req: NextRequest) {
     );
 
     const { linhas, geral } = funnelByProfile(range.since, range.until);
+    // Venda em outra moeda, do mesmo período — ver a rota do Dashboard.
+    const receitaEstrangeira = receitaPorMoeda(range.since, range.until, profileId);
     return NextResponse.json({
       period,
       // Quando um modelo está selecionado, os cards do topo mostram só ele.
@@ -41,6 +44,7 @@ export async function GET(req: NextRequest) {
       linhas,
       planos: topPlans(range.since, range.until, profileId, 5),
       fontes: trafficSources(range.since, range.until, profileId),
+      receitaEstrangeira,
       // Hoje/mês/total NÃO seguem o período escolhido de propósito: o valor
       // deles é justamente comparar a janela curta com a longa.
       comparativo: metricasComparadas(tz, profileId),

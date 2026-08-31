@@ -10,6 +10,7 @@ import { IconSettings } from "@/components/icons";
 import FaixaRolavel from "@/components/FaixaRolavel";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import PageHeader from "@/components/PageHeader";
+import ReceitaEstrangeira, { type LinhaMoeda } from "@/components/ReceitaEstrangeira";
 import CurvaSort, {
   ALTURA_LISTA,
   FAIXA_ALTURA,
@@ -59,6 +60,8 @@ type BotOverviewData = {
   byProfile: { profileId: string; profileName: string; botActive: boolean | null; paidCents: number; paidCount: number }[];
   series: { day: string; cents: number }[];
   netRevenueCents: number;
+  /** Venda em moeda que não é real — fora dos totais acima, de propósito. */
+  receitaEstrangeira?: LinhaMoeda[];
   netProfitCents: number;
   /** Meta de faturamento do mês (Configurações → Pagamentos). Zero = sem meta. */
   metaMensalCents: number;
@@ -549,6 +552,9 @@ function BotSalesPanel({
           visual que o saldo do gateway, e no celular a primeira tela acabava
           antes de mostrar o faturamento. */}
       <HeroFaturamento data={data} periodo={rotuloPeriodo} />
+
+      {/* Só aparece quando existe venda em outra moeda no período. */}
+      <ReceitaEstrangeira linhas={data?.receitaEstrangeira} className="mt-3" />
 
       {/* A META e o GRÁFICO trocam de ordem conforme a tela.
           No CELULAR o gráfico vem primeiro e a meta logo abaixo dele: a tela é

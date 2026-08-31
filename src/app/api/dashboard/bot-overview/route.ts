@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import {
   periodStatsInRange,
+  receitaPorMoeda,
   revenueSeriesForRange,
   revenueByWeekdayAndHour,
 } from "@/lib/transactions";
@@ -54,6 +55,10 @@ export async function GET(req: NextRequest) {
     // Antes este card era "lucro líquido" = faturamento - anúncios, o que
     // misturava custo de mídia com a taxa do gateway.
     const netRevenueCents = stats.paidNetCents;
+    // O que foi vendido em OUTRA moeda no mesmo período. Os totais acima são
+    // só em real (centavo de dólar não se soma com centavo de real); sem esta
+    // lista a venda internacional simplesmente sumiria da tela.
+    const receitaEstrangeira = receitaPorMoeda(since, until, profileId);
     const netProfitCents = netRevenueCents - finance.adSpendCents;
 
     return NextResponse.json({
@@ -63,6 +68,7 @@ export async function GET(req: NextRequest) {
       byProfile,
       series,
       netRevenueCents,
+      receitaEstrangeira,
       netProfitCents,
       metaMensalCents: finance.monthlyGoalCents,
       metaFeitoCents,

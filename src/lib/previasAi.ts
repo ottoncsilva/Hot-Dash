@@ -15,9 +15,11 @@ import { partsInTimeZone, zonedWallTimeToUtcMs } from "./timezone";
  * - Mix medido em 2.000 dias simulados: ~39% humanização / ~19% engajamento /
  *   ~42% conversão, com a venda ESPALHADA (nunca em bloco) — ver planDay.
  * - Só os tipos de CONVERSÃO levam o botão VIP (cta=true).
- * - COTA DE VÍDEO: 4 a 6 por dia (o método sorteava ~1,3), só nas janelas que
- *   vendem e nunca dois colados — ver `balanceVideos`. O teto é o acervo: um
- *   canal com dois vídeos etiquetados recebe dois, não cinco repetidos.
+ * - COTA DE VÍDEO: 4 a 6 por dia (o método sorteava ~1,3) e com PAPEL definido —
+ *   o vídeo CENSURADO vende, nas janelas de venda e com botão do VIP; os outros
+ *   vídeos (reels/lifestyle) engajam, no pico de audiência e sem venda. Nunca
+ *   dois vídeos colados. Ver `balanceVideos`. O teto é o acervo: um canal com
+ *   dois vídeos etiquetados recebe dois, não cinco repetidos.
  * - PICÂNCIA ESCALONADA pela hora (ver `heatForHour`), e os posts de conversão
  *   nunca ficam abaixo do nível 3 — INCLUSIVE de manhã, de propósito: as 07h
  *   são a melhor hora de conversão do dia (43%), e prévia morna não vende.
@@ -60,6 +62,8 @@ export type MkType =
   | "BEHIND_SCENES"
   | "PHOTO_PREMIUM"
   | "VIDEO_PREMIUM"
+  | "CENSORED_VIDEO"
+  | "VIDEO_REELS"
   | "CENSORED_PREVIEW"
   | "REACTION"
   | "POLL"
@@ -97,6 +101,12 @@ export const TYPE_DEFS: Record<MkType, TypeDef> = {
   POLL: { kind: "enquete", intent: "engaja", cta: false },
   PHOTO_PREMIUM: { kind: "foto", intent: "converte", cta: true, media: "photo" },
   VIDEO_PREMIUM: { kind: "video", intent: "converte", cta: true, media: "video" },
+  // O vídeo que VENDE: prévia cortada, com as partes quentes cobertas. Consome
+  // o acervo etiquetado como censurado (ver TAG_VIDEO_CENSURADO em mediaUsage).
+  CENSORED_VIDEO: { kind: "video", intent: "converte", cta: true, media: "video" },
+  // O vídeo que ENGAJA: reels, lifestyle, duplo sentido — todo o resto do
+  // acervo de vídeo. Sem botão do VIP, como qualquer post de engajamento.
+  VIDEO_REELS: { kind: "video", intent: "engaja", cta: false, media: "video" },
   CENSORED_PREVIEW: { kind: "foto", intent: "converte", cta: true, media: "photo" },
   PRESENT: { kind: "foto", intent: "converte", cta: true, media: "photo" },
   COUNTDOWN: { kind: "texto", intent: "converte", cta: true },
@@ -118,19 +128,19 @@ const WINDOWS: Window[] = [
   { start: 5, end: 7, weight: 2, types: ["GOOD_MORNING", "HUMANIZATION", "SELFIE", "BREAKFAST", "WORK"] },
   // 07–08 a MELHOR hora de conversão do dia (43,3%) com audiência alta. Uma
   // hora só, cota alta: quem acorda e olha o celular já vê a chamada do VIP.
-  { start: 7, end: 8, weight: 2, types: ["PHOTO_PREMIUM", "VIDEO_PREMIUM", "VIP_INVITATION", "CENSORED_PREVIEW", "PRESENT", "SELFIE", "HUMANIZATION", "BREAKFAST"] },
+  { start: 7, end: 8, weight: 2, types: ["PHOTO_PREMIUM", "CENSORED_VIDEO", "VIP_INVITATION", "CENSORED_PREVIEW", "PRESENT", "SELFIE", "HUMANIZATION", "BREAKFAST"] },
   // 08–11 engajamento com rotina. Contém as 9h, 2º melhor horário do dia
   // (39,3 vendas/1k views) — daí a cota ter subido de 0,16 para 0,30.
-  { start: 8, end: 11, weight: 4, types: ["REACTION", "POLL", "QUESTION", "CURIOSITY", "SELFIE", "HUMANIZATION", "BREAKFAST", "CENSORED_PREVIEW", "VIDEO_PREMIUM"] },
+  { start: 8, end: 11, weight: 4, types: ["REACTION", "POLL", "QUESTION", "CURIOSITY", "SELFIE", "HUMANIZATION", "BREAKFAST", "CENSORED_PREVIEW", "CENSORED_VIDEO"] },
   // 11–14 meio-dia. Cota reduzida: 12h é buraco (17,6 vendas/1k, conversão
   // 21,4%) — muito clique de hora de almoço e pouca compra. 13h compensa.
-  { start: 11, end: 14, weight: 4, types: ["CENSORED_PREVIEW", "PHOTO_PREMIUM", "VIDEO_PREMIUM", "VIP_INVITATION", "SOCIAL_PROOF", "PRESENT", "REACTION", "HUMANIZATION", "SELFIE"] },
+  { start: 11, end: 14, weight: 4, types: ["CENSORED_PREVIEW", "PHOTO_PREMIUM", "CENSORED_VIDEO", "VIP_INVITATION", "SOCIAL_PROOF", "PRESENT", "REACTION", "HUMANIZATION", "SELFIE"] },
   // 14–17 tarde. Era a menor cota do dia útil (0,26) e o dado não sustenta:
   // 14h/15h/16h ficam todas em 23–25 vendas/1k, tão boas quanto a média.
-  { start: 14, end: 17, weight: 4, types: ["HUMANIZATION", "CURIOSITY", "QUESTION", "BEHIND_SCENES", "WORK", "SELFIE", "PHOTO_PREMIUM", "VIDEO_PREMIUM", "OFFER", "CENSORED_PREVIEW"] },
+  { start: 14, end: 17, weight: 4, types: ["HUMANIZATION", "CURIOSITY", "QUESTION", "BEHIND_SCENES", "WORK", "SELFIE", "PHOTO_PREMIUM", "CENSORED_VIDEO", "OFFER", "CENSORED_PREVIEW"] },
   // 17–19 fim de expediente. As 17h são o 3º melhor horário (35,1 vendas/1k,
   // 13 pagos). Estava diluída dentro da antiga 17–20 junto com as 18h/19h.
-  { start: 17, end: 19, weight: 3, types: ["PHOTO_PREMIUM", "VIDEO_PREMIUM", "CENSORED_PREVIEW", "SOCIAL_PROOF", "VIP_INVITATION", "PRESENT", "CURIOSITY", "SELFIE", "HUMANIZATION"] },
+  { start: 17, end: 19, weight: 3, types: ["PHOTO_PREMIUM", "CENSORED_VIDEO", "CENSORED_PREVIEW", "SOCIAL_PROOF", "VIP_INVITATION", "PRESENT", "CURIOSITY", "SELFIE", "HUMANIZATION"] },
   // 19–22 PICO DE AUDIÊNCIA (460 views às 21h, o máximo do dia) e a PIOR
   // conversão por visualização (15,2–15,6). O grupo está cheio de gente que
   // veio se entreter, não comprar. Aqui se ENGAJA e se aquece — a venda sai
@@ -139,7 +149,7 @@ const WINDOWS: Window[] = [
   // 22–00 O PICO DE VENDA. 23h é a melhor hora do dia em tudo: 39 PIX gerados,
   // 16 pagos, 41,0% de conversão e 48,5 vendas/1k views — o dobro das 21h, com
   // 28% MENOS audiência. Maior cota do método.
-  { start: 22, end: 24, weight: 5, types: ["CENSORED_PREVIEW", "PHOTO_PREMIUM", "VIDEO_PREMIUM", "COUNTDOWN", "VIP_INVITATION", "SOCIAL_PROOF", "OFFER", "LAST_CALL", "REACTION", "HUMANIZATION"] },
+  { start: 22, end: 24, weight: 5, types: ["CENSORED_PREVIEW", "PHOTO_PREMIUM", "CENSORED_VIDEO", "COUNTDOWN", "VIP_INVITATION", "SOCIAL_PROOF", "OFFER", "LAST_CALL", "REACTION", "HUMANIZATION"] },
   // 00–03 madrugada. A v2 tratava como 2º pico (peso 5, cota 0,60) e o dado
   // desmente: conversão 22,9% contra 33,8% da média, audiência despencando, e
   // a penalidade sobrevive até controlando o preço (35,5% contra 41–47%).
@@ -149,35 +159,92 @@ const WINDOWS: Window[] = [
 ];
 
 /**
- * COTA DE VÍDEO do dia. O vídeo é o que mais vende — ele mostra movimento, som
- * e duração, coisas que a foto não tem — mas por muito tempo o método tratava
- * vídeo como se fosse sobra: `VIDEO_PREMIUM` é o ÚNICO tipo de vídeo, e ele
- * aparecia em duas janelas contra quatro tipos de foto espalhados por quase
- * todas. O resultado medido em 5.000 dias simulados era ~1,3 vídeo/dia contra
- * ~12,7 fotos (9% do acervo consumido), e um em cada cinco dias saía sem vídeo
- * nenhum — com a galeria cheia de etiqueta de vídeo sem uso.
+ * COTA DE VÍDEO do dia, e o PAPEL de cada vídeo.
  *
- * A cota abaixo é um PISO com teto: o dia leva de 4 a 6 vídeos (sorteados, para
- * nenhum dia sair igual ao outro), o que põe o vídeo em ~25% a 30% dos posts com
- * mídia. `balanceVideos` promove posts de conversão com foto quando falta e
- * rebaixa quando o sorteio das janelas passa do teto — o mesmo desenho de
- * `balancePolls`.
+ * O método tratava vídeo como sobra: `VIDEO_PREMIUM` era o único tipo de vídeo e
+ * aparecia em duas das dez janelas, contra quatro tipos de foto espalhados por
+ * quase todas. Medido em 5.000 dias simulados, o plano saía com ~1,3 vídeo/dia
+ * contra ~12,7 fotos, e um em cada cinco dias não tinha vídeo nenhum — com a
+ * galeria cheia de etiqueta de vídeo sem uso.
+ *
+ * Agora o dia leva de 4 a 6 vídeos (sorteado, para nenhum dia sair igual), e
+ * eles NÃO são todos a mesma coisa:
+ *
+ *   CENSORED_VIDEO — a prévia CORTADA, com as partes cobertas. É o vídeo que
+ *     converte: a curiosidade de ver sem a tarja é o que faz clicar. Vai nas
+ *     janelas que vendem (`VIDEO_PRIORITY`) e leva o botão do VIP. É a maioria.
+ *
+ *   VIDEO_REELS — todo o resto do acervo de vídeo (reels, lifestyle, duplo
+ *     sentido). É o vídeo que engaja: vai no pico de AUDIÊNCIA, sem venda e sem
+ *     botão. Um ou dois por dia, nunca mais que isso — o dia é de venda.
+ *
+ * Quem separa um do outro é a etiqueta que o editor de vídeo já aplica sozinho
+ * ao borrar/cobrir alguma coisa (ver TAG_VIDEO_CENSURADO em mediaUsage): o
+ * método só lê o resultado do fluxo de censura que o operador já usa.
  */
 const VIDEO_MIN = 4;
 const VIDEO_MAX = 6;
+/** Quantos dos vídeos do dia são de ENGAJAMENTO. O resto é censurado. */
+const REELS_MIN = 1;
+const REELS_MAX = 2;
+/** Piso de vídeo de VENDA: os reels nunca comem a cota abaixo disto. Com 4 no
+ *  dia sai 1 reels; com 6, dois — o vídeo de conversão fica sempre em maioria. */
+const CENSORED_MIN = 3;
 
 /**
- * Em que janelas vale GASTAR vídeo, da melhor conversão para a pior. É a mesma
- * ordem de `windowConvTarget`, que veio de vendas por 1.000 visualizações:
- * 22–00 (48,5), 07–08 (43,3% de conversão), 17–19 (35,1), 11–14 (13h compensa
- * o buraco das 12h), 08–11 (9h, 39,3) e 14–17 (23–25, consistente).
+ * Em que janelas vale GASTAR vídeo de VENDA, da melhor conversão para a pior. É
+ * a mesma ordem de `windowConvTarget`, que veio de vendas por 1.000
+ * visualizações: 22–00 (48,5), 07–08 (43,3% de conversão), 17–19 (35,1), 11–14
+ * (13h compensa o buraco das 12h), 08–11 (9h, 39,3) e 14–17 (23–25).
  *
  * O acervo de vídeo é finito e mais caro de produzir que foto: queimá-lo às 4h
  * da manhã, onde não houve UM pagamento em todo o período medido, é desperdício.
- * As janelas de fora (05–07, 19–22, 00–03, 03–05) continuam podendo receber
- * vídeo pelo sorteio normal — o piso é que não planta nada lá.
  */
 const VIDEO_PRIORITY: number[] = [22, 7, 17, 11, 8, 14];
+
+/**
+ * Onde cai o vídeo de ENGAJAMENTO — quase o inverso da lista acima, de propósito.
+ *
+ * 19–22 vem primeiro porque é o PICO DE AUDIÊNCIA do dia (460 views às 21h) e a
+ * PIOR conversão por visualização: é a janela em que o método já decidiu engajar
+ * em vez de vender. Um reels ali pega a maior plateia do dia com o post que não
+ * pede nada — que é exatamente o que aquece o público para a venda das 22h.
+ *
+ * 22–00 fica de fora mesmo com audiência: é a hora que VENDE, e um vídeo sem
+ * botão ali gasta o melhor horário do dia. Ficam de fora também 03–05 e 05–07,
+ * as horas mortas (85 views às 3h, zero pagamento no período medido) — reels na
+ * madrugada é acervo queimado com ninguém olhando.
+ */
+const REELS_PRIORITY: number[] = [19, 8, 14, 11, 0];
+
+/** Quanto de cada tipo de vídeo o canal tem disponível, depois do filtro de
+ *  etiquetas do canal. É o TETO da cota — ver `videoQuota`. */
+export type MkAcervo = { videosCensurados: number; videosOutros: number };
+
+/**
+ * Divide a cota do dia entre vídeo de venda e vídeo de engajamento, respeitando
+ * o que existe na galeria.
+ *
+ * O teto do acervo não é detalhe: a fila de mídia RECICLA quando acaba (ver
+ * createMediaQueue), então pedir cinco vídeos de quem tem dois não cria vídeo —
+ * faz o mesmo clipe sair duas vezes no mesmo dia. E o saldo de um lado escorre
+ * para o outro: canal sem nenhum reels leva o dia inteiro de censurado, canal
+ * sem nenhum censurado não fica sem vídeo, leva reels.
+ */
+function videoQuota(acervo?: MkAcervo): { censurado: number; reels: number } {
+  const temCensurado = acervo ? acervo.videosCensurados : Number.POSITIVE_INFINITY;
+  const temOutros = acervo ? acervo.videosOutros : Number.POSITIVE_INFINITY;
+
+  const total = Math.max(0, Math.min(randInt(VIDEO_MIN, VIDEO_MAX), temCensurado + temOutros));
+  // Reels só até onde não morder o piso de vídeo de venda.
+  const reels = Math.min(randInt(REELS_MIN, REELS_MAX), temOutros, Math.max(0, total - CENSORED_MIN));
+  // O resto é vídeo de VENDA — e não é limitado pelo acervo censurado de
+  // propósito. Se o canal tem menos vídeo censurado que isso, o slot continua
+  // sendo de venda: a fila devolve um vídeo comum e o gerador rebaixa a legenda
+  // para o convite genérico (VIDEO_PREMIUM). Cortar aqui faria o dia perder
+  // vídeo de venda tendo acervo de vídeo na mão.
+  return { censurado: total - reels, reels };
+}
 
 export type PreviaPost = {
   time: string; // HH:MM (BRT)
@@ -216,11 +283,11 @@ function pick<T>(arr: T[]): T {
  *  regras do método (janelas, distribuição, alternância, sem repetir horário).
  *  Não escreve copy — só a estrutura.
  *
- *  `videosNoAcervo` é o TETO da cota de vídeo (ver balanceVideos): quantos
- *  vídeos DISTINTOS o canal tem disponíveis depois do filtro de etiquetas. Sem
- *  ele, um perfil com dois vídeos receberia um plano pedindo cinco e a fila de
- *  mídia repetiria o mesmo clipe no mesmo dia. Omitir = sem teto. */
-export function planDay(videosNoAcervo = Number.POSITIVE_INFINITY): Omit<PreviaPost, "text" | "poll">[] {
+ *  `acervo` é o TETO da cota de vídeo (ver videoQuota): quantos vídeos
+ *  DISTINTOS o canal tem de cada papel depois do filtro de etiquetas. Sem ele,
+ *  um perfil com dois vídeos receberia um plano pedindo cinco e a fila de mídia
+ *  repetiria o mesmo clipe no mesmo dia. Omitir = sem teto. */
+export function planDay(acervo?: MkAcervo): Omit<PreviaPost, "text" | "poll">[] {
   const total = randInt(30, 35);
 
   // 1) Distribui o total pelas janelas conforme o peso (garante ≥1 nas de peso).
@@ -284,8 +351,9 @@ export function planDay(videosNoAcervo = Number.POSITIVE_INFINITY): Omit<PreviaP
   // 4) Equilibra o ENGAJAMENTO em 50/50 entre enquete e o resto (reação,
   //    pergunta, curiosidade) — ver balancePolls.
   balancePolls(planned);
-  // 5) COTA DE VÍDEO: piso de 4 por dia, nas janelas que vendem — ver balanceVideos.
-  balanceVideos(planned, videosNoAcervo);
+  // 5) COTA DE VÍDEO: 4 a 6 por dia, o censurado vendendo e o reels engajando —
+  //    ver balanceVideos.
+  balanceVideos(planned, videoQuota(acervo));
   return planned;
 }
 
@@ -305,6 +373,11 @@ const SEM_MIDIA: Partial<Record<MkType, MkType[]>> = {
   CENSORED_PREVIEW: ["VIP_INVITATION", "COUNTDOWN"],
   PRESENT: ["VIP_INVITATION", "SOCIAL_PROOF"],
   VIDEO_PREMIUM: ["COUNTDOWN", "VIP_INVITATION"],
+  CENSORED_VIDEO: ["COUNTDOWN", "VIP_INVITATION"],
+  // Reels sem acervo vira engajamento de TEXTO, nunca post de venda: o slot foi
+  // tirado do pool de engajamento e tem que voltar pra lá, senão a cota de
+  // conversão do dia sobe por tabela.
+  VIDEO_REELS: ["CURIOSITY", "QUESTION", "REACTION"],
 };
 
 /** Tipo equivalente sem mídia, ou `null` se o tipo já não depende de acervo. */
@@ -446,73 +519,85 @@ function hourOf(p: { time: string }): number {
   return parseInt(p.time.slice(0, 2), 10);
 }
 
-/** Posição da hora em `VIDEO_PRIORITY` — menor é melhor; fora da lista é pior
- *  que qualquer uma. */
-function videoRank(hour: number): number {
-  const i = VIDEO_PRIORITY.indexOf(windowStartForHour(hour));
-  return i < 0 ? VIDEO_PRIORITY.length : i;
+/** Posição da hora numa lista de prioridade — menor é melhor; fora da lista é
+ *  pior que qualquer uma. */
+function rankNaLista(hour: number, prioridade: number[]): number {
+  const i = prioridade.indexOf(windowStartForHour(hour));
+  return i < 0 ? prioridade.length : i;
 }
 
 /**
- * Deixa o dia com {@link VIDEO_MIN}–{@link VIDEO_MAX} vídeos, nas janelas que
- * vendem e NUNCA dois colados. Mesmo desenho de `balancePolls`: corrige para
- * cima e para baixo, porque o sorteio das janelas erra dos dois lados.
+ * Deixa o dia com a cota de vídeo de {@link videoQuota}: os censurados nas
+ * janelas que vendem, os reels no pico de audiência, e NUNCA dois vídeos
+ * colados (de qualquer papel).
  *
- * Quem vira vídeo é sempre um post de CONVERSÃO que já usaria FOTO. Isso é o que
- * mantém intacta a distribuição humanização/engajamento/conversão calibrada em
- * `windowConvTarget` — o post continua sendo o mesmo post de venda, na mesma
- * hora, com o mesmo botão do VIP; muda só o que ele MOSTRA. Promover um post de
- * humanização subiria a cota de venda do dia por tabela.
- *
- * `videosNoAcervo` limita a cota ao que o canal tem de fato etiquetado — ver o
- * comentário logo abaixo. O que ele NÃO cobre (a mídia sair da galeria entre o
- * plano e o envio) continua com o gerador, que rebaixa o tipo para
- * `PHOTO_PREMIUM` quando a fila devolve foto no lugar de vídeo.
+ * Mesmo desenho de `balancePolls`: corrige para cima e para baixo, porque o
+ * sorteio das janelas erra dos dois lados.
  */
 function balanceVideos(
   planned: Omit<PreviaPost, "text" | "poll">[],
-  videosNoAcervo = Number.POSITIVE_INFINITY,
+  quota: { censurado: number; reels: number },
 ): void {
-  // O teto do acervo vem antes da cota: a fila de mídia RECICLA quando acaba
-  // (ver createMediaQueue), então pedir cinco vídeos de quem tem dois não cria
-  // vídeo nenhum — só faz o mesmo clipe sair duas vezes no mesmo dia. Zero
-  // vídeos na galeria zera a cota, e o excedente abaixo devolve tudo pra foto.
-  const target = Math.max(0, Math.min(randInt(VIDEO_MIN, VIDEO_MAX), videosNoAcervo));
-  const ehVideo = (i: number) => planned[i]?.kind === "video";
-  const coladoEmVideo = (i: number) => ehVideo(i - 1) || ehVideo(i + 1);
-  let atual = planned.filter((p) => p.kind === "video").length;
+  // Venda primeiro, que é o foco do dia. A ordem quase não muda o resultado:
+  // medido nos dois sentidos, o reels sai em ~86% dos dias de qualquer forma. O
+  // que limita o reels não é a ordem, é o pool de origem — engajamento sem
+  // enquete dá só ~3 posts no dia inteiro, e parte deles já nasce colada num
+  // vídeo sorteado pela janela.
+  ajustarCensurados(planned, quota.censurado);
+  plantarReels(planned, quota.reels);
+}
 
-  // Passou do teto: agora seis janelas têm VIDEO_PREMIUM na lista e o sorteio
-  // pode estourar sozinho. O corte começa pelas PIORES horas — vídeo às 4h da
-  // manhã é acervo queimado, vídeo às 23h é a melhor aposta do dia.
-  if (atual > target) {
+/** Há vídeo colado neste índice? Vale para os dois papéis: dois vídeos seguidos
+ *  pesam no grupo independentemente de qual deles vende. */
+function coladoEmVideo(planned: Omit<PreviaPost, "text" | "poll">[], i: number): boolean {
+  return planned[i - 1]?.kind === "video" || planned[i + 1]?.kind === "video";
+}
+
+function vira(
+  planned: Omit<PreviaPost, "text" | "poll">[],
+  i: number,
+  type: MkType,
+): void {
+  const def = TYPE_DEFS[type];
+  planned[i] = {
+    ...planned[i],
+    type,
+    kind: def.kind,
+    intent: def.intent,
+    cta: def.cta,
+    media: def.media,
+  };
+}
+
+/**
+ * Ajusta os vídeos de VENDA para o alvo.
+ *
+ * Quem vira vídeo é sempre um post de CONVERSÃO que já usaria FOTO. É isso que
+ * mantém intacta a distribuição humanização/engajamento/conversão calibrada em
+ * `windowConvTarget` — o post continua sendo o mesmo post de venda, na mesma
+ * hora, com o mesmo botão do VIP; muda só o que ele MOSTRA.
+ */
+function ajustarCensurados(planned: Omit<PreviaPost, "text" | "poll">[], alvo: number): void {
+  const ehVendaEmVideo = (p: { kind: MkKind; intent: MkIntent }) =>
+    p.kind === "video" && p.intent === "converte";
+  let atual = planned.filter(ehVendaEmVideo).length;
+
+  // Passou do teto: seis janelas têm CENSORED_VIDEO na lista e o sorteio pode
+  // estourar sozinho. O corte começa pelas PIORES horas — vídeo às 4h da manhã
+  // é acervo queimado, vídeo às 23h é a melhor aposta do dia.
+  if (atual > alvo) {
     const excedente = planned
       .map((p, i) => ({ p, i }))
-      .filter(({ p }) => p.kind === "video")
-      .sort((a, b) => videoRank(hourOf(b.p)) - videoRank(hourOf(a.p)));
+      .filter(({ p }) => ehVendaEmVideo(p))
+      .sort((a, b) => rankNaLista(hourOf(b.p), VIDEO_PRIORITY) - rankNaLista(hourOf(a.p), VIDEO_PRIORITY));
     for (const { i } of excedente) {
-      if (atual <= target) break;
-      const virar = pick<MkType>(["PHOTO_PREMIUM", "CENSORED_PREVIEW"]);
-      const def = TYPE_DEFS[virar];
-      planned[i] = { ...planned[i], type: virar, kind: def.kind, intent: def.intent, cta: def.cta, media: def.media };
+      if (atual <= alvo) break;
+      vira(planned, i, pick<MkType>(["PHOTO_PREMIUM", "CENSORED_PREVIEW"]));
       atual--;
     }
     return;
   }
-  if (atual >= target) return;
-
-  const promover = (i: number) => {
-    const def = TYPE_DEFS.VIDEO_PREMIUM;
-    planned[i] = {
-      ...planned[i],
-      type: "VIDEO_PREMIUM",
-      kind: def.kind,
-      intent: def.intent,
-      cta: def.cta,
-      media: def.media,
-    };
-    atual++;
-  };
+  if (atual >= alvo) return;
 
   // Candidatos separados POR JANELA, embaralhados dentro de cada uma.
   const porJanela = new Map<number, number[]>();
@@ -523,49 +608,114 @@ function balanceVideos(
     porJanela.set(ws, [...(porJanela.get(ws) || []), i]);
   });
   // Dentro da janela sorteia, mas gasta primeiro o `PHOTO_PREMIUM`: ele é a
-  // "foto quente com chamada pro VIP", exatamente a mesma mensagem do
-  // `VIDEO_PREMIUM` — o vídeo faz esse post melhor, não faz outro post. Os
-  // outros dois têm gancho próprio e não se substituem por vídeo sem perda:
-  // `CENSORED_PREVIEW` é, pelo próprio método, "o post que mais converte" (a
-  // prévia cortada), e `PRESENT` já é raro (menos de um por dia).
+  // "foto quente com chamada pro VIP", exatamente a mesma mensagem do vídeo
+  // censurado — o vídeo faz esse post melhor, não faz outro post. Os outros
+  // dois têm gancho próprio: `CENSORED_PREVIEW` é, pelo próprio método, "o post
+  // que mais converte", e `PRESENT` já é raro (menos de um por dia).
   const custo = (i: number) => (planned[i].type === "PHOTO_PREMIUM" ? 0 : 1);
   for (const lista of porJanela.values()) {
     lista.sort(() => Math.random() - 0.5);
-    lista.sort((a, b) => custo(a) - custo(b)); // sort estável: mantém o sorteio dentro do empate
+    lista.sort((a, b) => custo(a) - custo(b)); // estável: mantém o sorteio no empate
   }
 
-  // Rodízio pelas janelas em ordem de prioridade: um vídeo em cada uma antes do
-  // segundo na melhor delas. Sem o rodízio os quatro vídeos caíam todos em
-  // 22–00 (maior prioridade E maior cota de conversão) — justamente o bloco de
-  // venda emendada que `spreadIndexes` existe para evitar.
+  atual += plantar(planned, porJanela, VIDEO_PRIORITY, alvo - atual, "CENSORED_VIDEO");
+  if (atual >= alvo) return;
+
+  // Ainda falta: o dia sorteou pouca conversão nas janelas boas. Aceita qualquer
+  // hora, mantendo só a regra de não colar dois vídeos — um vídeo às 20h vale
+  // mais que um dia com menos vídeo de venda que o combinado.
+  plantarSobra(
+    planned,
+    (p) => p.intent === "converte" && p.media === "photo",
+    alvo - atual,
+    "CENSORED_VIDEO",
+  );
+}
+
+/**
+ * Planta os vídeos de ENGAJAMENTO.
+ *
+ * Aqui a origem é o pool de ENGAJAMENTO sem mídia (reação, pergunta,
+ * curiosidade) — nunca um post de venda, senão o dia perderia conversão para
+ * ganhar reels, e nunca uma ENQUETE, porque `balancePolls` acabou de deixar as
+ * enquetes em metade do engajamento do dia e roubar uma desfaria essa conta.
+ */
+function plantarReels(planned: Omit<PreviaPost, "text" | "poll">[], alvo: number): void {
+  if (alvo <= 0) return;
+  let atual = planned.filter((p) => p.kind === "video" && p.intent === "engaja").length;
+  if (atual >= alvo) return;
+
+  const porJanela = new Map<number, number[]>();
+  planned.forEach((p, i) => {
+    if (p.intent !== "engaja" || p.media || p.type === "POLL") return;
+    const ws = windowStartForHour(hourOf(p));
+    if (!REELS_PRIORITY.includes(ws)) return;
+    porJanela.set(ws, [...(porJanela.get(ws) || []), i]);
+  });
+  // Gasta primeiro CURIOSITY/QUESTION (texto puro) e só depois REACTION: o post
+  // de reação com emoji é prova social barata, o que menos convém perder.
+  const custo = (i: number) => (planned[i].type === "REACTION" ? 1 : 0);
+  for (const lista of porJanela.values()) {
+    lista.sort(() => Math.random() - 0.5);
+    lista.sort((a, b) => custo(a) - custo(b));
+  }
+
+  // Sem rede de segurança "em qualquer hora" aqui, ao contrário do vídeo de
+  // venda: o pool de engajamento sem enquete é pequeno (~3 posts/dia) e o que
+  // sobra fora das janelas acima é madrugada. Reels às 4h não engaja ninguém —
+  // é melhor o dia sair com um reels a menos.
+  plantar(planned, porJanela, REELS_PRIORITY, alvo - atual, "VIDEO_REELS");
+}
+
+/**
+ * Rodízio pelas janelas em ordem de prioridade: um vídeo em cada uma antes do
+ * segundo na melhor delas. Sem o rodízio os vídeos caíam todos em 22–00 (maior
+ * prioridade E maior cota de conversão) — justamente o bloco emendado que
+ * `spreadIndexes` existe para evitar. Devolve quantos plantou.
+ */
+function plantar(
+  planned: Omit<PreviaPost, "text" | "poll">[],
+  porJanela: Map<number, number[]>,
+  prioridade: number[],
+  faltam: number,
+  type: MkType,
+): number {
+  let feitos = 0;
   let avancou = true;
-  while (atual < target && avancou) {
+  while (feitos < faltam && avancou) {
     avancou = false;
-    for (const ws of VIDEO_PRIORITY) {
-      if (atual >= target) break;
+    for (const ws of prioridade) {
+      if (feitos >= faltam) break;
       const lista = porJanela.get(ws);
       while (lista && lista.length > 0) {
         const i = lista.shift() as number;
-        if (planned[i].kind === "video" || coladoEmVideo(i)) continue;
-        promover(i);
+        if (planned[i].kind === "video" || coladoEmVideo(planned, i)) continue;
+        vira(planned, i, type);
+        feitos++;
         avancou = true;
         break;
       }
     }
   }
+  return feitos;
+}
 
-  // Ainda falta: o dia sorteou pouca conversão nas janelas boas. Aceita qualquer
-  // hora, mantendo só a regra de não colar dois vídeos — um vídeo às 20h vale
-  // mais que um dia com dois.
-  if (atual >= target) return;
-  const resto = planned
-    .map((_, i) => i)
-    .filter((i) => planned[i].intent === "converte" && planned[i].media === "photo")
-    .sort(() => Math.random() - 0.5);
+/** Última tentativa, fora das janelas preferidas: qualquer slot que sirva,
+ *  mantendo só a regra de não colar dois vídeos. */
+function plantarSobra(
+  planned: Omit<PreviaPost, "text" | "poll">[],
+  serve: (p: Omit<PreviaPost, "text" | "poll">) => boolean,
+  faltam: number,
+  type: MkType,
+): void {
+  if (faltam <= 0) return;
+  let feitos = 0;
+  const resto = planned.map((_, i) => i).sort(() => Math.random() - 0.5);
   for (const i of resto) {
-    if (atual >= target) break;
-    if (planned[i].kind === "video" || coladoEmVideo(i)) continue;
-    promover(i);
+    if (feitos >= faltam) break;
+    if (planned[i].kind === "video" || !serve(planned[i]) || coladoEmVideo(planned, i)) continue;
+    vira(planned, i, type);
+    feitos++;
   }
 }
 
@@ -818,6 +968,8 @@ export function captionTheme(type: MkType, hour = 21, weekday?: number): string 
     case "REACTION": return `Post CURTÍSSIMO que PEDE reação com emoji ('reage com 🔥 se…', '😈 se você…'), com a provocação no meio. ${base}`;
     case "PHOTO_PREMIUM": return `Legenda quente desta FOTO, comentando o que aparece nela e o que NÃO deu pra postar aqui. ${cta} ${base}`;
     case "VIDEO_PREMIUM": return `Legenda de VÍDEO (use o frame como referência): conte o que acontece no vídeo e por que ele não cabe no grupo de prévias. ${cta} ${base}`;
+    case "CENSORED_VIDEO": return `VÍDEO CORTADO: este vídeo tem as partes quentes COBERTAS (tarja/borrão) — diga isso e descreva o que está acontecendo embaixo da censura, o que o vídeo mostra inteiro do lado de lá. É o post de vídeo que mais converte: a curiosidade de ver sem a tarja tem que doer. ${cta} ${base}`;
+    case "VIDEO_REELS": return `Legenda pra este VÍDEO curto do dia a dia (use o frame como referência), tipo reels: comente com malícia o que está rolando nele e termine puxando resposta ('adivinha o que eu ia fazer depois disso'). NÃO venda nada e não fale do VIP — este post é só pra puxar conversa. ${base}`;
     case "CENSORED_PREVIEW": return `PRÉVIA CORTADA: essa é a versão que dá pra mostrar no canal — diga isso e descreva o que ficou de fora do enquadramento, o que a foto original mostra inteiro. É o post que mais converte: a curiosidade tem que doer. Não afirme que tem tarja preta na imagem. ${cta} ${base}`;
     case "PRESENT": return `Recompensa imediata: 'quem entrar agora ganha…' (um vídeo seu, um nude, uma chamada). ${cta} ${base}`;
     case "COUNTDOWN": return `Urgência real ('esse eu apago hoje', 'sai do ar à meia-noite'), dizendo o que vai sumir. ${cta} ${base}`;
@@ -845,6 +997,8 @@ const FALLBACK: Partial<Record<MkType, string[]>> = {
   REACTION: ["Reage com 🔥 se você tá duro pensando em mim 😈", "😈 se você me aguentaria a noite toda", "Manda um 💦 se você quer me ver gozando", "🔥 se você tá com saudade da minha bunda"],
   PHOTO_PREMIUM: ["Aqui eu tive que tapar… lá eu tô toda aberta pra você 🔥", "Essa é a versão comportada. A outra você não esquece 😈", "Isso é 10% do que eu postei lá dentro hoje 💦"],
   VIDEO_PREMIUM: ["Gravei um vídeo gozando que não cabe aqui… tá te esperando 💦", "Esse vídeo é forte demais pro canal, tive que jogar lá dentro 😈", "Fiz um vídeo pensando em você e não segurei o gemido 🔥"],
+  CENSORED_VIDEO: ["Tive que cobrir bem na hora boa… sem a tarja tá lá dentro 🔥", "Esse é o vídeo censurado, o que dá pra postar aqui. O inteiro te espera 😈", "Imagina isso sem o borrão 💦 do lado de lá não tem"],
+  VIDEO_REELS: ["Olha o que eu tava fazendo agora 😏 adivinha o que veio depois", "Gravei esse rapidinho hoje… gostou? 🔥", "Meu dia tá sendo assim 😈 e o seu?"],
   CENSORED_PREVIEW: ["Essa é a parte que dá pra postar aqui… a foto inteira tá lá 🔥", "Cortei bem na hora que ficou bom 😈 do lado de lá não tem corte", "Aqui você vê metade. Lá você vê tudo 💦"],
   PRESENT: ["Quem entrar agora ganha um vídeo meu bem safado 🎁😈", "Tenho um nude guardado pra quem chegar hoje 🎁🔥"],
   COUNTDOWN: ["Esse vídeo eu apago hoje à meia-noite… corre 🔥", "Depois de hoje some e não volta 😈"],

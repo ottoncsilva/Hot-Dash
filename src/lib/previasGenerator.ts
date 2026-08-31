@@ -18,7 +18,12 @@ import { getProfile } from "./profiles";
 import { getBotConfigByProfile } from "./telegramDb";
 import { linkDoVip } from "./vipLink";
 import { listMedia, getMediaRow, renderVisionImageBase64 } from "./media";
-import { createMediaQueue, getMediaPostCounts, getScheduledMediaUses } from "./mediaUsage";
+import {
+  createMediaQueue,
+  ehVideoCensurado,
+  getMediaPostCounts,
+  getScheduledMediaUses,
+} from "./mediaUsage";
 import { generateCaption, callAiRaw, isSystemicAiError, SystemicAiError } from "./ai";
 import { extractVideoThumbnail, extname } from "./metadata";
 import { readBuffer } from "./storage";
@@ -162,16 +167,21 @@ export function enqueuePreviasJob(profileId: string, days: number): PreviasJob {
     .all(profileId) as { scheduled_at: number }[];
   const taken = existing.map((e) => e.scheduled_at);
 
-  // Teto da cota de vídeo do método. A fila de mídia recicla quando o acervo
-  // acaba, então um plano que pede 5 vídeos de um canal com 2 não inventa vídeo
-  // — faz o mesmo clipe sair duas vezes no mesmo dia. Contando aqui, o dia pede
-  // no máximo o que existe e o restante continua saindo em foto.
-  const videosNoAcervo = midiasElegiveis(profileId).filter((m) => m.kind === "video").length;
+  // Teto da cota de vídeo do método, POR PAPEL: o censurado é o que vende, o
+  // resto do acervo de vídeo é o que engaja (ver a cota em previasAi). A fila de
+  // mídia recicla quando acaba, então um plano que pede 5 vídeos de um canal com
+  // 2 não inventa vídeo — faz o mesmo clipe sair duas vezes no mesmo dia.
+  // Contando aqui, o dia pede no máximo o que existe de cada um.
+  const videos = midiasElegiveis(profileId).filter((m) => m.kind === "video");
+  const acervo = {
+    videosCensurados: videos.filter(ehVideoCensurado).length,
+    videosOutros: videos.filter((m) => !ehVideoCensurado(m)).length,
+  };
 
   const slots: JobSlot[] = [];
   for (let dayOffset = 0; dayOffset <= days; dayOffset++) {
     const base = mkDayFromToday(dayOffset, tz);
-    for (const slot of planDay(videosNoAcervo)) {
+    for (const slot of planDay(acervo)) {
       const at = mkSlotToUtcMs(base, slot.time, tz, true);
       if (at <= Date.now()) continue; // não agenda no passado
       if (taken.some((t) => Math.abs(t - at) < 5 * 60 * 1000)) continue;
@@ -404,15 +414,28 @@ async function processBatch(row: JobRow): Promise<number> {
       continue;
     }
 
-    // Próxima mídia da fila (vídeo cai para foto quando não há vídeo).
+    // Próxima mídia da fila. O vídeo é pedido pelo PAPEL do post: o de venda
+    // puxa da fila de censurado, o de engajamento puxa dos outros vídeos. Vídeo
+    // cai para foto quando não há vídeo nenhum.
     let media: MediaItem | null = null;
     let type = slot.type;
-    if (slot.kind === "video") media = queue.take("video");
+    if (slot.type === "CENSORED_VIDEO") media = queue.take("video-censurado");
+    else if (slot.type === "VIDEO_REELS") media = queue.take("video-outro");
+    else if (slot.kind === "video") media = queue.take("video");
     else if (slot.kind === "foto") media = queue.take("photo");
 
     // O acervo acabou de vídeo e a fila devolveu uma FOTO: rebaixa o tipo, senão
     // a legenda promete "gravei um vídeo" e vai uma foto anexada.
-    if (slot.kind === "video" && media?.kind === "image") type = "PHOTO_PREMIUM";
+    if (slot.kind === "video" && media?.kind === "image") {
+      type = slot.intent === "converte" ? "PHOTO_PREMIUM" : "SELFIE";
+    }
+
+    // Acabou o acervo CENSURADO e a fila devolveu um vídeo comum: o post
+    // continua sendo de venda, mas a legenda não pode mais falar da tarja que
+    // esse vídeo não tem. Vira o convite genérico de vídeo premium.
+    if (type === "CENSORED_VIDEO" && media?.kind === "video" && !ehVideoCensurado(media)) {
+      type = "VIDEO_PREMIUM";
+    }
 
     // A fila acabou de vez: sem trocar o tipo, a IA escreveria sobre uma imagem
     // ("olha esse vestido") e o post sairia só com texto. Troca por um tipo da

@@ -23,6 +23,18 @@ import { niceTicks } from "@/lib/chartTicks";
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
+/** Valor na moeda informada — o saldo da Stripe pode estar em real, dólar,
+ *  euro ou libra, e escrever "US$" em cima de real já enganou uma vez. */
+function moeda(cents: number, m: string) {
+  try {
+    return (cents / 100).toLocaleString(m === "BRL" ? "pt-BR" : "en-US", {
+      style: "currency",
+      currency: m,
+    });
+  } catch {
+    return `${m} ${(cents / 100).toFixed(2)}`;
+  }
+}
 function usd(cents: number) {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
@@ -446,9 +458,37 @@ function BotSalesPanel({
     connected: boolean;
     availableCents: number | null;
     pendingCents: number | null;
+    /** Saldo em toda moeda que não é dólar — BRL do cartão no Brasil, EUR/GBP
+     *  da cobrança na moeda do lead. A rota já mandava; a tela é que ignorava. */
+    outras?: { currency: string; availableCents: number; pendingCents?: number }[] | null;
     error?: string;
   };
   const [stripeBalance, setStripeBalance] = useState<StripeBalance | null>(null);
+  /**
+   * O saldo que o cartão mostra: o TOTAL (disponível + a caminho) da moeda com
+   * mais dinheiro na conta.
+   *
+   * Mostrava só o disponível, e só em dólar. Numa conta que vende no cartão
+   * brasileiro isso dava "$0.00" — o dinheiro estava todo em real, e o painel
+   * dizia que não havia saldo. Pior: o disponível pode ser NEGATIVO enquanto o
+   * repasse não cai, então dava para ver saldo no vermelho com dinheiro a
+   * caminho.
+   *
+   * Uma moeda só, a maior. Somar dólar com real seria inventar um número.
+   */
+  const saldoStripe = (() => {
+    if (!stripeBalance?.connected || stripeBalance.availableCents === null) return null;
+    const linhas = [
+      { currency: "USD", disp: stripeBalance.availableCents, vindo: stripeBalance.pendingCents || 0 },
+      ...(stripeBalance.outras || []).map((o) => ({
+        currency: o.currency,
+        disp: o.availableCents,
+        vindo: o.pendingCents || 0,
+      })),
+    ].map((l) => ({ ...l, total: l.disp + l.vindo }));
+    linhas.sort((a, b) => b.total - a.total);
+    return linhas[0] || null;
+  })();
   useEffect(() => {
     setStripeBalance(null);
     apiGet<StripeBalance>("/api/payments/stripe/balance")
@@ -572,19 +612,19 @@ function BotSalesPanel({
               ? null
               : !stripeBalance.connected
                 ? "—"
-                : stripeBalance.availableCents === null
+                : saldoStripe === null
                   ? "indisponível"
-                  : usd(stripeBalance.availableCents)
+                  : moeda(saldoStripe.total, saldoStripe.currency)
           }
-          muted={stripeBalance !== null && (!stripeBalance.connected || stripeBalance.availableCents === null)}
+          muted={stripeBalance !== null && (!stripeBalance.connected || saldoStripe === null)}
           hint={
             stripeBalance === null
               ? undefined
               : !stripeBalance.connected
                 ? "Conecte a Stripe em Configurações"
-                : stripeBalance.availableCents === null
+                : saldoStripe === null
                   ? stripeBalance.error || "Teste em Configurações → Pagamentos"
-                  : "Disponível agora"
+                  : `Disponível ${moeda(saldoStripe.disp, saldoStripe.currency)} · a caminho ${moeda(saldoStripe.vindo, saldoStripe.currency)}`
           }
         />
       </div>

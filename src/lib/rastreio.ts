@@ -267,12 +267,34 @@ function codigoDaUrl(url: string): string | null {
 }
 
 /**
- * Clique nos links do SLT, agrupado pelo CÓDIGO que cada link carrega.
+ * Clique nos links do SLT, agrupado pelo CÓDIGO que cada link carrega — e,
+ * quando dá para saber, pela MODELO de quem é a página onde o clique aconteceu.
  *
  * É a etapa que faltava no funil: entre "clicou no link da bio" e "deu /start
  * no bot" existe uma perda que nenhuma tela mostrava — o clique abre o
  * Telegram, aparece o bot, e a pessoa não aperta Iniciar.
  *
+ * ---------------------------------------------------------------------------
+ * POR QUE A MODELO VEM JUNTO
+ * ---------------------------------------------------------------------------
+ * O evento do SLT guarda a PÁGINA (`page_id`), e `slt_page_profiles` diz de que
+ * modelo é a página. A versão anterior jogava isso fora: devolvia só
+ * `código → total` e depois repartia o total entre as modelos que usam o mesmo
+ * código, com peso em starts e, na falta deles, em cobranças.
+ *
+ * Repartir por peso INVENTA número. Com o recorte "Hoje" ninguém tem start
+ * ainda, então o peso caía nas cobranças: uma modelo com 1 cobrança contra
+ * outra com muitas ficava com `round(20 × 1/101) = 0` clique — e a tela
+ * escrevia "—", que quer dizer "não há de onde saber", para um clique que
+ * estava gravado com a página certa no banco. Foi assim que `insta1` apareceu
+ * com 20 cliques em Links e com traço em Códigos.
+ *
+ * Agora o clique de página COM modelo vai direto para o par (modelo, código).
+ * Só o que não dá para atribuir — página sem modelo, ou evento antigo gravado
+ * antes da coluna `page_id` existir — é que cai no rateio, e separado, para
+ * quem lê o código saber qual número é medido e qual é estimado.
+ *
+ * ---------------------------------------------------------------------------
  * A VISUALIZAÇÃO da página NÃO entra aqui, de propósito. Ela é da página, não
  * do código: uma página com três links de códigos diferentes teria a mesma
  * visualização contada três vezes, e o funil mentiria para cima. Visualização
@@ -282,39 +304,56 @@ function codigoDaUrl(url: string): string | null {
  * código nenhum — o clique existe e aparece em Links, mas não há como
  * segui-lo até a venda.
  */
+export type CliquesDoCodigo = {
+  /** Clique cuja página tem modelo atribuída. Chave: `profileId|codigo`. */
+  porModelo: Map<string, number>;
+  /** Clique que o evento não sabe de quem é. Chave: `codigo`. */
+  semModelo: Map<string, number>;
+};
+
 export function cliquesPorCodigo(
   sinceMs: number | null,
   untilMs: number | null,
-): Map<string, number> {
+): CliquesDoCodigo {
   const db = getDb();
-  const clauses: string[] = ["event_type = 'link_clicked'", "link_url IS NOT NULL", "link_url != ''"];
+  const clauses: string[] = ["e.event_type = 'link_clicked'", "e.link_url IS NOT NULL", "e.link_url != ''"];
   const params: number[] = [];
   if (sinceMs !== null) {
-    clauses.push("created_at >= ?");
+    clauses.push("e.created_at >= ?");
     params.push(sinceMs);
   }
   if (untilMs !== null) {
-    clauses.push("created_at < ?");
+    clauses.push("e.created_at < ?");
     params.push(untilMs);
   }
+  // LEFT JOIN, não INNER: página sem modelo atribuída ainda tem cliques de
+  // verdade, e sumir com eles seria trocar um erro por outro.
   const linhas = db
     .prepare(
-      `SELECT link_url, COUNT(*) c FROM slt_events
+      `SELECT e.link_url, p.profile_id, COUNT(*) c
+         FROM slt_events e
+         LEFT JOIN slt_page_profiles p ON p.page_id = e.page_id
         WHERE ${clauses.join(" AND ")}
-        GROUP BY link_url`,
+        GROUP BY e.link_url, p.profile_id`,
     )
-    .all(...params) as { link_url: string; c: number }[];
+    .all(...params) as { link_url: string; profile_id: string | null; c: number }[];
 
-  const mapa = new Map<string, number>();
+  const porModelo = new Map<string, number>();
+  const semModelo = new Map<string, number>();
   for (const l of linhas) {
     const code = codigoDaUrl(l.link_url);
     if (!code) continue;
     // Minúsculas na chave: o código chega do `/start` como foi digitado no
     // link, e "Insta2" e "insta2" são o mesmo código para quem opera.
     const k = code.toLowerCase();
-    mapa.set(k, (mapa.get(k) || 0) + l.c);
+    if (l.profile_id) {
+      const chave = `${l.profile_id}|${k}`;
+      porModelo.set(chave, (porModelo.get(chave) || 0) + l.c);
+    } else {
+      semModelo.set(k, (semModelo.get(k) || 0) + l.c);
+    }
   }
-  return mapa;
+  return { porModelo, semModelo };
 }
 
 export type CodigoDeRastreio = {
@@ -458,25 +497,46 @@ export function codigosDeRastreio(
 
   // O CLIQUE, vindo do SLT, POR ÚLTIMO — depois de leads e vendas.
   //
-  // A ordem importa: o clique é distribuído entre as linhas que já existem do
-  // código, e um código pode aparecer só nas vendas (lead que deu /start antes
-  // da janela, ou base ainda sem `telegram_leads`). Distribuir antes das
-  // vendas fazia o clique cair no vazio e a coluna ficar zerada.
+  // A ordem importa: o clique se junta às linhas que já existem do código, e um
+  // código pode aparecer só nas vendas (lead que deu /start antes da janela).
+  // Atribuir antes das vendas fazia o clique cair no vazio e a coluna zerar.
   //
-  // O evento do SLT não sabe de qual MODELO é — ele guarda a página e a URL,
-  // não o perfil —, então o total do código vai entre as linhas dele na
-  // proporção dos starts. Sem starts, na proporção das cobranças; sem nenhum
-  // dos dois, inteiro na primeira linha. Em qualquer caso a soma continua
-  // sendo o clique real: distribuir nunca inventa clique.
+  // Clique de página COM modelo vai DIRETO para o par (modelo, código), e cria
+  // a linha se ela ainda não existe. É o conserto de duas coisas ao mesmo
+  // tempo:
+  //
+  //   • o código que só teve clique — divulgação que queimou tráfego e não
+  //     vendeu nada — era descartado por completo. Sumia da lista E do total do
+  //     topo, que é como o resumo daqui passou a mostrar menos clique do que a
+  //     aba de Links contava em "Rastreáveis". Justamente o caso que o operador
+  //     mais precisa ver;
+  //   • o rateio entre modelos, que arredondava para zero o clique real de uma
+  //     modelo com poucas cobranças e escrevia "—" no lugar dele.
   const cliques = cliquesPorCodigo(sinceMs, untilMs);
+  for (const [chave, total] of cliques.porModelo) {
+    const corte = chave.indexOf("|");
+    const profileId = chave.slice(0, corte);
+    const code = chave.slice(corte + 1);
+    pega(code, profileId).cliques += total;
+  }
+
+  // O que sobrou: página sem modelo atribuída, ou evento antigo sem `page_id`.
+  // Aqui não há como saber de quem é, então vale o rateio entre as linhas do
+  // código, na proporção dos starts (e, sem eles, das cobranças). A soma
+  // continua sendo o clique real — ratear nunca inventa clique, só o reparte.
+  // Sem nenhuma linha, nasce uma em "Sem modelo": o clique existiu, e escondê-lo
+  // é o defeito que estamos consertando.
   const linhasPorCodigo = new Map<string, CodigoDeRastreio[]>();
   for (const linha of mapa.values()) {
     const k = linha.code.toLowerCase();
     linhasPorCodigo.set(k, [...(linhasPorCodigo.get(k) || []), linha]);
   }
-  for (const [code, total] of cliques) {
+  for (const [code, total] of cliques.semModelo) {
     const linhas = linhasPorCodigo.get(code);
-    if (!linhas || linhas.length === 0) continue;
+    if (!linhas || linhas.length === 0) {
+      pega(code, null).cliques += total;
+      continue;
+    }
     const peso = (l: CodigoDeRastreio) => (l.starts > 0 ? l.starts : 0);
     let soma = linhas.reduce((n, l) => n + peso(l), 0);
     let porLinha = peso;

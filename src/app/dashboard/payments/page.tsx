@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { apiGet, apiSend } from "@/lib/api";
 import Modal from "@/components/Modal";
@@ -154,6 +154,21 @@ export default function PaymentsPage() {
   // bot e método, porque "pesquisar" pra quem usa a tela é achar uma venda
   // por qualquer um desses, não só o cliente.
   const [busca, setBusca] = useState("");
+  // Ainda há coluna escondida à direita da tabela? Decide o esmaecimento da
+  // borda. Recalcula na rolagem, ao trocar de filtro (a largura das colunas
+  // muda com o conteúdo) e ao redimensionar a janela.
+  const rolagemTabela = useRef<HTMLDivElement>(null);
+  const [temMaisAoLado, setTemMaisAoLado] = useState(false);
+  const verSeAindaRola = useCallback(() => {
+    const el = rolagemTabela.current;
+    if (!el) return;
+    setTemMaisAoLado(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }, []);
+  useEffect(() => {
+    verSeAindaRola();
+    window.addEventListener("resize", verSeAindaRola);
+    return () => window.removeEventListener("resize", verSeAindaRola);
+  }, [verSeAindaRola, busca, paidFilter, botFilter, methodFilter, originFilter, sort, data]);
   // Mesmo seletor do Dashboard, com o mesmo padrão (hoje). O recorte é feito no
   // servidor — ver /api/payments/overview.
   const [period, setPeriod] = useState<PeriodState>({ period: DEFAULT_PERIOD, from: "", to: "" });
@@ -328,7 +343,11 @@ export default function PaymentsPage() {
 
       {/* Totais do período + saldo no gateway (consultado na SyncPay a cada
           carregamento desta tela). */}
-      <div className="mt-4 flex flex-wrap gap-3">
+      {/* GRADE, não fila. Em `flex-wrap` cada chip tinha a largura do próprio
+          texto: "Saldo na SyncPay" saía com o dobro de "Vendas", e as duas
+          linhas não se alinhavam entre si — quatro caixas de quatro tamanhos.
+          Numa grade de duas colunas os quatro ficam iguais e as linhas casam. */}
+      <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
         <SummaryChip label={periodLabel} value={data ? brl(data.periodStats.paidCents) : null} />
         <SummaryChip
           label="Líquido"
@@ -354,67 +373,111 @@ export default function PaymentsPage() {
             </span>
           )}
         </p>
-        <div className="flex flex-wrap items-end gap-2">
+        {/* A BUSCA sozinha em cima, os seletores numa grade de duas colunas.
+
+            Eram cinco controles em `flex-wrap` com largura de conteúdo: no
+            celular quebravam 2+2+1, com o último órfão numa terceira linha e
+            mais estreito que os outros — o mesmo defeito que o seletor de datas
+            tinha. Aqui o número de seletores VARIA (bot e método só aparecem
+            quando há mais de uma opção), então grade fixa continuaria órfã em
+            número ímpar. A regra abaixo resolve na origem: com contagem ímpar,
+            o último ocupa as duas colunas. Nunca sobra um sozinho e estreito. */}
+        <div className="w-full sm:w-auto">
           <input
-            className="input w-48 py-1.5 text-xs"
+            className="input w-full py-1.5 text-xs sm:w-64"
             placeholder="Buscar cliente, produto, bot..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
-          <select
-            className="input w-auto py-1.5 text-xs"
-            value={paidFilter}
-            onChange={(e) => setPaidFilter(e.target.value as PaidFilter)}
-          >
-            <option value="all">Pagos: todos</option>
-            <option value="paid">Pagos: sim</option>
-            <option value="unpaid">Pagos: não</option>
-          </select>
-          {/* Bot e método só aparecem quando há mais de uma opção no período:
-              um seletor com uma escolha só não filtra nada e só ocupa espaço. */}
-          {botOptions.length > 1 && (
-            <select
-              className="input w-auto py-1.5 text-xs"
-              value={botFilter}
-              onChange={(e) => setBotFilter(e.target.value)}
-            >
-              <option value="all">Bot: todos</option>
-              {botOptions.map(([id, rotulo]) => (
-                <option key={id} value={id}>{rotulo}</option>
-              ))}
-            </select>
-          )}
-          {methodOptions.length > 1 && (
-            <select
-              className="input w-auto py-1.5 text-xs"
-              value={methodFilter}
-              onChange={(e) => setMethodFilter(e.target.value)}
-            >
-              <option value="all">Método: todos</option>
-              {methodOptions.map(([m, rotulo]) => (
-                <option key={m} value={m}>{rotulo}</option>
-              ))}
-            </select>
-          )}
-          <select
-            className="input w-auto py-1.5 text-xs"
-            value={originFilter}
-            onChange={(e) => setOriginFilter(e.target.value as OriginFilter)}
-          >
-            <option value="all">Origem: todas</option>
-            {(Object.keys(ORIGIN_LABEL) as Exclude<OriginFilter, "all">[]).map((k) => (
-              <option key={k} value={k}>{ORIGIN_LABEL[k]}</option>
-            ))}
-          </select>
-          <select
-            className="input w-auto py-1.5 text-xs"
-            value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
-          >
-            {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
-              <option key={k} value={k}>{SORT_LABEL[k]}</option>
-            ))}
-          </select>
+
+          {(() => {
+            const seletores: React.ReactNode[] = [
+              <select
+                key="pagos"
+                className="input w-full py-1.5 text-xs"
+                aria-label="Filtrar por pagamento"
+                value={paidFilter}
+                onChange={(e) => setPaidFilter(e.target.value as PaidFilter)}
+              >
+                <option value="all">Pagos: todos</option>
+                <option value="paid">Pagos: sim</option>
+                <option value="unpaid">Pagos: não</option>
+              </select>,
+            ];
+            // Bot e método só entram quando há mais de uma opção no período:
+            // um seletor com uma escolha só não filtra nada e ocupa lugar.
+            if (botOptions.length > 1)
+              seletores.push(
+                <select
+                  key="bot"
+                  className="input w-full py-1.5 text-xs"
+                  aria-label="Filtrar por bot"
+                  value={botFilter}
+                  onChange={(e) => setBotFilter(e.target.value)}
+                >
+                  <option value="all">Bot: todos</option>
+                  {botOptions.map(([id, rotulo]) => (
+                    <option key={id} value={id}>{rotulo}</option>
+                  ))}
+                </select>,
+              );
+            if (methodOptions.length > 1)
+              seletores.push(
+                <select
+                  key="metodo"
+                  className="input w-full py-1.5 text-xs"
+                  aria-label="Filtrar por método"
+                  value={methodFilter}
+                  onChange={(e) => setMethodFilter(e.target.value)}
+                >
+                  <option value="all">Método: todos</option>
+                  {methodOptions.map(([m, rotulo]) => (
+                    <option key={m} value={m}>{rotulo}</option>
+                  ))}
+                </select>,
+              );
+            seletores.push(
+              <select
+                key="origem"
+                className="input w-full py-1.5 text-xs"
+                aria-label="Filtrar por origem"
+                value={originFilter}
+                onChange={(e) => setOriginFilter(e.target.value as OriginFilter)}
+              >
+                <option value="all">Origem: todas</option>
+                {(Object.keys(ORIGIN_LABEL) as Exclude<OriginFilter, "all">[]).map((k) => (
+                  <option key={k} value={k}>{ORIGIN_LABEL[k]}</option>
+                ))}
+              </select>,
+              <select
+                key="ordem"
+                className="input w-full py-1.5 text-xs"
+                aria-label="Ordenar"
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortKey)}
+              >
+                {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
+                  <option key={k} value={k}>{SORT_LABEL[k]}</option>
+                ))}
+              </select>,
+            );
+            const impar = seletores.length % 2 === 1;
+            return (
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end">
+                {seletores.map((sel, i) => (
+                  <div
+                    key={i}
+                    className={`min-w-0 sm:w-auto ${impar && i === seletores.length - 1 ? "col-span-2" : ""}`}
+                  >
+                    {sel}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+
+        <div className="flex flex-wrap items-end gap-2">
           {(paidFilter !== "all" ||
             sort !== "created_desc" ||
             busca ||
@@ -443,7 +506,25 @@ export default function PaymentsPage() {
           devolveu uma coluna inteira de largura — daí o min-w cair de 900 para
           780px e a tabela rolar menos no celular. O desconto continua separado
           em Taxa e Split, como no painel da SyncPay. */}
-      <div className="mt-3 card overflow-x-auto">
+      {/* A tabela rola sozinha, e agora AVISA que rola: a borda direita esmaece
+          enquanto houver coluna escondida e volta ao normal ao chegar no fim.
+          Cortar a palavra no meio ("Méto…") sem nenhum sinal fazia parecer
+          defeito de layout, não conteúdo além da borda.
+
+          Precisa de JS porque é ESTADO, não estilo: uma máscara fixa também
+          apagaria a borda de quem já rolou até o fim — que é justamente quando
+          não há mais nada para avisar. `mask-image` em vez de um degradê
+          sobreposto porque a sobreposição precisaria conhecer a cor do fundo de
+          cada faixa (o cabeçalho é mais claro que o corpo) e erraria numa. */}
+      <div
+        ref={rolagemTabela}
+        onScroll={verSeAindaRola}
+        className={`mt-3 card overflow-x-auto ${
+          temMaisAoLado
+            ? "[mask-image:linear-gradient(to_right,#000_calc(100%-2.5rem),transparent)]"
+            : ""
+        }`}
+      >
         {!data ? (
           <div className="h-32 animate-pulse" />
         ) : filteredTransactions.length === 0 ? (
@@ -1126,13 +1207,22 @@ function dataHoraCurta(ms: number, tz: string): string {
 }
 
 
+/**
+ * Um total do período. Rótulo em cima, valor embaixo — a mesma forma dos
+ * números de apoio do Dashboard, para as duas telas lerem igual.
+ *
+ * Era pílula com rótulo e valor lado a lado: numa célula de largura fixa isso
+ * espremia o valor quando o rótulo era longo ("Saldo na SyncPay"), e o valor é
+ * o que a pessoa veio ver. Empilhado, o rótulo pode ocupar duas linhas sem
+ * roubar espaço do número.
+ */
 function SummaryChip({ label, value, accent }: { label: string; value: string | null; accent?: boolean }) {
   return (
-    <div className="card flex items-center gap-2 rounded-full px-4 py-2">
-      <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">{label}</span>
-      <span className={`font-display text-sm font-semibold ${accent ? "text-emerald-400" : "text-white"}`}>
+    <div className="card min-w-0 px-3 py-2.5">
+      <p className="truncate font-mono text-[10px] uppercase tracking-widest2 text-zinc-500">{label}</p>
+      <p className={`mt-1 truncate font-display text-base font-semibold ${accent ? "text-emerald-400" : "text-white"}`}>
         {value ?? <span className="inline-block h-4 w-14 animate-pulse rounded bg-white/5" />}
-      </span>
+      </p>
     </div>
   );
 }

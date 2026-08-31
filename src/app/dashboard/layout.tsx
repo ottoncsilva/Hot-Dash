@@ -57,8 +57,6 @@ const ICONS: Record<NavKey, (p: { size?: number }) => JSX.Element> = {
   payments: IconPayments,
   funil: IconFunnel,
   links: IconLink,
-  rastreio_links: IconLink,
-  rastreio_codigos: IconLink,
   telegram: IconTelegram,
   geracao: IconSparkle,
   ltv: IconFire,
@@ -107,18 +105,6 @@ const LTV_SUBSECTIONS: NavSubItem[] = [
   // não leva o prefixo "LTV" dos irmãos: aqui não se aquece nem se vende.
   { label: "Instagram", href: "/dashboard/ltv/instagram" },
   { label: "Funil de LTV", href: "/dashboard/ltv/funil" },
-];
-
-// "Rastreio" junta as duas pontas da origem do lead: a página do SLT (link na
-// bio) e o código do deep-link que leva ao bot. Só agrupa — a tela de Links
-// continua no caminho de sempre, nada foi movido de URL.
-const RASTREIO_SUBSECTIONS: NavSubItem[] = [
-  // Códigos vem PRIMEIRO: é o funil de ponta a ponta (clique → start →
-  // cobrança → venda), a tela que se abre todo dia. Links é a de
-  // CONFIGURAÇÃO — atribuir página a modelo e definir rede —, coisa que se faz
-  // uma vez por página.
-  { label: "Códigos de rastreio", href: "/dashboard/links/codigos" },
-  { label: "Links", href: "/dashboard/links" },
 ];
 
 const TELEGRAM_SUBSECTIONS: NavSubItem[] = [
@@ -237,23 +223,6 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
             open={grupoAberto === "ltv"}
             onToggle={() => alternarGrupo("ltv")}
             active={pathname?.startsWith("/dashboard/ltv") ?? false}
-            pathname={pathname}
-            compact={compact}
-            onNavigate={onNavigate}
-          />
-        );
-      }
-
-      if (key === "links") {
-        return (
-          <NavGroup
-            key={key}
-            label={item.label}
-            icon={icon}
-            items={RASTREIO_SUBSECTIONS}
-            open={grupoAberto === "links"}
-            onToggle={() => alternarGrupo("links")}
-            active={pathname?.startsWith("/dashboard/links") ?? false}
             pathname={pathname}
             compact={compact}
             onNavigate={onNavigate}

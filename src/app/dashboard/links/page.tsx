@@ -11,6 +11,8 @@ import { showToast } from "@/lib/toast";
 import { useProfile } from "@/context/ProfileContext";
 import type { SltNetwork } from "@/lib/sltNetworks";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
+import PainelCodigos from "@/components/rastreio/PainelCodigos";
+import Resumo, { type NumeroDoResumo } from "@/components/rastreio/Resumo";
 import { DEFAULT_PERIOD, type PeriodKey } from "@/lib/periods";
 
 type LinkRow = {
@@ -47,6 +49,12 @@ type Data = {
   unassigned?: PageRow[];
 };
 
+/** As duas metades do Rastreio: a página do SLT (view → clique) e o código do
+ *  deep-link (start → cobrança → venda). Eram dois itens de menu; viraram uma
+ *  escolha dentro da tela, porque são o mesmo caminho em dois pedaços e ficar
+ *  trocando de página para segui-lo era o que atrapalhava. */
+type Aba = "links" | "codigos";
+
 /** Quantos links a visão "Por link" mostra antes de resumir o resto numa linha. */
 const POR_LINK_TETO = 40;
 
@@ -64,6 +72,11 @@ function mostrarPlataforma(p: string): boolean {
 
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+/** Número com separador de milhar, do jeito que o painel escreve em todo lugar. */
+function nBR(v: number): string {
+  return v.toLocaleString("pt-BR");
 }
 
 function pct(parte: number, total: number): string {
@@ -129,17 +142,97 @@ function somarVendas(links: LinkRow[]): { sales: number; cents: number } {
  * O período usa o MESMO seletor do Dashboard/Funil de Vendas — "últimos 7
  * dias" aqui é a MESMA janela de lá.
  */
-export default function LinksPage() {
+export default function RastreioPage() {
+  const [period, setPeriod] = useState<PeriodState>({ period: DEFAULT_PERIOD, from: "", to: "" });
+  const [aba, setAba] = useState<Aba>("links");
+  const { profiles, profileId, setProfileId } = useProfile();
+
+  // A aba vem da URL na primeira pintura para `/dashboard/links?aba=codigos`
+  // continuar valendo — é para onde o endereço antigo de Códigos redireciona,
+  // e é o que um link salvo nos favoritos precisa reabrir.
+  //
+  // Lido de `window`, e não de `useSearchParams`: o hook obriga a página a
+  // virar dinâmica (ou a nascer dentro de um Suspense) só para ler um
+  // parâmetro que muda uma vez na vida.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("aba");
+    if (q === "codigos" || q === "links") setAba(q);
+  }, []);
+
+  function trocarAba(nova: Aba) {
+    setAba(nova);
+    // O endereço acompanha para o F5 e o "copiar link" caírem na mesma aba.
+    // `replaceState` em vez de `push`: alternar aba não é navegação, e encher
+    // o histórico faz o "voltar" do celular percorrer as abas em vez de sair
+    // da tela.
+    const url = new URL(window.location.href);
+    url.searchParams.set("aba", nova);
+    window.history.replaceState(null, "", url);
+  }
+
+  return (
+    <div className="page">
+      <PageHeader title="Rastreio" />
+
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <PeriodPicker value={period} onChange={setPeriod} />
+      </div>
+
+      {/* A modelo escolhida é a MESMA do menu, que vale para o painel inteiro
+          (ver ProfileContext) — estes chips são um atalho para ela, não um
+          segundo filtro que poderia divergir do resto das telas. Antes Links
+          tinha chips e Códigos tinha um <select> com a lista própria: mesma
+          escolha, dois controles diferentes, e trocar de aba perdia a modelo. */}
+      {profiles.length > 1 && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <ToggleChip active={!profileId} onClick={() => setProfileId("")}>
+            Todas
+          </ToggleChip>
+          {profiles.map((p) => (
+            <ToggleChip
+              key={p.id}
+              active={profileId === p.id}
+              onClick={() => setProfileId(profileId === p.id ? "" : p.id)}
+            >
+              {p.name}
+            </ToggleChip>
+          ))}
+        </div>
+      )}
+
+      {/* As duas antigas entradas do menu, agora uma escolha dentro da tela.
+          Mesmo componente de chip do resto do painel — o alternador não é um
+          controle novo, é o que já existia em "Por página / Por link". */}
+      <div className="mt-3 flex items-center gap-1.5 border-t border-white/[0.06] pt-3">
+        <ToggleChip active={aba === "links"} onClick={() => trocarAba("links")}>
+          Links
+        </ToggleChip>
+        <ToggleChip active={aba === "codigos"} onClick={() => trocarAba("codigos")}>
+          Códigos
+        </ToggleChip>
+      </div>
+
+      {aba === "codigos" ? <PainelCodigos period={period} /> : <PainelLinks period={period} />}
+    </div>
+  );
+}
+
+/**
+ * A visão de LINKS: as páginas do SLT e o que cada link delas rendeu.
+ *
+ * Continua dona da própria busca e do próprio diálogo de edição — o que subiu
+ * para o Rastreio foi só o que as duas abas dividem (período, modelo, e a
+ * escolha da aba). Assim trocar de aba não perde o período nem a modelo.
+ */
+function PainelLinks({ period }: { period: PeriodState }) {
   const [data, setData] = useState<Data | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const [period, setPeriod] = useState<PeriodState>({ period: DEFAULT_PERIOD, from: "", to: "" });
   const [vista, setVista] = useState<"pagina" | "link">("pagina");
   const [editando, setEditando] = useState<PageRow | null>(null);
   const [salvando, setSalvando] = useState(false);
-  // A modelo escolhida é a MESMA do menu, que vale para o painel inteiro (ver
-  // ProfileContext) — os chips abaixo são um atalho para ela, não um segundo
-  // filtro que poderia divergir do resto das telas.
-  const { profileId, setProfileId } = useProfile();
+  // Só LÊ a modelo: quem a escolhe é o Rastreio, acima, com os chips que as
+  // duas abas dividem.
+  const { profileId } = useProfile();
 
   function load() {
     setErro(null);
@@ -191,6 +284,29 @@ export default function LinksPage() {
     };
   }, [paginas]);
 
+  /** Os mesmos cinco números de sempre, agora no formato que a faixa
+   *  compartilhada com a aba de Códigos entende. */
+  const numeros: NumeroDoResumo[] = useMemo(
+    () => [
+      { rotulo: "Visualizações", valor: nBR(total.views), nota: "nas páginas" },
+      { rotulo: "Cliques", valor: nBR(total.clicks), nota: "em algum link" },
+      {
+        rotulo: "Rastreáveis",
+        valor: nBR(total.rastreaveis),
+        nota: `${pct(total.rastreaveis, total.clicks)} dos cliques têm código`,
+        cor: "text-sky-300",
+      },
+      { rotulo: "Vendas", valor: nBR(total.sales), nota: "vindas destes códigos" },
+      {
+        rotulo: "Receita",
+        valor: brl(total.cents),
+        nota: "o que estes links trouxeram",
+        cor: "text-emerald-400",
+      },
+    ],
+    [total],
+  );
+
   const modeloDaPagina = useMemo(() => {
     const m = new Map<string, string>();
     for (const g of data?.groups || []) for (const p of g.pages) m.set(p.pageId, g.profileName);
@@ -203,15 +319,7 @@ export default function LinksPage() {
   );
 
   return (
-    <div className="page">
-      <PageHeader
-        title="Links"
-      />
-
-      <div className="mt-5 flex flex-wrap items-center gap-3">
-        <PeriodPicker value={period} onChange={setPeriod} />
-      </div>
-
+    <>
       {erro && (
         <div className="mt-4 card border-red-500/30 bg-red-500/[0.07] p-4 text-sm text-red-300">{erro}</div>
       )}
@@ -236,26 +344,9 @@ export default function LinksPage() {
 
       {data?.connected && (
         <>
-          {(data.groups || []).length > 0 && (
-            <div className="mt-4 flex flex-wrap items-center gap-1.5">
-              <ToggleChip active={!profileId} onClick={() => setProfileId("")}>
-                Todas
-              </ToggleChip>
-              {(data.groups || []).map((g) => (
-                <ToggleChip
-                  key={g.profileId}
-                  active={profileId === g.profileId}
-                  onClick={() => setProfileId(profileId === g.profileId ? "" : g.profileId)}
-                >
-                  {g.profileName}
-                </ToggleChip>
-              ))}
-            </div>
-          )}
+          <Resumo numeros={numeros} />
 
-          <Resumo total={total} />
-
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-1.5">
               <ToggleChip active={vista === "pagina"} onClick={() => setVista("pagina")}>
                 Por página
@@ -320,7 +411,7 @@ export default function LinksPage() {
         onFechar={() => setEditando(null)}
         onSalvar={salvar}
       />
-    </div>
+    </>
   );
 }
 
@@ -337,54 +428,6 @@ function Secao({
     <div>
       <p className={`eyebrow ${alerta ? "text-amber-400" : ""}`}>{titulo}</p>
       <div className="mt-2 space-y-2">{children}</div>
-    </div>
-  );
-}
-
-/** A faixa de números do recorte: do clique até o dinheiro, na mesma linha. */
-function Resumo({
-  total,
-}: {
-  total: { views: number; clicks: number; rastreaveis: number; sales: number; cents: number };
-}) {
-  const n = (v: number) => v.toLocaleString("pt-BR");
-  return (
-    <div className="mt-4 card grid grid-cols-2 divide-x divide-y divide-white/[0.06] sm:grid-cols-3 lg:grid-cols-5 lg:divide-y-0">
-      <Numero rotulo="Visualizações" valor={n(total.views)} nota="nas páginas" />
-      <Numero rotulo="Cliques" valor={n(total.clicks)} nota="em algum link" />
-      <Numero
-        rotulo="Rastreáveis"
-        valor={n(total.rastreaveis)}
-        nota={`${pct(total.rastreaveis, total.clicks)} dos cliques têm código`}
-        cor="text-sky-300"
-      />
-      <Numero rotulo="Vendas" valor={n(total.sales)} nota="vindas destes códigos" />
-      <Numero
-        rotulo="Receita"
-        valor={brl(total.cents)}
-        nota="o que estes links trouxeram"
-        cor="text-emerald-400"
-      />
-    </div>
-  );
-}
-
-function Numero({
-  rotulo,
-  valor,
-  nota,
-  cor = "text-white",
-}: {
-  rotulo: string;
-  valor: string;
-  nota?: string;
-  cor?: string;
-}) {
-  return (
-    <div className="p-4">
-      <p className="eyebrow">{rotulo}</p>
-      <p className={`mt-1 font-display text-2xl ${cor}`}>{valor}</p>
-      {nota && <p className="mt-0.5 text-[11px] text-zinc-600">{nota}</p>}
     </div>
   );
 }

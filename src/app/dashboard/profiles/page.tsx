@@ -26,7 +26,6 @@ function hexAlpha(hex: string, alpha: string) {
 }
 
 type StatusFilter = "all" | string;
-type NetworkFilter = "all" | SocialNetwork;
 
 export default function ProfilesPage() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
@@ -38,7 +37,6 @@ export default function ProfilesPage() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [networkFilter, setNetworkFilter] = useState<NetworkFilter>("all");
 
   async function load() {
     setError(null);
@@ -99,12 +97,6 @@ export default function ProfilesPage() {
     }
   }
 
-  const networksInUse = useMemo(() => {
-    const set = new Set<SocialNetwork>();
-    (profiles || []).forEach((p) => p.accounts.forEach((a) => set.add(a.network)));
-    return Array.from(set);
-  }, [profiles]);
-
   const statusCounts = useMemo(() => {
     const list = profiles || [];
     const byId = new Map<string, number>();
@@ -117,11 +109,9 @@ export default function ProfilesPage() {
     return (profiles || []).filter((p) => {
       if (q && !p.name.toLowerCase().includes(q)) return false;
       if (statusFilter !== "all" && p.status !== statusFilter) return false;
-      if (networkFilter !== "all" && !p.accounts.some((a) => a.network === networkFilter))
-        return false;
       return true;
     });
-  }, [profiles, search, statusFilter, networkFilter]);
+  }, [profiles, search, statusFilter]);
 
   return (
     <div className="page">
@@ -181,16 +171,25 @@ export default function ProfilesPage() {
             ))}
           </div>
 
-          {/* Busca e filtros */}
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          {/* Busca e status na MESMA linha, inclusive no celular. Eram três
+              filtros empilhados, três linhas antes da primeira modelo — e a
+              busca some da tela junto com quem se está procurando. A busca leva
+              o espaço que sobra; o status ocupa só o que precisa.
+
+              O filtro por REDE saiu: filtrar modelo por ter Instagram ou
+              Telegram não é pergunta que alguém faz (todas têm), e ele custava
+              uma linha inteira. Os ícones de rede continuam no cartão de cada
+              uma. */}
+          <div className="mt-6 flex items-center gap-2">
             <input
-              className="input"
+              className="input min-w-0 flex-1"
               placeholder="Buscar modelo…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
             <select
-              className="input"
+              className="input w-auto shrink-0"
+              aria-label="Status"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
             >
@@ -198,18 +197,6 @@ export default function ProfilesPage() {
               {statuses.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className="input"
-              value={networkFilter}
-              onChange={(e) => setNetworkFilter(e.target.value as NetworkFilter)}
-            >
-              <option value="all">Todos</option>
-              {networksInUse.map((n) => (
-                <option key={n} value={n}>
-                  {NETWORK_LABELS[n]}
                 </option>
               ))}
             </select>

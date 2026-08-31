@@ -8,49 +8,48 @@ import { PERIOD_OPTIONS, type PeriodKey } from "@/lib/periods";
 export type PeriodState = { period: PeriodKey; from: string; to: string };
 
 /**
- * Rótulo de cada período no CELULAR. Os três longos encurtam; o resto é o
- * texto inteiro.
- *
- * Isto é o que garante as duas linhas. Somados, os oito rótulos completos dão
- * cerca de 650px com o corpo em 11px — cabe em duas linhas num aparelho de
- * 430pt (é por isso que a referência fecha em duas), e transborda para a
- * terceira num de 390pt ou menos. Encurtar "Últimos 30 dias" e companhia tira
- * uns 120px e resolve para qualquer largura, sem mexer no corpo do texto nem
- * engessar os chips em colunas iguais.
- *
- * Da largura `md` para cima, onde tudo cabe numa fila só, volta o rótulo
- * inteiro.
- */
-const CURTO: Record<PeriodKey, string> = {
-  today: "Hoje",
-  yesterday: "Ontem",
-  thisWeek: "Esta semana",
-  last7: "7 dias",
-  thisMonth: "Este mês",
-  last30: "30 dias",
-  all: "Máximo",
-  custom: "Datas",
-};
-
-/**
  * Seletor de período — o MESMO em toda tela que filtra por data (Dashboard,
  * Financeiro, Funil, Links, Códigos, Galeria, Relatório, LTV).
  *
- * DUAS LINHAS NO CELULAR, UMA NO IPAD E NO DESKTOP. Sempre, em qualquer
- * aparelho — e com os chips do TAMANHO DO TEXTO de cada um, não de colunas
- * iguais: "Hoje" é estreito, "Esta semana" é largo, e a fileira fica
- * assimétrica como tem que ficar.
+ * DUAS LINHAS NO CELULAR, UMA NO IPAD E NO DESKTOP, com os rótulos INTEIROS e
+ * cada chip do tamanho do próprio texto — "Hoje" estreito, "Últimos 30 dias"
+ * largo. A fileira é assimétrica; nada de colunas iguais.
  *
- * O que faz as duas linhas caberem não é grade nenhuma, é o comprimento do
- * texto (ver `CURTO` acima) somado a chips sem folga extra no dedo. A versão
- * anterior inflava o padding em telas de toque, o que sozinho já empurrava a
- * fileira para a terceira linha.
+ * AS DUAS LINHAS TERMINAM RENTES À DIREITA. Isso é `justify-between`, que no
+ * flex age por LINHA: a folga que sobra em cada uma vira vão entre os chips
+ * dela, e as duas fecham na mesma margem. Com vão fixo cada linha parava onde
+ * o texto acabasse, e a fileira ficava com a direita serrilhada. No iPad e no
+ * desktop volta a `justify-start`: lá é uma linha só e sobra largura demais —
+ * espalhar oito chips por ela abriria buracos entre eles.
+ *
+ * O ÍCONE FICA SÓ NA LINHA DE CIMA, e é item da mesma fileira: ele desloca o
+ * começo da primeira linha e a segunda nasce colada na borda do contêiner,
+ * como na referência.
+ *
+ * O QUE FAZ AS DUAS LINHAS CABEREM: a métrica do chip escala com a largura da
+ * tela (`clamp` no corpo, no respiro e no vão). Com medida fixa não tem jeito
+ * — a conta da linha mais larga, a de baixo, é
+ *
+ *     texto + 8×respiro + 3×vão  ≤  largura da tela − 48
+ *
+ * e com corpo de 14px ela dá 412pt de conteúdo para 382pt de espaço num
+ * aparelho de 430pt: sobra um chip, que desce para a terceira linha. Foi o que
+ * aconteceu. Amarrando o corpo a ~3% da largura (teto de 13px), os dois lados
+ * da conta encolhem juntos e a proporção se mantém: 359 para 382 em 430pt, 326
+ * para 342 em 390pt, 301 para 312 em 360pt. Sempre duas linhas, em qualquer
+ * aparelho, sem cortar palavra nenhuma.
  *
  * ESCOLHER DATAS ABRE UM DIÁLOGO. Antes os dois campos apareciam embaixo dos
  * chips e empurravam a página inteira para baixo — o faturamento descia dois
- * dedos toda vez que alguém abria o intervalo. Num diálogo, nada do que está
+ * dedos toda vez que alguém abria o intervalo. Num diálogo nada do que está
  * embaixo se mexe, e o período só muda quando a pessoa confirma.
  */
+
+/** Corpo, respiro e vão que escalam com a tela — ver o comentário acima. */
+const CORPO = "text-[clamp(10px,3.02vw,13px)] md:text-[13px]";
+const RESPIRO = "px-[clamp(4px,1.4vw,7px)] py-[clamp(4px,1.15vw,6px)] md:px-3 md:py-1.5";
+const VAO = "gap-[clamp(4px,1.4vw,6px)] md:gap-2";
+
 export default function PeriodPicker({
   value,
   onChange,
@@ -72,45 +71,36 @@ export default function PeriodPicker({
     }
   }, [aberto, value.from, value.to]);
 
-  function clicar(key: PeriodKey) {
-    if (key === "custom") {
-      setAberto(true);
-      return;
-    }
-    onChange({ ...value, period: key });
-  }
-
   return (
     <div className="w-full min-w-0">
-      <div className="flex items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.02] p-1.5">
-        <span className="shrink-0 pl-1 text-zinc-500" aria-hidden>
-          <IconCalendar size={14} />
+      <div
+        className={`flex flex-wrap items-center justify-between rounded-2xl border border-white/[0.06] bg-white/[0.02] p-2 md:justify-start ${VAO}`}
+      >
+        <span className="shrink-0 text-zinc-500" aria-hidden>
+          <IconCalendar size={16} />
         </span>
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 md:flex-nowrap">
-          {PERIOD_OPTIONS.map((p) => {
-            const ativo = value.period === p.key;
-            return (
-              <button
-                key={p.key}
-                type="button"
-                onClick={() => clicar(p.key)}
-                aria-pressed={ativo}
-                className={`shrink-0 whitespace-nowrap rounded-lg px-2 py-1.5 text-[11px] font-medium transition-colors md:px-2.5 md:py-1 ${
-                  ativo
-                    ? "bg-emerald-500 text-black"
-                    : "border border-white/10 bg-white/[0.02] text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
-                }`}
-              >
-                <span className="md:hidden">{CURTO[p.key]}</span>
-                <span className="hidden md:inline">{p.label}</span>
-              </button>
-            );
-          })}
-        </div>
+        {PERIOD_OPTIONS.map((p) => {
+          const ativo = value.period === p.key;
+          return (
+            <button
+              key={p.key}
+              type="button"
+              onClick={() => (p.key === "custom" ? setAberto(true) : onChange({ ...value, period: p.key }))}
+              aria-pressed={ativo}
+              className={`shrink-0 whitespace-nowrap rounded-[10px] font-medium transition-colors ${CORPO} ${RESPIRO} ${
+                ativo
+                  ? "bg-emerald-400 font-semibold text-black"
+                  : "border border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.08] hover:text-white"
+              }`}
+            >
+              {p.label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* O intervalo escolhido, quando há um. Uma linha discreta — quem
-          escolheu datas precisa VER quais, e o chip só diz "Datas". */}
+      {/* O intervalo escolhido, quando há um. O chip diz só "Escolher datas";
+          quem escolheu precisa ver QUAIS, sem reabrir o diálogo. */}
       {value.period === "custom" && (value.from || value.to) && (
         <button
           type="button"

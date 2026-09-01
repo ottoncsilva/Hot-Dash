@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { getAppTimeZone, getFinanceSettings, getPaymentSettingsPublic } from "@/lib/settings";
 import { listTransactionsInRange, periodStatsInRange } from "@/lib/transactions";
-import { activeProvider } from "@/lib/payments";
+import { activeProvider, getProvider } from "@/lib/payments";
 import { getTelegramContactsByTransactions } from "@/lib/telegramDb";
 import { contatosDeRelatoriosExternos } from "@/lib/externalSaleReport";
 import { resolvePeriod } from "@/lib/periodRange";
@@ -26,13 +26,26 @@ export async function GET(req: NextRequest) {
       tz,
     );
 
-    // Saldo do provedor (best-effort; não bloqueia o painel se falhar).
-    let balanceCents: number | null = null;
-    const provider = activeProvider();
-    if (provider?.getBalance) {
-      const bal = await provider.getBalance().catch(() => null);
-      balanceCents = bal?.availableCents ?? null;
-    }
+    // Saldo dos DOIS provedores (best-effort; nenhum bloqueia o painel se
+    // falhar). São contas separadas, com moedas diferentes, e por isso viram
+    // dois números na tela em vez de uma soma — centavos de real e de dólar
+    // não se somam.
+    //
+    // Em paralelo: são duas chamadas de rede a provedores independentes, e
+    // enfileirá-las dobraria a espera do carregamento da tela à toa.
+    const [balanceCents, stripeBalance] = await Promise.all([
+      (async () => {
+        const provider = activeProvider();
+        if (!provider?.getBalance) return null;
+        const bal = await provider.getBalance().catch(() => null);
+        return bal?.availableCents ?? null;
+      })(),
+      (async () => {
+        const stripe = getProvider("stripe");
+        if (!stripe?.getBalance) return null;
+        return stripe.getBalance().catch(() => null);
+      })(),
+    ]);
 
     // Contato do Telegram de cada venda (quando o webhook amarrou a cobrança a
     // uma inscrição): é o que a tela usa para abrir a conversa com o lead.
@@ -56,6 +69,10 @@ export async function GET(req: NextRequest) {
         return telegram ? { ...t, telegram } : t;
       }),
       balanceCents,
+      /** Saldo na Stripe: `availableCents` é o DÓLAR, e `outras` traz cada
+       *  moeda restante da mesma conta (BRL do cartão no Brasil, EUR/GBP da
+       *  cobrança na moeda do lead). `null` = Stripe não conectada. */
+      stripeBalance,
       finance: getFinanceSettings(),
     });
   } catch (err) {

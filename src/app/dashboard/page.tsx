@@ -20,22 +20,15 @@ import CurvaSort, {
 import { DEFAULT_PERIOD, PERIOD_OPTIONS, type PeriodKey } from "@/lib/periods";
 import { useProfile } from "@/context/ProfileContext";
 import { niceTicks } from "@/lib/chartTicks";
+import { maiorSaldoStripe, moedaCents } from "@/lib/stripeSaldo";
 
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 /** Valor na moeda informada — o saldo da Stripe pode estar em real, dólar,
  *  euro ou libra, e escrever "US$" em cima de real já enganou uma vez. */
-function moeda(cents: number, m: string) {
-  try {
-    return (cents / 100).toLocaleString(m === "BRL" ? "pt-BR" : "en-US", {
-      style: "currency",
-      currency: m,
-    });
-  } catch {
-    return `${m} ${(cents / 100).toFixed(2)}`;
-  }
-}
+/** Reexporta com o nome curto que esta tela já usava em dezenas de lugares. */
+const moeda = moedaCents;
 function usd(cents: number) {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
@@ -467,31 +460,16 @@ function BotSalesPanel({
     error?: string;
   };
   const [stripeBalance, setStripeBalance] = useState<StripeBalance | null>(null);
-  /**
-   * O saldo que o cartão mostra: o TOTAL (disponível + a caminho) da moeda com
-   * mais dinheiro na conta.
-   *
-   * Mostrava só o disponível, e só em dólar. Numa conta que vende no cartão
-   * brasileiro isso dava "$0.00" — o dinheiro estava todo em real, e o painel
-   * dizia que não havia saldo. Pior: o disponível pode ser NEGATIVO enquanto o
-   * repasse não cai, então dava para ver saldo no vermelho com dinheiro a
-   * caminho.
-   *
-   * Uma moeda só, a maior. Somar dólar com real seria inventar um número.
-   */
-  const saldoStripe = (() => {
-    if (!stripeBalance?.connected || stripeBalance.availableCents === null) return null;
-    const linhas = [
-      { currency: "USD", disp: stripeBalance.availableCents, vindo: stripeBalance.pendingCents || 0 },
-      ...(stripeBalance.outras || []).map((o) => ({
-        currency: o.currency,
-        disp: o.availableCents,
-        vindo: o.pendingCents || 0,
-      })),
-    ].map((l) => ({ ...l, total: l.disp + l.vindo }));
-    linhas.sort((a, b) => b.total - a.total);
-    return linhas[0] || null;
-  })();
+  // A regra de qual moeda mostrar mora em `maiorSaldoStripe` — o Financeiro
+  // mostra o mesmo número e leria diferente se cada tela tivesse a sua.
+  const saldoStripe =
+    stripeBalance?.connected && stripeBalance.availableCents !== null
+      ? maiorSaldoStripe({
+          availableCents: stripeBalance.availableCents,
+          pendingCents: stripeBalance.pendingCents,
+          outras: stripeBalance.outras,
+        })
+      : null;
   useEffect(() => {
     setStripeBalance(null);
     apiGet<StripeBalance>("/api/payments/stripe/balance")

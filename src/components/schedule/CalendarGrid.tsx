@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { IconArrowLeft, IconChevronRight } from "@/components/icons";
 import FaixaRolavel from "@/components/FaixaRolavel";
+import AuthImage from "@/components/AuthImage";
 import { NETWORK_DOT_COLORS, type ScheduledPost } from "@/lib/postTypes";
 
 // Cabeçalho fixo do MÊS: a grade mensal começa na SEGUNDA-FEIRA.
@@ -38,6 +39,8 @@ export default function CalendarGrid({
   onPostClick,
   onPostMove,
   defaultView = "month",
+  paleta = "canal",
+  comMiniatura = false,
 }: {
   month: { year: number; month: number };
   onMonthChange: (m: { year: number; month: number }) => void;
@@ -47,6 +50,19 @@ export default function CalendarGrid({
   onPostMove: (postId: string, newDate: Date) => void;
   /** Visão inicial do calendário. O Telegram abre em "week"; a agenda em "month". */
   defaultView?: "month" | "week";
+  /**
+   * Como colorir os cartões.
+   *
+   * "canal" (padrão) é o do Telegram, onde a cor diz o GRUPO — VIP em azul,
+   * Prévias em laranja. Ali a cor é a única pista de para onde o post vai.
+   *
+   * "status" é o do Cronograma, onde só existem redes sociais e a pergunta do
+   * operador é outra: já saiu ou ainda falta. Verde para postado, laranja
+   * clarinho para pendente.
+   */
+  paleta?: "canal" | "status";
+  /** Mostra a miniatura da primeira mídia no cartão (visão de semana). */
+  comMiniatura?: boolean;
 }) {
   const [view, setView] = useState<"month" | "week">(defaultView);
   // A visão de SEMANA é ancorada no DIA ATUAL: a primeira coluna é sempre hoje
@@ -231,8 +247,21 @@ export default function CalendarGrid({
                 const postId = e.dataTransfer.getData("text/plain");
                 if (postId) onPostMove(postId, new Date(d));
               }}
+              // Na SEMANA a coluna vai até o rodapé da janela. As 21rem são o
+              // que fica acima e abaixo dela no desktop: py-10 do <main> (5rem
+              // somados), cabeçalho da página (~3rem), barra de filtros com a
+              // margem (~5,9rem) e o cabeçalho do calendário com a linha dos
+              // dias (~6,3rem). Sobra ~1rem de folga — a conta erra para o lado
+              // seguro, porque um pouco de sobra é invisível e um pouco a menos
+              // devolveria a barra de rolagem da página que isto veio tirar.
+              //
+              // Quem rola é o DIA, não a página: com a página rolando, arrastar
+              // um post para outro dia levava a grade junto e a coluna de
+              // destino saía da vista.
               className={`flex flex-col border-b border-r border-white/[0.04] p-1 text-left align-top transition-colors hover:bg-white/[0.03] ${
-                view === "week" ? "h-[65dvh] max-h-[420px] min-h-[260px]" : "min-h-[72px] sm:min-h-[96px]"
+                view === "week"
+                  ? "h-[calc(100dvh-21rem)] min-h-[320px]"
+                  : "min-h-[72px] sm:min-h-[96px]"
               } ${inMonth ? "" : "opacity-35"} ${isToday && view === "week" ? "bg-white/[0.02]" : ""}`}
             >
               <span
@@ -270,16 +299,35 @@ export default function CalendarGrid({
                       }}
                       className={`block rounded-md border px-1.5 py-1 text-[10px] leading-tight transition-colors ${
                         p.status === "posted"
-                          ? "border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-200"
-                          : isOverdue(p)
-                            ? "border-amber-500/30 bg-amber-500/[0.08] text-amber-200"
-                            : isTelegramVIP
-                              ? "border-sky-500/30 bg-sky-500/[0.08] text-sky-200 hover:border-sky-500/50"
-                              : isTelegramWarmup
-                                ? "border-orange-500/30 bg-orange-500/[0.08] text-orange-200 hover:border-orange-500/50"
-                                : "border-white/10 bg-white/[0.04] text-zinc-300 hover:border-white/25"
+                          ? "border-emerald-500/40 bg-emerald-500/[0.10] text-emerald-200"
+                          : paleta === "status"
+                            ? // Pendente é sempre o mesmo laranja claro, atrasado
+                              // ou não: no Cronograma a pergunta é "já saiu?",
+                              // e o atraso já tem o selo "atrasado" na lista.
+                              "border-amber-400/25 bg-amber-400/[0.07] text-amber-100/90 hover:border-amber-400/45"
+                            : isOverdue(p)
+                              ? "border-amber-500/30 bg-amber-500/[0.08] text-amber-200"
+                              : isTelegramVIP
+                                ? "border-sky-500/30 bg-sky-500/[0.08] text-sky-200 hover:border-sky-500/50"
+                                : isTelegramWarmup
+                                  ? "border-orange-500/30 bg-orange-500/[0.08] text-orange-200 hover:border-orange-500/50"
+                                  : "border-white/10 bg-white/[0.04] text-zinc-300 hover:border-white/25"
                       }`}
                     >
+                      {/* MINIATURA no cartão da semana: com a coluna indo até o
+                          rodapé há altura de sobra, e reconhecer a foto de
+                          relance vale mais que a linha de texto que cabia ali.
+                          `object-cover` aqui, e não `contain` como na galeria:
+                          o cartão é uma faixa larga e baixa, onde a imagem
+                          inteira apareceria como um selo minúsculo no meio. */}
+                      {comMiniatura && view === "week" && p.media[0] && (
+                        <AuthImage
+                          src={`/api/media/${p.media[0].id}/thumbnail?v=${p.media[0].updatedAt || 0}`}
+                          alt=""
+                          className="mb-1 h-16 w-full rounded object-cover"
+                          fallback={<div className="mb-1 h-16 w-full rounded bg-white/5" />}
+                        />
+                      )}
                       <span className="flex items-center gap-1">
                         {!isTelegram &&
                           p.networks.map((n) => (

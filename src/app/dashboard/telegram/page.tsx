@@ -1227,11 +1227,10 @@ export default function TelegramUnifiedPage() {
                         Planeja o dia inteiro: <b>30 a 35 posts/dia</b>, misturando humanização, engajamento e conversão,
                         nos horários de maior venda. A IA <b>analisa cada foto</b> e escreve a
                         legenda; só os posts de conversão levam o link do VIP (~14/dia). Cada dia leva{" "}
-                        <b>4 a 6 vídeos</b>, nunca dois seguidos: os marcados como{" "}
-                        <b>Video Censurado</b> vão nas horas que mais vendem, com a chamada pro VIP, e os
-                        outros vídeos (reels, lifestyle) entram 1 ou 2 por dia no pico de audiência, só pra
-                        engajar. Se a galeria tiver menos vídeos que isso nas etiquetas permitidas, o dia usa
-                        só os que existem.
+                        <b>5 a 7 vídeos censurados</b>, nunca dois seguidos, concentrados nas horas que mais
+                        vendem (23h, 22h, 7h e 17–19h) e com a chamada pro VIP. Por cima deles entram 1 ou 2
+                        vídeos comuns (reels, lifestyle) no pico de audiência, só pra engajar. Se a galeria
+                        tiver menos vídeos que isso nas etiquetas permitidas, o dia usa só os que existem.
                       </p>
                       <p className="text-[11px] text-emerald-300/80">
                         Escolha os <b>dias</b> e clique em <b>“Gerar dias (Método MK)”</b> ali em cima

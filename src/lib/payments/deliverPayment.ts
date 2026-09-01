@@ -361,9 +361,23 @@ export async function avisarVendaAprovada(transactionId: string): Promise<void> 
       currency: tx.currency || "BRL",
     });
     const modelo = tx.profileId ? (await getProfile(tx.profileId))?.name : undefined;
-    const detalhe = [modelo, tx.description, tx.customer].filter(Boolean).join(" · ");
+    // O MÉTODO no título, com ícone próprio: o aviso chega na tela de bloqueio,
+    // onde ele é lido de relance — saber que caiu PIX (dinheiro na conta agora)
+    // ou cartão (repasse depois) muda o que a pessoa faz a seguir.
+    // Sem método conhecido (venda lançada à mão), o texto fica genérico em vez
+    // de chutar um dos dois.
+    const cabecalho =
+      tx.method === "pix"
+        ? "💠 Venda Aprovada no PIX!"
+        : tx.method === "card"
+          ? "💳 Venda Aprovada no Cartão!"
+          : "💰 Venda Aprovada!";
+    // O CLIENTE saiu do aviso. Ele empurrava a modelo e o produto — o que
+    // importa de relance — para fora da linha, e quem é o comprador se lê no
+    // Financeiro, não na tela de bloqueio.
+    const detalhe = [modelo, tx.description].filter(Boolean).join(" - ");
     return {
-      title: `💰 Venda aprovada — ${valStr}`,
+      title: `${cabecalho} ${valStr}`,
       body: detalhe || "Pagamento confirmado.",
       url: "/dashboard/payments",
     };

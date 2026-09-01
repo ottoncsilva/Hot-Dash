@@ -20,9 +20,11 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+    // Mesmo formato do alerta de verdade (ver `deliverPayment`) — um teste que
+    // chega diferente do real não testa nada.
     await sendPushToAll(
-      "💰 Venda aprovada — R$ 97,00",
-      "Teste do Hot Dash · é assim que o alerta de venda vai chegar.",
+      "💠 Venda Aprovada no PIX! R$ 97,00",
+      "Teste do Hot Dash - é assim que o alerta de venda vai chegar",
       "/dashboard",
     );
     return NextResponse.json({ ok: true, devices });

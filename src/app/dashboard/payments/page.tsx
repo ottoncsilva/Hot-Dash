@@ -10,6 +10,7 @@ import type { PaymentSettingsPublic } from "@/lib/settings";
 import type { Transaction, PeriodStats } from "@/lib/transactions";
 import type { RelatorioDaTransacao } from "@/lib/externalSaleReport";
 import type { Profile } from "@/lib/types";
+import { maiorSaldoStripe, moedaCents } from "@/lib/stripeSaldo";
 import { DEFAULT_TIME_ZONE } from "@/lib/timezone";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import PageHeader from "@/components/PageHeader";
@@ -64,15 +65,6 @@ function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
-  });
-}
-
-/** O saldo da Stripe é em DÓLAR — a moeda principal do checkout internacional.
- *  Formatado em pt-BR (US$ 1.234,56), porque quem lê a tela é daqui. */
-function usd(cents: number) {
-  return (cents / 100).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "USD",
   });
 }
 
@@ -303,6 +295,9 @@ export default function PaymentsPage() {
     return acc;
   }, [data]);
 
+  /** Ver `maiorSaldoStripe`: a moeda com mais dinheiro na conta, com o total. */
+  const saldoStripe = maiorSaldoStripe(data?.stripeBalance);
+
   const botOptions = useMemo(() => {
     if (!data) return [];
     const mapa = new Map<string, string>();
@@ -468,25 +463,26 @@ export default function PaymentsPage() {
           value={data ? (data.balanceCents === null ? "indisponível" : brl(data.balanceCents)) : null}
           accent={Boolean(data && data.balanceCents !== null)}
         />
-        {/* Saldo em DÓLAR: é a moeda principal da conta Stripe (checkout
-            internacional). As outras moedas da mesma conta (BRL do cartão no
-            Brasil, EUR/GBP) entram no título — somá-las seria juntar centavos
-            de unidades diferentes. */}
+        {/* O MESMO número do card do Dashboard, pela mesma regra
+            (`maiorSaldoStripe`): o total — disponível + a caminho — da moeda
+            com mais dinheiro na conta. Antes esta tela mostrava só o disponível
+            e só em dólar, então numa conta que vende no cartão brasileiro ela
+            dizia "US$ 0,00" com o dinheiro todo em real, enquanto o Dashboard
+            mostrava o valor certo ao lado.
+
+            O detalhe (disponível / a caminho) entra como subvalor, no lugar do
+            hint que o card do Dashboard usa — é a estrutura que os outros
+            cards desta fileira já têm. */}
         <SummaryChip
           label="Saldo na Stripe"
-          value={
-            data
-              ? data.stripeBalance === null
-                ? "indisponível"
-                : usd(data.stripeBalance.availableCents)
-              : null
-          }
-          accent={Boolean(data && data.stripeBalance !== null)}
-          title={
-            data?.stripeBalance?.outras?.length
-              ? `Também na conta: ${data.stripeBalance.outras
-                  .map((o) => `${o.currency} ${(o.availableCents / 100).toFixed(2)}`)
-                  .join(" · ")}`
+          value={data ? (saldoStripe ? moedaCents(saldoStripe.total, saldoStripe.currency) : "indisponível") : null}
+          accent={Boolean(saldoStripe)}
+          subs={
+            saldoStripe
+              ? [
+                  ["disponível", moedaCents(saldoStripe.disp, saldoStripe.currency)],
+                  ["a caminho", moedaCents(saldoStripe.vindo, saldoStripe.currency)],
+                ]
               : undefined
           }
         />

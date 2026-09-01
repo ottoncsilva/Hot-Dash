@@ -36,6 +36,11 @@ export type Transaction = {
    * modelo), e misturá-los apagaria a distinção em todo lugar que lê `botId`.
    */
   profileBotUsername?: string;
+  /** O id do mesmo bot de `profileBotUsername`. Existe para o FILTRO por bot:
+   *  a tela mostra o bot da modelo nessas linhas, então filtrar por ele tem de
+   *  trazê-las — comparar só `botId` deixava a venda de LTV de fora de um
+   *  filtro que a própria tela dizia que ela atendia. */
+  profileBotId?: string;
   description?: string;
   customer?: string;
   /** Valor CHEIO da venda (faturamento bruto). */
@@ -78,6 +83,7 @@ type Row = {
    *  Serve à venda que não passou por bot nenhum mas pertence a uma modelo que
    *  tem um — o caso do LTV. */
   profile_bot_username?: string | null;
+  profile_bot_id?: string | null;
   description: string | null;
   customer: string | null;
   amount_cents: number;
@@ -104,6 +110,7 @@ function toClient(r: Row): Transaction {
     botId: r.bot_id || undefined,
     botUsername: r.bot_username || undefined,
     profileBotUsername: r.profile_bot_username || undefined,
+    profileBotId: r.profile_bot_id || undefined,
     description: r.description || undefined,
     customer: r.customer || undefined,
     amountCents: r.amount_cents,
@@ -490,7 +497,7 @@ export function listTransactionsInRange(
   if (limit) params.push(limit);
   const rows = getDb()
     .prepare(
-      `SELECT t.*, b.bot_username, bp.bot_username AS profile_bot_username
+      `SELECT t.*, b.bot_username, bp.bot_username AS profile_bot_username, bp.id AS profile_bot_id
          FROM transactions t
          LEFT JOIN telegram_bots b ON b.id = t.bot_id
          -- O bot da MODELO, para a venda que não tem bot próprio (LTV). Um bot

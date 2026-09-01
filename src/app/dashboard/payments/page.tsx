@@ -256,12 +256,60 @@ export default function PaymentsPage() {
 
   /** Bots que aparecem no período — chave é o id, rótulo é o @usuário. O
    *  "sem bot" só entra na lista quando existe alguma venda assim. */
+  /**
+   * O bot pelo qual a linha é FILTRADA — o mesmo que a coluna Bot mostra.
+   *
+   * A venda de LTV não tem `botId` (não passou pelo bot de vendas), mas a tela
+   * exibe o bot da modelo nela. Filtrar só por `botId` deixava essa venda de
+   * fora de um filtro que a própria tela dizia que ela atendia: escolher
+   * "@bot_da_fulana" escondia justamente as vendas de LTV dela.
+   */
+  const botDaLinha = (t: Transaction) => t.botId || t.profileBotId;
+
+  /**
+   * Os mesmos quatro números do topo, quebrados em FUNIL e LTV.
+   *
+   * Contado no cliente, a partir de `data.transactions` — que é a lista
+   * COMPLETA do período (a rota não impõe teto de propósito, ver o comentário
+   * dela). Então é a mesma pilha que o servidor somou em `periodStats`, e a
+   * conta não pode divergir do número grande.
+   *
+   * A régua de moeda acompanha cada card: os três de dinheiro/venda só contam
+   * REAL, como o `periodStats` faz (`SO_REAL`) — o que é cobrado em dólar sai
+   * do total e aparece separado, porque converter exigiria a cotação do dia de
+   * cada venda. Já "PIX gerados" é contagem pura e conta tudo, igual ao total
+   * dele.
+   *
+   * Venda lançada à mão e de origem desconhecida não entram em nenhum dos dois
+   * lados: por isso funil + LTV pode ser MENOR que o número grande, e isso é o
+   * certo — inventar um terceiro lado para duas ou três linhas soltas poluiria
+   * os quatro cards.
+   */
+  const porOrigem = useMemo(() => {
+    const zero = () => ({ pagoCents: 0, liquidoCents: 0, vendas: 0, gerados: 0 });
+    const acc = { funil: zero(), ltv: zero() };
+    for (const t of data?.transactions || []) {
+      const origem = origemDaVenda(t);
+      const alvo = origem === "bot" ? acc.funil : origem === "ltv" ? acc.ltv : null;
+      if (!alvo) continue;
+      alvo.gerados++;
+      if ((t.currency || "BRL") !== "BRL") continue;
+      if (t.status !== "paid") continue;
+      alvo.vendas++;
+      alvo.pagoCents += t.amountCents;
+      // O mesmo COALESCE do servidor: sem líquido informado, vale o cheio.
+      alvo.liquidoCents += t.netAmountCents ?? t.amountCents;
+    }
+    return acc;
+  }, [data]);
+
   const botOptions = useMemo(() => {
     if (!data) return [];
     const mapa = new Map<string, string>();
     let temSemBot = false;
     for (const t of data.transactions) {
-      if (t.botId) mapa.set(t.botId, t.botUsername ? `@${t.botUsername}` : "bot sem @");
+      const id = botDaLinha(t);
+      if (id) mapa.set(id, t.botUsername || t.profileBotUsername ? `@${t.botUsername || t.profileBotUsername}` : "bot sem @");
       else temSemBot = true;
     }
     const lista = [...mapa].sort((a, b) => a[1].localeCompare(b[1], "pt-BR"));
@@ -288,7 +336,9 @@ export default function PaymentsPage() {
     else if (paidFilter === "unpaid") list = list.filter((t) => t.status !== "paid");
 
     if (botFilter !== "all") {
-      list = list.filter((t) => (botFilter === "none" ? !t.botId : t.botId === botFilter));
+      list = list.filter((t) =>
+        botFilter === "none" ? !botDaLinha(t) : botDaLinha(t) === botFilter,
+      );
     }
     if (methodFilter !== "all") {
       list = list.filter((t) => (methodFilter === "none" ? !t.method : t.method === methodFilter));
@@ -382,20 +432,37 @@ export default function PaymentsPage() {
           texto: "Saldo na SyncPay" saía com o dobro de "Vendas", e as duas
           linhas não se alinhavam entre si — quatro caixas de quatro tamanhos.
           Numa grade de duas colunas os quatro ficam iguais e as linhas casam. */}
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        <SummaryChip label={periodLabel} value={data ? brl(data.periodStats.paidCents) : null} />
+      {/* Seis cards, quatro deles com duas linhas de quebra: em `lg` (1024px)
+          eles ficariam com ~150px e o "R$ 1.234,56" da quebra quebraria em
+          duas linhas. A fileira única só a partir de `xl`; entre um e outro,
+          duas fileiras de três. */}
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+        <SummaryChip
+          label={periodLabel}
+          value={data ? brl(data.periodStats.paidCents) : null}
+          subs={data ? [["funil", brl(porOrigem.funil.pagoCents)], ["ltv", brl(porOrigem.ltv.pagoCents)]] : undefined}
+        />
         <SummaryChip
           label="Líquido"
           value={data ? brl(data.periodStats.paidNetCents) : null}
           accent
+          subs={data ? [["funil", brl(porOrigem.funil.liquidoCents)], ["ltv", brl(porOrigem.ltv.liquidoCents)]] : undefined}
         />
-        <SummaryChip label="Vendas" value={data ? String(data.periodStats.paidCount) : null} />
+        <SummaryChip
+          label="Vendas"
+          value={data ? String(data.periodStats.paidCount) : null}
+          subs={data ? [["funil", String(porOrigem.funil.vendas)], ["ltv", String(porOrigem.ltv.vendas)]] : undefined}
+        />
         {/* PIX gerados era um "(23)" cinza ao lado do título da lista, que
             ainda virava "(11 de 23)" quando um filtro entrava — o número da
             tela mudava de significado sem avisar. Como card, ao lado de
             Vendas, ele é sempre a mesma coisa: quantos foram gerados no
             período. Quantos a lista está mostrando é assunto dos filtros. */}
-        <SummaryChip label="PIX gerados" value={data ? String(data.transactions.length) : null} />
+        <SummaryChip
+          label="PIX gerados"
+          value={data ? String(data.transactions.length) : null}
+          subs={data ? [["funil", String(porOrigem.funil.gerados)], ["ltv", String(porOrigem.ltv.gerados)]] : undefined}
+        />
         <SummaryChip
           label="Saldo na SyncPay"
           value={data ? (data.balanceCents === null ? "indisponível" : brl(data.balanceCents)) : null}
@@ -1329,12 +1396,20 @@ function SummaryChip({
   value,
   accent,
   title,
+  subs,
 }: {
   label: string;
   value: string | null;
   accent?: boolean;
   /** Detalhe que não cabe no card — hoje as moedas extras da conta Stripe. */
   title?: string;
+  /**
+   * Quebra do número grande, uma linha por parte (hoje: funil e LTV).
+   *
+   * Some quando não há: os cards de saldo não têm o que quebrar, e uma linha
+   * vazia neles desalinharia a altura da fileira inteira.
+   */
+  subs?: [string, string][];
 }) {
   return (
     <div className="card min-w-0 px-3 py-2.5" title={title}>
@@ -1342,6 +1417,18 @@ function SummaryChip({
       <p className={`mt-1 truncate font-display text-base font-semibold ${accent ? "text-emerald-400" : "text-white"}`}>
         {value ?? <span className="inline-block h-4 w-14 animate-pulse rounded bg-white/5" />}
       </p>
+      {subs && subs.length > 0 && (
+        // Discretas de propósito: o número que manda é o de cima. Estas são
+        // conferência — respondem "quanto disso é LTV?" sem disputar a leitura.
+        <div className="mt-1.5 space-y-0.5 border-t border-white/[0.06] pt-1.5">
+          {subs.map(([rotulo, texto]) => (
+            <p key={rotulo} className="flex items-baseline justify-between gap-2 font-mono text-[10px]">
+              <span className="uppercase tracking-wider text-zinc-600">{rotulo}</span>
+              <span className="truncate text-zinc-400">{texto}</span>
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

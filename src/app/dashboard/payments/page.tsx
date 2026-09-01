@@ -67,6 +67,15 @@ function brl(cents: number) {
   });
 }
 
+/** O saldo da Stripe é em DÓLAR — a moeda principal do checkout internacional.
+ *  Formatado em pt-BR (US$ 1.234,56), porque quem lê a tela é daqui. */
+function usd(cents: number) {
+  return (cents / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "USD",
+  });
+}
+
 const STATUS_LABEL: Record<string, string> = {
   paid: "pago",
   pending: "gerado",
@@ -94,10 +103,11 @@ function rotuloDoBot(b: BotOpcao): string {
 }
 
 type PaidFilter = "all" | "paid" | "unpaid";
-/** "todos" = sem filtro; o resto casa com `origemDaVenda`. */
-type OriginFilter = "all" | "bot" | "ltv" | "painel";
+/** De onde a venda veio. Já foi a lista de opções de um seletor de Origem —
+ *  hoje é só a classificação, lida pelos dois interruptores da lista. */
+type OrigemVenda = "bot" | "ltv" | "painel";
 
-const ORIGIN_LABEL: Record<Exclude<OriginFilter, "all">, string> = {
+const ORIGIN_LABEL: Record<OrigemVenda, string> = {
   bot: "Funil (bot)",
   ltv: "LTV",
   painel: "Lançada à mão",
@@ -111,9 +121,9 @@ const ORIGIN_LABEL: Record<Exclude<OriginFilter, "all">, string> = {
  * um bot de vendas — é isso que `origin = 'bot'` significa. O que sobra
  * (NULL e sem bot) fica `undefined` de propósito, e não "painel": chutar
  * "lançada à mão" numa venda de origem desconhecida seria inventar um dado
- * que ninguém conferiu. Essas linhas só aparecem em "Origem: todas".
+ * que ninguém conferiu. Sem interruptor próprio, essas linhas aparecem sempre.
  */
-function origemDaVenda(t: Transaction): Exclude<OriginFilter, "all"> | undefined {
+function origemDaVenda(t: Transaction): OrigemVenda | undefined {
   if (t.origin) return t.origin;
   return t.botId ? "bot" : undefined;
 }
@@ -133,7 +143,15 @@ type Data = {
   /** Totais do PERÍODO selecionado (os cards do topo). */
   periodStats: PeriodStats;
   transactions: Transaction[];
+  /** Saldo na SyncPay, em BRL. */
   balanceCents: number | null;
+  /** Saldo na Stripe. `availableCents` é o DÓLAR; `outras` traz cada moeda
+   *  restante da mesma conta. `null` = Stripe não conectada. */
+  stripeBalance: {
+    availableCents: number;
+    pendingCents?: number;
+    outras?: { currency: string; availableCents: number; pendingCents?: number }[];
+  } | null;
 };
 
 export default function PaymentsPage() {
@@ -148,11 +166,21 @@ export default function PaymentsPage() {
   // seletor nunca oferecer uma escolha que não devolve nada.
   const [botFilter, setBotFilter] = useState("all");
   const [methodFilter, setMethodFilter] = useState("all");
-  const [originFilter, setOriginFilter] = useState<OriginFilter>("all");
-  /** Atalho para "só as vendas do LTV". Vive ao lado do seletor de Origem, e
-   *  não dentro dele, porque separar LTV do resto é a conferência que se faz
-   *  todo dia — o seletor cobre os outros recortes, mais raros. */
-  const [soLtv, setSoLtv] = useState(false);
+  /**
+   * As duas fontes de venda, ligadas por padrão: a lista começa mostrando
+   * TUDO e o operador DESMARCA o que quer esconder.
+   *
+   * Substituiu um seletor "Origem: todas/bot/LTV/à mão", que só sabia mostrar
+   * um de cada vez — e a conferência real é "quero ver os dois" ou "tira o
+   * LTV daqui". Com o seletor, ver funil+LTV sem as lançadas à mão era
+   * impossível.
+   *
+   * Venda de origem desconhecida (linha antiga, sem bot) e lançada à mão não
+   * têm interruptor e aparecem SEMPRE: são poucas, e escondê-las num filtro
+   * que não as nomeia faria dinheiro sumir da conferência sem explicação.
+   */
+  const [verFunil, setVerFunil] = useState(true);
+  const [verLtv, setVerLtv] = useState(true);
   // Busca em texto livre — sobre o que JÁ carregou (o período é filtrado no
   // servidor, sem teto: ver /api/payments/overview). Cobre nome, produto,
   // bot e método, porque "pesquisar" pra quem usa a tela é achar uma venda
@@ -172,7 +200,7 @@ export default function PaymentsPage() {
     verSeAindaRola();
     window.addEventListener("resize", verSeAindaRola);
     return () => window.removeEventListener("resize", verSeAindaRola);
-  }, [verSeAindaRola, busca, paidFilter, botFilter, methodFilter, originFilter, soLtv, sort, data]);
+  }, [verSeAindaRola, busca, paidFilter, botFilter, methodFilter, verFunil, verLtv, sort, data]);
   // Mesmo seletor do Dashboard, com o mesmo padrão (hoje). O recorte é feito no
   // servidor — ver /api/payments/overview.
   const [period, setPeriod] = useState<PeriodState>({ period: DEFAULT_PERIOD, from: "", to: "" });
@@ -265,8 +293,10 @@ export default function PaymentsPage() {
     if (methodFilter !== "all") {
       list = list.filter((t) => (methodFilter === "none" ? !t.method : t.method === methodFilter));
     }
-    if (originFilter !== "all") list = list.filter((t) => origemDaVenda(t) === originFilter);
-    if (soLtv) list = list.filter((t) => origemDaVenda(t) === "ltv");
+    // Desmarcar ESCONDE aquela fonte; o resto (à mão, desconhecida) não é
+    // afetado por nenhum dos dois.
+    if (!verFunil) list = list.filter((t) => origemDaVenda(t) !== "bot");
+    if (!verLtv) list = list.filter((t) => origemDaVenda(t) !== "ltv");
 
     const termo = busca.trim().toLowerCase();
     if (termo) {
@@ -300,7 +330,7 @@ export default function PaymentsPage() {
       }
     });
     return sorted;
-  }, [data, paidFilter, sort, busca, botFilter, methodFilter, originFilter, soLtv]);
+  }, [data, paidFilter, sort, busca, botFilter, methodFilter, verFunil, verLtv]);
 
   return (
     <div className="page">
@@ -352,7 +382,7 @@ export default function PaymentsPage() {
           texto: "Saldo na SyncPay" saía com o dobro de "Vendas", e as duas
           linhas não se alinhavam entre si — quatro caixas de quatro tamanhos.
           Numa grade de duas colunas os quatro ficam iguais e as linhas casam. */}
-      <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         <SummaryChip label={periodLabel} value={data ? brl(data.periodStats.paidCents) : null} />
         <SummaryChip
           label="Líquido"
@@ -360,10 +390,38 @@ export default function PaymentsPage() {
           accent
         />
         <SummaryChip label="Vendas" value={data ? String(data.periodStats.paidCount) : null} />
+        {/* PIX gerados era um "(23)" cinza ao lado do título da lista, que
+            ainda virava "(11 de 23)" quando um filtro entrava — o número da
+            tela mudava de significado sem avisar. Como card, ao lado de
+            Vendas, ele é sempre a mesma coisa: quantos foram gerados no
+            período. Quantos a lista está mostrando é assunto dos filtros. */}
+        <SummaryChip label="PIX gerados" value={data ? String(data.transactions.length) : null} />
         <SummaryChip
           label="Saldo na SyncPay"
           value={data ? (data.balanceCents === null ? "indisponível" : brl(data.balanceCents)) : null}
           accent={Boolean(data && data.balanceCents !== null)}
+        />
+        {/* Saldo em DÓLAR: é a moeda principal da conta Stripe (checkout
+            internacional). As outras moedas da mesma conta (BRL do cartão no
+            Brasil, EUR/GBP) entram no título — somá-las seria juntar centavos
+            de unidades diferentes. */}
+        <SummaryChip
+          label="Saldo na Stripe"
+          value={
+            data
+              ? data.stripeBalance === null
+                ? "indisponível"
+                : usd(data.stripeBalance.availableCents)
+              : null
+          }
+          accent={Boolean(data && data.stripeBalance !== null)}
+          title={
+            data?.stripeBalance?.outras?.length
+              ? `Também na conta: ${data.stripeBalance.outras
+                  .map((o) => `${o.currency} ${(o.availableCents / 100).toFixed(2)}`)
+                  .join(" · ")}`
+              : undefined
+          }
         />
       </div>
 
@@ -372,15 +430,7 @@ export default function PaymentsPage() {
           numa ponta e os filtros na outra, separados por meia tela vazia no
           desktop — pareciam de outro bloco. */}
       <div className="mt-8 flex flex-wrap items-end gap-x-4 gap-y-3">
-        <p className="eyebrow">
-          pix gerados
-          {data && (
-            <span className="ml-2 normal-case text-zinc-600">
-              ({filteredTransactions.length}
-              {filteredTransactions.length !== data.transactions.length ? ` de ${data.transactions.length}` : ""})
-            </span>
-          )}
-        </p>
+        <p className="eyebrow">pix gerados</p>
         {/* A BUSCA sozinha em cima, os seletores numa grade de duas colunas.
 
             Eram cinco controles em `flex-wrap` com largura de conteúdo: no
@@ -448,34 +498,39 @@ export default function PaymentsPage() {
               );
             seletores.push(
               <label
-                key="so-ltv"
+                key="ver-funil"
                 className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors [@media(pointer:coarse)]:min-h-[44px] ${
-                  soLtv
-                    ? "border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300"
-                    : "border-white/10 text-zinc-300 hover:bg-white/5"
+                  verFunil
+                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                    : "border-white/10 text-zinc-500 hover:bg-white/5"
                 }`}
-                title="Mostra só as vendas feitas pelo agente de LTV"
+                title="Desmarque para esconder as vendas do bot de vendas"
+              >
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 accent-emerald-500"
+                  checked={verFunil}
+                  onChange={(e) => setVerFunil(e.target.checked)}
+                />
+                Vendas Funil
+              </label>,
+              <label
+                key="ver-ltv"
+                className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors [@media(pointer:coarse)]:min-h-[44px] ${
+                  verLtv
+                    ? "border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300"
+                    : "border-white/10 text-zinc-500 hover:bg-white/5"
+                }`}
+                title="Desmarque para esconder as vendas do agente de LTV"
               >
                 <input
                   type="checkbox"
                   className="h-3.5 w-3.5 accent-fuchsia-500"
-                  checked={soLtv}
-                  onChange={(e) => setSoLtv(e.target.checked)}
+                  checked={verLtv}
+                  onChange={(e) => setVerLtv(e.target.checked)}
                 />
-                Só LTV
+                LTV
               </label>,
-              <select
-                key="origem"
-                className="input w-full py-1.5 text-xs"
-                aria-label="Filtrar por origem"
-                value={originFilter}
-                onChange={(e) => setOriginFilter(e.target.value as OriginFilter)}
-              >
-                <option value="all">Origem: todas</option>
-                {(Object.keys(ORIGIN_LABEL) as Exclude<OriginFilter, "all">[]).map((k) => (
-                  <option key={k} value={k}>{ORIGIN_LABEL[k]}</option>
-                ))}
-              </select>,
               <select
                 key="ordem"
                 className="input w-full py-1.5 text-xs"
@@ -510,7 +565,10 @@ export default function PaymentsPage() {
             busca ||
             botFilter !== "all" ||
             methodFilter !== "all" ||
-            originFilter !== "all") && (
+            // Os dois interruptores nascem LIGADOS: desligar qualquer um é um
+            // filtro ativo, e o "Limpar" religa os dois.
+            !verFunil ||
+            !verLtv) && (
             <button
               type="button"
               onClick={() => {
@@ -519,7 +577,8 @@ export default function PaymentsPage() {
                 setBusca("");
                 setBotFilter("all");
                 setMethodFilter("all");
-                setOriginFilter("all");
+                setVerFunil(true);
+                setVerLtv(true);
               }}
               className="btn-ghost py-1.5 text-xs"
             >
@@ -1265,9 +1324,20 @@ function dataHoraCurta(ms: number, tz: string): string {
  * o que a pessoa veio ver. Empilhado, o rótulo pode ocupar duas linhas sem
  * roubar espaço do número.
  */
-function SummaryChip({ label, value, accent }: { label: string; value: string | null; accent?: boolean }) {
+function SummaryChip({
+  label,
+  value,
+  accent,
+  title,
+}: {
+  label: string;
+  value: string | null;
+  accent?: boolean;
+  /** Detalhe que não cabe no card — hoje as moedas extras da conta Stripe. */
+  title?: string;
+}) {
   return (
-    <div className="card min-w-0 px-3 py-2.5">
+    <div className="card min-w-0 px-3 py-2.5" title={title}>
       <p className="truncate font-mono text-[10px] uppercase tracking-widest2 text-zinc-500">{label}</p>
       <p className={`mt-1 truncate font-display text-base font-semibold ${accent ? "text-emerald-400" : "text-white"}`}>
         {value ?? <span className="inline-block h-4 w-14 animate-pulse rounded bg-white/5" />}

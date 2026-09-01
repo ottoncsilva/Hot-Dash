@@ -672,8 +672,11 @@ function BotSalesPanel({
           <thead>
             <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wider text-zinc-500">
               <th className="px-4 py-3 font-medium">Modelo</th>
-              <th className="px-4 py-3 font-medium">Plataforma</th>
-              <th className="px-4 py-3 font-medium">Status</th>
+              {/* "Plataforma" saiu: escrevia "Telegram" fixo em toda linha, sem
+                  exceção — uma coluna que não distingue nada de nada. E o
+                  "Status" dizia respeito ao BOT, não à modelo; o nome novo diz
+                  isso. */}
+              <th className="px-4 py-3 font-medium">Status BOT</th>
               <th className="px-4 py-3 text-right font-medium">Faturamento</th>
               <th className="px-4 py-3 text-right font-medium">% do Total</th>
             </tr>
@@ -681,13 +684,13 @@ function BotSalesPanel({
           <tbody className="divide-y divide-white/[0.04]">
             {!data ? (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-xs text-zinc-600">
+                <td colSpan={4} className="px-4 py-6 text-center text-xs text-zinc-600">
                   Carregando...
                 </td>
               </tr>
             ) : data.byProfile.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-xs text-zinc-600">
+                <td colSpan={4} className="px-4 py-6 text-center text-xs text-zinc-600">
                   Nenhuma venda ainda.{" "}
                   <Link href="/dashboard/telegram/bot" className="text-emerald-400 hover:underline">
                     Configurar bot de vendas →
@@ -700,7 +703,6 @@ function BotSalesPanel({
                 return data.byProfile.map((r) => (
                   <tr key={r.profileId}>
                     <td className="px-4 py-3 text-white">{r.profileName || profileName(r.profileId)}</td>
-                    <td className="px-4 py-3 text-zinc-400">Telegram</td>
                     <td className="px-4 py-3">
                       {r.botActive === null ? (
                         <span className="rounded bg-white/5 px-2 py-0.5 text-[10px] font-bold uppercase text-zinc-500">

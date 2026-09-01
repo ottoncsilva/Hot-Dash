@@ -262,7 +262,7 @@ function migrate(d: Database.Database) {
       id         TEXT PRIMARY KEY,
       media_id   TEXT NOT NULL,
       profile_id TEXT NOT NULL,
-      audience   TEXT NOT NULL,  -- 'previas' | 'vip'
+      audience   TEXT NOT NULL,  -- 'previas' | 'vip' | uma rede social ('instagram'...)
       post_id    TEXT,
       posted_at  INTEGER NOT NULL,
       FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
@@ -1017,6 +1017,14 @@ function migrate(d: Database.Database) {
   // com o histórico e as senhas guardadas —, então ela se desliga: para de ser
   // oferecida para posts NOVOS e continua no cadastro. O que já estava agendado
   // para ela fica no calendário, marcado (ver a tela de Cronograma).
+  // A CONTA em que a mídia saiu, quando o destino é rede social. Fica NULL nos
+  // dois grupos do Telegram, onde o grupo já É o destino.
+  //
+  // É o que permite contar separado: a mesma foto pode ter saído 3x no VIP, 2x
+  // no @insta_um e 1x no @insta_dois, e cada número desses é uma pergunta
+  // diferente. Sem a coluna, duas contas de Instagram da mesma modelo virariam
+  // um balde só.
+  ensureColumn(d, "media_post_log", "account_id", "TEXT");
   ensureColumn(d, "accounts", "active", "INTEGER NOT NULL DEFAULT 1");
   // ESPELHO: conta de Facebook/Threads que só repete o que sai numa conta de
   // Instagram desta mesma modelo. Aponta para o `accounts.id` do Instagram.

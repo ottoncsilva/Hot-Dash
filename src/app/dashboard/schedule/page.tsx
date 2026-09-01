@@ -8,7 +8,7 @@ import ToggleChip from "@/components/ToggleChip";
 import FilterDropdown from "@/components/FilterDropdown";
 import ScheduleTemplateModal from "@/components/schedule/ScheduleTemplateModal";
 import GenerateScheduleModal from "@/components/schedule/GenerateScheduleModal";
-import CalendarGrid from "@/components/schedule/CalendarGrid";
+import CronogramaCalendar from "@/components/schedule/CronogramaCalendar";
 import { useConfirm } from "@/hooks/useConfirm";
 import { useProfile } from "@/context/ProfileContext";
 import {
@@ -457,16 +457,13 @@ export default function SchedulePage() {
       </div>
 
       {view === "calendar" ? (
-        <CalendarGrid
+        <CronogramaCalendar
           month={month}
           onMonthChange={setMonth}
           posts={filtered}
           onDayClick={(d) => openNew(d)}
           onPostClick={(p) => setDetailPost(p)}
           onPostMove={movePost}
-          defaultView="week"
-          paleta="status"
-          comMiniatura
         />
       ) : view === "list" ? (
         <ListView

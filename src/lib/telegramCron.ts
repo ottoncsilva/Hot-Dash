@@ -538,16 +538,13 @@ function buildReplyMarkup(
       ]);
     });
   }
-  // "Not from Brazil?" — mesmo critério do /start (ver webhooks/telegram):
-  // só aparece quando existe plano com priceUsdCents cadastrado. Só o
-  // Downsell GERAL ganha este botão; o Downsell de PIX gerado (irmão, usa
-  // `buildPixDownsellMarkup` logo abaixo) fica de fora por ora — ver Parte
-  // C.4 do plano da Stripe.
-  if (plans.some((p) => (p.priceUsdCents || 0) > 0)) {
-    inlineKeyboard.push([
-      { text: "🌎 Not from Brazil?", callback_data: "intl_menu", ...buttonStyleProps(bot, "notFromBrazil") },
-    ]);
-  }
+  // O "🌎 Not from Brazil?" NÃO entra aqui. Ele é do /start, onde a pergunta
+  // ainda está aberta (ver webhooks/telegram) — no funil de recuperação a
+  // pessoa já escolheu, já viu preço em real e às vezes já gerou o PIX.
+  //
+  // Reabrir a origem no meio do downsell é oferecer uma saída lateral bem na
+  // hora em que a mensagem pede uma decisão: o teclado da recuperação tem que
+  // ser só a oferta com desconto, e mais nada.
   return inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : undefined;
 }
 

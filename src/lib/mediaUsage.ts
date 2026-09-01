@@ -211,6 +211,52 @@ export function getMediaPostCounts(profileId: string): Map<string, MediaPostCoun
 }
 
 /**
+ * Quantas vezes cada mídia do perfil está AGENDADA em cada conta de rede
+ * social — post que ainda NÃO foi ao ar.
+ *
+ * Nada de Telegram aqui (`pn.network != 'telegram'`), e nada de post já
+ * postado (`p.status = 'scheduled'`): a pergunta desta consulta é a do
+ * Cronograma montando um post — "essa foto já está na fila DESTE perfil?".
+ * Publicação passada é outra pergunta e mora em `getMediaPostCounts`.
+ */
+export function getMediaScheduledCounts(profileId: string): Map<string, MediaAccountCount[]> {
+  const rows = getDb()
+    .prepare(
+      `SELECT pm.media_id, pn.account_id, a.username, a.network,
+              COUNT(*) AS total, MIN(p.scheduled_at) AS proximo
+         FROM post_media pm
+         JOIN posts p ON p.id = pm.post_id
+         JOIN post_networks pn ON pn.post_id = p.id
+         JOIN accounts a ON a.id = pn.account_id
+        WHERE p.profile_id = ? AND p.status = 'scheduled' AND pn.network != 'telegram'
+        GROUP BY pm.media_id, pn.account_id`,
+    )
+    .all(profileId) as {
+    media_id: string;
+    account_id: string;
+    username: string;
+    network: string;
+    total: number;
+    proximo: number;
+  }[];
+
+  const mapa = new Map<string, MediaAccountCount[]>();
+  for (const r of rows) {
+    const item: MediaAccountCount = {
+      accountId: r.account_id,
+      network: r.network as SocialNetwork,
+      username: r.username,
+      times: r.total,
+      lastAt: r.proximo,
+    };
+    const lista = mapa.get(r.media_id);
+    if (lista) lista.push(item);
+    else mapa.set(r.media_id, [item]);
+  }
+  return mapa;
+}
+
+/**
  * Desfaz o registro de publicação de um post em REDE SOCIAL.
  *
  * Existe porque nas redes sociais o "postado" é uma MARCAÇÃO do operador, não

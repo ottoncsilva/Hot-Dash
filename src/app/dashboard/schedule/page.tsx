@@ -22,7 +22,6 @@ import {
   IconPlay,
   IconCopy,
   IconDownload,
-  IconCheck,
   IconEye,
   IconEyeOff,
 } from "@/components/icons";
@@ -1128,19 +1127,20 @@ function PostForm({
   const [soNuncaPostada, setSoNuncaPostada] = useState(false);
   /** Abre o resto das contas — o padrão mostra só os Instagram. */
   const [verTodasAsContas, setVerTodasAsContas] = useState(false);
-  const [usedMedia, setUsedMedia] = useState<Set<string>>(new Set());
+
   const [reusableBlocks, setReusableBlocks] = useState<{ id: string; name: string; content: string }[]>([]);
 
   // Carrega a biblioteca do perfil selecionado (mídias por referência).
   useEffect(() => {
     if (!profileId) return;
     setLibrary(null);
-    setUsedMedia(new Set());
-    apiGet<{ media: MediaItem[]; usedMediaIds?: string[] }>(`/api/profiles/${profileId}/media`)
-      .then((d) => {
-        setLibrary(d.media);
-        if (d.usedMediaIds) setUsedMedia(new Set(d.usedMediaIds));
-      })
+    // `usedMediaIds` da rota fica de fora de propósito: ele marca a mídia
+    // presente em QUALQUER post da modelo, o que inclui os grupos do Telegram —
+    // outro módulo, outro público. Uma foto que nunca chegou perto do Instagram
+    // vinha marcada como usada aqui. O que vale nesta tela é por CONTA, e vem
+    // em `postCounts` (ver `postagensNaSelecao` e `agendadasNaSelecao`).
+    apiGet<{ media: MediaItem[] }>(`/api/profiles/${profileId}/media`)
+      .then((d) => setLibrary(d.media))
       .catch(() => setLibrary([]));
   }, [profileId]);
 
@@ -1238,6 +1238,18 @@ function PostForm({
     (m: MediaItem): number => {
       if (contasSelecionadas.size === 0) return 0;
       return (m.postCounts?.contas || [])
+        .filter((c) => contasSelecionadas.has(c.accountId))
+        .reduce((soma, c) => soma + c.times, 0);
+    },
+    [contasSelecionadas],
+  );
+
+  /** Quantas vezes esta mídia já está AGENDADA nas contas marcadas. Mesma
+   *  regra do contador de postagens: só as contas do post em edição. */
+  const agendadasNaSelecao = useCallback(
+    (m: MediaItem): number => {
+      if (contasSelecionadas.size === 0) return 0;
+      return (m.postCounts?.agendadas || [])
         .filter((c) => contasSelecionadas.has(c.accountId))
         .reduce((soma, c) => soma + c.times, 0);
     },
@@ -1526,8 +1538,8 @@ function PostForm({
                 {filteredLibrary.map((m) => {
                   const idx = mediaIds.indexOf(m.id);
                   const selected = idx !== -1;
-                  const used = usedMedia.has(m.id);
                   const jaSaiu = postagensNaSelecao(m);
+                  const naFila = agendadasNaSelecao(m);
                   return (
                     <button
                       key={m.id}
@@ -1564,20 +1576,33 @@ function PostForm({
                           {idx + 1}
                         </span>
                       )}
-                      {used && !selected && (
-                        <span className="absolute right-1 top-1 grid h-4 w-4 place-items-center rounded-full bg-amber-500 text-white" title="Mídia já utilizada por este perfil">
-                          <IconCheck size={10} />
-                        </span>
-                      )}
-                      {/* Quantas vezes esta mídia já saiu NAS CONTAS marcadas.
-                          Fica no canto de baixo para não brigar com o número da
-                          ordem no carrossel, que mora em cima. */}
-                      {jaSaiu > 0 && (
-                        <span
-                          className="absolute bottom-1 left-1 rounded-full bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-amber-300"
-                          title={`Já publicada ${jaSaiu}× na(s) conta(s) marcada(s)`}
-                        >
-                          ×{jaSaiu}
+                      {/* As duas marcas respondem a MESMA pergunta, por conta
+                          marcada: nesta rede, essa foto já foi usada? Âmbar =
+                          já foi ao ar; azul = está na fila e ainda não saiu.
+                          Cores diferentes porque a decisão é diferente —
+                          repetir o que o público já viu é uma coisa, agendar
+                          duas vezes a mesma foto é outra.
+
+                          Ficam no rodapé para não brigar com o número da ordem
+                          no carrossel, que mora no topo. */}
+                      {(jaSaiu > 0 || naFila > 0) && (
+                        <span className="absolute bottom-1 left-1 flex gap-1">
+                          {jaSaiu > 0 && (
+                            <span
+                              className="rounded-full bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-amber-300"
+                              title={`Já publicada ${jaSaiu}× na(s) conta(s) marcada(s)`}
+                            >
+                              ×{jaSaiu}
+                            </span>
+                          )}
+                          {naFila > 0 && (
+                            <span
+                              className="rounded-full bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-sky-300"
+                              title={`Já agendada em ${naFila} post(s) ainda não publicado(s) na(s) conta(s) marcada(s)`}
+                            >
+                              ⏱{naFila}
+                            </span>
+                          )}
                         </span>
                       )}
                     </button>

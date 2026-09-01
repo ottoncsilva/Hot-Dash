@@ -130,6 +130,16 @@ export type MediaPostCounts = {
    * mudaria a ordem da fila de prévias sem ninguém pedir.
    */
   contas?: MediaAccountCount[];
+  /**
+   * Quantas vezes a mídia está AGENDADA em cada conta de rede social — post que
+   * ainda não foi ao ar.
+   *
+   * Separado de `contas` porque são duas perguntas diferentes na hora de montar
+   * um post: "essa foto o público desse perfil já viu?" e "essa foto já está na
+   * fila desse perfil?". Uma foto agendada para amanhã não foi vista por
+   * ninguém, mas escolher de novo criaria post repetido.
+   */
+  agendadas?: MediaAccountCount[];
 };
 
 export type MediaAccountCount = {
@@ -137,6 +147,8 @@ export type MediaAccountCount = {
   network: SocialNetwork;
   username: string;
   times: number;
+  /** Em `contas`, o instante da ÚLTIMA publicação. Em `agendadas`, o do
+   *  PRÓXIMO envio marcado. */
   lastAt: number;
 };
 

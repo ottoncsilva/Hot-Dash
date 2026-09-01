@@ -149,6 +149,10 @@ export default function PaymentsPage() {
   const [botFilter, setBotFilter] = useState("all");
   const [methodFilter, setMethodFilter] = useState("all");
   const [originFilter, setOriginFilter] = useState<OriginFilter>("all");
+  /** Atalho para "só as vendas do LTV". Vive ao lado do seletor de Origem, e
+   *  não dentro dele, porque separar LTV do resto é a conferência que se faz
+   *  todo dia — o seletor cobre os outros recortes, mais raros. */
+  const [soLtv, setSoLtv] = useState(false);
   // Busca em texto livre — sobre o que JÁ carregou (o período é filtrado no
   // servidor, sem teto: ver /api/payments/overview). Cobre nome, produto,
   // bot e método, porque "pesquisar" pra quem usa a tela é achar uma venda
@@ -168,7 +172,7 @@ export default function PaymentsPage() {
     verSeAindaRola();
     window.addEventListener("resize", verSeAindaRola);
     return () => window.removeEventListener("resize", verSeAindaRola);
-  }, [verSeAindaRola, busca, paidFilter, botFilter, methodFilter, originFilter, sort, data]);
+  }, [verSeAindaRola, busca, paidFilter, botFilter, methodFilter, originFilter, soLtv, sort, data]);
   // Mesmo seletor do Dashboard, com o mesmo padrão (hoje). O recorte é feito no
   // servidor — ver /api/payments/overview.
   const [period, setPeriod] = useState<PeriodState>({ period: DEFAULT_PERIOD, from: "", to: "" });
@@ -262,6 +266,7 @@ export default function PaymentsPage() {
       list = list.filter((t) => (methodFilter === "none" ? !t.method : t.method === methodFilter));
     }
     if (originFilter !== "all") list = list.filter((t) => origemDaVenda(t) === originFilter);
+    if (soLtv) list = list.filter((t) => origemDaVenda(t) === "ltv");
 
     const termo = busca.trim().toLowerCase();
     if (termo) {
@@ -295,7 +300,7 @@ export default function PaymentsPage() {
       }
     });
     return sorted;
-  }, [data, paidFilter, sort, busca, botFilter, methodFilter, originFilter]);
+  }, [data, paidFilter, sort, busca, botFilter, methodFilter, originFilter, soLtv]);
 
   return (
     <div className="page">
@@ -442,6 +447,23 @@ export default function PaymentsPage() {
                 </select>,
               );
             seletores.push(
+              <label
+                key="so-ltv"
+                className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors [@media(pointer:coarse)]:min-h-[44px] ${
+                  soLtv
+                    ? "border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300"
+                    : "border-white/10 text-zinc-300 hover:bg-white/5"
+                }`}
+                title="Mostra só as vendas feitas pelo agente de LTV"
+              >
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 accent-fuchsia-500"
+                  checked={soLtv}
+                  onChange={(e) => setSoLtv(e.target.checked)}
+                />
+                Só LTV
+              </label>,
               <select
                 key="origem"
                 className="input w-full py-1.5 text-xs"
@@ -635,6 +657,12 @@ export default function PaymentsPage() {
                     <td className="p-3 font-mono text-[11px] text-zinc-400">
                       {t.botUsername ? (
                         `@${t.botUsername}`
+                      ) : origemDaVenda(t) === "ltv" && t.profileBotUsername ? (
+                        // "Bot do LTV" não existe: a venda de LTV é de uma
+                        // MODELO, e é o bot dela que responde "de quem foi essa
+                        // venda". O que a distingue de uma venda do funil é o
+                        // prefixo "LTV -" no produto, ao lado.
+                        `@${t.profileBotUsername}`
                       ) : origemDaVenda(t) && origemDaVenda(t) !== "bot" ? (
                         <span className="text-zinc-500">{ORIGIN_LABEL[origemDaVenda(t)!]}</span>
                       ) : (
@@ -642,7 +670,23 @@ export default function PaymentsPage() {
                       )}
                     </td>
                     <td className="max-w-[160px] truncate p-3 text-xs text-zinc-400">
-                      {t.description || <span className="text-zinc-700">—</span>}
+                      {/* O prefixo é de EXIBIÇÃO, não vai gravado: aplica
+                          sozinho nas vendas antigas e não suja o nome do
+                          produto que a modelo cadastrou. */}
+                      {t.description ? (
+                        origemDaVenda(t) === "ltv" ? (
+                          <>
+                            <span className="text-fuchsia-400">LTV - </span>
+                            {t.description}
+                          </>
+                        ) : (
+                          t.description
+                        )
+                      ) : origemDaVenda(t) === "ltv" ? (
+                        <span className="text-fuchsia-400">LTV</span>
+                      ) : (
+                        <span className="text-zinc-700">—</span>
+                      )}
                     </td>
                     <td className="p-3 text-xs text-zinc-400">
                       {t.method ? METHOD_LABEL[t.method] || t.method : <span className="text-zinc-700">—</span>}

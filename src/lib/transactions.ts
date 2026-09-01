@@ -24,6 +24,18 @@ export type Transaction = {
   /** @usuário do bot, só quando a consulta faz o JOIN (listagem do
    *  Financeiro) — ausente nas outras leituras, que não precisam dele. */
   botUsername?: string;
+  /**
+   * O bot da MODELO desta venda, quando ela mesma não tem bot amarrado.
+   *
+   * Existe por causa do LTV: aquela venda tem modelo (`profile_id`) e não tem
+   * bot, porque não passou pelo bot de vendas — mas a modelo tem um, e é o
+   * dela que a tela precisa mostrar. "Bot do LTV" não existe.
+   *
+   * Fica em campo PRÓPRIO em vez de preencher `botUsername` por tabela: os dois
+   * dizem coisas diferentes (um é o bot que fez a venda, outro é o bot da
+   * modelo), e misturá-los apagaria a distinção em todo lugar que lê `botId`.
+   */
+  profileBotUsername?: string;
   description?: string;
   customer?: string;
   /** Valor CHEIO da venda (faturamento bruto). */
@@ -62,6 +74,10 @@ type Row = {
   /** Só presente quando a consulta faz LEFT JOIN telegram_bots (ver
    *  `comBot` abaixo) — em `SELECT *` puro fica ausente (undefined). */
   bot_username?: string | null;
+  /** O bot DA MODELO da venda, achado pelo `profile_id` em vez do `bot_id`.
+   *  Serve à venda que não passou por bot nenhum mas pertence a uma modelo que
+   *  tem um — o caso do LTV. */
+  profile_bot_username?: string | null;
   description: string | null;
   customer: string | null;
   amount_cents: number;
@@ -87,6 +103,7 @@ function toClient(r: Row): Transaction {
     profileId: r.profile_id || undefined,
     botId: r.bot_id || undefined,
     botUsername: r.bot_username || undefined,
+    profileBotUsername: r.profile_bot_username || undefined,
     description: r.description || undefined,
     customer: r.customer || undefined,
     amountCents: r.amount_cents,
@@ -473,9 +490,13 @@ export function listTransactionsInRange(
   if (limit) params.push(limit);
   const rows = getDb()
     .prepare(
-      `SELECT t.*, b.bot_username
+      `SELECT t.*, b.bot_username, bp.bot_username AS profile_bot_username
          FROM transactions t
          LEFT JOIN telegram_bots b ON b.id = t.bot_id
+         -- O bot da MODELO, para a venda que não tem bot próprio (LTV). Um bot
+         -- por modelo (telegram_bots.profile_id e UNIQUE), entao o JOIN nunca
+         -- multiplica linha.
+         LEFT JOIN telegram_bots bp ON bp.profile_id = t.profile_id
          ${where}
         ORDER BY t.created_at DESC
         ${limit ? "LIMIT ?" : ""}`,

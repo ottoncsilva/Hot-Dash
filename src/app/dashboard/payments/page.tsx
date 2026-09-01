@@ -11,6 +11,7 @@ import type { Transaction, PeriodStats } from "@/lib/transactions";
 import type { RelatorioDaTransacao } from "@/lib/externalSaleReport";
 import type { Profile } from "@/lib/types";
 import { maiorSaldoStripe, moedaCents } from "@/lib/stripeSaldo";
+import { origemDaVenda, type OrigemVenda, type SplitRules } from "@/lib/origemVenda";
 import { DEFAULT_TIME_ZONE } from "@/lib/timezone";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import PageHeader from "@/components/PageHeader";
@@ -97,28 +98,12 @@ function rotuloDoBot(b: BotOpcao): string {
 type PaidFilter = "all" | "paid" | "unpaid";
 /** De onde a venda veio. Já foi a lista de opções de um seletor de Origem —
  *  hoje é só a classificação, lida pelos dois interruptores da lista. */
-type OrigemVenda = "bot" | "ltv" | "painel";
-
 const ORIGIN_LABEL: Record<OrigemVenda, string> = {
   bot: "Funil (bot)",
   ltv: "LTV",
   painel: "Lançada à mão",
 };
 
-/**
- * De qual parte do painel a venda veio.
- *
- * A coluna `origin` só existe a partir de certo ponto, então cobrança antiga
- * vem NULL. Nesses casos o BOT decide: toda venda com bot amarrado passou por
- * um bot de vendas — é isso que `origin = 'bot'` significa. O que sobra
- * (NULL e sem bot) fica `undefined` de propósito, e não "painel": chutar
- * "lançada à mão" numa venda de origem desconhecida seria inventar um dado
- * que ninguém conferiu. Sem interruptor próprio, essas linhas aparecem sempre.
- */
-function origemDaVenda(t: Transaction): OrigemVenda | undefined {
-  if (t.origin) return t.origin;
-  return t.botId ? "bot" : undefined;
-}
 type SortKey = "created_desc" | "created_asc" | "paid_desc" | "paid_asc" | "amount_desc" | "amount_asc";
 
 const SORT_LABEL: Record<SortKey, string> = {
@@ -144,10 +129,27 @@ type Data = {
     pendingCents?: number;
     outras?: { currency: string; availableCents: number; pendingCents?: number }[];
   } | null;
+  /** A tabela de repasse do parceiro que opera bots por fora (Configurações →
+   *  Pagamentos). É ela que separa funil de LTV nas vendas que não passaram
+   *  pelo checkout do Hot-Dash — ver `origemDaVenda`. */
+  splitRules: SplitRules;
 };
 
 export default function PaymentsPage() {
   const [data, setData] = useState<Data | null>(null);
+  /**
+   * `origemDaVenda` com a tabela de repasse do parceiro já aplicada — é o que
+   * faz uma venda de LTV feita num bot operado por fora aparecer como LTV, e
+   * não como funil (ver `lib/origemVenda.ts`).
+   *
+   * Sem a tabela carregada ainda, classifica só pelo `origin` gravado: a tela
+   * pinta o que já sabe em vez de esperar, e o primeiro render com dados já
+   * chega com a tabela junto.
+   */
+  const origemDe = useCallback(
+    (t: Transaction) => origemDaVenda(t, data?.splitRules),
+    [data?.splitRules],
+  );
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [charging, setCharging] = useState(false);
@@ -281,7 +283,7 @@ export default function PaymentsPage() {
     const zero = () => ({ pagoCents: 0, liquidoCents: 0, vendas: 0, gerados: 0 });
     const acc = { funil: zero(), ltv: zero() };
     for (const t of data?.transactions || []) {
-      const origem = origemDaVenda(t);
+      const origem = origemDe(t);
       const alvo = origem === "bot" ? acc.funil : origem === "ltv" ? acc.ltv : null;
       if (!alvo) continue;
       alvo.gerados++;
@@ -340,8 +342,8 @@ export default function PaymentsPage() {
     }
     // Desmarcar ESCONDE aquela fonte; o resto (à mão, desconhecida) não é
     // afetado por nenhum dos dois.
-    if (!verFunil) list = list.filter((t) => origemDaVenda(t) !== "bot");
-    if (!verLtv) list = list.filter((t) => origemDaVenda(t) !== "ltv");
+    if (!verFunil) list = list.filter((t) => origemDe(t) !== "bot");
+    if (!verLtv) list = list.filter((t) => origemDe(t) !== "ltv");
 
     const termo = busca.trim().toLowerCase();
     if (termo) {
@@ -779,14 +781,14 @@ export default function PaymentsPage() {
                     <td className="p-3 font-mono text-[11px] text-zinc-400">
                       {t.botUsername ? (
                         `@${t.botUsername}`
-                      ) : origemDaVenda(t) === "ltv" && t.profileBotUsername ? (
+                      ) : origemDe(t) === "ltv" && t.profileBotUsername ? (
                         // "Bot do LTV" não existe: a venda de LTV é de uma
                         // MODELO, e é o bot dela que responde "de quem foi essa
                         // venda". O que a distingue de uma venda do funil é o
                         // prefixo "LTV -" no produto, ao lado.
                         `@${t.profileBotUsername}`
-                      ) : origemDaVenda(t) && origemDaVenda(t) !== "bot" ? (
-                        <span className="text-zinc-500">{ORIGIN_LABEL[origemDaVenda(t)!]}</span>
+                      ) : origemDe(t) && origemDe(t) !== "bot" ? (
+                        <span className="text-zinc-500">{ORIGIN_LABEL[origemDe(t)!]}</span>
                       ) : (
                         <span className="text-zinc-700">—</span>
                       )}
@@ -796,7 +798,7 @@ export default function PaymentsPage() {
                           sozinho nas vendas antigas e não suja o nome do
                           produto que a modelo cadastrou. */}
                       {t.description ? (
-                        origemDaVenda(t) === "ltv" ? (
+                        origemDe(t) === "ltv" ? (
                           <>
                             <span className="text-fuchsia-400">LTV - </span>
                             {t.description}
@@ -804,7 +806,7 @@ export default function PaymentsPage() {
                         ) : (
                           t.description
                         )
-                      ) : origemDaVenda(t) === "ltv" ? (
+                      ) : origemDe(t) === "ltv" ? (
                         <span className="text-fuchsia-400">LTV</span>
                       ) : (
                         <span className="text-zinc-700">—</span>

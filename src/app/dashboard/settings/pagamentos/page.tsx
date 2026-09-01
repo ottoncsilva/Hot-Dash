@@ -13,11 +13,27 @@ function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+/** O split que a tabela produziria numa venda de R$ 100 — a conferência que o
+ *  operador faz contra o extrato do gateway sem sair da tela. */
+function previaSplit(fixoReais: string, percent: string): string {
+  const fixo = Math.round((Number(fixoReais.replace(",", ".")) || 0) * 100);
+  const pct = Number(percent.replace(",", ".")) || 0;
+  return brl(fixo + Math.round((10000 * pct) / 100));
+}
+
 function usd(cents: number) {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
 type LastPaid = { at: number; amountCents: number; customer?: string } | null;
+
+/** O que a rota de vendas externas devolve — interruptor e tabela de repasse. */
+type VendasExternasResp = {
+  vincularPeloGrupo: boolean;
+  splitFixoCents: number;
+  splitFunilPercent: number;
+  splitLtvPercent: number;
+};
 
 export default function PaymentSettingsPage() {
   // Vínculo pelo Canal de Vendas — salva SOZINHO no clique (não espera o
@@ -26,17 +42,63 @@ export default function PaymentSettingsPage() {
   // real, pra não piscar "desligado" e o operador achar que está desligado.
   const [vincularPeloGrupo, setVincularPeloGrupo] = useState<boolean | null>(null);
   const [vinculoSalvando, setVinculoSalvando] = useState(false);
+  // A TABELA DE REPASSE do parceiro. Vem do mesmo lugar que o interruptor
+  // (é o mesmo assunto: venda que veio de fora), mas salva no botão e não no
+  // clique: são três campos que só fazem sentido juntos, e salvar a cada
+  // tecla gravaria estados pela metade.
+  const [splitFixoReais, setSplitFixoReais] = useState("");
+  const [splitFunilPct, setSplitFunilPct] = useState("");
+  const [splitLtvPct, setSplitLtvPct] = useState("");
+  const [splitSalvando, setSplitSalvando] = useState(false);
 
   useEffect(() => {
-    apiGet<{ vendasExternas: { vincularPeloGrupo: boolean } }>("/api/payments/vendas-externas")
-      .then((r) => setVincularPeloGrupo(r.vendasExternas.vincularPeloGrupo))
+    apiGet<{ vendasExternas: VendasExternasResp }>("/api/payments/vendas-externas")
+      .then((r) => {
+        setVincularPeloGrupo(r.vendasExternas.vincularPeloGrupo);
+        setSplitFixoReais((r.vendasExternas.splitFixoCents / 100).toFixed(2));
+        setSplitFunilPct(String(r.vendasExternas.splitFunilPercent));
+        setSplitLtvPct(String(r.vendasExternas.splitLtvPercent));
+      })
       .catch(() => setVincularPeloGrupo(true));
   }, []);
+
+  async function salvarSplit() {
+    const pct = (v: string) => Number(v.replace(",", "."));
+    const funil = pct(splitFunilPct);
+    const ltv = pct(splitLtvPct);
+    const fixoCents = Math.round((Number(splitFixoReais.replace(",", ".")) || 0) * 100);
+    if (!Number.isFinite(funil) || !Number.isFinite(ltv) || funil < 0 || ltv < 0) {
+      showToast("Percentual inválido.", "error");
+      return;
+    }
+    // Dois percentuais iguais não separam nada, e o classificador ignoraria a
+    // tabela inteira em silêncio. Melhor recusar aqui, onde dá pra explicar.
+    if (funil === ltv) {
+      showToast("Os dois percentuais são iguais — assim não dá pra separar funil de LTV.", "error");
+      return;
+    }
+    setSplitSalvando(true);
+    try {
+      const r = await apiSend<{ vendasExternas: VendasExternasResp }>(
+        "/api/payments/vendas-externas",
+        "PATCH",
+        { splitFixoCents: fixoCents, splitFunilPercent: funil, splitLtvPercent: ltv },
+      );
+      setSplitFixoReais((r.vendasExternas.splitFixoCents / 100).toFixed(2));
+      setSplitFunilPct(String(r.vendasExternas.splitFunilPercent));
+      setSplitLtvPct(String(r.vendasExternas.splitLtvPercent));
+      showToast("Tabela de repasse salva.", "success");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha ao salvar.", "error");
+    } finally {
+      setSplitSalvando(false);
+    }
+  }
 
   async function alternarVinculo(valor: boolean) {
     setVinculoSalvando(true);
     try {
-      const r = await apiSend<{ vendasExternas: { vincularPeloGrupo: boolean } }>(
+      const r = await apiSend<{ vendasExternas: VendasExternasResp }>(
         "/api/payments/vendas-externas",
         "PATCH",
         { vincularPeloGrupo: valor },
@@ -351,6 +413,88 @@ export default function PaymentSettingsPage() {
             />
           </div>
         </div>
+      </div>
+
+      {/* TABELA DE REPASSE do parceiro. Mora colada no interruptor acima porque
+          é o mesmo assunto — a venda que veio de fora — e é o que permite ao
+          Financeiro separar funil de LTV nessas cobranças. Fica em
+          configuração, e não no código, porque renegociar comissão é conversa
+          comercial: mudou aqui, o histórico inteiro se reclassifica sozinho na
+          próxima abertura da tela. */}
+      <div className="mt-4 card p-4">
+        <p className="eyebrow">tabela de repasse do parceiro</p>
+        <p className="mt-1.5 text-sm font-semibold text-white">Como separar funil de LTV</p>
+        <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+          Numa venda de bot operado por fora, o gateway não diz o que foi vendido — mas o parceiro cobra
+          comissões diferentes por tipo de venda, e o quanto ele reteve fica gravado em cada transação
+          (coluna <b className="text-zinc-400">Split</b>). Dado o valor da venda, só uma das duas tabelas
+          produz aquele split: é assim que o Financeiro sabe qual venda é LTV.
+        </p>
+        <p className="mt-2 text-xs leading-relaxed text-zinc-600">
+          Vale só onde existe split. Venda de bot que o próprio Hot-Dash opera não passa pelo parceiro,
+          vem com split zero, e continua valendo a origem que já foi gravada na hora do checkout. Split que
+          não bate com nenhuma das duas tabelas fica sem classificação, em vez de entrar no balde errado.
+        </p>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+              fixo por transação
+            </span>
+            <MoneyInput
+              className="w-28 py-1.5 text-sm"
+              placeholder="0,75"
+              value={splitFixoReais}
+              onChange={setSplitFixoReais}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+              % no funil
+            </span>
+            <div className="relative">
+              <input
+                inputMode="decimal"
+                className="input w-24 py-1.5 pr-7 text-sm"
+                placeholder="5"
+                value={splitFunilPct}
+                onChange={(e) => setSplitFunilPct(e.target.value)}
+              />
+              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-600">%</span>
+            </div>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+              % no ltv
+            </span>
+            <div className="relative">
+              <input
+                inputMode="decimal"
+                className="input w-24 py-1.5 pr-7 text-sm"
+                placeholder="20"
+                value={splitLtvPct}
+                onChange={(e) => setSplitLtvPct(e.target.value)}
+              />
+              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-600">%</span>
+            </div>
+          </label>
+          <button
+            type="button"
+            onClick={salvarSplit}
+            disabled={splitSalvando}
+            className="btn-ghost py-2 text-xs disabled:opacity-40"
+          >
+            {splitSalvando ? "Salvando..." : "Salvar tabela"}
+          </button>
+        </div>
+        {/* A conferência. O operador cadastra os números e vê na hora o que
+            eles produzem numa venda de R$ 100 — que é como ele confere contra
+            o extrato do gateway, sem precisar abrir o Financeiro. */}
+        <p className="mt-3 text-[11px] text-zinc-600">
+          Numa venda de <span className="font-mono text-zinc-500">R$ 100,00</span>, isto dá split de{" "}
+          <span className="font-mono text-emerald-400/80">{previaSplit(splitFixoReais, splitFunilPct)}</span>{" "}
+          no funil e <span className="font-mono text-fuchsia-400/80">{previaSplit(splitFixoReais, splitLtvPct)}</span>{" "}
+          no LTV.
+        </p>
       </div>
 
       <ImportarHistoricoCard />

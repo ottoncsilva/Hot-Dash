@@ -5,7 +5,7 @@ import { getDb } from "./db";
 import { deleteFile, fileExists, fileStat, readBuffer, saveFile } from "./storage";
 import { extractVideoThumbnail } from "./metadata";
 import { getTagsForMedia, getTagsByMediaForProfile } from "./tags";
-import { getMediaPostCounts } from "./mediaUsage";
+import { getMediaPostCounts, getMediaScheduledCounts } from "./mediaUsage";
 import type { MediaItem, MediaPostCounts, Tag } from "./types";
 
 type MediaRow = {
@@ -325,8 +325,17 @@ export function listMedia(profileId: string): MediaItem[] {
   // Contagem de publicações E etiquetas do perfil inteiro em UMA consulta cada
   // (não uma por item): é o JSON desta rota que a galeria espera para renderizar.
   const counts = getMediaPostCounts(profileId);
+  const agendadas = getMediaScheduledCounts(profileId);
   const tags = getTagsByMediaForProfile(profileId);
-  return rows.map((r) => toClient(r, tags.get(r.id) || [], counts.get(r.id)));
+  return rows.map((r) => {
+    const c = counts.get(r.id);
+    const naFila = agendadas.get(r.id);
+    // Sem publicação nem agendamento, `postCounts` continua `undefined` — é o
+    // que a galeria já usa para não desenhar selo nenhum.
+    const postCounts =
+      c || naFila ? { ...(c || { previas: 0, vip: 0 }), agendadas: naFila } : undefined;
+    return toClient(r, tags.get(r.id) || [], postCounts);
+  });
 }
 
 /** Ids de mídia já usados em QUALQUER post (agendado ou postado) deste perfil. */

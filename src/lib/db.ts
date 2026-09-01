@@ -1013,6 +1013,19 @@ function migrate(d: Database.Database) {
   // NÃO repetir. Só faz sentido em item já usado (ver `questionBox.ts`).
   ensureColumn(d, "question_box_items", "viral", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(d, "question_box_items", "viral_at", "INTEGER");
+  // Conta ATIVA no cronograma. Conta velha não se apaga — some do mundo junto
+  // com o histórico e as senhas guardadas —, então ela se desliga: para de ser
+  // oferecida para posts NOVOS e continua no cadastro. O que já estava agendado
+  // para ela fica no calendário, marcado (ver a tela de Cronograma).
+  ensureColumn(d, "accounts", "active", "INTEGER NOT NULL DEFAULT 1");
+  // ESPELHO: conta de Facebook/Threads que só repete o que sai numa conta de
+  // Instagram desta mesma modelo. Aponta para o `accounts.id` do Instagram.
+  //
+  // O vínculo é informativo, de propósito: o post do cronograma continua sendo
+  // um post de INSTAGRAM, e o espelho não vira destino próprio. Quem replica é
+  // o app do Instagram, não este painel — inventar uma linha de destino aqui
+  // faria o calendário afirmar um envio que o sistema nunca fez.
+  ensureColumn(d, "accounts", "linked_account_id", "TEXT");
   ensureColumn(d, "profiles", "status", "TEXT NOT NULL DEFAULT 'configuring'");
   ensureColumn(d, "profiles", "bio_physical", "TEXT");
   ensureColumn(d, "profiles", "bio_unique", "TEXT");

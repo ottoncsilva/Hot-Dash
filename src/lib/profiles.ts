@@ -18,6 +18,8 @@ type AccountRow = {
   notes: string | null;
   created_at: number;
   sort_order: number;
+  active: number;
+  linked_account_id: string | null;
 };
 /**
  * O que a modelo NUNCA faz. Nasce preenchida em toda modelo nova (e no
@@ -82,6 +84,11 @@ function accountToClient(a: AccountRow): SocialAccount {
     login: a.login || undefined,
     hasPassword: Boolean(a.password_enc),
     notes: a.notes || undefined,
+    // `active` é NOT NULL DEFAULT 1 no banco, mas a coluna nasceu numa migração:
+    // um `undefined` aqui viraria conta desligada em base antiga, então só o 0
+    // explícito desliga.
+    active: a.active !== 0,
+    linkedAccountId: a.linked_account_id || undefined,
   };
 }
 
@@ -288,6 +295,36 @@ export async function deleteProfile(id: string): Promise<boolean> {
   return info.changes > 0;
 }
 
+/**
+ * Valida um vínculo de ESPELHO e devolve o id a gravar (ou `null`).
+ *
+ * Só Facebook e Threads espelham, e só um INSTAGRAM DA MESMA MODELO. As três
+ * condições existem por motivos diferentes:
+ *
+ *  - a rede de origem, porque espelhar é o que o app do Instagram faz ao
+ *    publicar; um TikTok apontando para um Instagram não descreve nada real;
+ *  - o alvo ser Instagram, para o vínculo não virar uma corrente (um Threads
+ *    espelhando um Facebook que espelha um Instagram);
+ *  - o alvo ser da MESMA modelo, senão o cadastro de uma diria que publica no
+ *    perfil de outra.
+ *
+ * Uma conta também não espelha a si mesma (`exceto`, no update).
+ */
+function espelhoValido(
+  profileId: string,
+  network: SocialNetwork | undefined,
+  linkedAccountId: string | null | undefined,
+  exceto?: string,
+): string | null {
+  if (!linkedAccountId) return null;
+  if (network !== "facebook" && network !== "threads") return null;
+  if (exceto && linkedAccountId === exceto) return null;
+  const alvo = getDb()
+    .prepare("SELECT network FROM accounts WHERE id = ? AND profile_id = ?")
+    .get(linkedAccountId, profileId) as { network: string } | undefined;
+  return alvo?.network === "instagram" ? linkedAccountId : null;
+}
+
 export async function addAccount(
   profileId: string,
   input: {
@@ -297,6 +334,7 @@ export async function addAccount(
     login?: string;
     password?: string;
     notes?: string;
+    linkedAccountId?: string | null;
   },
 ): Promise<Profile | null> {
   const exists = getDb()
@@ -308,8 +346,9 @@ export async function addAccount(
   getDb()
     .prepare(
       `INSERT INTO accounts
-        (id, profile_id, network, username, url, login, password_enc, notes, created_at, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, profile_id, network, username, url, login, password_enc, notes, created_at, sort_order,
+         active, linked_account_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
     )
     .run(
       randomUUID(),
@@ -322,6 +361,9 @@ export async function addAccount(
       input.notes?.trim() || null,
       now,
       now,
+      // O vínculo só faz sentido em Facebook/Threads apontando para um
+      // Instagram DA MESMA MODELO — ver `espelhoValido`.
+      espelhoValido(profileId, input.network, input.linkedAccountId),
     );
   getDb()
     .prepare("UPDATE profiles SET updated_at = ? WHERE id = ?")
@@ -337,6 +379,9 @@ export async function updateAccount(
     username?: string;
     url?: string;
     login?: string;
+    active?: boolean;
+    /** "" ou null remove o vínculo; um id o define. Ver `espelhoValido`. */
+    linkedAccountId?: string | null;
     /** undefined = mantém; "" = remove a senha; string = nova senha. */
     password?: string;
     notes?: string;
@@ -373,6 +418,23 @@ export async function updateAccount(
     sets.push("password_enc = ?");
     vals.push(input.password ? encryptSecret(input.password) : null);
   }
+  if (input.active !== undefined) {
+    sets.push("active = ?");
+    vals.push(input.active ? 1 : 0);
+  }
+  if (input.linkedAccountId !== undefined) {
+    // A rede da conta pode estar mudando NESTA mesma chamada: valida contra a
+    // rede nova quando ela veio, senão contra a que está gravada. Sem isso,
+    // trocar Instagram → Facebook e escolher o espelho no mesmo salvamento
+    // seria recusado por causa da rede antiga.
+    const redeAtual =
+      input.network ??
+      ((getDb().prepare("SELECT network FROM accounts WHERE id = ?").get(accountId) as
+        | { network: string }
+        | undefined)?.network as SocialNetwork | undefined);
+    sets.push("linked_account_id = ?");
+    vals.push(espelhoValido(profileId, redeAtual, input.linkedAccountId, accountId));
+  }
   if (sets.length > 0) {
     vals.push(accountId);
     getDb()
@@ -392,6 +454,11 @@ export async function deleteAccount(
   getDb()
     .prepare("DELETE FROM accounts WHERE id = ? AND profile_id = ?")
     .run(accountId, profileId);
+  // Apagar um Instagram deixa os espelhos apontando para o nada, e a tela leria
+  // isso como "espelha uma conta que não existe". Solta os filhos.
+  getDb()
+    .prepare("UPDATE accounts SET linked_account_id = NULL WHERE linked_account_id = ?")
+    .run(accountId);
   getDb()
     .prepare("UPDATE profiles SET updated_at = ? WHERE id = ?")
     .run(Date.now(), profileId);

@@ -43,6 +43,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       login: body.login,
       password: body.password,
       notes: body.notes,
+      // `active` e `linkedAccountId` só entram quando vieram no corpo: o PATCH
+      // é usado tanto pelo formulário inteiro quanto pelo botão de ligar e
+      // desligar, que manda só o campo dele.
+      active: typeof body.active === "boolean" ? body.active : undefined,
+      linkedAccountId: body.linkedAccountId,
     });
     if (!profile) {
       return NextResponse.json(

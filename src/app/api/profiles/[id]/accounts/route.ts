@@ -36,6 +36,7 @@ export async function POST(
       login: body.login,
       password: body.password,
       notes: body.notes,
+      linkedAccountId: body.linkedAccountId,
     });
     if (!profile) {
       return NextResponse.json(

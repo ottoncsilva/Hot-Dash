@@ -24,6 +24,12 @@ export type SocialAccount = {
   /** true se há uma senha guardada (a senha em si nunca é enviada ao cliente). */
   hasPassword: boolean;
   notes?: string;
+  /** Entra no Cronograma? Conta desligada continua cadastrada (com senha e
+   *  histórico) e some só da escolha de destino dos posts NOVOS. */
+  active: boolean;
+  /** Só em conta de Facebook/Threads: o `id` da conta de INSTAGRAM desta mesma
+   *  modelo que ela espelha. Informativo — ver o comentário da coluna em db.ts. */
+  linkedAccountId?: string;
 };
 
 /** Item do catálogo editável de status de modelo (Configurações > Status de modelos). */

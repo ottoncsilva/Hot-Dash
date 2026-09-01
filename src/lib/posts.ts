@@ -35,7 +35,8 @@ function parsePoll(json: string | null): PostPoll | undefined {
 function loadNetworks(postId: string): PostNetwork[] {
   const rows = getDb()
     .prepare(
-      `SELECT pn.network, pn.post_type, pn.account_id, a.username AS account_username
+      `SELECT pn.network, pn.post_type, pn.account_id, a.username AS account_username,
+              a.active AS account_active
        FROM post_networks pn LEFT JOIN accounts a ON a.id = pn.account_id
        WHERE pn.post_id = ? ORDER BY pn.network`,
     )
@@ -44,12 +45,17 @@ function loadNetworks(postId: string): PostNetwork[] {
     post_type: string;
     account_id: string | null;
     account_username: string | null;
+    account_active: number | null;
   }[];
   return rows.map((r) => ({
     network: r.network as SocialNetwork,
     postType: r.post_type,
     accountId: r.account_id || undefined,
     accountUsername: r.account_username || undefined,
+    // Vem do JOIN e não do post: é o estado ATUAL da conta. Post agendado para
+    // uma conta que foi desligada depois continua no calendário — só passa a
+    // aparecer marcado. `null` é post antigo sem conta amarrada, não inativo.
+    accountActive: r.account_active === null ? undefined : r.account_active !== 0,
   }));
 }
 

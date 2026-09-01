@@ -15,11 +15,13 @@ import { partsInTimeZone, zonedWallTimeToUtcMs } from "./timezone";
  * - Mix medido em 2.000 dias simulados: ~39% humanização / ~19% engajamento /
  *   ~42% conversão, com a venda ESPALHADA (nunca em bloco) — ver planDay.
  * - Só os tipos de CONVERSÃO levam o botão VIP (cta=true).
- * - COTA DE VÍDEO: 4 a 6 por dia (o método sorteava ~1,3) e com PAPEL definido —
- *   o vídeo CENSURADO vende, nas janelas de venda e com botão do VIP; os outros
- *   vídeos (reels/lifestyle) engajam, no pico de audiência e sem venda. Nunca
- *   dois vídeos colados. Ver `balanceVideos`. O teto é o acervo: um canal com
- *   dois vídeos etiquetados recebe dois, não cinco repetidos.
+ * - COTA DE VÍDEO: 5 a 7 CENSURADOS por dia (o método sorteava ~1,3 vídeo de
+ *   qualquer tipo), concentrados no PICO DE VENDA — 22–00, 07–08 e 17–19 são
+ *   preenchidas até encher antes de qualquer outra janela ser considerada — e
+ *   com o botão do VIP. Por cima deles, 1 a 2 reels/lifestyle para engajar, no
+ *   pico de audiência e sem venda. Nunca dois vídeos colados. Ver
+ *   `balanceVideos`. O teto é o acervo: um canal com dois vídeos etiquetados
+ *   recebe dois, não sete repetidos.
  * - PICÂNCIA ESCALONADA pela hora (ver `heatForHour`), e os posts de conversão
  *   nunca ficam abaixo do nível 3 — INCLUSIVE de manhã, de propósito: as 07h
  *   são a melhor hora de conversão do dia (43%), e prévia morna não vende.
@@ -167,12 +169,12 @@ const WINDOWS: Window[] = [
  * contra ~12,7 fotos, e um em cada cinco dias não tinha vídeo nenhum — com a
  * galeria cheia de etiqueta de vídeo sem uso.
  *
- * Agora o dia leva de 4 a 6 vídeos (sorteado, para nenhum dia sair igual), e
- * eles NÃO são todos a mesma coisa:
+ * Agora o dia leva de 6 a 9 vídeos no alvo (medido: 6,9 em média — o reels nem
+ * sempre acha lugar), e eles NÃO são todos a mesma coisa:
  *
  *   CENSORED_VIDEO — a prévia CORTADA, com as partes cobertas. É o vídeo que
- *     converte: a curiosidade de ver sem a tarja é o que faz clicar. Vai nas
- *     janelas que vendem (`VIDEO_PRIORITY`) e leva o botão do VIP. É a maioria.
+ *     converte: a curiosidade de ver sem a tarja é o que faz clicar. São 5 a 7
+ *     por dia, concentrados no PICO DE VENDA (`VIDEO_PICO`), com o botão do VIP.
  *
  *   VIDEO_REELS — todo o resto do acervo de vídeo (reels, lifestyle, duplo
  *     sentido). É o vídeo que engaja: vai no pico de AUDIÊNCIA, sem venda e sem
@@ -182,25 +184,50 @@ const WINDOWS: Window[] = [
  * ao borrar/cobrir alguma coisa (ver TAG_VIDEO_CENSURADO em mediaUsage): o
  * método só lê o resultado do fluxo de censura que o operador já usa.
  */
-const VIDEO_MIN = 4;
-const VIDEO_MAX = 6;
-/** Quantos dos vídeos do dia são de ENGAJAMENTO. O resto é censurado. */
+/** Vídeos de VENDA por dia. É o número que manda no plano: o censurado é o
+ *  produto que converte, então ele é o alvo, e os reels entram por cima. */
+const CENSORED_MIN = 5;
+const CENSORED_MAX = 7;
+/** Vídeos de ENGAJAMENTO por dia, POR CIMA dos de venda. Continuam sendo o
+ *  tempero, não o prato: o dia é de venda. */
 const REELS_MIN = 1;
 const REELS_MAX = 2;
-/** Piso de vídeo de VENDA: os reels nunca comem a cota abaixo disto. Com 4 no
- *  dia sai 1 reels; com 6, dois — o vídeo de conversão fica sempre em maioria. */
-const CENSORED_MIN = 3;
 
 /**
- * Em que janelas vale GASTAR vídeo de VENDA, da melhor conversão para a pior. É
- * a mesma ordem de `windowConvTarget`, que veio de vendas por 1.000
- * visualizações: 22–00 (48,5), 07–08 (43,3% de conversão), 17–19 (35,1), 11–14
- * (13h compensa o buraco das 12h), 08–11 (9h, 39,3) e 14–17 (23–25).
+ * PICO DE VENDA — onde o vídeo censurado deve cair, e onde ele é colocado ANTES
+ * de qualquer outra janela ser considerada. As três janelas em que as duas
+ * fontes medidas concordam:
  *
- * O acervo de vídeo é finito e mais caro de produzir que foto: queimá-lo às 4h
- * da manhã, onde não houve UM pagamento em todo o período medido, é desperdício.
+ *     22–00  48,5 vendas/1k às 23h e 25,0 às 22h — a melhor do dia
+ *     07–08  43,3% de conversão, a maior medida, com audiência alta
+ *     17–19  35,1 vendas/1k às 17h, fim de expediente
+ *
+ * Estas três são preenchidas até encher; só o que não couber transborda para as
+ * de apoio. Antes o plantio era um rodízio parelho pelas SEIS janelas, o que
+ * espalhava o vídeo pelo dia inteiro em vez de concentrá-lo onde se vende.
  */
-const VIDEO_PRIORITY: number[] = [22, 7, 17, 11, 8, 14];
+const VIDEO_PICO: number[] = [22, 7, 17];
+
+/**
+ * Janelas de APOIO: boas, mas não pico. Recebem o vídeo de venda que não coube
+ * no pico, e isso acontece todo dia: medidas em 6.000 dias, as três janelas do
+ * pico somam ~4,3 posts de venda COM MÍDIA por dia, contra uma cota de 5 a 7.
+ * Não é folga que falta — é que a cota é maior que o pico inteiro. Na prática 3
+ * a 4 vídeos caem no pico e o resto desce para estas.
+ *
+ *     11–14  13h compensa o buraco das 12h
+ *     08–11  9h é o 2º melhor horário do dia (39,3 vendas/1k)
+ *     14–17  23–25 vendas/1k, consistente
+ *
+ * Fora destas seis o vídeo de venda não é plantado: o acervo é finito e mais
+ * caro de produzir que foto, e queimá-lo às 4h da manhã — onde não houve UM
+ * pagamento em todo o período medido — é desperdício.
+ */
+const VIDEO_APOIO: number[] = [11, 8, 14];
+
+/** As duas listas em ordem, da melhor hora para a pior. Serve para RANQUEAR
+ *  (qual vídeo cortar quando sobra), não para plantar. */
+const VIDEO_PRIORITY: number[] = [...VIDEO_PICO, ...VIDEO_APOIO];
 
 /**
  * Onde cai o vídeo de ENGAJAMENTO — quase o inverso da lista acima, de propósito.
@@ -222,28 +249,34 @@ const REELS_PRIORITY: number[] = [19, 8, 14, 11, 0];
 export type MkAcervo = { videosCensurados: number; videosOutros: number };
 
 /**
- * Divide a cota do dia entre vídeo de venda e vídeo de engajamento, respeitando
- * o que existe na galeria.
+ * Quanto de cada papel o dia leva, respeitando o que existe na galeria.
+ *
+ * O VÍDEO DE VENDA VEM PRIMEIRO e é o alvo: 5 a 7 por dia. Os reels entram por
+ * cima, com o que sobrar de acervo — não descontam da venda. Isso é o inverso
+ * da versão anterior, em que os dois dividiam um total de 4 a 6 e o reels comia
+ * a cota do censurado.
  *
  * O teto do acervo não é detalhe: a fila de mídia RECICLA quando acaba (ver
- * createMediaQueue), então pedir cinco vídeos de quem tem dois não cria vídeo —
- * faz o mesmo clipe sair duas vezes no mesmo dia. E o saldo de um lado escorre
- * para o outro: canal sem nenhum reels leva o dia inteiro de censurado, canal
- * sem nenhum censurado não fica sem vídeo, leva reels.
+ * createMediaQueue), então pedir sete vídeos de quem tem dois não cria vídeo —
+ * faz o mesmo clipe sair duas vezes no mesmo dia. Por isso o desconto é sobre o
+ * acervo INTEIRO de vídeo, não sobre cada pool isolado: se os dois pedissem
+ * contra o mesmo material, um canal com três vídeos receberia um plano pedindo
+ * quatro e repetiria um deles.
  */
 function videoQuota(acervo?: MkAcervo): { censurado: number; reels: number } {
   const temCensurado = acervo ? acervo.videosCensurados : Number.POSITIVE_INFINITY;
   const temOutros = acervo ? acervo.videosOutros : Number.POSITIVE_INFINITY;
+  const temTudo = temCensurado + temOutros;
 
-  const total = Math.max(0, Math.min(randInt(VIDEO_MIN, VIDEO_MAX), temCensurado + temOutros));
-  // Reels só até onde não morder o piso de vídeo de venda.
-  const reels = Math.min(randInt(REELS_MIN, REELS_MAX), temOutros, Math.max(0, total - CENSORED_MIN));
-  // O resto é vídeo de VENDA — e não é limitado pelo acervo censurado de
-  // propósito. Se o canal tem menos vídeo censurado que isso, o slot continua
-  // sendo de venda: a fila devolve um vídeo comum e o gerador rebaixa a legenda
-  // para o convite genérico (VIDEO_PREMIUM). Cortar aqui faria o dia perder
-  // vídeo de venda tendo acervo de vídeo na mão.
-  return { censurado: total - reels, reels };
+  // A venda não é limitada pelo acervo CENSURADO de propósito, só pelo total de
+  // vídeo. Se o canal tem menos censurado que isso, o slot continua sendo de
+  // venda: a fila devolve um vídeo comum e o gerador rebaixa a legenda para o
+  // convite genérico (VIDEO_PREMIUM). Cortar aqui faria o dia perder vídeo de
+  // venda tendo acervo de vídeo na mão.
+  const censurado = Math.max(0, Math.min(randInt(CENSORED_MIN, CENSORED_MAX), temTudo));
+  // Reels só do que sobrou — e só existe se houver vídeo NÃO censurado.
+  const reels = Math.min(randInt(REELS_MIN, REELS_MAX), temOutros, Math.max(0, temTudo - censurado));
+  return { censurado, reels };
 }
 
 export type PreviaPost = {
@@ -351,8 +384,8 @@ export function planDay(acervo?: MkAcervo): Omit<PreviaPost, "text" | "poll">[] 
   // 4) Equilibra o ENGAJAMENTO em 50/50 entre enquete e o resto (reação,
   //    pergunta, curiosidade) — ver balancePolls.
   balancePolls(planned);
-  // 5) COTA DE VÍDEO: 4 a 6 por dia, o censurado vendendo e o reels engajando —
-  //    ver balanceVideos.
+  // 5) COTA DE VÍDEO: 5 a 7 censurados no pico de venda, mais 1 a 2 reels no
+  //    pico de audiência — ver balanceVideos.
   balanceVideos(planned, videoQuota(acervo));
   return planned;
 }
@@ -618,7 +651,18 @@ function ajustarCensurados(planned: Omit<PreviaPost, "text" | "poll">[], alvo: n
     lista.sort((a, b) => custo(a) - custo(b)); // estável: mantém o sorteio no empate
   }
 
-  atual += plantar(planned, porJanela, VIDEO_PRIORITY, alvo - atual, "CENSORED_VIDEO");
+  // PICO PRIMEIRO, até encher. Só o que não couber nas três melhores janelas
+  // transborda para as de apoio. O rodízio dentro de `plantar` continua valendo,
+  // mas agora ele gira só entre 22–00, 07–08 e 17–19: o dia enche a hora que
+  // vende antes de considerar qualquer outra. Com a lista única de seis, um
+  // alvo de 6 vídeos saía com um em cada janela — espalhado pelo dia em vez de
+  // concentrado onde se compra.
+  atual += plantar(planned, porJanela, VIDEO_PICO, alvo - atual, "CENSORED_VIDEO");
+  if (atual >= alvo) return;
+
+  // Transbordo: as três do pico juntas têm ~6 slots de conversão por dia, e a
+  // adjacência derruba alguns. O que faltar vai para as janelas de apoio.
+  atual += plantar(planned, porJanela, VIDEO_APOIO, alvo - atual, "CENSORED_VIDEO");
   if (atual >= alvo) return;
 
   // Ainda falta: o dia sorteou pouca conversão nas janelas boas. Aceita qualquer

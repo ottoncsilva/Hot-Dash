@@ -90,6 +90,7 @@ type Bot = {
   pixDownsellFunnel?: string;
   downsellEnabled?: boolean;
   pixDownsellEnabled?: boolean;
+  pixDownsellPlanMode?: "selected" | "all";
   upsellEnabled?: boolean;
   renewalFunnel?: string;
   renewalEnabled?: boolean;
@@ -230,8 +231,14 @@ type FunnelStep = {
   delayMinutes: number;
   text: string;
   discountPercent?: number;
-  /** Quais planos entram no teclado. */
-  planMode?: "all" | "subs" | "packages" | "none";
+  /**
+   * Quais planos entram no teclado.
+   *
+   * `"selected"` é exclusivo do Downsell de PIX: manda só o item que o lead já
+   * escolheu ao gerar a cobrança. E ali o VAZIO não quer dizer "todos" — quer
+   * dizer "segue o padrão do bot" (`pixDownsellPlanMode`).
+   */
+  planMode?: "all" | "subs" | "packages" | "none" | "selected";
   /** Para quem, dentro do público do funil. */
   audience?: "leads" | "expirados" | "todos";
   /** Mídias escolhidas a dedo, na ordem de envio. */
@@ -2861,6 +2868,11 @@ function FunnelCard({
   const [upsell, setUpsell] = useState<FunnelStep[]>(parseFunnel(bot.upsellFunnel));
   const [onDownsell, setOnDownsell] = useState(bot.downsellEnabled !== false);
   const [onPix, setOnPix] = useState(bot.pixDownsellEnabled !== false);
+  // Padrão do botão do Downsell de PIX. É só o padrão: cada mensagem pode
+  // dizer outra coisa, e é ele que as novas herdam.
+  const [pixPlanMode, setPixPlanMode] = useState<"selected" | "all">(
+    bot.pixDownsellPlanMode === "all" ? "all" : "selected",
+  );
   const [onUpsell, setOnUpsell] = useState(bot.upsellEnabled !== false);
   const [busy, setBusy] = useState(false);
   // Sub-aba: em vez dos três gatilhos empilhados em cartões retráteis, uma
@@ -2886,6 +2898,7 @@ function FunnelCard({
         upsellFunnel: JSON.stringify(upsell),
         downsellEnabled: onDownsell,
         pixDownsellEnabled: onPix,
+        pixDownsellPlanMode: pixPlanMode,
         upsellEnabled: onUpsell,
       });
       showToast("Funis salvos.", "success");
@@ -3001,7 +3014,26 @@ function FunnelCard({
               {atual.resumo} · {atual.steps.length} mensagem(ns)
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+            {/* PADRÃO do botão, só no Downsell de PIX. Fica aqui em cima, ao
+                lado de "Puxar padrão", porque é a decisão que vale para a
+                sequência inteira — cada mensagem herda daqui e pode discordar
+                no seletor dela. Alternar NÃO reescreve as mensagens que já têm
+                escolha própria: mexer nelas por tabela seria desfazer ajuste
+                fino que alguém fez de propósito. */}
+            {atual.key === "pix" && (
+              <button
+                type="button"
+                onClick={() => setPixPlanMode((v) => (v === "all" ? "selected" : "all"))}
+                title="Vale para as mensagens que não escolheram um botão próprio."
+                className="rounded-lg border border-white/15 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-white/30 hover:bg-white/5 [@media(pointer:coarse)]:min-h-[44px]"
+              >
+                Padrão:{" "}
+                <b className="text-white">
+                  {pixPlanMode === "all" ? "envia todos os planos" : "envia só o plano escolhido"}
+                </b>
+              </button>
+            )}
             <button
               type="button"
               disabled={atual.padrao.length === 0}
@@ -3039,6 +3071,7 @@ function FunnelCard({
           planos={planos}
           permiteGerarIA={atual.permiteGerarIA}
           funnelType={atual.key}
+          pixPlanModePadrao={pixPlanMode}
           confirm={confirm}
           versaoPadrao={versaoPadrao}
         />
@@ -3163,8 +3196,11 @@ const DESCONTOS = [0, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70];
  *  num intervalo fixo (ver uso). */
 const PADRAO_RENOVACAO = [720, 360, 60];
 
-/** Quais planos vão no teclado da mensagem. */
-const MODOS_BOTAO: { key: NonNullable<FunnelStep["planMode"]>; label: string }[] = [
+/** Quais planos vão no teclado da mensagem — nos funis que NÃO são o de PIX.
+ *  O de PIX tem o conjunto dele (plano escolhido / todos / nenhum), montado
+ *  direto no seletor: lá "só assinaturas" não quer dizer nada, porque o lead
+ *  já escolheu um item específico. */
+const MODOS_BOTAO: { key: Exclude<NonNullable<FunnelStep["planMode"]>, "selected">; label: string }[] = [
   { key: "all", label: "Todos os planos" },
   { key: "subs", label: "Só assinaturas" },
   { key: "packages", label: "Só pacotes" },
@@ -3430,6 +3466,7 @@ function FunnelEditor({
   modoRenovacao,
   permiteGerarIA,
   funnelType,
+  pixPlanModePadrao = "selected",
   confirm,
   versaoPadrao,
 }: {
@@ -3445,6 +3482,9 @@ function FunnelEditor({
   permiteGerarIA?: boolean;
   /** Qual dos dois downsells é este, para o prompt calibrar o tom certo. */
   funnelType?: "geral" | "pix" | "upsell" | "renewal" | "aprovacao";
+  /** Padrão do botão no Downsell de PIX — o que as mensagens sem escolha
+   *  própria seguem, e o que o seletor de cada uma mostra como "(padrão)". */
+  pixPlanModePadrao?: "selected" | "all";
   /** Confirmação antes de gerar TODAS as mensagens de uma vez — com 50+
    * passos isso sobrescreve muita coisa junta, vale um "tem certeza?". */
   confirm?: ConfirmFn;
@@ -3705,9 +3745,27 @@ function FunnelEditor({
                 {funnelType === "pix" ? (
                   <div>
                     <label className="eyebrow block">Botão</label>
-                    <p className="input mt-1 flex h-9 items-center py-0 text-xs text-zinc-500">
-                      O item que ele já escolheu, com desconto
-                    </p>
+                    {/* No PIX o conjunto de opções é OUTRO: o lead já escolheu
+                        um item, então "só assinaturas"/"só pacotes" não fazem
+                        sentido aqui — a pergunta é entre reoferecer o que ele
+                        escolheu, reabrir a lista inteira ou não mandar botão
+                        nenhum. Vazio segue o padrão lá de cima. */}
+                    <select
+                      className="input mt-1 h-9 py-0 text-xs"
+                      value={s.planMode || ""}
+                      onChange={(e) =>
+                        update(i, {
+                          planMode: (e.target.value || undefined) as FunnelStep["planMode"],
+                        })
+                      }
+                    >
+                      <option value="">
+                        Padrão ({pixPlanModePadrao === "all" ? "todos os planos" : "plano já escolhido"})
+                      </option>
+                      <option value="selected">Plano já escolhido</option>
+                      <option value="all">Todos os planos</option>
+                      <option value="none">Sem botão</option>
+                    </select>
                   </div>
                 ) : (
                   <div>
@@ -3753,7 +3811,11 @@ function FunnelEditor({
                 )}
               </div>
 
-              {funnelType === "pix" ? (
+              {/* O que este passo vai mandar de verdade. No PIX o modo pode
+                  ser o item já escolhido (que não dá para listar aqui — depende
+                  de qual lead), a lista inteira de planos, ou nada; nos outros
+                  funis é sempre a lista. */}
+              {funnelType === "pix" && (s.planMode || pixPlanModePadrao) === "selected" ? (
                 <div className="mt-3 rounded-xl border border-dashed border-white/10 p-2.5">
                   <p className="eyebrow mb-1.5">Botão enviado</p>
                   <p className="text-xs text-zinc-400">
@@ -3764,7 +3826,9 @@ function FunnelEditor({
                 </div>
               ) : (
                 ativos.length > 0 &&
-                s.planMode !== "none" && (
+                (funnelType === "pix"
+                  ? (s.planMode || pixPlanModePadrao) !== "none"
+                  : s.planMode !== "none") && (
                   <div className="mt-3 rounded-xl border border-dashed border-white/10 p-2.5">
                     <p className="eyebrow mb-1.5">Planos enviados</p>
                     <div className="space-y-1">

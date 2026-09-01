@@ -1166,6 +1166,11 @@ function migrate(d: Database.Database) {
   // pagamento, então merece outra conversa (e outro desconto).
   ensureColumn(d, "telegram_bots", "pix_downsell_funnel", "TEXT");
   ensureColumn(d, "telegram_bots", "pix_downsell_enabled", "INTEGER NOT NULL DEFAULT 1");
+  // PADRÃO do botão no Downsell de PIX: 'selected' (só o item que o lead já
+  // escolheu) ou 'all' (a lista inteira de planos). É só o padrão — cada
+  // mensagem pode dizer outra coisa no `planMode` dela. Vazio = 'selected',
+  // que era o comportamento fixo antes desta coluna existir.
+  ensureColumn(d, "telegram_bots", "pix_downsell_plan_mode", "TEXT");
   ensureColumn(d, "telegram_bots", "downsell_enabled", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(d, "telegram_bots", "upsell_enabled", "INTEGER NOT NULL DEFAULT 1");
   // EFEITO DE MENSAGEM (a animação nativa do Telegram) em cada momento do

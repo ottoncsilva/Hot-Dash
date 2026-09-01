@@ -64,6 +64,8 @@ export type TelegramBotConfig = {
   vipWelcomeFunnel?: string;
   /** Recuperação de quem GEROU PIX e não pagou (JSON de passos). */
   pixDownsellFunnel?: string;
+  /** Padrão do botão do Downsell de PIX — ver a coluna em db.ts. */
+  pixDownsellPlanMode?: "selected" | "all";
   /** Liga/desliga de cada uma das três sequências de recuperação. */
   downsellEnabled: boolean;
   pixDownsellEnabled: boolean;
@@ -513,6 +515,7 @@ function toBotConfig(row: any): TelegramBotConfig {
     previasWelcomeFunnel: row.previas_welcome_funnel || undefined,
     vipWelcomeFunnel: row.vip_welcome_funnel || undefined,
     pixDownsellFunnel: row.pix_downsell_funnel || undefined,
+    pixDownsellPlanMode: row.pix_downsell_plan_mode === "all" ? "all" : "selected",
     // Sem valor gravado = LIGADO: é o comportamento de antes destes campos
     // existirem, quando bastava ter passos configurados para o funil rodar.
     downsellEnabled: row.downsell_enabled === undefined || row.downsell_enabled === null ? true : !!row.downsell_enabled,
@@ -633,8 +636,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, success_message_en, success_message_es, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, renewal_funnel, renewal_enabled, intl_enabled, intl_ask_first, origin_gate_message, origin_gate_btn_br, origin_gate_btn_intl, accept_card_br, welcome_message_en, welcome_message_es, success_button_text_en, success_button_text_es, pix_social_proof_text_en, pix_social_proof_text_es, checkout_generating_message, checkout_pay_button_text, checkout_pay_button_text_en, checkout_pay_button_text_es, checkout_check_button_text, checkout_check_button_text_en, checkout_check_button_text_es, checkout_show_check_button, id_vendas, accept_card_recurring, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, success_message_en, success_message_es, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, pix_downsell_plan_mode, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, renewal_funnel, renewal_enabled, intl_enabled, intl_ask_first, origin_gate_message, origin_gate_btn_br, origin_gate_btn_intl, accept_card_br, welcome_message_en, welcome_message_es, success_button_text_en, success_button_text_es, pix_social_proof_text_en, pix_social_proof_text_es, checkout_generating_message, checkout_pay_button_text, checkout_pay_button_text_en, checkout_pay_button_text_es, checkout_check_button_text, checkout_check_button_text_en, checkout_check_button_text_es, checkout_show_check_button, id_vendas, accept_card_recurring, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -668,6 +671,7 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        previas_welcome_funnel = excluded.previas_welcome_funnel,
        vip_welcome_funnel = excluded.vip_welcome_funnel,
        pix_downsell_funnel = excluded.pix_downsell_funnel,
+       pix_downsell_plan_mode = excluded.pix_downsell_plan_mode,
        downsell_enabled = excluded.downsell_enabled,
        pix_downsell_enabled = excluded.pix_downsell_enabled,
        upsell_enabled = excluded.upsell_enabled,
@@ -739,6 +743,9 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.previasWelcomeFunnel?.trim() || null,
     config.vipWelcomeFunnel?.trim() || null,
     config.pixDownsellFunnel?.trim() || null,
+    // Só 'all' é gravado; qualquer outra coisa (inclusive vazio) fica NULL e
+    // é lida como 'selected' — o comportamento que existia antes da coluna.
+    config.pixDownsellPlanMode === "all" ? "all" : null,
     config.downsellEnabled === false ? 0 : 1,
     config.pixDownsellEnabled === false ? 0 : 1,
     config.upsellEnabled === false ? 0 : 1,

@@ -443,7 +443,18 @@ export type FunnelStep = {
    *   packages → só pacotes;
    *   none     → sem botão.
    */
-  planMode?: "all" | "subs" | "packages" | "none";
+  /**
+   * Quais planos vão no teclado da mensagem.
+   *
+   * `"selected"` só existe no Downsell de PIX: manda SÓ o item que o lead já
+   * escolheu na hora que gerou a cobrança. Nos outros funis não haveria o que
+   * resolver — ninguém escolheu nada ainda —, e por isso ele cai em `"all"` se
+   * aparecer lá por engano (ver `buildReplyMarkup`).
+   *
+   * Vazio no Downsell de PIX significa "usa o padrão do bot"
+   * (`pixDownsellPlanMode`), não "todos".
+   */
+  planMode?: "all" | "subs" | "packages" | "none" | "selected";
   /**
    * DESTINATÁRIOS do passo, DENTRO do público do funil. O Downsell geral já
    * fala com quem não tem assinatura ativa; isto refina:
@@ -493,6 +504,9 @@ function buildReplyMarkup(
   moeda: MoedaIntl = "USD",
 ) {
   if (planMode === "none") return undefined;
+  // "selected" é do Downsell de PIX e depende de um item já escolhido, que
+  // aqui não existe: cai na lista inteira em vez de sair sem botão nenhum.
+  if (planMode === "selected") planMode = "all";
   // Só os ATIVOS: um plano desligado some do /start, e some dos funis também.
   const plans = listActivePlans(bot.id).filter((p) =>
     planMode === "subs" ? p.kind !== "package" : planMode === "packages" ? p.kind === "package" : true,
@@ -975,9 +989,25 @@ async function runTelegramFunnelsImpl(): Promise<{
         const idiomaLeadPix = pessoaPix?.language;
         const idiomaPix = idiomaLeadPix === "en" || idiomaLeadPix === "es" ? idiomaLeadPix : undefined;
         const moedaPix = moedaPorIdioma(pessoaPix?.languageCode);
-        const markup = sub
-          ? buildPixDownsellMarkup(bot, sub, step.discountPercent, idiomaPix, moedaPix)
-          : buildReplyMarkup(bot, step.discountPercent, step.planMode, idiomaPix, moedaPix);
+        // QUAL botão este passo manda. A mensagem decide; sem escolha própria,
+        // vale o padrão do bot. `"selected"` reoferece só o item que o lead já
+        // escolheu (com o desconto do passo incidindo só nele); `"all"` reabre
+        // a lista de planos; `"none"` manda o texto sem teclado.
+        //
+        // Vazio cai em `"selected"` por dois motivos: era o comportamento fixo
+        // antes de isto ser configurável, e é o que o padrão do bot já traz
+        // quando ninguém mexeu nele.
+        const modoPix: NonNullable<FunnelStep["planMode"]> =
+          step.planMode || (bot.pixDownsellPlanMode === "all" ? "all" : "selected");
+        const markup =
+          modoPix === "none"
+            ? undefined
+            : modoPix === "selected" && sub
+              ? buildPixDownsellMarkup(bot, sub, step.discountPercent, idiomaPix, moedaPix)
+              : // Sem `sub` resolvível (linha órfã, plano apagado depois) o
+                // "selected" não tem o que reoferecer: a lista inteira é melhor
+                // que nenhum botão.
+                buildReplyMarkup(bot, step.discountPercent, modoPix, idiomaPix, moedaPix);
         // Em USD (checkout internacional traduzido), o valor exibido nas
         // variáveis {plano}/{valor} do texto acompanha o mesmo preço do
         // botão — senão o texto falaria BRL enquanto o botão cobra em USD.

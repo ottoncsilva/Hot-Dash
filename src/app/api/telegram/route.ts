@@ -951,6 +951,15 @@ export async function POST(req: NextRequest) {
           body.pixDownsellEnabled !== undefined
             ? Boolean(body.pixDownsellEnabled)
             : bot.pixDownsellEnabled,
+        // Padrão do botão do Downsell de PIX. Só 'all' é aceito como troca;
+        // qualquer outra coisa volta para 'selected', que é o comportamento
+        // que existia antes de isto ser configurável.
+        pixDownsellPlanMode:
+          body.pixDownsellPlanMode !== undefined
+            ? body.pixDownsellPlanMode === "all"
+              ? "all"
+              : "selected"
+            : bot.pixDownsellPlanMode,
         upsellEnabled:
           body.upsellEnabled !== undefined ? Boolean(body.upsellEnabled) : bot.upsellEnabled,
         renewalFunnel: normFunnel(body.renewalFunnel) ?? bot.renewalFunnel,

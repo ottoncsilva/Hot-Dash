@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
 import Modal from "@/components/Modal";
 import AuthImage from "@/components/AuthImage";
 import ToggleChip from "@/components/ToggleChip";
+import FilterDropdown from "@/components/FilterDropdown";
 import ScheduleTemplateModal from "@/components/schedule/ScheduleTemplateModal";
 import GenerateScheduleModal from "@/components/schedule/GenerateScheduleModal";
 import CalendarGrid from "@/components/schedule/CalendarGrid";
@@ -162,11 +163,12 @@ export default function SchedulePage() {
   const [view, setView] = useState<"calendar" | "list" | "queue">("calendar");
   // Modelo vem do menu (vale para o painel inteiro).
   const { profileId, profiles } = useProfile();
-  const [networkFilter, setNetworkFilter] = useState("");
+  /** Contas (ou redes, em "Todas as modelos") marcadas no filtro. Vazio = tudo. */
+  const [contasNoFiltro, setContasNoFiltro] = useState<Set<string>>(new Set());
   // Trocar de modelo invalida o filtro de rede: as contas são de cada uma.
   // Antes isto morava no onChange do select, que agora vive no menu.
   useEffect(() => {
-    setNetworkFilter("");
+    setContasNoFiltro(new Set());
   }, [profileId]);
   const [statusFilter, setStatusFilter] = useState("");
   const [hidePosted, setHidePosted] = useState(false);
@@ -209,10 +211,15 @@ export default function SchedulePage() {
   // Opções do filtro de rede: quando há uma modelo selecionada, mostra as
   // CONTAS dela (permite escolher um Instagram específico entre vários); com
   // "Todos os modelos", mostra as redes em uso. Telegram fica sempre de fora.
+  //
+  // Só contas ATIVAS e que não sejam ESPELHO: conta desligada não recebe post
+  // novo e espelho nunca é destino próprio, então as duas filtrariam por nada.
   const filterOptions = useMemo(() => {
     if (selectedProfile) {
       return selectedProfile.accounts
-        .filter((a) => ALLOWED_SCHEDULE_NETWORKS.includes(a.network))
+        .filter(
+          (a) => ALLOWED_SCHEDULE_NETWORKS.includes(a.network) && a.active && !a.linkedAccountId,
+        )
         .map((a) => ({ value: a.id, label: `${NETWORK_LABELS[a.network]} · @${a.username}` }));
     }
     const nets = new Set<SocialNetwork>();
@@ -229,13 +236,26 @@ export default function SchedulePage() {
     // Telegram é gerido no menu Telegram — não aparece no Cronograma.
     let list = posts.filter((p) => !isTelegramPost(p));
     if (hidePosted) list = list.filter((p) => p.status !== "posted");
-    if (networkFilter) {
+    if (contasNoFiltro.size > 0) {
       list = profileId
-        ? list.filter((p) => p.networks.some((n) => n.accountId === networkFilter))
-        : list.filter((p) => p.networks.some((n) => n.network === networkFilter));
+        ? list.filter((p) => p.networks.some((n) => n.accountId && contasNoFiltro.has(n.accountId)))
+        : list.filter((p) => p.networks.some((n) => contasNoFiltro.has(n.network)));
     }
     return list;
-  }, [posts, networkFilter, profileId, hidePosted]);
+  }, [posts, contasNoFiltro, profileId, hidePosted]);
+
+  function alternarContaNoFiltro(valor: string) {
+    setContasNoFiltro((prev) => {
+      const proximo = new Set(prev);
+      if (proximo.has(valor)) proximo.delete(valor);
+      else proximo.add(valor);
+      return proximo;
+    });
+  }
+
+  /** Rótulo do gatilho: some o "todas" quando há escolha, que o contador diz. */
+  const rotuloContas =
+    contasNoFiltro.size > 0 ? "contas" : selectedProfile ? "todas as contas" : "todas as redes";
 
   async function togglePosted(post: ScheduledPost) {
     const next = post.status === "posted" ? "scheduled" : "posted";
@@ -291,6 +311,13 @@ export default function SchedulePage() {
   }
 
   function openNew(date?: Date) {
+    // A modelo do post vem do menu do painel — o formulário não escolhe mais.
+    // Em "Todos" não há o que herdar, e antes o formulário caía calado no
+    // PRIMEIRO perfil da lista: dava para agendar na modelo errada sem ver.
+    if (!profileId) {
+      showToast("Escolha uma modelo no menu para criar um post.", "error");
+      return;
+    }
     setEditing(null);
     setPrefillDate(date || null);
     setFormOpen(true);
@@ -322,7 +349,12 @@ export default function SchedulePage() {
             >
               <IconSparkle size={16} /> Gerar com IA
             </button>
-            <button onClick={() => openNew()} className="btn-primary" disabled={profiles.length === 0}>
+            <button
+              onClick={() => openNew()}
+              className="btn-primary"
+              disabled={profiles.length === 0 || !profileId}
+              title={!profileId ? "Escolha uma modelo no menu" : undefined}
+            >
               <IconPlus size={16} /> Novo post
             </button>
           </>
@@ -336,13 +368,12 @@ export default function SchedulePage() {
 
       {/* Filtros + abas */}
       <div className="mt-6 card p-4">
-        {/* No celular esta barra virava uma linha só, e as duas listas
-            suspensas sobravam com 67px — mostravam "To" e pronto, sem dar para
-            saber se aquilo era conta ou status. Agora as abas ficam numa linha
-            inteira e os filtros na de baixo; de `sm` para cima, tudo lado a
-            lado como antes. */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-          <div className="flex w-full gap-1 rounded-lg border border-white/10 p-1 sm:w-auto">
+        {/* UMA LINHA SÓ a partir de `sm`: abas, contas, status e o olho. No
+            celular ainda quebra — sete colunas de filtro em 390px não cabem sem
+            virar sopa de letrinha —, mas no desktop a barra deixou de gastar
+            duas alturas para dizer quatro coisas curtas. */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-nowrap sm:items-center">
+          <div className="flex w-full shrink-0 gap-1 rounded-lg border border-white/10 p-1 sm:w-auto">
             {(
               [
                 ["calendar", "Calendário"],
@@ -361,25 +392,46 @@ export default function SchedulePage() {
               </button>
             ))}
           </div>
-          {/* No celular as duas listas lado a lado ainda cortavam o rótulo em
-              "Todas as c…". Aqui a de contas fica com a linha inteira e a de
-              status divide a de baixo com o olho; de `sm` para cima voltam à
-              grade de duas colunas. */}
-          <div className="grid w-full grid-cols-[1fr_auto] gap-2 sm:flex-1 sm:grid-cols-2 sm:justify-end">
+          <div className="flex w-full min-w-0 items-center gap-2 sm:flex-1 sm:justify-end">
+            {/* Contas do calendário: CHECKBOX dentro de um menu, e não mais uma
+                lista de escolha única. Com três ou quatro Instagram por modelo,
+                "uma conta de cada vez ou todas" não é a pergunta real — quase
+                sempre se quer ver duas delas. Só contas ATIVAS entram: conta
+                desligada não recebe post novo, então filtrar por ela seria
+                filtrar por nada. */}
+            <FilterDropdown label={rotuloContas} count={contasNoFiltro.size}>
+              <div className="flex max-h-64 min-w-[220px] flex-col gap-1 overflow-y-auto">
+                {filterOptions.length === 0 ? (
+                  <p className="px-1 py-2 text-xs text-zinc-500">Nenhuma conta ativa.</p>
+                ) : (
+                  filterOptions.map((o) => (
+                    <label
+                      key={o.value}
+                      className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-zinc-300 hover:bg-white/5 [@media(pointer:coarse)]:min-h-[40px]"
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 accent-emerald-500"
+                        checked={contasNoFiltro.has(o.value)}
+                        onChange={() => alternarContaNoFiltro(o.value)}
+                      />
+                      <span className="truncate">{o.label}</span>
+                    </label>
+                  ))
+                )}
+                {contasNoFiltro.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setContasNoFiltro(new Set())}
+                    className="mt-1 border-t border-white/10 px-2 pt-2 text-left font-mono text-[10px] uppercase tracking-wider text-zinc-500 hover:text-zinc-200"
+                  >
+                    limpar
+                  </button>
+                )}
+              </div>
+            </FilterDropdown>
             <select
-              className="input col-span-2 min-w-0 py-2 text-sm sm:col-span-1"
-              value={networkFilter}
-              onChange={(e) => setNetworkFilter(e.target.value)}
-            >
-              <option value="">{selectedProfile ? "Todas as contas" : "Todas as redes"}</option>
-              {filterOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className="input min-w-0 py-2 text-sm"
+              className="input min-w-0 flex-1 py-2 text-sm sm:max-w-[170px] sm:flex-none"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
             >
@@ -413,6 +465,8 @@ export default function SchedulePage() {
           onPostClick={(p) => setDetailPost(p)}
           onPostMove={movePost}
           defaultView="week"
+          paleta="status"
+          comMiniatura
         />
       ) : view === "list" ? (
         <ListView
@@ -1048,9 +1102,11 @@ function PostForm({
   onSaved: (post: ScheduledPost, isNew: boolean) => void;
 }) {
   const base = prefillDate || (initial ? new Date(initial.scheduledAt) : new Date());
-  const [profileId, setProfileId] = useState(
-    initial?.profileId || defaultProfileId || profiles[0]?.id || "",
-  );
+  // Fixo: a modelo é a do menu (ou a do post em edição). Sem o `profiles[0]`
+  // de reserva que existia aqui — ele era o que fazia o formulário cair no
+  // primeiro perfil da lista quando o menu estava em "Todos", agendando na
+  // modelo errada em silêncio. Agora `openNew` recusa antes de abrir.
+  const profileId = initial?.profileId || defaultProfileId;
   const [date, setDate] = useState(() => {
     const d = base;
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -1071,6 +1127,10 @@ function PostForm({
   const [tags, setTags] = useState<Tag[]>([]);
   const [mediaTagFilter, setMediaTagFilter] = useState<string>("");
   const [mediaSortOrder, setMediaSortOrder] = useState<"desc" | "asc">("desc");
+  /** Só mídia que nunca saiu NAS CONTAS marcadas (ver `postagensNaSelecao`). */
+  const [soNuncaPostada, setSoNuncaPostada] = useState(false);
+  /** Abre o resto das contas — o padrão mostra só os Instagram. */
+  const [verTodasAsContas, setVerTodasAsContas] = useState(false);
   const [usedMedia, setUsedMedia] = useState<Set<string>>(new Set());
   const [reusableBlocks, setReusableBlocks] = useState<{ id: string; name: string; content: string }[]>([]);
 
@@ -1143,18 +1203,67 @@ function PostForm({
     return todasAsContas.filter((a) => a.linkedAccountId === accountId);
   }
 
+  // O Instagram fica na frente e o resto atrás do "mostrar mais". Uma conta de
+  // outra rede JÁ MARCADA neste post abre a lista sozinha — senão o destino
+  // some da vista e o operador acha que perdeu a escolha.
+  const contasSecundarias = accounts.filter((a) => a.network !== "instagram");
+  const temSecundariaMarcada = contasSecundarias.some((a) =>
+    networks.some((n) => n.accountId === a.id),
+  );
+  const contasVisiveis =
+    verTodasAsContas || temSecundariaMarcada
+      ? accounts
+      : accounts.filter((a) => a.network === "instagram");
+
+  /** As redes distintas entre os destinos marcados — uma linha de tipo cada. */
+  const redesEmUso = Array.from(new Set(networks.map((n) => n.network)));
+
+  /** Troca o tipo de TODAS as contas daquela rede de uma vez. */
+  function setTypeDaRede(rede: SocialNetwork, postType: string) {
+    setNetworks((prev) => prev.map((n) => (n.network === rede ? { ...n, postType } : n)));
+  }
+
+  /** As contas marcadas como destino — é sobre elas que o contador da galeria
+   *  e o filtro "nunca postada" respondem. */
+  const contasSelecionadas = useMemo(
+    () => new Set(networks.map((n) => n.accountId).filter(Boolean) as string[]),
+    [networks],
+  );
+
+  /**
+   * Quantas vezes esta mídia já saiu NAS CONTAS marcadas agora.
+   *
+   * Só nelas: o número que interessa ao montar um post do @perfil_um é quantas
+   * vezes aquela foto já saiu no @perfil_um. Somar as outras contas (ou os
+   * grupos do Telegram) responderia outra pergunta.
+   */
+  const postagensNaSelecao = useCallback(
+    (m: MediaItem): number => {
+      if (contasSelecionadas.size === 0) return 0;
+      return (m.postCounts?.contas || [])
+        .filter((c) => contasSelecionadas.has(c.accountId))
+        .reduce((soma, c) => soma + c.times, 0);
+    },
+    [contasSelecionadas],
+  );
+
   const filteredLibrary = useMemo(() => {
     if (!library) return null;
     let list = library;
     if (mediaTagFilter) {
       list = list.filter((m) => m.tags?.some((t) => t.id === mediaTagFilter));
     }
+    // Sem conta marcada não há "nunca postada onde?": o filtro fica inerte em
+    // vez de esconder o acervo inteiro por uma pergunta ainda sem destino.
+    if (soNuncaPostada && contasSelecionadas.size > 0) {
+      list = list.filter((m) => postagensNaSelecao(m) === 0);
+    }
     list = [...list].sort((a, b) => {
       if (mediaSortOrder === "asc") return a.createdAt - b.createdAt;
       return b.createdAt - a.createdAt;
     });
     return list;
-  }, [library, mediaTagFilter, mediaSortOrder]);
+  }, [library, mediaTagFilter, mediaSortOrder, soNuncaPostada, contasSelecionadas, postagensNaSelecao]);
 
   function toggleAccount(acc: SocialAccount) {
     setNetworks((prev) => {
@@ -1165,10 +1274,6 @@ function PostForm({
         { network: acc.network, postType: POST_TYPES[acc.network][0], accountId: acc.id, accountUsername: acc.username },
       ];
     });
-  }
-
-  function setType(accountId: string | undefined, postType: string) {
-    setNetworks((prev) => prev.map((n) => (n.accountId === accountId ? { ...n, postType } : n)));
   }
 
   function toggleMedia(id: string) {
@@ -1250,25 +1355,12 @@ function PostForm({
         )}
 
         <div className="mt-4 grid gap-3">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div>
-              <label className="eyebrow mb-1.5 block">Modelo</label>
-              <select
-                className="input"
-                value={profileId}
-                onChange={(e) => {
-                  setProfileId(e.target.value);
-                  setMediaIds([]);
-                  setNetworks([]);
-                }}
-              >
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+          {/* A MODELO não é escolhida aqui: quem manda é o menu do painel, e ter
+              dois lugares para a mesma escolha só criava a chance de agendar na
+              modelo errada sem perceber. Em "Todos" o formulário não adivinha —
+              pedir a escolha no menu é melhor que gravar no primeiro perfil da
+              lista, que era o que acontecia. */}
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="eyebrow mb-1.5 block">Data</label>
               <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -1291,46 +1383,56 @@ function PostForm({
               </p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
-                {accounts.map((acc) => (
+                {contasVisiveis.map((acc) => (
                   <ToggleChip
                     key={acc.id}
                     active={networks.some((n) => n.accountId === acc.id)}
                     color={NETWORK_DOT_COLORS[acc.network]}
                     onClick={() => toggleAccount(acc)}
                   >
-                    {NETWORK_LABELS[acc.network]} · @{acc.username}
+                    {acc.network === "instagram" ? `@${acc.username}` : `${NETWORK_LABELS[acc.network]} · @${acc.username}`}
                     {!acc.active ? " (inativa)" : ""}
                   </ToggleChip>
                 ))}
+                {/* O foco da operação hoje é Instagram, e as outras redes
+                    empurravam as contas que importam para a segunda linha.
+                    Elas continuam a um clique — só não disputam a atenção. */}
+                {contasSecundarias.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setVerTodasAsContas((v) => !v)}
+                    className="rounded-full border border-dashed border-white/20 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-400 transition-colors hover:border-white/40 hover:text-zinc-100 [@media(pointer:coarse)]:min-h-[44px]"
+                  >
+                    {verTodasAsContas ? "mostrar menos" : `mostrar mais (${contasSecundarias.length})`}
+                  </button>
+                )}
               </div>
             )}
-            {networks.length > 0 && (
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {networks.map((n) => (
-                  <div key={n.accountId || n.network} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: NETWORK_DOT_COLORS[n.network] }}
-                    />
-                    <span className="w-28 shrink-0 truncate text-xs text-zinc-300">
-                      {NETWORK_LABELS[n.network]}
-                      {n.accountUsername ? ` · @${n.accountUsername}` : ""}
-                    </span>
-                    <select
-                      className="input flex-1 py-1.5 text-xs"
-                      value={n.postType}
-                      onChange={(e) => setType(n.accountId, e.target.value)}
+            {/* TIPO DO POST, por REDE e não por conta. Duas contas de Instagram
+                do mesmo post levam o mesmo tipo — o formato é do conteúdo, não
+                do perfil —, então uma linha por conta só repetia a pergunta e o
+                @ ocupava metade da largura. Vira uma caixa de escolha simples,
+                e o nome da rede só aparece quando há mais de uma em jogo. */}
+            {redesEmUso.map((rede) => (
+              <div key={rede} className="mt-3">
+                {redesEmUso.length > 1 && (
+                  <p className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                    {NETWORK_LABELS[rede]}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {POST_TYPES[rede].map((t) => (
+                    <ToggleChip
+                      key={t}
+                      active={networks.some((n) => n.network === rede && n.postType === t)}
+                      onClick={() => setTypeDaRede(rede, t)}
                     >
-                      {POST_TYPES[n.network].map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ))}
+                      {t}
+                    </ToggleChip>
+                  ))}
+                </div>
               </div>
-            )}
+            ))}
             {(() => {
               // Onde mais o post cai sem ser destino próprio. É informativo de
               // propósito: quem replica é o app do Instagram, não este painel,
@@ -1379,12 +1481,38 @@ function PostForm({
                   <option value="desc">Mais recentes</option>
                   <option value="asc">Mais antigas</option>
                 </select>
+                {/* Desligado enquanto não houver destino marcado: "nunca
+                    postada" só quer dizer alguma coisa depois de existir um
+                    ONDE. O título explica em vez de o clique não fazer nada. */}
+                <label
+                  title={
+                    contasSelecionadas.size === 0
+                      ? "Marque uma conta acima para filtrar pelo que nunca saiu nela"
+                      : "Mostra só o que nunca saiu nas contas marcadas"
+                  }
+                  className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors [@media(pointer:coarse)]:min-h-[44px] ${
+                    contasSelecionadas.size === 0
+                      ? "cursor-not-allowed border-white/10 text-zinc-600"
+                      : soNuncaPostada
+                        ? "cursor-pointer border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                        : "cursor-pointer border-white/10 text-zinc-300 hover:bg-white/5"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-emerald-500"
+                    checked={soNuncaPostada}
+                    disabled={contasSelecionadas.size === 0}
+                    onChange={(e) => setSoNuncaPostada(e.target.checked)}
+                  />
+                  Nunca postada
+                </label>
               </div>
             </div>
             {filteredLibrary === null ? (
-              <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
-                {[0, 1, 2, 3, 4, 5].map((i) => (
-                  <div key={i} className="aspect-square animate-pulse rounded-lg bg-white/5" />
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <div key={i} className="aspect-[3/4] animate-pulse rounded-lg bg-white/5" />
                 ))}
               </div>
             ) : filteredLibrary.length === 0 ? (
@@ -1392,17 +1520,23 @@ function PostForm({
                 Nenhuma mídia encontrada com os filtros atuais.
               </p>
             ) : (
-              <div className="grid max-h-64 grid-cols-4 gap-2 overflow-y-auto sm:grid-cols-6">
+              // Quadro 3:4 e `object-contain`: o acervo mistura 3:4 com 9:16, e o
+              // `object-cover` do quadrado cortava a foto justamente onde ela
+              // costuma ter o assunto. Agora a imagem aparece INTEIRA, com a
+              // sobra virando borda — cinco por linha em vez de seis dão espaço
+              // para isso ser legível.
+              <div className="grid max-h-[26rem] grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-5">
                 {filteredLibrary.map((m) => {
                   const idx = mediaIds.indexOf(m.id);
                   const selected = idx !== -1;
                   const used = usedMedia.has(m.id);
+                  const jaSaiu = postagensNaSelecao(m);
                   return (
                     <button
                       key={m.id}
                       type="button"
                       onClick={() => toggleMedia(m.id)}
-                      className={`relative aspect-square overflow-hidden rounded-lg border bg-ink-850 transition-all ${
+                      className={`relative aspect-[3/4] overflow-hidden rounded-lg border bg-ink-850 transition-all ${
                         selected ? "border-white ring-2 ring-white/60" : "border-white/10 hover:border-white/30"
                       }`}
                     >
@@ -1410,7 +1544,7 @@ function PostForm({
                         <AuthImage
                           src={mediaFileUrl(m)}
                           alt={m.filename}
-                          className={`h-full w-full object-cover ${selected ? "opacity-80" : ""}`}
+                          className={`h-full w-full object-contain ${selected ? "opacity-80" : ""}`}
                           fallback={<div className="h-full w-full bg-ink-800" />}
                         />
                       ) : (
@@ -1418,7 +1552,7 @@ function PostForm({
                           <AuthImage
                             src={mediaThumbUrl(m)}
                             alt={m.filename}
-                            className={`h-full w-full object-cover ${selected ? "opacity-80" : ""}`}
+                            className={`h-full w-full object-contain ${selected ? "opacity-80" : ""}`}
                             fallback={<div className="h-full w-full bg-ink-800" />}
                           />
                           <div className="pointer-events-none absolute inset-0 grid place-items-center">
@@ -1436,6 +1570,17 @@ function PostForm({
                       {used && !selected && (
                         <span className="absolute right-1 top-1 grid h-4 w-4 place-items-center rounded-full bg-amber-500 text-white" title="Mídia já utilizada por este perfil">
                           <IconCheck size={10} />
+                        </span>
+                      )}
+                      {/* Quantas vezes esta mídia já saiu NAS CONTAS marcadas.
+                          Fica no canto de baixo para não brigar com o número da
+                          ordem no carrossel, que mora em cima. */}
+                      {jaSaiu > 0 && (
+                        <span
+                          className="absolute bottom-1 left-1 rounded-full bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-amber-300"
+                          title={`Já publicada ${jaSaiu}× na(s) conta(s) marcada(s)`}
+                        >
+                          ×{jaSaiu}
                         </span>
                       )}
                     </button>

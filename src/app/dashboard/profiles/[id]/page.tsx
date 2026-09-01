@@ -8,6 +8,7 @@ import AuthImage from "@/components/AuthImage";
 import Modal from "@/components/Modal";
 import ToggleChip from "@/components/ToggleChip";
 import { useConfirm } from "@/hooks/useConfirm";
+import { useProfile } from "@/context/ProfileContext";
 import {
   IconArrowLeft,
   IconPlus,
@@ -58,6 +59,7 @@ const TONS = [
 export default function ProfileDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { refresh: refreshProfiles } = useProfile();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -685,7 +687,13 @@ export default function ProfileDetailPage() {
             account={acc}
             accounts={profile.accounts}
             onEdit={() => setEditingAccount(acc)}
-            onChanged={(p) => setProfile(p)}
+            onChanged={(p) => {
+              setProfile(p);
+              // O menu do painel carrega os perfis uma vez só. Sem avisar, o
+              // Cronograma continuaria oferecendo como destino a conta que
+              // acabou de ser desligada aqui.
+              void refreshProfiles();
+            }}
             confirm={confirm}
           />
         ))}
@@ -710,6 +718,7 @@ export default function ProfileDetailPage() {
           }}
           onSaved={(p) => {
             setProfile(p);
+            void refreshProfiles();
             setAddingAccount(false);
             setEditingAccount(null);
           }}

@@ -683,6 +683,7 @@ export default function ProfileDetailPage() {
             key={acc.id}
             profileId={id}
             account={acc}
+            accounts={profile.accounts}
             onEdit={() => setEditingAccount(acc)}
             onChanged={(p) => setProfile(p)}
             confirm={confirm}
@@ -702,6 +703,7 @@ export default function ProfileDetailPage() {
         <AccountForm
           profileId={id}
           account={editingAccount}
+          accounts={profile.accounts}
           onClose={() => {
             setAddingAccount(false);
             setEditingAccount(null);
@@ -721,18 +723,51 @@ export default function ProfileDetailPage() {
 function AccountRow({
   profileId,
   account,
+  accounts,
   onEdit,
   onChanged,
   confirm,
 }: {
   profileId: string;
   account: SocialAccount;
+  /** Todas as contas da modelo — só para desenhar o espelho pelos dois lados. */
+  accounts: SocialAccount[];
   onEdit: () => void;
   onChanged: (p: Profile) => void;
   confirm: (opts: { message: string } | string) => Promise<boolean>;
 }) {
   const [password, setPassword] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [alternando, setAlternando] = useState(false);
+
+  // O espelho aparece dos DOIS lados: na conta de Facebook/Threads ("espelha
+  // @fulana") e na de Instagram ("espelhado por @x, @y"). Quem cadastra o
+  // vínculo é o lado que espelha, mas quem escolhe destino no cronograma olha
+  // o Instagram — e precisa saber ali que o post vai cair em mais dois lugares.
+  const espelhaAlvo = account.linkedAccountId
+    ? accounts.find((a) => a.id === account.linkedAccountId)
+    : undefined;
+  const espelhadaPor =
+    account.network === "instagram"
+      ? accounts.filter((a) => a.linkedAccountId === account.id)
+      : [];
+
+  async function alternarAtiva() {
+    setAlternando(true);
+    try {
+      const { profile } = await apiSend<{ profile: Profile }>(
+        `/api/profiles/${profileId}/accounts/${account.id}`,
+        "PATCH",
+        { active: !account.active },
+      );
+      onChanged(profile);
+      showToast(account.active ? "Conta desativada no cronograma." : "Conta ativada.");
+    } catch (e: any) {
+      showToast(e?.message || "Falha ao mudar o estado da conta.", "error");
+    } finally {
+      setAlternando(false);
+    }
+  }
 
   async function fetchPassword(): Promise<string> {
     const data = await apiGet<{ password: string }>(
@@ -774,15 +809,52 @@ function AccountRow({
   }
 
   return (
-    <div className="card p-4">
+    // Conta desligada não some nem muda de lugar — só perde a cor, para a lista
+    // continuar sendo o cadastro inteiro e a diferença ser visível de relance.
+    <div className={`card p-4 ${account.active ? "" : "opacity-55"}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="chip">{NETWORK_LABELS[account.network]}</span>
             <span className="truncate text-sm font-medium text-zinc-100">
               {account.username}
             </span>
+            <button
+              onClick={alternarAtiva}
+              disabled={alternando}
+              title={
+                account.active
+                  ? "Desativar: para de ser oferecida no Cronograma. O que já está agendado continua lá."
+                  : "Ativar: volta a ser oferecida no Cronograma."
+              }
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider transition-colors disabled:opacity-50 ${
+                account.active
+                  ? "border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"
+                  : "border-white/15 text-zinc-500 hover:bg-white/5"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  account.active ? "bg-emerald-400" : "bg-zinc-600"
+                }`}
+              />
+              {account.active ? "ativa" : "inativa"}
+            </button>
           </div>
+          {espelhaAlvo && (
+            <p className="mt-1.5 text-[11px] text-zinc-500">
+              espelha <span className="text-zinc-300">@{espelhaAlvo.username}</span> — o post sai no
+              Instagram e o próprio app replica aqui
+            </p>
+          )}
+          {espelhadaPor.length > 0 && (
+            <p className="mt-1.5 text-[11px] text-zinc-500">
+              replica em{" "}
+              <span className="text-zinc-300">
+                {espelhadaPor.map((a) => `@${a.username} (${NETWORK_LABELS[a.network]})`).join(", ")}
+              </span>
+            </p>
+          )}
           {(() => {
             const link = account.url || buildSocialUrl(account.network, account.username);
             if (!link) return null;
@@ -868,11 +940,14 @@ function AccountRow({
 function AccountForm({
   profileId,
   account,
+  accounts,
   onClose,
   onSaved,
 }: {
   profileId: string;
   account: SocialAccount | null;
+  /** Todas as contas da modelo — a origem das opções de espelho. */
+  accounts: SocialAccount[];
   onClose: () => void;
   onSaved: (p: Profile) => void;
 }) {
@@ -884,10 +959,19 @@ function AccountForm({
   const [urlTouched, setUrlTouched] = useState(Boolean(account?.url));
   const [login, setLogin] = useState(account?.login || "");
   const [password, setPassword] = useState("");
+  const [linkedAccountId, setLinkedAccountId] = useState(account?.linkedAccountId || "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const meta = networkMeta(network);
+
+  // Só Facebook e Threads espelham, e só um Instagram DA MESMA MODELO — a
+  // mesma regra que o servidor aplica em `espelhoValido`. Repetida aqui só para
+  // a tela não oferecer o que seria recusado; quem manda é o servidor.
+  const podeEspelhar = network === "facebook" || network === "threads";
+  const instagramsDaModelo = accounts.filter(
+    (a) => a.network === "instagram" && a.id !== account?.id,
+  );
 
   // Preenche o link automaticamente pela máscara da rede, a menos que o
   // usuário tenha editado o campo manualmente.
@@ -907,6 +991,10 @@ function AccountForm({
     try {
       const payload: Record<string, unknown> = { network, username, url, login };
       if (password) payload.password = password;
+      // Manda SEMPRE (string vazia limpa): trocar a rede de Facebook para
+      // TikTok tem que apagar um vínculo que deixou de fazer sentido, e omitir
+      // o campo deixaria o antigo gravado.
+      payload.linkedAccountId = podeEspelhar ? linkedAccountId || null : null;
       const path = account
         ? `/api/profiles/${profileId}/accounts/${account.id}`
         : `/api/profiles/${profileId}/accounts`;
@@ -951,6 +1039,29 @@ function AccountForm({
             ))}
           </select>
         </div>
+        {podeEspelhar && (
+          <div>
+            <label className="eyebrow mb-1.5 block">Espelha qual Instagram?</label>
+            <select
+              className="input"
+              value={linkedAccountId}
+              onChange={(e) => setLinkedAccountId(e.target.value)}
+              disabled={instagramsDaModelo.length === 0}
+            >
+              <option value="">Nenhum — conta independente</option>
+              {instagramsDaModelo.map((a) => (
+                <option key={a.id} value={a.id}>
+                  @{a.username}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-500">
+              {instagramsDaModelo.length === 0
+                ? "Cadastre um Instagram para esta modelo primeiro."
+                : "Quem publica é o Instagram — o app dele replica aqui sozinho. No Cronograma você agenda só o post do Instagram; esta conta aparece como réplica, não como destino separado."}
+            </p>
+          </div>
+        )}
         <div>
           <label className="eyebrow mb-1.5 block">{meta.userLabel}</label>
           <input

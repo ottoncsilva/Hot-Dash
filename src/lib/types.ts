@@ -24,6 +24,12 @@ export type SocialAccount = {
   /** true se há uma senha guardada (a senha em si nunca é enviada ao cliente). */
   hasPassword: boolean;
   notes?: string;
+  /** Entra no Cronograma? Conta desligada continua cadastrada (com senha e
+   *  histórico) e some só da escolha de destino dos posts NOVOS. */
+  active: boolean;
+  /** Só em conta de Facebook/Threads: o `id` da conta de INSTAGRAM desta mesma
+   *  modelo que ela espelha. Informativo — ver o comentário da coluna em db.ts. */
+  linkedAccountId?: string;
 };
 
 /** Item do catálogo editável de status de modelo (Configurações > Status de modelos). */
@@ -112,6 +118,26 @@ export type MediaPostCounts = {
   vip: number;
   lastPreviasAt?: number;
   lastVipAt?: number;
+  /**
+   * Quantas vezes a mídia saiu em cada CONTA de rede social. Lista separada, e
+   * não mais dois campos fixos, porque aqui o destino não é um punhado de
+   * grupos conhecidos: a modelo pode ter duas contas de Instagram, e "2x no
+   * @um e 1x no @dois" é a informação útil — somar as duas apagaria justamente
+   * o que o operador quer ver.
+   *
+   * Os números do Telegram acima continuam separados de propósito: são eles que
+   * alimentam a escolha de mídia do Método MK, e misturar as redes sociais ali
+   * mudaria a ordem da fila de prévias sem ninguém pedir.
+   */
+  contas?: MediaAccountCount[];
+};
+
+export type MediaAccountCount = {
+  accountId: string;
+  network: SocialNetwork;
+  username: string;
+  times: number;
+  lastAt: number;
 };
 
 /** Item de mídia (foto ou vídeo) vinculado a um perfil. */

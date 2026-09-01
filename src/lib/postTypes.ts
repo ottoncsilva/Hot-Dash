@@ -52,6 +52,11 @@ export type PostNetwork = {
   accountId?: string;
   /** Só preenchido ao carregar do servidor, para exibir sem precisar cruzar com o perfil. */
   accountUsername?: string;
+  /** Estado ATUAL da conta de destino, também só na leitura. `false` marca o
+   *  post cuja conta foi desligada depois de ele ser agendado — ele continua no
+   *  calendário, que é o combinado, mas a tela precisa dizer isso. `undefined`
+   *  é post sem conta amarrada (cronograma antigo), não conta inativa. */
+  accountActive?: boolean;
 };
 
 export type PostStatus = "scheduled" | "posted";

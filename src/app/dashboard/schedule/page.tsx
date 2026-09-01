@@ -609,6 +609,11 @@ function PostDetail({
             <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: NETWORK_DOT_COLORS[n.network] }} />
             {NETWORK_LABELS[n.network]}
             {n.accountUsername ? ` (@${n.accountUsername})` : ""} · {n.postType}
+            {n.accountActive === false && (
+              <span className="text-amber-400/80" title="A conta foi desativada depois deste agendamento">
+                · conta inativa
+              </span>
+            )}
           </span>
         ))}
       </div>
@@ -809,6 +814,7 @@ function ListView({
                         />
                         {NETWORK_LABELS[n.network]}
                         {n.accountUsername ? ` (@${n.accountUsername})` : ""} · {n.postType}
+                        {n.accountActive === false ? " · conta inativa" : ""}
                       </span>
                     ))}
                     {isOverdue(p) && (
@@ -1110,8 +1116,32 @@ function PostForm({
   }, []);
 
   const selectedProfile = profiles.find((p) => p.id === profileId);
-  // Apenas redes permitidas para o cronograma
-  const accounts = (selectedProfile?.accounts || []).filter((a) => ALLOWED_SCHEDULE_NETWORKS.includes(a.network));
+  const todasAsContas = selectedProfile?.accounts || [];
+
+  /**
+   * As contas oferecidas como DESTINO. Três filtros, por três motivos:
+   *
+   *  - a rede tem que servir para cronograma (`ALLOWED_SCHEDULE_NETWORKS`);
+   *  - a conta tem que estar ATIVA — mas uma inativa continua listada enquanto
+   *    ESTE post já a tiver marcada. Sumir com o destino de um post que já
+   *    existia seria desfazer trabalho do operador sem avisar; ele desmarca se
+   *    quiser (é a mesma razão de o post antigo continuar no calendário);
+   *  - a conta não pode ser um ESPELHO. Facebook/Threads vinculados a um
+   *    Instagram não são destino próprio: quem publica é o Instagram e o app
+   *    dele replica. Oferecer os dois faria o painel prometer dois envios onde
+   *    existe um.
+   */
+  const accounts = todasAsContas.filter(
+    (a) =>
+      ALLOWED_SCHEDULE_NETWORKS.includes(a.network) &&
+      !a.linkedAccountId &&
+      (a.active || networks.some((n) => n.accountId === a.id)),
+  );
+
+  /** Quem replica esta conta — só para dizer na tela onde mais o post cai. */
+  function espelhosDe(accountId: string) {
+    return todasAsContas.filter((a) => a.linkedAccountId === accountId);
+  }
 
   const filteredLibrary = useMemo(() => {
     if (!library) return null;
@@ -1269,6 +1299,7 @@ function PostForm({
                     onClick={() => toggleAccount(acc)}
                   >
                     {NETWORK_LABELS[acc.network]} · @{acc.username}
+                    {!acc.active ? " (inativa)" : ""}
                   </ToggleChip>
                 ))}
               </div>
@@ -1300,6 +1331,22 @@ function PostForm({
                 ))}
               </div>
             )}
+            {(() => {
+              // Onde mais o post cai sem ser destino próprio. É informativo de
+              // propósito: quem replica é o app do Instagram, não este painel,
+              // então isto não vira linha em post_networks nem promete envio.
+              const replicas = networks
+                .flatMap((n) => (n.accountId ? espelhosDe(n.accountId) : []))
+                .map((a) => `@${a.username} (${NETWORK_LABELS[a.network]})`);
+              if (replicas.length === 0) return null;
+              return (
+                <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+                  O próprio Instagram replica em{" "}
+                  <span className="text-zinc-300">{replicas.join(", ")}</span> — não precisa agendar
+                  de novo.
+                </p>
+              );
+            })()}
           </div>
 
           {/* Mídias da biblioteca (por referência — nada é duplicado) */}

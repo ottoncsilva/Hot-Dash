@@ -20,7 +20,7 @@ import {
   IconDownload,
   IconTag,
 } from "@/components/icons";
-import { mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type Tag } from "@/lib/types";
+import { NETWORK_LABELS, mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type Tag } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 import PeriodPicker, { type PeriodState } from "@/components/PeriodPicker";
 import FilterDropdown from "@/components/FilterDropdown";
@@ -43,12 +43,19 @@ const KIND_FILTERS: { key: MediaKind; label: string }[] = [
   { key: "video", label: "vídeo" },
 ];
 
-/** Recortes por histórico de publicação nos grupos do Telegram. */
-type PostedFilter = "never" | "previas" | "vip";
+/**
+ * Recortes por histórico de publicação. Os dois grupos do Telegram são fixos
+ * (existem sempre); "postada em rede social" é um só, genérico, porque as
+ * contas variam por modelo — um filtro por conta viraria uma lista que muda de
+ * tamanho a cada perfil. Quem quer o detalhe lê no selo da miniatura, que
+ * nomeia a conta.
+ */
+type PostedFilter = "never" | "previas" | "vip" | "social";
 const POSTED_FILTERS: { key: PostedFilter; label: string }[] = [
   { key: "never", label: "nunca postada" },
   { key: "previas", label: "postada nas prévias" },
   { key: "vip", label: "postada no vip" },
+  { key: "social", label: "postada em rede social" },
 ];
 
 /**
@@ -413,11 +420,16 @@ export default function MediaPage() {
         (since === null || m.createdAt >= since) && (until === null || m.createdAt < until);
       const previas = m.postCounts?.previas || 0;
       const vip = m.postCounts?.vip || 0;
+      const social = (m.postCounts?.contas || []).reduce((soma, c) => soma + c.times, 0);
       const postedOk =
         filterPosted.size === 0 ||
-        (filterPosted.has("never") && previas === 0 && vip === 0) ||
+        // "nunca postada" agora tem que valer para TODOS os destinos: uma foto
+        // que já saiu no Instagram não é inédita, mesmo sem nunca ter ido aos
+        // grupos.
+        (filterPosted.has("never") && previas === 0 && vip === 0 && social === 0) ||
         (filterPosted.has("previas") && previas > 0) ||
-        (filterPosted.has("vip") && vip > 0);
+        (filterPosted.has("vip") && vip > 0) ||
+        (filterPosted.has("social") && social > 0);
       return tagOk && kindOk && dateOk && postedOk;
     });
   }, [media, filterTagIds, filterNoTag, filterKinds, filterPeriod, filterPosted]);
@@ -1144,9 +1156,11 @@ const MediaTile = memo(function MediaTile({
         </span>
       </span>
 
-      {/* Quantas vezes já foi ao ar em cada canal do Telegram. Some no
-          modo seleção, onde o canto é do indicador de marcado. */}
-      {!selecting && (item.postCounts?.previas || item.postCounts?.vip) ? (
+      {/* Quantas vezes já foi ao ar em cada destino: os dois canais do Telegram
+          e cada CONTA de rede social, separados. Some no modo seleção, onde o
+          canto é do indicador de marcado. */}
+      {!selecting &&
+      (item.postCounts?.previas || item.postCounts?.vip || item.postCounts?.contas?.length) ? (
         <span className="pointer-events-none absolute right-2 top-2 flex flex-col items-end gap-1">
           {item.postCounts.previas > 0 && (
             <span className="chip bg-black/60" title="Vezes publicada no canal de Prévias">
@@ -1158,6 +1172,15 @@ const MediaTile = memo(function MediaTile({
               vip ×{item.postCounts.vip}
             </span>
           )}
+          {(item.postCounts.contas || []).map((c) => (
+            <span
+              key={c.accountId}
+              className="chip bg-black/60"
+              title={`Vezes publicada em ${NETWORK_LABELS[c.network]} @${c.username}`}
+            >
+              @{c.username} ×{c.times}
+            </span>
+          ))}
         </span>
       ) : null}
 

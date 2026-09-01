@@ -1,7 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
-import type { MediaItem, MediaPostCounts } from "./types";
+import type { MediaAccountCount, MediaItem, MediaPostCounts, SocialNetwork } from "./types";
 
 /**
  * Histórico de publicação das mídias nos GRUPOS do Telegram e a regra de
@@ -22,6 +22,22 @@ import type { MediaItem, MediaPostCounts } from "./types";
 
 /** Os dois grupos do Telegram que o Método MK alimenta. */
 export type MkAudience = "previas" | "vip";
+
+/**
+ * ONDE uma mídia foi publicada: um dos dois grupos do Telegram ou uma rede
+ * social. É o valor da coluna `audience` de `media_post_log`.
+ *
+ * Os dois mundos convivem na mesma tabela mas NÃO se misturam: a escolha de
+ * mídia do Método MK consulta só `previas`/`vip` (ver `sortCandidates`), então
+ * uma foto postada dez vezes no Instagram continua "nunca postada" para a fila
+ * das prévias — que é o certo, são acervos com públicos diferentes.
+ */
+export type MediaDestino = MkAudience | SocialNetwork;
+
+/** O destino é um dos grupos do Telegram (e não uma rede social)? */
+export function ehGrupoDoTelegram(destino: MediaDestino): destino is MkAudience {
+  return destino === "previas" || destino === "vip";
+}
 
 /**
  * A etiqueta que separa o vídeo de PRÉVIA CORTADA dos outros vídeos do acervo.
@@ -69,15 +85,17 @@ export function audienceFromPostType(postType: string): MkAudience | null {
 export function logMediaPosted(
   mediaIds: string[],
   profileId: string,
-  audience: MkAudience,
+  audience: MediaDestino,
   postId?: string,
+  accountId?: string,
 ): void {
   const ids = mediaIds.filter(Boolean);
   if (ids.length === 0) return;
   const db = getDb();
   const stmt = db.prepare(
-    `INSERT OR IGNORE INTO media_post_log (id, media_id, profile_id, audience, post_id, posted_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT OR IGNORE INTO media_post_log
+       (id, media_id, profile_id, audience, post_id, posted_at, account_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
   const now = Date.now();
   const run = db.transaction((list: string[]) => {
@@ -95,12 +113,13 @@ export function logMediaPosted(
       // NOT EXISTS (post_id + media_id + audience), então ele não duplica nada
       // — que era o motivo de o id ser determinístico em primeiro lugar.
       stmt.run(
-        postId ? `${postId}:${mediaId}:${audience}:${now}` : randomUUID(),
+        postId ? `${postId}:${mediaId}:${audience}:${accountId || ""}:${now}` : randomUUID(),
         mediaId,
         profileId,
         audience,
         postId || null,
         now,
+        accountId || null,
       );
     }
   });
@@ -108,32 +127,108 @@ export function logMediaPosted(
 }
 
 /**
- * Quantas vezes cada mídia do perfil já foi publicada em cada grupo, e quando
- * foi a última vez. Uma única consulta agregada (não uma por mídia).
+ * Quantas vezes cada mídia do perfil já foi publicada, e quando foi a última
+ * vez: nos dois grupos do Telegram e, separadamente, em cada CONTA de rede
+ * social. Duas consultas agregadas — não uma por mídia.
  */
 export function getMediaPostCounts(profileId: string): Map<string, MediaPostCounts> {
-  const rows = getDb()
+  const db = getDb();
+  const map = new Map<string, MediaPostCounts>();
+  const entrada = (mediaId: string): MediaPostCounts => {
+    const atual = map.get(mediaId);
+    if (atual) return atual;
+    const nova: MediaPostCounts = { previas: 0, vip: 0 };
+    map.set(mediaId, nova);
+    return nova;
+  };
+
+  // 1) Os dois grupos do Telegram.
+  //
+  // O `audience IN ('previas','vip')` não é firula. O laço abaixo decide pelo
+  // `else`, e antes de existir destino de rede social isso bastava — só havia
+  // dois valores possíveis. Com 'instagram' na mesma tabela, o `else` passaria
+  // a somar post de Instagram na conta das PRÉVIAS, e a fila de mídia do
+  // Método MK (ver `sortCandidates`) começaria a pular fotos que nunca saíram
+  // no grupo, achando que já tinham saído.
+  const grupos = db
     .prepare(
       `SELECT media_id, audience, COUNT(*) AS total, MAX(posted_at) AS last_at
          FROM media_post_log
-        WHERE profile_id = ?
+        WHERE profile_id = ? AND audience IN ('previas', 'vip')
         GROUP BY media_id, audience`,
     )
     .all(profileId) as { media_id: string; audience: string; total: number; last_at: number }[];
-
-  const map = new Map<string, MediaPostCounts>();
-  for (const r of rows) {
-    const entry = map.get(r.media_id) || { previas: 0, vip: 0 };
+  for (const r of grupos) {
+    const e = entrada(r.media_id);
     if (r.audience === "vip") {
-      entry.vip = r.total;
-      entry.lastVipAt = r.last_at;
+      e.vip = r.total;
+      e.lastVipAt = r.last_at;
     } else {
-      entry.previas = r.total;
-      entry.lastPreviasAt = r.last_at;
+      e.previas = r.total;
+      e.lastPreviasAt = r.last_at;
     }
-    map.set(r.media_id, entry);
   }
+
+  // 2) Redes sociais, uma contagem POR CONTA — é o que permite ler "2x no
+  //    @insta_um e 1x no @insta_dois" em vez de um "3x no Instagram" que não
+  //    responde nada. O JOIN traz o @ e a rede de uma vez, para a galeria não
+  //    consultar conta por linha.
+  //
+  //    JOIN e não LEFT JOIN: registro de uma conta APAGADA não tem mais o que
+  //    dizer na tela (não dá para nomear onde a foto saiu), e a conta que se
+  //    quer preservar hoje se desativa em vez de apagar.
+  const contas = db
+    .prepare(
+      `SELECT l.media_id, l.account_id, a.username, a.network,
+              COUNT(*) AS total, MAX(l.posted_at) AS last_at
+         FROM media_post_log l
+         JOIN accounts a ON a.id = l.account_id
+        WHERE l.profile_id = ? AND l.account_id IS NOT NULL
+        GROUP BY l.media_id, l.account_id`,
+    )
+    .all(profileId) as {
+    media_id: string;
+    account_id: string;
+    username: string;
+    network: string;
+    total: number;
+    last_at: number;
+  }[];
+  for (const r of contas) {
+    const e = entrada(r.media_id);
+    const item: MediaAccountCount = {
+      accountId: r.account_id,
+      network: r.network as SocialNetwork,
+      username: r.username,
+      times: r.total,
+      lastAt: r.last_at,
+    };
+    if (e.contas) e.contas.push(item);
+    else e.contas = [item];
+  }
+
   return map;
+}
+
+/**
+ * Desfaz o registro de publicação de um post em REDE SOCIAL.
+ *
+ * Existe porque nas redes sociais o "postado" é uma MARCAÇÃO do operador, não
+ * um envio que o sistema fez: marcar sem querer e desmarcar tem que voltar a
+ * contagem ao que era, senão a galeria acumula publicações que nunca houve.
+ *
+ * Os grupos do Telegram ficam de fora de propósito. Lá o registro nasce de um
+ * envio CONFIRMADO pela API (ver telegramCron), e desmarcar o post no
+ * calendário não desfaz uma mensagem que já está no grupo — apagar a linha
+ * faria o Método MK reoferecer uma foto que o público já viu.
+ */
+export function unlogMediaPosted(postId: string): void {
+  getDb()
+    .prepare(
+      `DELETE FROM media_post_log
+        WHERE post_id = ? AND audience NOT IN ('previas', 'vip')`,
+    )
+    .run(postId);
 }
 
 /**

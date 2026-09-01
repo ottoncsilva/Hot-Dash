@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
 import { replaceCaptionLink } from "./postTypes";
+import { logMediaPosted, unlogMediaPosted } from "./mediaUsage";
 import type { PostNetwork, PostPoll, PostStatus, ScheduledPost } from "./postTypes";
 import type { SocialNetwork } from "./types";
 
@@ -35,7 +36,8 @@ function parsePoll(json: string | null): PostPoll | undefined {
 function loadNetworks(postId: string): PostNetwork[] {
   const rows = getDb()
     .prepare(
-      `SELECT pn.network, pn.post_type, pn.account_id, a.username AS account_username
+      `SELECT pn.network, pn.post_type, pn.account_id, a.username AS account_username,
+              a.active AS account_active
        FROM post_networks pn LEFT JOIN accounts a ON a.id = pn.account_id
        WHERE pn.post_id = ? ORDER BY pn.network`,
     )
@@ -44,12 +46,17 @@ function loadNetworks(postId: string): PostNetwork[] {
     post_type: string;
     account_id: string | null;
     account_username: string | null;
+    account_active: number | null;
   }[];
   return rows.map((r) => ({
     network: r.network as SocialNetwork,
     postType: r.post_type,
     accountId: r.account_id || undefined,
     accountUsername: r.account_username || undefined,
+    // Vem do JOIN e não do post: é o estado ATUAL da conta. Post agendado para
+    // uma conta que foi desligada depois continua no calendário — só passa a
+    // aparecer marcado. `null` é post antigo sem conta amarrada, não inativo.
+    accountActive: r.account_active === null ? undefined : r.account_active !== 0,
   }));
 }
 
@@ -260,6 +267,8 @@ export function updatePost(
     if (before && after) caption = replaceCaptionLink(caption, before, after);
   }
 
+  const statusNovo = patch.status ?? existing.status;
+
   const run = db.transaction(() => {
     db.prepare(
       `UPDATE posts SET profile_id = ?, scheduled_at = ?, caption = ?, cta = ?, wa_link = ?, status = ?, updated_at = ?
@@ -281,9 +290,53 @@ export function updatePost(
         patch.mediaIds ?? existing.media.map((m) => m.id),
       );
     }
+    if (statusNovo !== existing.status) {
+      registrarMidiaDoPost(
+        id,
+        patch.profileId ?? existing.profileId,
+        patch.networks ?? existing.networks,
+        patch.mediaIds ?? existing.media.map((m) => m.id),
+        statusNovo,
+      );
+    }
   });
   run();
   return getPost(id);
+}
+
+/**
+ * Mantém o histórico de publicação da mídia em dia com o botão "marcar
+ * postado" do Cronograma.
+ *
+ * Só REDES SOCIAIS entram aqui. No Telegram quem registra é o autopost, na
+ * hora em que a API confirma o envio (ver telegramCron) — repetir a gravação
+ * aqui contaria a mesma foto duas vezes no grupo e estragaria a escolha de
+ * mídia do Método MK.
+ *
+ * Uma linha por CONTA de destino: o post que vai para dois Instagram da mesma
+ * modelo conta uma vez em cada, que é a pergunta que a galeria responde.
+ *
+ * Desmarcar apaga o registro (`unlogMediaPosted`), porque nas redes sociais a
+ * marcação é a única fonte da verdade: um clique errado não pode virar
+ * publicação eterna na contagem.
+ */
+function registrarMidiaDoPost(
+  postId: string,
+  profileId: string,
+  networks: PostNetwork[],
+  mediaIds: string[],
+  status: PostStatus,
+): void {
+  const sociais = networks.filter((n) => n.network !== "telegram" && n.accountId);
+  if (sociais.length === 0) return;
+  if (status !== "posted") {
+    unlogMediaPosted(postId);
+    return;
+  }
+  if (mediaIds.length === 0) return;
+  for (const n of sociais) {
+    logMediaPosted(mediaIds, profileId, n.network, postId, n.accountId);
+  }
 }
 
 export function deletePost(id: string): boolean {

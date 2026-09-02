@@ -8,6 +8,7 @@ import Modal from "@/components/Modal";
 import NetworkIcon from "@/components/NetworkIcon";
 import { IconPlus, IconProfiles, IconChevronRight } from "@/components/icons";
 import PageHeader from "@/components/PageHeader";
+import BuscaRecolhivel from "@/components/BuscaRecolhivel";
 import { showToast } from "@/lib/toast";
 import {
   NETWORK_LABELS,
@@ -181,11 +182,11 @@ export default function ProfilesPage() {
               uma linha inteira. Os ícones de rede continuam no cartão de cada
               uma. */}
           <div className="mt-6 flex items-center gap-2">
-            <input
-              className="input min-w-0 flex-1"
+            <BuscaRecolhivel
+              valor={search}
+              onChange={setSearch}
               placeholder="Buscar modelo…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              classeCampo="min-w-0 flex-1"
             />
             <select
               className="input w-auto shrink-0"

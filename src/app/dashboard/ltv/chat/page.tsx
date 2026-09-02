@@ -11,6 +11,7 @@ import { apiGet, apiSend } from "@/lib/api";
 import { showToast } from "@/lib/toast";
 import { IconPlus, IconSend, IconWhatsapp } from "@/components/icons";
 import type { LtvAccount, LtvChannel, LtvLead, LtvMessage, LtvResumo } from "@/lib/ltvDb";
+import BuscaRecolhivel from "@/components/BuscaRecolhivel";
 
 /**
  * Painel LTV — todos os leads que a modelo atendeu, quanto cada um já gastou e
@@ -236,11 +237,12 @@ function PainelLtv() {
             />
           </div>
 
-          <input
-            className="input mt-3"
+          <BuscaRecolhivel
+            valor={busca}
+            onChange={setBusca}
             placeholder="Buscar lead..."
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
+            classeCampo="w-full"
+            className="mt-3"
           />
 
           <div className="mt-3 flex flex-col gap-2">

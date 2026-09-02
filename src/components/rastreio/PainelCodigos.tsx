@@ -7,6 +7,7 @@ import { useProfile } from "@/context/ProfileContext";
 import type { PeriodKey } from "@/lib/periods";
 import Resumo, { type NumeroDoResumo } from "./Resumo";
 import TabelaRolante from "./TabelaRolante";
+import BuscaRecolhivel from "@/components/BuscaRecolhivel";
 
 type CodeRow = {
   code: string;
@@ -226,12 +227,7 @@ export default function PainelCodigos({ period }: { period: PeriodState }) {
       <Resumo numeros={numeros} />
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <input
-          className="input w-full py-1.5 text-xs sm:w-56"
-          placeholder="Buscar código ou bot..."
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-        />
+        <BuscaRecolhivel valor={busca} onChange={setBusca} placeholder="Buscar código ou bot..." />
         <label className="flex shrink-0 cursor-pointer items-center gap-2 py-1.5 text-xs text-zinc-400 hover:text-zinc-200">
           <input
             type="checkbox"

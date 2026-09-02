@@ -387,9 +387,25 @@ type PaymentSettingsStored = {
 
 const COBRADORES: CobradorTaxa[] = ["syncpay", "stripe", "terceirosSyncpay", "terceirosStripe"];
 
-function linhaTaxa(bruto: Partial<LinhaTaxa> | undefined, padrao: LinhaTaxa): LinhaTaxa {
-  const n = (v: unknown, p: number) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : p);
-  return { fixoCents: n(bruto?.fixoCents, padrao.fixoCents), percent: n(bruto?.percent, padrao.percent) };
+function linhaTaxa(
+  // `percent` no singular é a forma ANTIGA, de quando cada tipo de venda tinha
+  // um percentual só. Instalação que salvou nesse formato continua lida.
+  bruto: (Partial<LinhaTaxa> & { percent?: number }) | undefined,
+  padrao: LinhaTaxa,
+): LinhaTaxa {
+  const fixo =
+    typeof bruto?.fixoCents === "number" && Number.isFinite(bruto.fixoCents) && bruto.fixoCents >= 0
+      ? bruto.fixoCents
+      : padrao.fixoCents;
+  const lista = Array.isArray(bruto?.percents)
+    ? bruto.percents
+    : typeof bruto?.percent === "number"
+      ? [bruto.percent]
+      : null;
+  const percents = lista
+    ? lista.filter((v): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0)
+    : padrao.percents;
+  return { fixoCents: fixo, percents };
 }
 
 function rawPayments(): PaymentSettingsStored {

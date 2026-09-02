@@ -385,7 +385,7 @@ type PaymentSettingsStored = {
   taxas?: Partial<Record<CobradorTaxa, Partial<TabelaTaxas>>>;
 };
 
-const COBRADORES: CobradorTaxa[] = ["syncpay", "stripe", "terceiros"];
+const COBRADORES: CobradorTaxa[] = ["syncpay", "stripe", "terceirosSyncpay", "terceirosStripe"];
 
 function linhaTaxa(bruto: Partial<LinhaTaxa> | undefined, padrao: LinhaTaxa): LinhaTaxa {
   const n = (v: unknown, p: number) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : p);

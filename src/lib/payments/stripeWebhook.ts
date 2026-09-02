@@ -15,6 +15,7 @@ import { sendTelegramMessage } from "@/lib/telegramApi";
 import { getStripeCredentials } from "@/lib/settings";
 import { getDb } from "@/lib/db";
 import { buscarRelatorioExterno } from "@/lib/externalSaleReport";
+import { taxasDaCobranca } from "./stripeTaxas";
 
 export type ResultadoWebhookStripe = { ok: true; ignored?: boolean; reason?: string };
 
@@ -107,6 +108,20 @@ export async function processarWebhookStripe(event: Stripe.Event): Promise<Resul
   return { ok: true, ignored: true, reason: event.type };
 }
 
+/**
+ * Taxa, split e líquido da cobrança — ver `stripeTaxas.ts`. Fica aqui, entre
+ * o webhook e a consulta, porque os dois caminhos de venda (checkout e
+ * PaymentIntent solto) precisam do mesmo número e da mesma desistência
+ * silenciosa quando a chave não está configurada.
+ */
+async function buscarTaxas(paymentIntent: string | Stripe.PaymentIntent | null | undefined) {
+  const id = typeof paymentIntent === "string" ? paymentIntent : paymentIntent?.id;
+  if (!id) return null;
+  const creds = getStripeCredentials();
+  if (!creds) return null;
+  return taxasDaCobranca(new Stripe(creds.secretKey), id);
+}
+
 async function processarCheckoutCompleto(
   session: Stripe.Checkout.Session,
   registra: (s: string) => void,
@@ -121,7 +136,22 @@ async function processarCheckoutCompleto(
 
   const grossCents = typeof session.amount_total === "number" ? session.amount_total : undefined;
 
-  const updated = updateStatusByRef("stripe", providerRef, "paid", { grossCents });
+  // O evento não traz taxa nem split — os dois moram na `balance_transaction`
+  // da cobrança e só vêm por consulta. Sem isto a venda entrava com líquido
+  // igual ao cheio, e a comissão de quem opera o bot por fora ficava invisível.
+  const taxas = await buscarTaxas(session.payment_intent);
+  if (taxas) {
+    registra(
+      `taxas da Stripe · processamento ${taxas.feeCents} · plataforma ${taxas.splitCents} · líquido ${taxas.netCents}`,
+    );
+  }
+
+  const updated = updateStatusByRef("stripe", providerRef, "paid", {
+    grossCents,
+    netCents: taxas?.netCents,
+    feeCents: taxas?.feeCents,
+    splitCents: taxas?.splitCents,
+  });
   if (updated) registra("cobrança atualizada · paid");
 
   if (!updated) {
@@ -147,6 +177,9 @@ async function processarCheckoutCompleto(
         vinculo?.telegramUsername ||
         undefined,
       amountCents: grossCents ?? 0,
+      netAmountCents: taxas?.netCents,
+      feeCents: taxas?.feeCents,
+      splitCents: taxas?.splitCents,
       currency: (session.currency || "usd").toUpperCase(),
       method: "card",
       status: normalizeStatus("paid"),
@@ -385,6 +418,7 @@ async function processarPaymentIntentSucedido(
   // ainda, nasce "Sem modelo" como sempre (corrige na tela de Financeiro, ou
   // sozinha se o relatório chegar depois).
   const vinculo = buscarRelatorioExterno("stripe", pi.id);
+  const taxasPi = await buscarTaxas(pi.id);
   const nova = recordTransaction({
     provider: "stripe",
     providerRef: pi.id,
@@ -393,6 +427,9 @@ async function processarPaymentIntentSucedido(
     description: vinculo?.planName,
     customer: pi.receipt_email || vinculo?.customerName || vinculo?.telegramUsername || undefined,
     amountCents: pi.amount_received || pi.amount,
+    netAmountCents: taxasPi?.netCents,
+    feeCents: taxasPi?.feeCents,
+    splitCents: taxasPi?.splitCents,
     currency: (pi.currency || "usd").toUpperCase(),
     method: "card",
     // Mesma completude do outro caminho de venda fria: origem de tráfego e

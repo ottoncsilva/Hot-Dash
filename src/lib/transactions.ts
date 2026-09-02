@@ -219,6 +219,12 @@ export function recordTransaction(input: {
   currency?: string;
   method?: string;
   status: string;
+  /** O que o GATEWAY cobrou, quando ele informa (a Stripe informa; a SyncPay
+   *  não, e cai na tabela determinística logo abaixo). */
+  feeCents?: number;
+  /** O que quem opera o bot por fora reteve — `application_fee` na Stripe,
+   *  split na SyncPay. É o número que separa funil de LTV nessas vendas. */
+  splitCents?: number;
   /** Código do deep-link que trouxe o lead (origem do tráfego). */
   sourceCode?: string;
   /**
@@ -233,13 +239,17 @@ export function recordTransaction(input: {
   const id = randomUUID();
   // Já nasce com a conta fechada quando a venda entra paga: taxa pela tabela da
   // SyncPay (determinística), split com o que sobrar do desconto informado.
-  let fee: number | null = null;
-  let split: number | null = null;
+  // Informados pelo gateway ganham de qualquer cálculo: são o número real,
+  // não uma estimativa por tabela de preço.
+  let fee: number | null = input.feeCents ?? null;
+  let split: number | null = input.splitCents ?? null;
   let net = input.netAmountCents ?? null;
   // A tabela de taxas é da SyncPay. Uma venda lançada na mão no LTV (o lead
   // pagou direto na chave pix da modelo) não passou por gateway nenhum:
   // descontar taxa dela faria o faturamento mostrar menos do que entrou.
-  if (input.status === "paid" && input.provider === "syncpay") {
+  if (fee !== null) {
+    if (net === null) net = input.amountCents - fee - (split ?? 0);
+  } else if (input.status === "paid" && input.provider === "syncpay") {
     const tabela = syncPayFeeCents(input.amountCents);
     const desconto = net !== null && net < input.amountCents ? input.amountCents - net : tabela;
     fee = Math.min(tabela, desconto);

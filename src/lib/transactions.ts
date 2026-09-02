@@ -633,6 +633,41 @@ export function updateStatusByRef(
   return { transaction: getTransaction(existing.id)!, becamePaid };
 }
 
+/**
+ * Grava a taxa, o split e o líquido que o GATEWAY informou, sem tocar em mais
+ * nada da cobrança. Usada pelo repescagem das taxas da Stripe (ver
+ * `payments/stripeTaxasCron.ts`), que chega depois do webhook e não pode
+ * mexer em produto, modelo ou qualquer correção que o operador já tenha feito
+ * na tela.
+ *
+ * Só preenche o que estiver VAZIO: taxa já gravada (pelo webhook ou à mão)
+ * manda, e a repescagem não a sobrescreve.
+ */
+export function completarTaxasDoGateway(
+  id: string,
+  taxas: { feeCents: number | null; splitCents: number; netCents: number | null },
+): boolean {
+  const atual = getTransaction(id);
+  if (!atual || atual.feeCents !== undefined) return false;
+  if (taxas.feeCents === null) {
+    // Só a comissão da plataforma é conhecida: grava ela e deixa taxa e
+    // líquido para a próxima passada, quando a cobrança tiver liquidado.
+    getDb()
+      .prepare("UPDATE transactions SET split_cents = ?, updated_at = ? WHERE id = ?")
+      .run(taxas.splitCents, Date.now(), id);
+    return true;
+  }
+  const liquido = taxas.netCents ?? atual.amountCents - taxas.feeCents - taxas.splitCents;
+  getDb()
+    .prepare(
+      `UPDATE transactions
+          SET fee_cents = ?, split_cents = ?, net_amount_cents = ?, updated_at = ?
+        WHERE id = ?`,
+    )
+    .run(taxas.feeCents, taxas.splitCents, liquido, Date.now(), id);
+  return true;
+}
+
 /** Normaliza um identificador para comparação (o export corta em 30 chars e
  *  às vezes omite os hifens do UUID). */
 function normRef(v: string): string {

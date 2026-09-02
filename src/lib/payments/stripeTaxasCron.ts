@@ -1,0 +1,86 @@
+import "server-only";
+import Stripe from "stripe";
+import { getDb } from "@/lib/db";
+import { completarTaxasDoGateway } from "@/lib/transactions";
+import { getStripeCredentials } from "@/lib/settings";
+import { taxasDaCobranca } from "./stripeTaxas";
+
+/**
+ * REPESCAGEM das taxas da Stripe: venda paga que ficou sem taxa e sem
+ * comissão da plataforma, buscada de novo no tique de 1 minuto.
+ *
+ * Existe porque a tentativa do webhook é UM TIRO, disparado milissegundos
+ * depois do pagamento aprovar — e nesse instante a `balance_transaction` da
+ * cobrança, que é onde os números moram, muitas vezes ainda não existe. Foi
+ * assim que uma venda de R$ 99,97 entrou com líquido igual ao valor cheio: a
+ * mesma busca, feita à mão horas depois, respondeu na hora.
+ *
+ * Esperar alguns segundos dentro do webhook resolveria esse caso e só ele — e
+ * atrasaria a resposta que a Stripe espera rápida (ela reenvia o evento
+ * quando demora). Repescar cobre a demora da liquidação, o blip de rede, a
+ * chave salva depois do primeiro webhook e qualquer motivo futuro, sem
+ * segurar ninguém.
+ *
+ * A tentativa imediata do webhook continua: quando ela funciona, o número
+ * aparece na hora e a repescagem não acha nada para fazer.
+ */
+
+/** Espera antes da primeira repescagem. Menos que isso e ela correria contra o
+ *  próprio webhook, refazendo a consulta que ele acabou de fazer. */
+const CARENCIA_MS = 60_000;
+
+/** Até quando insistir. Depois disso a venda continua recuperável pelo botão
+ *  "Buscar taxas na Stripe" na correção — mas para de consumir consulta a cada
+ *  minuto por algo que já se mostrou insolúvel. */
+const JANELA_MS = 2 * 24 * 60 * 60 * 1000;
+
+/** Por tique. Segura o caso de várias vendas presas ao mesmo tempo sem virar
+ *  uma rajada de consultas. */
+const POR_TIQUE = 5;
+
+export async function runStripeTaxasPendentes(): Promise<{ conferidas: number; preenchidas: number }> {
+  const creds = getStripeCredentials();
+  if (!creds) return { conferidas: 0, preenchidas: 0 };
+
+  const agora = Date.now();
+  const linhas = getDb()
+    .prepare(
+      `SELECT id, provider_ref
+         FROM transactions
+        WHERE provider = 'stripe'
+          AND status = 'paid'
+          AND fee_cents IS NULL
+          AND provider_ref IS NOT NULL AND provider_ref <> ''
+          AND COALESCE(paid_at, created_at) BETWEEN ? AND ?
+        ORDER BY COALESCE(paid_at, created_at) DESC
+        LIMIT ?`,
+    )
+    .all(agora - JANELA_MS, agora - CARENCIA_MS, POR_TIQUE) as { id: string; provider_ref: string }[];
+  if (linhas.length === 0) return { conferidas: 0, preenchidas: 0 };
+
+  const stripe = new Stripe(creds.secretKey);
+  let preenchidas = 0;
+  for (const linha of linhas) {
+    try {
+      // A referência gravada é o id da SESSÃO quando a venda passou por um
+      // checkout hospedado (o nosso ou o do sistema de fora) e o do
+      // PaymentIntent quando a cobrança foi criada direto pela API. A busca é
+      // sempre pelo PaymentIntent.
+      let paymentIntentId = linha.provider_ref;
+      if (paymentIntentId.startsWith("cs_")) {
+        const sessao = await stripe.checkout.sessions.retrieve(paymentIntentId);
+        const pi = sessao.payment_intent;
+        const id = typeof pi === "string" ? pi : pi?.id;
+        if (!id) continue;
+        paymentIntentId = id;
+      }
+      const r = await taxasDaCobranca(stripe, paymentIntentId);
+      if (!r.ok) continue;
+      if (completarTaxasDoGateway(linha.id, r.taxas)) preenchidas++;
+    } catch {
+      // Uma venda que não resolve não pode impedir as outras da fila. O
+      // próximo tique tenta de novo, até a janela fechar.
+    }
+  }
+  return { conferidas: linhas.length, preenchidas };
+}

@@ -67,6 +67,9 @@ export async function register() {
     // Geração do Método MK (Prévias e VIP), em lotes: a rota só enfileira (a
     // copy de um dia inteiro não cabe no maxDuration de uma requisição). Os dois
     // dividem UMA fila e um lote por tick — ver generationJobs.ts.
+    // Repescagem das taxas da Stripe: no instante do webhook a cobrança muitas
+    // vezes ainda não liquidou, e taxa/comissão não existem para ser lidas.
+    const { runStripeTaxasPendentes } = await import("@/lib/payments/stripeTaxasCron");
     const { runPreviasGeneration } = await import("@/lib/previasGenerator");
     const { runVipGeneration } = await import("@/lib/vipGenerator");
     // Geração automática da programação do dia seguinte (interruptor por
@@ -138,6 +141,14 @@ export async function register() {
           await runTelegramWebhookWatch();
         } catch (err) {
           console.error("[hotdash] Erro no cron (vigia do webhook):", err);
+        }
+        try {
+          const r = await runStripeTaxasPendentes();
+          if (r.preenchidas > 0) {
+            console.log(`[hotdash] Stripe: taxa e comissão preenchidas em ${r.preenchidas} venda(s).`);
+          }
+        } catch (err) {
+          console.error("[hotdash] Erro no cron (taxas pendentes da Stripe):", err);
         }
         try {
           const r = await runInstagramTokenRefresh();

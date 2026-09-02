@@ -7,6 +7,7 @@ import {
   type MenuEntry,
 } from "./navItems";
 import { DEFAULT_TIME_ZONE, isValidTimeZone } from "./timezone";
+import { SPLIT_RULES_PADRAO, type SplitRules } from "./origemVenda";
 import {
   normalizeNotificationPrefs,
   type NotificationPrefs,
@@ -593,10 +594,48 @@ export function setNotificationPrefs(patch: Partial<NotificationPrefs>): Notific
  * passou a existir, e nascer desligado calaria a atribuição sem ninguém
  * pedir.
  */
-export type VendasExternasSettings = { vincularPeloGrupo: boolean };
+export type VendasExternasSettings = {
+  vincularPeloGrupo: boolean;
+  /**
+   * A TABELA DE REPASSE do parceiro que opera esses bots (hoje o Bobz): um
+   * fixo por transação mais um percentual que MUDA conforme o que foi
+   * vendido. É o que separa funil de LTV numa venda que o Hot-Dash não
+   * operou — ver `origemVenda.ts`.
+   *
+   * Nasce com a tabela que está valendo em produção (R$ 0,75 + 5% no funil,
+   * R$ 0,75 + 20% no LTV), e não zerada: zerada, a classificação sairia
+   * desligada de fábrica e ninguém entenderia por que o LTV não aparece.
+   * Percentual em zero desliga o critério (ver `origemPeloSplit`).
+   */
+  splitFixoCents: number;
+  splitFunilPercent: number;
+  splitLtvPercent: number;
+};
+
+const VENDAS_EXTERNAS_PADRAO: VendasExternasSettings = {
+  vincularPeloGrupo: true,
+  splitFixoCents: SPLIT_RULES_PADRAO.fixoCents,
+  splitFunilPercent: SPLIT_RULES_PADRAO.funilPercent,
+  splitLtvPercent: SPLIT_RULES_PADRAO.ltvPercent,
+};
+
+/** Número guardado, com o padrão valendo quando a chave nem existe — é o caso
+ *  de toda instalação que salvou esse bloco antes destes campos existirem. */
+function numeroOuPadrao(v: unknown, padrao: number): number {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : padrao;
+}
 
 export function getVendasExternasSettings(): VendasExternasSettings {
-  return getJson<VendasExternasSettings>("vendas_externas", { vincularPeloGrupo: true });
+  const bruto = getJson<Partial<VendasExternasSettings>>("vendas_externas", VENDAS_EXTERNAS_PADRAO);
+  return {
+    vincularPeloGrupo:
+      typeof bruto.vincularPeloGrupo === "boolean"
+        ? bruto.vincularPeloGrupo
+        : VENDAS_EXTERNAS_PADRAO.vincularPeloGrupo,
+    splitFixoCents: numeroOuPadrao(bruto.splitFixoCents, VENDAS_EXTERNAS_PADRAO.splitFixoCents),
+    splitFunilPercent: numeroOuPadrao(bruto.splitFunilPercent, VENDAS_EXTERNAS_PADRAO.splitFunilPercent),
+    splitLtvPercent: numeroOuPadrao(bruto.splitLtvPercent, VENDAS_EXTERNAS_PADRAO.splitLtvPercent),
+  };
 }
 
 export function updateVendasExternasSettings(
@@ -606,9 +645,22 @@ export function updateVendasExternasSettings(
   const next: VendasExternasSettings = {
     vincularPeloGrupo:
       patch.vincularPeloGrupo !== undefined ? Boolean(patch.vincularPeloGrupo) : cur.vincularPeloGrupo,
+    splitFixoCents: numeroOuPadrao(patch.splitFixoCents, cur.splitFixoCents),
+    splitFunilPercent: numeroOuPadrao(patch.splitFunilPercent, cur.splitFunilPercent),
+    splitLtvPercent: numeroOuPadrao(patch.splitLtvPercent, cur.splitLtvPercent),
   };
   setJson("vendas_externas", next);
   return next;
+}
+
+/** A mesma tabela, no formato que o classificador consome. */
+export function getSplitRules(): SplitRules {
+  const s = getVendasExternasSettings();
+  return {
+    fixoCents: s.splitFixoCents,
+    funilPercent: s.splitFunilPercent,
+    ltvPercent: s.splitLtvPercent,
+  };
 }
 
 export type FinanceSettings = {

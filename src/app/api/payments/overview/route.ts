@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
-import { getAppTimeZone, getFinanceSettings, getPaymentSettingsPublic } from "@/lib/settings";
+import { getAppTimeZone, getFinanceSettings, getPaymentSettingsPublic, getSplitRules } from "@/lib/settings";
 import { listTransactionsInRange, periodStatsInRange } from "@/lib/transactions";
 import { activeProvider, getProvider } from "@/lib/payments";
 import { getTelegramContactsByTransactions } from "@/lib/telegramDb";
@@ -73,6 +73,10 @@ export async function GET(req: NextRequest) {
        *  moeda restante da mesma conta (BRL do cartão no Brasil, EUR/GBP da
        *  cobrança na moeda do lead). `null` = Stripe não conectada. */
       stripeBalance,
+      /** A tabela de repasse do parceiro que opera bots por fora. Vai junto
+       *  porque é a tela que classifica funil x LTV linha a linha — ver
+       *  `origemDaVenda` em `lib/origemVenda.ts`. */
+      splitRules: getSplitRules(),
       finance: getFinanceSettings(),
     });
   } catch (err) {

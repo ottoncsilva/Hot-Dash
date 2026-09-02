@@ -23,22 +23,17 @@ export type OrigemVenda = "bot" | "ltv" | "painel";
  *
  * O terceiro que opera o bot por fora aparece DUAS vezes porque cobra tabelas
  * diferentes conforme o gateway que liquidou: no PIX da SyncPay o repasse dele
- * é uma coisa, no cartão da Stripe é outra (medido: 0,75 + 5%/20% lá,
- * 0,75 + 10% aqui). Uma tabela só classificaria errado metade das vendas.
+ * é uma coisa, no cartão da Stripe é outra (5% e 10% no funil). Uma tabela só
+ * classificaria errado metade das vendas.
  */
 export type CobradorTaxa = "syncpay" | "stripe" | "terceirosSyncpay" | "terceirosStripe";
 
 /**
- * Taxa fixa por transação (centavos) mais os percentuais que ESSE tipo de
- * venda pode ter.
- *
- * São vários, e não um, porque a tabela combinada e a tabela cobrada nem
- * sempre são a mesma: o funil no cartão está vindo com 10% quando a
- * combinação é 5%. Aceitar os dois fecha o buraco — a venda é classificada
- * tanto hoje quanto no dia em que o terceiro corrigir a cobrança, sem
- * ninguém precisar lembrar de voltar aqui.
+ * Taxa fixa por transação (centavos) mais o percentual sobre a venda, para um
+ * tipo de venda. Um percentual só: cada cobrador tem uma combinação por tipo,
+ * e ela não varia.
  */
-export type LinhaTaxa = { fixoCents: number; percents: number[] };
+export type LinhaTaxa = { fixoCents: number; percent: number };
 
 export type TabelaTaxas = { funil: LinhaTaxa; ltv: LinhaTaxa };
 
@@ -47,22 +42,17 @@ export type TaxasPorCobrador = Record<CobradorTaxa, TabelaTaxas>;
 export const TAXAS_PADRAO: TaxasPorCobrador = {
   // Tabela da SyncPay: R$ 0,80 fixos no PIX. Igual nos dois tipos, então não
   // classifica nada — e é isso mesmo, o gateway não sabe o que foi vendido.
-  syncpay: { funil: { fixoCents: 80, percents: [0] }, ltv: { fixoCents: 80, percents: [0] } },
+  syncpay: { funil: { fixoCents: 80, percent: 0 }, ltv: { fixoCents: 80, percent: 0 } },
   // Tabela da Stripe no cartão brasileiro: R$ 0,39 + 3,99%. Também igual nos
   // dois tipos (conferido numa venda de R$ 24,76 → R$ 1,38 de processamento).
-  stripe: { funil: { fixoCents: 39, percents: [3.99] }, ltv: { fixoCents: 39, percents: [3.99] } },
+  stripe: { funil: { fixoCents: 39, percent: 3.99 }, ltv: { fixoCents: 39, percent: 3.99 } },
 
-  // O fixo de R$ 0,75 é o mesmo nos quatro casos: é a tabela do terceiro, não
-  // varia com gateway nem com tipo de venda.
-  terceirosSyncpay: { funil: { fixoCents: 75, percents: [5] }, ltv: { fixoCents: 75, percents: [20] } },
-  // No cartão o funil aceita 10% E 5%. A combinação é 5%, igual à do PIX, mas
-  // o que está sendo cobrado hoje é 10% — uma venda de R$ 24,76 veio com
-  // R$ 3,23 de tarifa da plataforma, que é 0,75 + 10% na bicada. Os dois
-  // valores juntos classificam a venda antes e depois de eles corrigirem o
-  // erro, sem janela cega no meio.
-  //
-  // 20% continua sendo LTV e só LTV: é o número que não se confunde com nada.
-  terceirosStripe: { funil: { fixoCents: 75, percents: [10, 5] }, ltv: { fixoCents: 75, percents: [20] } },
+  // Tabela do terceiro que opera o bot por fora. O fixo de R$ 0,75 é o mesmo
+  // nos quatro casos; o percentual do FUNIL é que muda com o meio de
+  // pagamento — 5% no PIX, 10% no cartão (confirmado com o próprio terceiro:
+  // é a combinação, não erro de cobrança). No LTV são 20% nos dois.
+  terceirosSyncpay: { funil: { fixoCents: 75, percent: 5 }, ltv: { fixoCents: 75, percent: 20 } },
+  terceirosStripe: { funil: { fixoCents: 75, percent: 10 }, ltv: { fixoCents: 75, percent: 20 } },
 };
 
 /**
@@ -72,18 +62,9 @@ export const TAXAS_PADRAO: TaxasPorCobrador = {
  */
 const TOLERANCIA_CENTS = 2;
 
-/** O que a linha reteria numa venda deste valor, uma resposta por percentual. */
-export function taxasEsperadasCents(amountCents: number, linha: LinhaTaxa): number[] {
-  return linha.percents.map((p) => linha.fixoCents + Math.round((amountCents * p) / 100));
-}
-
-/** A menor distância entre o valor retido e o que a linha produziria. */
-function distancia(amountCents: number, retidoCents: number, linha: LinhaTaxa): number {
-  let melhor = Infinity;
-  for (const esperado of taxasEsperadasCents(amountCents, linha)) {
-    melhor = Math.min(melhor, Math.abs(retidoCents - esperado));
-  }
-  return melhor;
+/** O que a linha reteria numa venda deste valor. */
+export function taxaEsperadaCents(amountCents: number, linha: LinhaTaxa): number {
+  return linha.fixoCents + Math.round((amountCents * linha.percent) / 100);
 }
 
 /**
@@ -99,8 +80,10 @@ export function tipoPelaTaxa(
   tabela: TabelaTaxas,
 ): OrigemVenda | undefined {
   if (retidoCents <= 0 || amountCents <= 0) return undefined;
-  const funilBate = distancia(amountCents, retidoCents, tabela.funil) <= TOLERANCIA_CENTS;
-  const ltvBate = distancia(amountCents, retidoCents, tabela.ltv) <= TOLERANCIA_CENTS;
+  const perto = (linha: LinhaTaxa) =>
+    Math.abs(retidoCents - taxaEsperadaCents(amountCents, linha)) <= TOLERANCIA_CENTS;
+  const funilBate = perto(tabela.funil);
+  const ltvBate = perto(tabela.ltv);
   if (funilBate && ltvBate) return undefined;
   if (ltvBate) return "ltv";
   if (funilBate) return "bot";

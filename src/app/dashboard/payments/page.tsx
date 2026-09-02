@@ -11,7 +11,7 @@ import type { Transaction, PeriodStats } from "@/lib/transactions";
 import type { RelatorioDaTransacao } from "@/lib/externalSaleReport";
 import type { Profile } from "@/lib/types";
 import { maiorSaldoStripe, moedaCents } from "@/lib/stripeSaldo";
-import { origemDaVenda, type OrigemVenda, type SplitRules } from "@/lib/origemVenda";
+import { origemDaVenda, type OrigemVenda } from "@/lib/origemVenda";
 import { DEFAULT_TIME_ZONE } from "@/lib/timezone";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import PageHeader from "@/components/PageHeader";
@@ -129,26 +129,15 @@ type Data = {
     pendingCents?: number;
     outras?: { currency: string; availableCents: number; pendingCents?: number }[];
   } | null;
-  /** A tabela de repasse do parceiro que opera bots por fora (Configurações →
-   *  Pagamentos). É ela que separa funil de LTV nas vendas que não passaram
-   *  pelo checkout do Hot-Dash — ver `origemDaVenda`. */
-  splitRules: SplitRules;
 };
 
 export default function PaymentsPage() {
   const [data, setData] = useState<Data | null>(null);
-  /**
-   * `origemDaVenda` com a tabela de repasse do parceiro já aplicada — é o que
-   * faz uma venda de LTV feita num bot operado por fora aparecer como LTV, e
-   * não como funil (ver `lib/origemVenda.ts`).
-   *
-   * Sem a tabela carregada ainda, classifica só pelo `origin` gravado: a tela
-   * pinta o que já sabe em vez de esperar, e o primeiro render com dados já
-   * chega com a tabela junto.
-   */
+  /** `origemDaVenda` com as tabelas de taxa já aplicadas — é o que faz uma
+   *  venda de LTV feita num bot operado por fora aparecer como LTV. */
   const origemDe = useCallback(
-    (t: Transaction) => origemDaVenda(t, data?.splitRules),
-    [data?.splitRules],
+    (t: Transaction) => origemDaVenda(t, data?.providers.taxas),
+    [data?.providers.taxas],
   );
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [error, setError] = useState<string | null>(null);

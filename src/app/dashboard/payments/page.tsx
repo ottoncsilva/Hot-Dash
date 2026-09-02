@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { apiGet, apiSend } from "@/lib/api";
 import Modal from "@/components/Modal";
+import BuscaRecolhivel from "@/components/BuscaRecolhivel";
 import { MoneyInput } from "@/components/MoneyInput";
 import { IconPlus, IconSettings, IconPayments, IconCopy, IconTrash, IconEdit, IconTelegram, IconReport } from "@/components/icons";
 import type { PaymentSettingsPublic } from "@/lib/settings";
@@ -509,26 +510,22 @@ export default function PaymentsPage() {
       </div>
 
       {/* Lista de PIX gerados */}
-      {/* Tudo encostado à ESQUERDA. Com `justify-between` o rótulo ficava
-          numa ponta e os filtros na outra, separados por meia tela vazia no
-          desktop — pareciam de outro bloco. */}
-      <div className="mt-8 flex flex-wrap items-end gap-x-4 gap-y-3">
+      {/* O RÓTULO numa linha só dele. Dividindo a linha com os filtros ele
+          disputava largura com eles: no tablet, sobrava pouco para os
+          seletores e o texto de cada um era cortado. */}
+      <div className="mt-8">
         <p className="eyebrow">pix gerados</p>
-        {/* A BUSCA sozinha em cima, os seletores numa grade de duas colunas.
-
-            Eram cinco controles em `flex-wrap` com largura de conteúdo: no
-            celular quebravam 2+2+1, com o último órfão numa terceira linha e
-            mais estreito que os outros — o mesmo defeito que o seletor de datas
-            tinha. Aqui o número de seletores VARIA (bot e método só aparecem
-            quando há mais de uma opção), então grade fixa continuaria órfã em
-            número ímpar. A regra abaixo resolve na origem: com contagem ímpar,
-            o último ocupa as duas colunas. Nunca sobra um sozinho e estreito. */}
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-end">
-          <input
-            className="input w-full py-1.5 text-xs sm:w-56"
+        <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-3">
+        {/* No celular, a busca e a caixa de marcar em cima e os seletores numa
+            grade de duas colunas. O número de seletores VARIA (bot e método só
+            aparecem quando há mais de uma opção), então grade fixa deixaria um
+            órfão sozinho e estreito em contagem ímpar — daí a regra do
+            `col-span-2` no último. Do `sm` em diante vira uma linha só. */}
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-nowrap sm:items-end">
+          <BuscaRecolhivel
+            valor={busca}
+            onChange={setBusca}
             placeholder="Buscar cliente, produto, bot..."
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
           />
 
           {/* CAIXA DE MARCAR, não lista. Eram três opções ("todos", "sim",
@@ -553,7 +550,7 @@ export default function PaymentsPage() {
               seletores.push(
                 <select
                   key="bot"
-                  className="input w-full py-1.5 text-xs"
+                  className="input w-full py-1.5 text-xs sm:w-auto"
                   aria-label="Filtrar por bot"
                   value={botFilter}
                   onChange={(e) => setBotFilter(e.target.value)}
@@ -568,7 +565,7 @@ export default function PaymentsPage() {
               seletores.push(
                 <select
                   key="metodo"
-                  className="input w-full py-1.5 text-xs"
+                  className="input w-full py-1.5 text-xs sm:w-auto"
                   aria-label="Filtrar por método"
                   value={methodFilter}
                   onChange={(e) => setMethodFilter(e.target.value)}
@@ -582,7 +579,7 @@ export default function PaymentsPage() {
             seletores.push(
               <label
                 key="ver-funil"
-                className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors [@media(pointer:coarse)]:min-h-[44px] ${
+                className={`flex w-full cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs transition-colors sm:w-auto [@media(pointer:coarse)]:min-h-[44px] ${
                   verFunil
                     ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
                     : "border-white/10 text-zinc-500 hover:bg-white/5"
@@ -599,7 +596,7 @@ export default function PaymentsPage() {
               </label>,
               <label
                 key="ver-ltv"
-                className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors [@media(pointer:coarse)]:min-h-[44px] ${
+                className={`flex w-full cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs transition-colors sm:w-auto [@media(pointer:coarse)]:min-h-[44px] ${
                   verLtv
                     ? "border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300"
                     : "border-white/10 text-zinc-500 hover:bg-white/5"
@@ -616,7 +613,7 @@ export default function PaymentsPage() {
               </label>,
               <select
                 key="ordem"
-                className="input w-full py-1.5 text-xs"
+                className="input w-full py-1.5 text-xs sm:w-auto"
                 aria-label="Ordenar"
                 value={sort}
                 onChange={(e) => setSort(e.target.value as SortKey)}
@@ -628,11 +625,18 @@ export default function PaymentsPage() {
             );
             const impar = seletores.length % 2 === 1;
             return (
-              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-nowrap sm:items-end">
+              /* Duas colunas no celular; do `sm` em diante, UMA LINHA.
+                 O que quebrava antes não era a linha única e sim a falta de
+                 `shrink-0`: os controles se espremiam abaixo da largura do
+                 próprio texto e saía "Bot: todo", "Métc", "Geração (m" e a
+                 etiqueta "Vendas Funil" quebrando em duas por dentro da borda.
+                 Sem encolher, cada um fica do tamanho do que escreve — e cabem
+                 porque a busca virou lupa e devolveu a largura dela. */
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:max-w-full sm:flex-nowrap sm:items-end sm:overflow-x-auto">
                 {seletores.map((sel, i) => (
                   <div
                     key={i}
-                    className={`min-w-0 sm:w-auto ${impar && i === seletores.length - 1 ? "col-span-2" : ""}`}
+                    className={`min-w-0 sm:w-auto sm:shrink-0 ${impar && i === seletores.length - 1 ? "col-span-2 sm:col-span-1" : ""}`}
                   >
                     {sel}
                   </div>
@@ -668,6 +672,7 @@ export default function PaymentsPage() {
               Limpar
             </button>
           )}
+        </div>
         </div>
       </div>
 

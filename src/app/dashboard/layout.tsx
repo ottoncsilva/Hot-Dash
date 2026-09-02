@@ -78,6 +78,7 @@ const SETTINGS_SUBSECTIONS: { label: string; anchor: string }[] = [
   { label: "Status de modelos", anchor: "status" },
   { label: "Pagamentos", anchor: "pagamentos" },
   { label: "Links da Bio", anchor: "slt" },
+  { label: "Redes sociais", anchor: "redes-sociais" },
   { label: "Conexão com IA", anchor: "ia" },
   { label: "Conexões do LTV", anchor: "whatsapp" },
   { label: "Segurança", anchor: "seguranca" },

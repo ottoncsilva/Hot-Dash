@@ -28,15 +28,19 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     await requireUser(req);
+    // SEM modelo é um pedido legítimo: a tela de Configurações → Redes sociais
+    // cuida do aplicativo da Meta, que é um só para todas, e não tem modelo
+    // selecionada nem precisa de conta nenhuma para funcionar.
     const profileId = req.nextUrl.searchParams.get("profileId");
-    if (!profileId) throw new ApiError(400, "Informe a modelo.");
 
-    const perfil = await getProfile(profileId);
+    const perfil = profileId ? await getProfile(profileId) : null;
     const app = getInstagramAppSettings();
     // Perguntado à Meta, não deduzido: a tela precisa dizer "conferi agora",
     // não "acho que configurei". Sem App ID/segredo não há o que perguntar.
     const webhook = app.appId && app.hasSecret ? await statusDoWebhook() : null;
-    const contas = listAccounts(profileId).map((c) => ({ ...c, settings: getAgentSettings(c.id) }));
+    const contas = profileId
+      ? listAccounts(profileId).map((c) => ({ ...c, settings: getAgentSettings(c.id) }))
+      : [];
     const conectadas = new Set(contas.map((c) => (c.username || "").toLowerCase()).filter(Boolean));
 
     return NextResponse.json({

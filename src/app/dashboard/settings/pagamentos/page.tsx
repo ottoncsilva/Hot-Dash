@@ -26,33 +26,21 @@ type TodasTaxasForm = Record<CobradorTaxa, TaxasForm>;
 
 const TAXAS_FORM_VAZIO: TaxasForm = { funilFixo: "", funilPct: "", ltvFixo: "", ltvPct: "" };
 
-/** "10, 5" — mais de um percentual por tipo quando o cobrador aceita mais de
- *  um (ver `LinhaTaxa`). Um só continua sendo só "10". */
-function pctsParaTexto(p: number[]): string {
-  return p.join(", ");
-}
-
-function textoParaPcts(v: string): number[] {
-  return v
-    .split(/[,;/]| ou /i)
-    .map((x) => Number(x.replace(",", ".").trim()))
-    .filter((n) => Number.isFinite(n) && n >= 0);
-}
-
 function taxasParaForm(t: TabelaTaxas): TaxasForm {
   return {
     funilFixo: (t.funil.fixoCents / 100).toFixed(2),
-    funilPct: pctsParaTexto(t.funil.percents),
+    funilPct: String(t.funil.percent),
     ltvFixo: (t.ltv.fixoCents / 100).toFixed(2),
-    ltvPct: pctsParaTexto(t.ltv.percents),
+    ltvPct: String(t.ltv.percent),
   };
 }
 
 function formParaTaxas(f: TaxasForm): TabelaTaxas {
   const c = (v: string) => Math.round((Number(v.replace(",", ".")) || 0) * 100);
+  const p = (v: string) => Number(v.replace(",", ".")) || 0;
   return {
-    funil: { fixoCents: c(f.funilFixo), percents: textoParaPcts(f.funilPct) },
-    ltv: { fixoCents: c(f.ltvFixo), percents: textoParaPcts(f.ltvPct) },
+    funil: { fixoCents: c(f.funilFixo), percent: p(f.funilPct) },
+    ltv: { fixoCents: c(f.ltvFixo), percent: p(f.ltvPct) },
   };
 }
 
@@ -78,9 +66,8 @@ function TaxasBlock({ valor, onChange }: { valor: TaxasForm; onChange: (v: Taxas
       <div className="relative">
         <input
           inputMode="decimal"
-          className="input w-24 py-1.5 pr-6 text-sm"
+          className="input w-20 py-1.5 pr-6 text-sm"
           placeholder="0"
-          title="Mais de um percentual, separados por vírgula (ex.: 10, 5)"
           value={valor[pct]}
           onChange={(e) => onChange({ ...valor, [pct]: e.target.value })}
           aria-label={`Percentual ${rotulo}`}
@@ -92,7 +79,6 @@ function TaxasBlock({ valor, onChange }: { valor: TaxasForm; onChange: (v: Taxas
   return (
     <div className="mt-4 panel p-3">
       <p className="eyebrow">taxas — o que ele retém</p>
-      <p className="mt-1 text-[11px] text-zinc-600">Mais de um percentual: separe por vírgula.</p>
       <div className="mt-2 space-y-1.5">
         {linha("funil", "funilFixo", "funilPct")}
         {linha("ltv", "ltvFixo", "ltvPct")}

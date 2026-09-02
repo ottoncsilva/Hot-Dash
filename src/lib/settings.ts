@@ -7,7 +7,13 @@ import {
   type MenuEntry,
 } from "./navItems";
 import { DEFAULT_TIME_ZONE, isValidTimeZone } from "./timezone";
-import { SPLIT_RULES_PADRAO, type SplitRules } from "./origemVenda";
+import {
+  TAXAS_PADRAO,
+  type CobradorTaxa,
+  type LinhaTaxa,
+  type TabelaTaxas,
+  type TaxasPorCobrador,
+} from "./origemVenda";
 import {
   normalizeNotificationPrefs,
   type NotificationPrefs,
@@ -358,6 +364,9 @@ export type PaymentSettingsPublic = {
     hasSecretKey: boolean;
     hasWebhookSecret: boolean;
   };
+  /** O que cada cobrador retém, por tipo de venda — é o que separa funil de
+   *  LTV nas vendas que o Hot-Dash não operou. Ver `origemVenda.ts`. */
+  taxas: TaxasPorCobrador;
 };
 
 type PaymentSettingsStored = {
@@ -372,7 +381,16 @@ type PaymentSettingsStored = {
     secretKeyEnc?: string;
     webhookSecretEnc?: string;
   };
+  /** O que cada cobrador retém, por tipo de venda. Ver `origemVenda.ts`. */
+  taxas?: Partial<Record<CobradorTaxa, Partial<TabelaTaxas>>>;
 };
+
+const COBRADORES: CobradorTaxa[] = ["syncpay", "stripe", "terceiros"];
+
+function linhaTaxa(bruto: Partial<LinhaTaxa> | undefined, padrao: LinhaTaxa): LinhaTaxa {
+  const n = (v: unknown, p: number) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : p);
+  return { fixoCents: n(bruto?.fixoCents, padrao.fixoCents), percent: n(bruto?.percent, padrao.percent) };
+}
 
 function rawPayments(): PaymentSettingsStored {
   const s = getJson<PaymentSettingsStored>("payments", {
@@ -422,7 +440,23 @@ export function getPaymentSettingsPublic(): PaymentSettingsPublic {
       hasSecretKey: Boolean(s.stripe?.secretKeyEnc),
       hasWebhookSecret: Boolean(s.stripe?.webhookSecretEnc),
     },
+    taxas: getTaxas(),
   };
+}
+
+/** As tabelas de taxa, campo a campo, com o padrão valendo onde nada foi
+ *  cadastrado — inclusive numa instalação anterior a elas existirem. */
+export function getTaxas(): TaxasPorCobrador {
+  const guardado = rawPayments().taxas || {};
+  return Object.fromEntries(
+    COBRADORES.map((c) => [
+      c,
+      {
+        funil: linhaTaxa(guardado[c]?.funil, TAXAS_PADRAO[c].funil),
+        ltv: linhaTaxa(guardado[c]?.ltv, TAXAS_PADRAO[c].ltv),
+      },
+    ]),
+  ) as TaxasPorCobrador;
 }
 
 /** Credenciais descriptografadas da SyncPay (uso server-side apenas). */
@@ -462,8 +496,22 @@ export function getStripeCredentials(): {
 export function updatePaymentSettings(patch: {
   syncpay?: { enabled?: boolean; clientId?: string; clientSecret?: string };
   stripe?: { enabled?: boolean; secretKey?: string; webhookSecret?: string };
+  taxas?: Partial<Record<CobradorTaxa, Partial<TabelaTaxas>>>;
 }): PaymentSettingsPublic {
   const s = rawPayments();
+
+  if (patch.taxas) {
+    const atual = getTaxas();
+    s.taxas = Object.fromEntries(
+      COBRADORES.map((c) => [
+        c,
+        {
+          funil: linhaTaxa(patch.taxas?.[c]?.funil, atual[c].funil),
+          ltv: linhaTaxa(patch.taxas?.[c]?.ltv, atual[c].ltv),
+        },
+      ]),
+    ) as TaxasPorCobrador;
+  }
 
   if (patch.syncpay) {
     if (patch.syncpay.enabled !== undefined)
@@ -594,48 +642,10 @@ export function setNotificationPrefs(patch: Partial<NotificationPrefs>): Notific
  * passou a existir, e nascer desligado calaria a atribuição sem ninguém
  * pedir.
  */
-export type VendasExternasSettings = {
-  vincularPeloGrupo: boolean;
-  /**
-   * A TABELA DE REPASSE do parceiro que opera esses bots (hoje o Bobz): um
-   * fixo por transação mais um percentual que MUDA conforme o que foi
-   * vendido. É o que separa funil de LTV numa venda que o Hot-Dash não
-   * operou — ver `origemVenda.ts`.
-   *
-   * Nasce com a tabela que está valendo em produção (R$ 0,75 + 5% no funil,
-   * R$ 0,75 + 20% no LTV), e não zerada: zerada, a classificação sairia
-   * desligada de fábrica e ninguém entenderia por que o LTV não aparece.
-   * Percentual em zero desliga o critério (ver `origemPeloSplit`).
-   */
-  splitFixoCents: number;
-  splitFunilPercent: number;
-  splitLtvPercent: number;
-};
-
-const VENDAS_EXTERNAS_PADRAO: VendasExternasSettings = {
-  vincularPeloGrupo: true,
-  splitFixoCents: SPLIT_RULES_PADRAO.fixoCents,
-  splitFunilPercent: SPLIT_RULES_PADRAO.funilPercent,
-  splitLtvPercent: SPLIT_RULES_PADRAO.ltvPercent,
-};
-
-/** Número guardado, com o padrão valendo quando a chave nem existe — é o caso
- *  de toda instalação que salvou esse bloco antes destes campos existirem. */
-function numeroOuPadrao(v: unknown, padrao: number): number {
-  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : padrao;
-}
+export type VendasExternasSettings = { vincularPeloGrupo: boolean };
 
 export function getVendasExternasSettings(): VendasExternasSettings {
-  const bruto = getJson<Partial<VendasExternasSettings>>("vendas_externas", VENDAS_EXTERNAS_PADRAO);
-  return {
-    vincularPeloGrupo:
-      typeof bruto.vincularPeloGrupo === "boolean"
-        ? bruto.vincularPeloGrupo
-        : VENDAS_EXTERNAS_PADRAO.vincularPeloGrupo,
-    splitFixoCents: numeroOuPadrao(bruto.splitFixoCents, VENDAS_EXTERNAS_PADRAO.splitFixoCents),
-    splitFunilPercent: numeroOuPadrao(bruto.splitFunilPercent, VENDAS_EXTERNAS_PADRAO.splitFunilPercent),
-    splitLtvPercent: numeroOuPadrao(bruto.splitLtvPercent, VENDAS_EXTERNAS_PADRAO.splitLtvPercent),
-  };
+  return getJson<VendasExternasSettings>("vendas_externas", { vincularPeloGrupo: true });
 }
 
 export function updateVendasExternasSettings(
@@ -645,22 +655,9 @@ export function updateVendasExternasSettings(
   const next: VendasExternasSettings = {
     vincularPeloGrupo:
       patch.vincularPeloGrupo !== undefined ? Boolean(patch.vincularPeloGrupo) : cur.vincularPeloGrupo,
-    splitFixoCents: numeroOuPadrao(patch.splitFixoCents, cur.splitFixoCents),
-    splitFunilPercent: numeroOuPadrao(patch.splitFunilPercent, cur.splitFunilPercent),
-    splitLtvPercent: numeroOuPadrao(patch.splitLtvPercent, cur.splitLtvPercent),
   };
   setJson("vendas_externas", next);
   return next;
-}
-
-/** A mesma tabela, no formato que o classificador consome. */
-export function getSplitRules(): SplitRules {
-  const s = getVendasExternasSettings();
-  return {
-    fixoCents: s.splitFixoCents,
-    funilPercent: s.splitFunilPercent,
-    ltvPercent: s.splitLtvPercent,
-  };
 }
 
 export type FinanceSettings = {

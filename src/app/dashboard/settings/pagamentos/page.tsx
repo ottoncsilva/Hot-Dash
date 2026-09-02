@@ -6,19 +6,12 @@ import { IconLock } from "@/components/icons";
 import Switch from "@/components/Switch";
 import { MoneyInput, type MoneyCurrency } from "@/components/MoneyInput";
 import type { PaymentSettingsPublic } from "@/lib/settings";
+import type { CobradorTaxa, TabelaTaxas } from "@/lib/origemVenda";
 import { BackToSettings, ConnectionBadge, KeyLabel, WebhookDiaryPanel } from "../_shared";
 import { showToast } from "@/lib/toast";
 
 function brl(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-/** O split que a tabela produziria numa venda de R$ 100 — a conferência que o
- *  operador faz contra o extrato do gateway sem sair da tela. */
-function previaSplit(fixoReais: string, percent: string): string {
-  const fixo = Math.round((Number(fixoReais.replace(",", ".")) || 0) * 100);
-  const pct = Number(percent.replace(",", ".")) || 0;
-  return brl(fixo + Math.round((10000 * pct) / 100));
 }
 
 function usd(cents: number) {
@@ -27,13 +20,72 @@ function usd(cents: number) {
 
 type LastPaid = { at: number; amountCents: number; customer?: string } | null;
 
-/** O que a rota de vendas externas devolve — interruptor e tabela de repasse. */
-type VendasExternasResp = {
-  vincularPeloGrupo: boolean;
-  splitFixoCents: number;
-  splitFunilPercent: number;
-  splitLtvPercent: number;
-};
+/** Os 4 campos de taxa de um cobrador, como texto de formulário. */
+type TaxasForm = { funilFixo: string; funilPct: string; ltvFixo: string; ltvPct: string };
+type TodasTaxasForm = Record<CobradorTaxa, TaxasForm>;
+
+const TAXAS_FORM_VAZIO: TaxasForm = { funilFixo: "", funilPct: "", ltvFixo: "", ltvPct: "" };
+
+function taxasParaForm(t: TabelaTaxas): TaxasForm {
+  return {
+    funilFixo: (t.funil.fixoCents / 100).toFixed(2),
+    funilPct: String(t.funil.percent),
+    ltvFixo: (t.ltv.fixoCents / 100).toFixed(2),
+    ltvPct: String(t.ltv.percent),
+  };
+}
+
+function formParaTaxas(f: TaxasForm): TabelaTaxas {
+  const c = (v: string) => Math.round((Number(v.replace(",", ".")) || 0) * 100);
+  const p = (v: string) => Number(v.replace(",", ".")) || 0;
+  return {
+    funil: { fixoCents: c(f.funilFixo), percent: p(f.funilPct) },
+    ltv: { fixoCents: c(f.ltvFixo), percent: p(f.ltvPct) },
+  };
+}
+
+/**
+ * As 4 taxas de um cobrador. Duas linhas com valores DIFERENTES são o que
+ * permite ao Financeiro dizer se uma venda de bot operado por fora foi funil
+ * ou LTV — ver `lib/origemVenda.ts`. Linhas iguais desligam o critério.
+ */
+function TaxasBlock({ valor, onChange }: { valor: TaxasForm; onChange: (v: TaxasForm) => void }) {
+  const linha = (
+    rotulo: string,
+    fixo: keyof TaxasForm,
+    pct: keyof TaxasForm,
+  ) => (
+    <div className="flex items-center gap-2">
+      <span className="w-10 font-mono text-[10px] uppercase tracking-wider text-zinc-600">{rotulo}</span>
+      <MoneyInput
+        className="w-24 py-1.5 text-sm"
+        placeholder="0,00"
+        value={valor[fixo]}
+        onChange={(v) => onChange({ ...valor, [fixo]: v })}
+      />
+      <div className="relative">
+        <input
+          inputMode="decimal"
+          className="input w-20 py-1.5 pr-6 text-sm"
+          placeholder="0"
+          value={valor[pct]}
+          onChange={(e) => onChange({ ...valor, [pct]: e.target.value })}
+          aria-label={`Percentual ${rotulo}`}
+        />
+        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-600">%</span>
+      </div>
+    </div>
+  );
+  return (
+    <div className="mt-4 panel p-3">
+      <p className="eyebrow">taxas — o que ele retém</p>
+      <div className="mt-2 space-y-1.5">
+        {linha("funil", "funilFixo", "funilPct")}
+        {linha("ltv", "ltvFixo", "ltvPct")}
+      </div>
+    </div>
+  );
+}
 
 export default function PaymentSettingsPage() {
   // Vínculo pelo Canal de Vendas — salva SOZINHO no clique (não espera o
@@ -42,63 +94,24 @@ export default function PaymentSettingsPage() {
   // real, pra não piscar "desligado" e o operador achar que está desligado.
   const [vincularPeloGrupo, setVincularPeloGrupo] = useState<boolean | null>(null);
   const [vinculoSalvando, setVinculoSalvando] = useState(false);
-  // A TABELA DE REPASSE do parceiro. Vem do mesmo lugar que o interruptor
-  // (é o mesmo assunto: venda que veio de fora), mas salva no botão e não no
-  // clique: são três campos que só fazem sentido juntos, e salvar a cada
-  // tecla gravaria estados pela metade.
-  const [splitFixoReais, setSplitFixoReais] = useState("");
-  const [splitFunilPct, setSplitFunilPct] = useState("");
-  const [splitLtvPct, setSplitLtvPct] = useState("");
-  const [splitSalvando, setSplitSalvando] = useState(false);
+  // As tabelas de taxa dos três cobradores. Salvam no botão "Salvar
+  // pagamentos", junto das chaves — são campos dos mesmos cards.
+  const [taxas, setTaxas] = useState<TodasTaxasForm>({
+    syncpay: TAXAS_FORM_VAZIO,
+    stripe: TAXAS_FORM_VAZIO,
+    terceiros: TAXAS_FORM_VAZIO,
+  });
 
   useEffect(() => {
-    apiGet<{ vendasExternas: VendasExternasResp }>("/api/payments/vendas-externas")
-      .then((r) => {
-        setVincularPeloGrupo(r.vendasExternas.vincularPeloGrupo);
-        setSplitFixoReais((r.vendasExternas.splitFixoCents / 100).toFixed(2));
-        setSplitFunilPct(String(r.vendasExternas.splitFunilPercent));
-        setSplitLtvPct(String(r.vendasExternas.splitLtvPercent));
-      })
+    apiGet<{ vendasExternas: { vincularPeloGrupo: boolean } }>("/api/payments/vendas-externas")
+      .then((r) => setVincularPeloGrupo(r.vendasExternas.vincularPeloGrupo))
       .catch(() => setVincularPeloGrupo(true));
   }, []);
-
-  async function salvarSplit() {
-    const pct = (v: string) => Number(v.replace(",", "."));
-    const funil = pct(splitFunilPct);
-    const ltv = pct(splitLtvPct);
-    const fixoCents = Math.round((Number(splitFixoReais.replace(",", ".")) || 0) * 100);
-    if (!Number.isFinite(funil) || !Number.isFinite(ltv) || funil < 0 || ltv < 0) {
-      showToast("Percentual inválido.", "error");
-      return;
-    }
-    // Dois percentuais iguais não separam nada, e o classificador ignoraria a
-    // tabela inteira em silêncio. Melhor recusar aqui, onde dá pra explicar.
-    if (funil === ltv) {
-      showToast("Os dois percentuais são iguais — assim não dá pra separar funil de LTV.", "error");
-      return;
-    }
-    setSplitSalvando(true);
-    try {
-      const r = await apiSend<{ vendasExternas: VendasExternasResp }>(
-        "/api/payments/vendas-externas",
-        "PATCH",
-        { splitFixoCents: fixoCents, splitFunilPercent: funil, splitLtvPercent: ltv },
-      );
-      setSplitFixoReais((r.vendasExternas.splitFixoCents / 100).toFixed(2));
-      setSplitFunilPct(String(r.vendasExternas.splitFunilPercent));
-      setSplitLtvPct(String(r.vendasExternas.splitLtvPercent));
-      showToast("Tabela de repasse salva.", "success");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Falha ao salvar.", "error");
-    } finally {
-      setSplitSalvando(false);
-    }
-  }
 
   async function alternarVinculo(valor: boolean) {
     setVinculoSalvando(true);
     try {
-      const r = await apiSend<{ vendasExternas: VendasExternasResp }>(
+      const r = await apiSend<{ vendasExternas: { vincularPeloGrupo: boolean } }>(
         "/api/payments/vendas-externas",
         "PATCH",
         { vincularPeloGrupo: valor },
@@ -167,6 +180,11 @@ export default function PaymentSettingsPage() {
         setSyncEnabled(d.settings.syncpay.enabled);
         setSyncClientId(d.settings.syncpay.clientId);
         setStripeEnabled(d.settings.stripe.enabled);
+        setTaxas({
+          syncpay: taxasParaForm(d.settings.taxas.syncpay),
+          stripe: taxasParaForm(d.settings.taxas.stripe),
+          terceiros: taxasParaForm(d.settings.taxas.terceiros),
+        });
         setLastPaid(d.lastPaid);
       })
       .catch(() => {});
@@ -360,9 +378,19 @@ export default function PaymentSettingsPage() {
             ...(stripeSecretKey ? { secretKey: stripeSecretKey } : {}),
             ...(stripeWebhookSecret ? { webhookSecret: stripeWebhookSecret } : {}),
           },
+          taxas: {
+            syncpay: formParaTaxas(taxas.syncpay),
+            stripe: formParaTaxas(taxas.stripe),
+            terceiros: formParaTaxas(taxas.terceiros),
+          },
         },
       );
       setCfg(settings);
+      setTaxas({
+        syncpay: taxasParaForm(settings.taxas.syncpay),
+        stripe: taxasParaForm(settings.taxas.stripe),
+        terceiros: taxasParaForm(settings.taxas.terceiros),
+      });
       setSyncClientSecret("");
       setStripeSecretKey("");
       setStripeWebhookSecret("");
@@ -390,18 +418,9 @@ export default function PaymentSettingsPage() {
         <div className="mt-1.5 flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white">Vincular pelo Canal de Vendas</p>
-            <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-              Venda cobrada por um bot que outro sistema opera (ex.: o Bobz) chega no Financeiro só pelo
-              webhook da SyncPay/Stripe, sem dizer de quem é — e nasce como <b className="text-amber-400/90">Sem
-              modelo</b>. Ligado, o Hot-Dash lê o relatório que esse sistema posta no Canal de Vendas e usa o
-              ID da transação para atribuir a venda ao modelo, ao bot e ao lead certos. Não intercepta o bot
-              de ninguém: só lê uma mensagem de canal.
-            </p>
-            <p className="mt-2 text-xs leading-relaxed text-zinc-600">
-              Exige o token do bot cadastrado no Hot-Dash (mesmo com o controle total desligado) e o Canal de
-              Vendas preenchido no cadastro. Relatório de bot que o próprio Hot-Dash opera é ignorado — essa
-              venda já nasce atribuída. Desligado, nada é atribuído sozinho e a importação de histórico
-              também para.
+            <p className="mt-1 text-xs text-zinc-500">
+              Atribui ao modelo certo a venda de bot que outro sistema opera, lendo o relatório do Canal de
+              Vendas. Exige o token do bot cadastrado aqui e o Canal de Vendas preenchido.
             </p>
           </div>
           <div className="shrink-0 pt-0.5">
@@ -415,97 +434,13 @@ export default function PaymentSettingsPage() {
         </div>
       </div>
 
-      {/* TABELA DE REPASSE do parceiro. Mora colada no interruptor acima porque
-          é o mesmo assunto — a venda que veio de fora — e é o que permite ao
-          Financeiro separar funil de LTV nessas cobranças. Fica em
-          configuração, e não no código, porque renegociar comissão é conversa
-          comercial: mudou aqui, o histórico inteiro se reclassifica sozinho na
-          próxima abertura da tela. */}
-      <div className="mt-4 card p-4">
-        <p className="eyebrow">tabela de repasse do parceiro</p>
-        <p className="mt-1.5 text-sm font-semibold text-white">Como separar funil de LTV</p>
-        <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-          Numa venda de bot operado por fora, o gateway não diz o que foi vendido — mas o parceiro cobra
-          comissões diferentes por tipo de venda, e o quanto ele reteve fica gravado em cada transação
-          (coluna <b className="text-zinc-400">Split</b>). Dado o valor da venda, só uma das duas tabelas
-          produz aquele split: é assim que o Financeiro sabe qual venda é LTV.
-        </p>
-        <p className="mt-2 text-xs leading-relaxed text-zinc-600">
-          Vale só onde existe split. Venda de bot que o próprio Hot-Dash opera não passa pelo parceiro,
-          vem com split zero, e continua valendo a origem que já foi gravada na hora do checkout. Split que
-          não bate com nenhuma das duas tabelas fica sem classificação, em vez de entrar no balde errado.
-        </p>
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-              fixo por transação
-            </span>
-            <MoneyInput
-              className="w-28 py-1.5 text-sm"
-              placeholder="0,75"
-              value={splitFixoReais}
-              onChange={setSplitFixoReais}
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-              % no funil
-            </span>
-            <div className="relative">
-              <input
-                inputMode="decimal"
-                className="input w-24 py-1.5 pr-7 text-sm"
-                placeholder="5"
-                value={splitFunilPct}
-                onChange={(e) => setSplitFunilPct(e.target.value)}
-              />
-              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-600">%</span>
-            </div>
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
-              % no ltv
-            </span>
-            <div className="relative">
-              <input
-                inputMode="decimal"
-                className="input w-24 py-1.5 pr-7 text-sm"
-                placeholder="20"
-                value={splitLtvPct}
-                onChange={(e) => setSplitLtvPct(e.target.value)}
-              />
-              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-600">%</span>
-            </div>
-          </label>
-          <button
-            type="button"
-            onClick={salvarSplit}
-            disabled={splitSalvando}
-            className="btn-ghost py-2 text-xs disabled:opacity-40"
-          >
-            {splitSalvando ? "Salvando..." : "Salvar tabela"}
-          </button>
-        </div>
-        {/* A conferência. O operador cadastra os números e vê na hora o que
-            eles produzem numa venda de R$ 100 — que é como ele confere contra
-            o extrato do gateway, sem precisar abrir o Financeiro. */}
-        <p className="mt-3 text-[11px] text-zinc-600">
-          Numa venda de <span className="font-mono text-zinc-500">R$ 100,00</span>, isto dá split de{" "}
-          <span className="font-mono text-emerald-400/80">{previaSplit(splitFixoReais, splitFunilPct)}</span>{" "}
-          no funil e <span className="font-mono text-fuchsia-400/80">{previaSplit(splitFixoReais, splitLtvPct)}</span>{" "}
-          no LTV.
-        </p>
-      </div>
-
       <ImportarHistoricoCard />
 
       {/* Meta do mês. Mora aqui porque é número financeiro, mas quem a usa é o
           Dashboard — lá ela vira a barra de progresso do faturamento. */}
       <div className="mt-4 card p-4">
         <p className="eyebrow">meta de faturamento</p>
-        <p className="mt-1 text-xs text-zinc-500">
-          Vira a barra de progresso do Dashboard. Vazio ou zero, sem meta.
-        </p>
+        <p className="mt-1 text-xs text-zinc-500">Barra de progresso do Dashboard. Zero = sem meta.</p>
         <div className="mt-3 flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-1">
             <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
@@ -567,15 +502,14 @@ export default function PaymentSettingsPage() {
           enabled={syncEnabled}
         />
 
+        <TaxasBlock valor={taxas.syncpay} onChange={(v) => setTaxas((t) => ({ ...t, syncpay: v }))} />
+
         {/* Webhook de recebimento — alimenta o Financeiro e o Dashboard */}
         <div className="mt-4 panel p-3">
           <p className="eyebrow">webhook de recebimento</p>
           <p className="mt-1.5 text-xs text-zinc-500">
-            Cole esta URL na SyncPay em <b>Developer → API → Webhooks</b> (campo
-            “Url alvo do disparo”), evento <b>Recebimento — Cash in</b>, com
-            “Disparar para todos os produtos” ativo. Esse cadastro é{" "}
-            <b>por conta, não por cobrança</b>: uma vez colado, a SyncPay avisa o
-            Hot-Dash de <b>toda</b> venda paga, tenha o PIX saído de onde tiver saído. É o que alimenta o Dashboard, e funciona mesmo sem o bot de vendas.
+            Cole na SyncPay em <b>Developer → API → Webhooks</b>, evento <b>Recebimento — Cash in</b>, com
+            “Disparar para todos os produtos” ativo. Vale por conta: avisa de toda venda paga.
           </p>
           <div className="mt-2.5 flex items-center gap-2">
             <input
@@ -612,8 +546,7 @@ export default function PaymentSettingsPage() {
                 </p>
               ) : (
                 <p className="mt-0.5 text-xs text-amber-300">
-                  Nenhuma venda registrada. Se já tem vendas pagas na SyncPay, confira se colou a URL acima no painel
-                  dela.
+                  Nenhuma venda registrada — confira se a URL acima está colada no painel da SyncPay.
                 </p>
               )}
             </div>
@@ -630,9 +563,7 @@ export default function PaymentSettingsPage() {
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
                   Saldo na SyncPay
                 </p>
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  Testa a consulta de saldo e mostra a resposta crua do gateway.
-                </p>
+                <p className="mt-0.5 text-xs text-zinc-500">Resposta crua do gateway.</p>
               </div>
               <button type="button" onClick={testarSaldo} className="btn-ghost shrink-0 px-3 py-1.5 text-xs">
                 {saldoBusy ? "Consultando..." : "Testar saldo"}
@@ -654,8 +585,7 @@ export default function PaymentSettingsPage() {
                   Eventos assinados na SyncPay
                 </p>
                 <p className="mt-0.5 text-xs text-zinc-500">
-                  O evento de cada cadastro decide o que chega aqui. O ideal é{" "}
-                  <b>cashin</b> — <b>all</b> traz também os saques, que não são venda.
+                  O ideal é <b>cashin</b>: <b>all</b> traz saques junto, que não são venda.
                 </p>
               </div>
               <button type="button" onClick={carregarCadastrados} className="btn-ghost shrink-0 px-3 py-1.5 text-xs">
@@ -685,7 +615,7 @@ export default function PaymentSettingsPage() {
                   ))}
                   {cadastrados.lista.some((w) => w.event !== "cashin") && (
                     <p className="text-[11px] text-amber-400/80">
-                      Há cadastro com evento diferente de <b>cashin</b>: é por ele que chegam saques e outros movimentos. Ajuste no painel da SyncPay.
+                      Cadastro com evento diferente de <b>cashin</b> traz saques. Ajuste no painel da SyncPay.
                     </p>
                   )}
                 </div>
@@ -697,7 +627,7 @@ export default function PaymentSettingsPage() {
               aqui que dá para ver qual campo distingue venda de saque. */}
           <WebhookDiaryPanel
             provider="syncpay"
-            descricao='O que a SyncPay mandou e o que o sistema fez com cada evento — "relevante" é o que já entra no Financeiro hoje (venda); o resto (ex.: saque) fica em "Todos".'
+            descricao='O que a SyncPay mandou e o que o sistema fez. "Relevante" = o que vira venda.'
           />
 
           {/* Importar o export da SyncPay: única fonte do valor líquido do
@@ -707,9 +637,8 @@ export default function PaymentSettingsPage() {
               Importar histórico da SyncPay
             </p>
             <p className="mt-0.5 text-xs text-zinc-500">
-              O Financeiro já calcula taxa e líquido sozinho (R$&nbsp;0,80 até R$&nbsp;100; + 1,99% acima).
-              Importe só para bater com os números exatos do painel dela: gere a
-              <b> Exportação: Transaction</b> do período e envie o arquivo (PDF ou CSV). Os horários vêm em UTC e são convertidos para o seu fuso.
+              Gere a <b>Exportação: Transaction</b> do período e envie (PDF ou CSV). Traz o líquido exato do
+              painel dela.
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <input
@@ -740,9 +669,7 @@ export default function PaymentSettingsPage() {
                   Vai gravar: {impPrev.atualizadas} atualizada(s), {impPrev.novas} nova(s),
                   {" "}{impPrev.semMudanca} sem mudança.
                 </p>
-                <p className="mt-1 text-[11px] text-amber-400/80">
-                  Confira o líquido acima com o saldo/extrato do painel da SyncPay antes de aplicar.
-                </p>
+                <p className="mt-1 text-[11px] text-amber-400/80">Confira o líquido antes de aplicar.</p>
                 <button
                   type="button"
                   onClick={() => impFile && enviarExport(impFile, false)}
@@ -806,12 +733,13 @@ export default function PaymentSettingsPage() {
           enabled={stripeEnabled}
         />
 
+        <TaxasBlock valor={taxas.stripe} onChange={(v) => setTaxas((t) => ({ ...t, stripe: v }))} />
+
         <div className="mt-4 panel p-3">
           <p className="eyebrow">webhook de recebimento</p>
           <p className="mt-1.5 text-xs text-zinc-500">
-            Cadastre esta URL no Dashboard da Stripe em <b>Developers → Webhooks</b>,
-            evento <b>checkout.session.completed</b>. A autenticação aqui é por
-            assinatura (a Webhook Signing Secret acima), não por token na URL.
+            Cadastre no Dashboard da Stripe em <b>Developers → Webhooks</b>, evento{" "}
+            <b>checkout.session.completed</b>.
           </p>
           <div className="mt-2.5 flex items-center gap-2">
             <input
@@ -931,8 +859,7 @@ export default function PaymentSettingsPage() {
             Testar cobrança
           </p>
           <p className="mt-0.5 text-xs text-zinc-500">
-            Gera um link de checkout de teste com o valor abaixo — pague com um cartão de
-            teste da Stripe (ou de verdade) e confira se a venda chega no Financeiro.
+            Gera um link de checkout real com o valor abaixo, para conferir se a venda chega no Financeiro.
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <select
@@ -991,8 +918,20 @@ export default function PaymentSettingsPage() {
             regra de "relevante" (o que o código já trata hoje). */}
         <WebhookDiaryPanel
           provider="stripe"
-          descricao='O que a Stripe mandou e o que o sistema fez com cada evento — "relevante" é o que já vira venda/atualização no Financeiro hoje (checkout.session.completed). Marcou mais eventos lá na Stripe? Eles aparecem aqui em "Todos", pra saber quais ainda vale a pena tratar.'
+          descricao='O que a Stripe mandou e o que o sistema fez. "Relevante" = checkout.session.completed.'
         />
+      </div>
+
+      {/* TERCEIROS. Não é gateway: é quem opera o bot por fora e retém a
+          própria comissão no split. É a tabela que o Financeiro usa para
+          separar funil de LTV nessas vendas — ver `lib/origemVenda.ts`. */}
+      <div className="mt-4 card p-4">
+        <p className="font-medium text-white">Terceiros (Bobz)</p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Quem opera o bot por fora e retém a comissão no <b>split</b> da transação. Taxas diferentes entre
+          funil e LTV é o que permite ao Financeiro separar os dois.
+        </p>
+        <TaxasBlock valor={taxas.terceiros} onChange={(v) => setTaxas((t) => ({ ...t, terceiros: v }))} />
       </div>
 
       <div className="mt-3 flex items-center gap-3">
@@ -1096,18 +1035,16 @@ function ImportarHistoricoCard() {
         <div>
           <p className="text-sm font-semibold text-white">Importar histórico de vendas externas</p>
           <p className="mt-0.5 text-xs text-zinc-500">
-            Vendas que já aconteceram, de bot operado por fora. O Telegram não deixa ler o histórico do canal
-            para trás sozinho — o export do chat resolve.
+            Vendas passadas de bot operado por fora, a partir do export do Canal de Vendas.
           </p>
         </div>
         <span className="shrink-0 text-xs text-zinc-500">{aberto ? "recolher ▲" : "expandir ▼"}</span>
       </button>
       {aberto && (
         <div className="mt-3">
-          <p className="text-[11px] leading-relaxed text-zinc-500">
-            No <b>Telegram Desktop</b>, abra o Canal de Vendas → menu (⋮) → <b>Exportar histórico do chat</b> →
-            formato <b>HTML</b>, sem mídia. Mande aqui o arquivo <b>messages.html</b> que ele gera. Pode
-            repetir quantas vezes quiser: venda já contabilizada não entra de novo.
+          <p className="text-[11px] text-zinc-500">
+            No <b>Telegram Desktop</b>: Canal de Vendas → ⋮ → <b>Exportar histórico do chat</b> → <b>HTML</b>,
+            sem mídia. Envie o <b>messages.html</b>. Repetir não duplica venda.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <label className="btn-ghost cursor-pointer text-xs">
@@ -1130,8 +1067,7 @@ function ImportarHistoricoCard() {
               )}
               {resultado.reconhecidos > resultado.vinculadosABot && (
                 <span className="mt-1 block text-amber-400/80">
-                  {resultado.reconhecidos - resultado.vinculadosABot} venda(s) de um bot que não está
-                  cadastrado aqui — cadastre o token dele para essas também serem atribuídas.
+                  {resultado.reconhecidos - resultado.vinculadosABot} venda(s) de bot não cadastrado aqui.
                 </span>
               )}
             </p>

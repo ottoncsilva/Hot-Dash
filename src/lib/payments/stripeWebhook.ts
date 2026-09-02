@@ -114,12 +114,31 @@ export async function processarWebhookStripe(event: Stripe.Event): Promise<Resul
  * PaymentIntent solto) precisam do mesmo número e da mesma desistência
  * silenciosa quando a chave não está configurada.
  */
-async function buscarTaxas(paymentIntent: string | Stripe.PaymentIntent | null | undefined) {
+async function buscarTaxas(
+  paymentIntent: string | Stripe.PaymentIntent | null | undefined,
+  registra: (s: string) => void,
+) {
   const id = typeof paymentIntent === "string" ? paymentIntent : paymentIntent?.id;
-  if (!id) return null;
+  if (!id) {
+    registra("taxas da Stripe · NÃO buscadas · evento sem PaymentIntent");
+    return null;
+  }
   const creds = getStripeCredentials();
-  if (!creds) return null;
-  return taxasDaCobranca(new Stripe(creds.secretKey), id);
+  if (!creds) {
+    registra("taxas da Stripe · NÃO buscadas · Stripe sem Secret Key/Webhook Secret salvos");
+    return null;
+  }
+  const r = await taxasDaCobranca(new Stripe(creds.secretKey), id);
+  if (!r.ok) {
+    // Falha VISÍVEL. Antes isto era silêncio, e a venda entrava com líquido
+    // igual ao valor cheio sem nada no diário explicando por quê.
+    registra(`taxas da Stripe · NÃO obtidas · ${r.motivo}`);
+    return null;
+  }
+  registra(
+    `taxas da Stripe · processamento ${r.taxas.feeCents ?? "?"} · plataforma ${r.taxas.splitCents} · líquido ${r.taxas.netCents ?? "?"}`,
+  );
+  return r.taxas;
 }
 
 /**
@@ -153,17 +172,12 @@ async function processarCheckoutCompleto(
   // O evento não traz taxa nem split — os dois moram na `balance_transaction`
   // da cobrança e só vêm por consulta. Sem isto a venda entrava com líquido
   // igual ao cheio, e a comissão de quem opera o bot por fora ficava invisível.
-  const taxas = await buscarTaxas(session.payment_intent);
-  if (taxas) {
-    registra(
-      `taxas da Stripe · processamento ${taxas.feeCents} · plataforma ${taxas.splitCents} · líquido ${taxas.netCents}`,
-    );
-  }
+  const taxas = await buscarTaxas(session.payment_intent, registra);
 
   const updated = updateStatusByRef("stripe", providerRef, "paid", {
     grossCents,
-    netCents: taxas?.netCents,
-    feeCents: taxas?.feeCents,
+    netCents: taxas?.netCents ?? undefined,
+    feeCents: taxas?.feeCents ?? undefined,
     splitCents: taxas?.splitCents,
   });
   if (updated) registra("cobrança atualizada · paid");
@@ -191,8 +205,8 @@ async function processarCheckoutCompleto(
         vinculo?.telegramUsername ||
         undefined,
       amountCents: grossCents ?? 0,
-      netAmountCents: taxas?.netCents,
-      feeCents: taxas?.feeCents,
+      netAmountCents: taxas?.netCents ?? undefined,
+      feeCents: taxas?.feeCents ?? undefined,
       splitCents: taxas?.splitCents,
       currency: (session.currency || "usd").toUpperCase(),
       method: "card",
@@ -282,7 +296,7 @@ async function processarRenovacaoPaga(
   // solução: os números saem da cobrança que pagou a fatura. Sem isto, a
   // renovação automática era a única venda da Stripe que continuava entrando
   // com líquido igual ao valor cheio.
-  const taxasFatura = await buscarTaxas(paymentIntentDaFatura(invoice));
+  const taxasFatura = await buscarTaxas(paymentIntentDaFatura(invoice), registra);
   recordTransaction({
     provider: "stripe",
     providerRef: invoice.id,
@@ -290,8 +304,8 @@ async function processarRenovacaoPaga(
     // Fatura de renovação: por definição é cobrança que se repetiu sozinha.
     description: nomeDoProduto(plan?.name, true),
     amountCents: invoice.amount_paid,
-    netAmountCents: taxasFatura?.netCents,
-    feeCents: taxasFatura?.feeCents,
+    netAmountCents: taxasFatura?.netCents ?? undefined,
+    feeCents: taxasFatura?.feeCents ?? undefined,
     splitCents: taxasFatura?.splitCents,
     currency: (invoice.currency || "usd").toUpperCase(),
     method: "card",
@@ -440,7 +454,7 @@ async function processarPaymentIntentSucedido(
   // ainda, nasce "Sem modelo" como sempre (corrige na tela de Financeiro, ou
   // sozinha se o relatório chegar depois).
   const vinculo = buscarRelatorioExterno("stripe", pi.id);
-  const taxasPi = await buscarTaxas(pi.id);
+  const taxasPi = await buscarTaxas(pi.id, registra);
   const nova = recordTransaction({
     provider: "stripe",
     providerRef: pi.id,
@@ -449,8 +463,8 @@ async function processarPaymentIntentSucedido(
     description: vinculo?.planName,
     customer: pi.receipt_email || vinculo?.customerName || vinculo?.telegramUsername || undefined,
     amountCents: pi.amount_received || pi.amount,
-    netAmountCents: taxasPi?.netCents,
-    feeCents: taxasPi?.feeCents,
+    netAmountCents: taxasPi?.netCents ?? undefined,
+    feeCents: taxasPi?.feeCents ?? undefined,
     splitCents: taxasPi?.splitCents,
     currency: (pi.currency || "usd").toUpperCase(),
     method: "card",

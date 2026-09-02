@@ -1036,6 +1036,8 @@ function EditarCobranca({
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [relatorio, setRelatorio] = useState<RelatorioDaTransacao | null>(null);
+  const [buscandoTaxas, setBuscandoTaxas] = useState(false);
+  const [erroTaxas, setErroTaxas] = useState<string | null>(null);
   const [verTexto, setVerTexto] = useState(false);
 
   // O relatório é buscado ao ABRIR, não junto da listagem: é uma consulta por
@@ -1058,6 +1060,27 @@ function EditarCobranca({
       vivo = false;
     };
   }, [tx.id]);
+
+  async function buscarTaxasNaStripe() {
+    setBuscandoTaxas(true);
+    setErroTaxas(null);
+    try {
+      const r = await apiSend<{ taxas: { feeCents: number | null; splitCents: number; netCents: number | null } }>(
+        `/api/payments/transactions/${tx.id}`,
+        "POST",
+        {},
+      );
+      // Taxa pode vir vazia quando só a comissão da plataforma é conhecida —
+      // aí o campo dela fica como estava, em vez de virar zero.
+      if (r.taxas.feeCents !== null) setTaxa(emReais(r.taxas.feeCents));
+      setSplit(emReais(r.taxas.splitCents));
+      showToast("Taxas trazidas da Stripe. Confira e salve.", "success");
+    } catch (e) {
+      setErroTaxas(e instanceof Error ? e.message : "Falha ao buscar na Stripe.");
+    } finally {
+      setBuscandoTaxas(false);
+    }
+  }
 
   const paraCentavos = (v: string) => Math.round((Number(v) || 0) * 100);
   const cVenda = paraCentavos(venda);
@@ -1356,6 +1379,23 @@ function EditarCobranca({
             <MoneyInput value={split} onChange={setSplit} />
           </div>
         </div>
+        {/* Venda da Stripe: taxa e comissão da plataforma não vêm no webhook e
+            podem ter ficado vazias (venda anterior à busca automática, chave
+            salva depois, cobrança ainda não liquidada na hora). Preenche os
+            campos com o número real; quem grava é o Salvar, depois de conferir. */}
+        {tx.provider === "stripe" && (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={buscarTaxasNaStripe}
+              disabled={buscandoTaxas}
+              className="btn-ghost px-3 py-1.5 text-xs disabled:opacity-40"
+            >
+              {buscandoTaxas ? "Buscando..." : "Buscar taxas na Stripe"}
+            </button>
+            {erroTaxas && <span className="text-[11px] text-amber-400/80">{erroTaxas}</span>}
+          </div>
+        )}
         <div className="flex items-center justify-between rounded-lg border border-white/10 bg-black/20 px-3 py-2">
           <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">líquido</span>
           <span className="font-display text-sm font-semibold text-emerald-400">

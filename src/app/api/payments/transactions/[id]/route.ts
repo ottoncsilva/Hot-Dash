@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import Stripe from "stripe";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { deleteTransaction, getTransaction, updateTransaction } from "@/lib/transactions";
 import { getRelatorioDaTransacao } from "@/lib/externalSaleReport";
 import { listBotsComModelo } from "@/lib/telegramDb";
 import { listProfiles } from "@/lib/profiles";
+import { getStripeCredentials } from "@/lib/settings";
+import { taxasDaCobranca } from "@/lib/payments/stripeTaxas";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +46,59 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         .filter((p) => !comBot.has(p.id))
         .map((p) => ({ id: p.id, name: p.name })),
     });
+  } catch (err) {
+    return errorResponse(err);
+  }
+}
+
+/**
+ * BUSCA na Stripe a taxa e a comissão da plataforma de uma cobrança já
+ * gravada, e devolve os números para a tela preencher os campos.
+ *
+ * Existe porque o webhook não traz nada disso (ver `stripeTaxas.ts`) e a busca
+ * automática pode não ter acontecido: venda registrada antes de a busca
+ * existir, chave da Stripe salva depois, ou a cobrança ainda não tinha entrado
+ * no saldo na hora do webhook. Sem isto, a única saída era digitar os valores
+ * copiando do painel da Stripe à mão.
+ *
+ * Só DEVOLVE — quem grava é o PATCH, depois de o operador conferir. Buscar e
+ * salvar de uma vez sobrescreveria em silêncio uma correção feita à mão.
+ */
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    await requireUser(req);
+    const transaction = getTransaction(params.id);
+    if (!transaction) return NextResponse.json({ error: "Cobrança não encontrada." }, { status: 404 });
+    if (transaction.provider !== "stripe") {
+      return NextResponse.json({ error: "Só vale para cobrança da Stripe." }, { status: 400 });
+    }
+    if (!transaction.providerRef) {
+      return NextResponse.json({ error: "Cobrança sem referência do gateway." }, { status: 400 });
+    }
+    const creds = getStripeCredentials();
+    if (!creds) {
+      return NextResponse.json({ error: "Stripe não configurada." }, { status: 400 });
+    }
+
+    const stripe = new Stripe(creds.secretKey);
+    // A referência gravada pode ser o id da SESSÃO de checkout (venda que
+    // passou por um checkout hospedado, nosso ou do sistema de fora) ou o do
+    // PaymentIntent (cobrança criada direto pela API). A busca é sempre pelo
+    // PaymentIntent, então a sessão precisa ser resolvida antes.
+    let paymentIntentId = transaction.providerRef;
+    if (paymentIntentId.startsWith("cs_")) {
+      const sessao = await stripe.checkout.sessions.retrieve(paymentIntentId).catch(() => null);
+      const pi = sessao?.payment_intent;
+      const id = typeof pi === "string" ? pi : pi?.id;
+      if (!id) {
+        return NextResponse.json({ error: "Sessão de checkout sem pagamento associado." }, { status: 400 });
+      }
+      paymentIntentId = id;
+    }
+
+    const r = await taxasDaCobranca(stripe, paymentIntentId);
+    if (!r.ok) return NextResponse.json({ error: r.motivo }, { status: 400 });
+    return NextResponse.json({ taxas: r.taxas });
   } catch (err) {
     return errorResponse(err);
   }

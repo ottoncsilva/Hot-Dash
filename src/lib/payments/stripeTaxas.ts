@@ -22,55 +22,93 @@ import Stripe from "stripe";
  * "Tarifa da plataforma"; "Tarifa de processamento" é o resto da `fee`.
  */
 export type TaxasDaCobranca = {
-  /** O que a Stripe cobrou, já SEM a comissão da plataforma. */
-  feeCents: number;
+  /** O que a Stripe cobrou, já SEM a comissão da plataforma. `null` quando a
+   *  cobrança ainda não entrou no saldo e só a comissão é conhecida. */
+  feeCents: number | null;
   /** A comissão de quem opera o bot por fora (`application_fee`). */
   splitCents: number;
-  /** O que sobrou: valor cheio − taxa − split. */
-  netCents: number;
+  /** O que sobrou: valor cheio − taxa − split. `null` junto com a taxa. */
+  netCents: number | null;
 };
 
 /**
- * Busca os três números da cobrança de um PaymentIntent. Devolve `null`
- * quando não dá para responder com honestidade — e aí quem chama grava o que
- * já gravava, em vez de inventar valor.
+ * Por que não deu para responder. Vai para o diário de webhooks: uma busca que
+ * falha em silêncio é uma venda entrando com líquido errado sem deixar rastro,
+ * e foi exatamente assim que a primeira delas passou despercebida.
+ */
+export type ResultadoTaxas =
+  | { ok: true; taxas: TaxasDaCobranca }
+  | { ok: false; motivo: string };
+
+/**
+ * Busca os três números da cobrança de um PaymentIntent.
  *
  * Nunca lança: é chamada de dentro de webhook, e uma falha de rede na Stripe
- * não pode derrubar o registro de uma venda que já foi paga.
+ * não pode derrubar o registro de uma venda que já foi paga. Quando não dá
+ * para responder, diz por quê em vez de devolver vazio.
  */
 export async function taxasDaCobranca(
   stripe: Stripe,
   paymentIntentId: string,
-): Promise<TaxasDaCobranca | null> {
+): Promise<ResultadoTaxas> {
+  let pi: Stripe.PaymentIntent;
   try {
-    const pi = await stripe.paymentIntents.retrieve(paymentIntentId, {
+    pi = await stripe.paymentIntents.retrieve(paymentIntentId, {
       expand: ["latest_charge.balance_transaction"],
     });
-    const charge = pi.latest_charge;
-    if (!charge || typeof charge === "string") return null;
-    const bt = charge.balance_transaction;
-    if (!bt || typeof bt === "string") return null;
+  } catch (e) {
+    return { ok: false, motivo: `consulta falhou (${e instanceof Error ? e.message : "erro"})` };
+  }
 
-    // A `balance_transaction` é na moeda de LIQUIDAÇÃO da conta, que não é
-    // obrigatoriamente a da cobrança (venda em dólar numa conta que liquida em
-    // real, por exemplo). Quando diferem, `fee` e `net` estão numa moeda e o
-    // valor gravado na transação está noutra: subtrair um do outro produziria
-    // um líquido inventado. Melhor não responder.
-    if (bt.currency !== charge.currency || bt.amount !== charge.amount) return null;
+  const charge = pi.latest_charge;
+  if (!charge || typeof charge === "string") {
+    return { ok: false, motivo: "PaymentIntent sem cobrança expandida" };
+  }
 
-    const comissaoPlataforma = (bt.fee_details || [])
-      .filter((d) => d.type === "application_fee")
-      .reduce((soma, d) => soma + d.amount, 0);
+  const bt = charge.balance_transaction;
+  if (!bt || typeof bt === "string") {
+    // A `balance_transaction` é criada quando a cobrança entra no saldo, o que
+    // pode demorar um instante depois do pagamento aprovar. A comissão da
+    // plataforma, porém, já está na própria cobrança — dá para salvar o número
+    // que separa funil de LTV mesmo sem o resto.
+    const comissao = charge.application_fee_amount;
+    if (typeof comissao === "number" && comissao > 0) {
+      return {
+        ok: true,
+        taxas: { feeCents: null, splitCents: comissao, netCents: null },
+      };
+    }
+    return { ok: false, motivo: "cobrança ainda sem balance_transaction" };
+  }
 
+  // A `balance_transaction` é na moeda de LIQUIDAÇÃO da conta, que não é
+  // obrigatoriamente a da cobrança (venda em dólar numa conta que liquida em
+  // real, por exemplo). Quando diferem, `fee` e `net` estão numa moeda e o
+  // valor gravado na transação está noutra: subtrair um do outro produziria um
+  // líquido inventado.
+  if (bt.currency !== charge.currency) {
     return {
+      ok: false,
+      motivo: `moeda de liquidação (${bt.currency}) diferente da cobrança (${charge.currency})`,
+    };
+  }
+  if (bt.amount !== charge.amount) {
+    return { ok: false, motivo: `balance_transaction de ${bt.amount} para cobrança de ${charge.amount}` };
+  }
+
+  const comissaoPlataforma = (bt.fee_details || [])
+    .filter((d) => d.type === "application_fee")
+    .reduce((soma, d) => soma + d.amount, 0);
+
+  return {
+    ok: true,
+    taxas: {
       // `bt.fee` é o desconto TOTAL, comissão da plataforma inclusa. Aqui os
       // dois viram colunas separadas — é assim que o Financeiro já mostra a
       // venda da SyncPay, e é o que a tela da Stripe também separa.
       feeCents: Math.max(0, bt.fee - comissaoPlataforma),
       splitCents: comissaoPlataforma,
       netCents: bt.net,
-    };
-  } catch {
-    return null;
-  }
+    },
+  };
 }

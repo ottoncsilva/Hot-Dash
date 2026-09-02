@@ -122,6 +122,20 @@ async function buscarTaxas(paymentIntent: string | Stripe.PaymentIntent | null |
   return taxasDaCobranca(new Stripe(creds.secretKey), id);
 }
 
+/**
+ * O PaymentIntent que pagou uma fatura. A renovação automática chega como
+ * `invoice.paid`, e a fatura não traz taxa nenhuma — a cobrança de verdade
+ * está pendurada em `payments`, e é dela que saem taxa, split e líquido.
+ */
+function paymentIntentDaFatura(invoice: Stripe.Invoice): string | undefined {
+  for (const p of invoice.payments?.data || []) {
+    const pi = p.payment?.payment_intent;
+    const id = typeof pi === "string" ? pi : pi?.id;
+    if (id) return id;
+  }
+  return undefined;
+}
+
 async function processarCheckoutCompleto(
   session: Stripe.Checkout.Session,
   registra: (s: string) => void,
@@ -264,6 +278,11 @@ async function processarRenovacaoPaga(
   const plan = sub.planId ? getPlan(sub.planId) : null;
   const durationDays = plan && plan.durationDays > 0 ? plan.durationDays : 30;
 
+  // A fatura não traz taxa nem líquido — mesmo buraco do checkout, mesma
+  // solução: os números saem da cobrança que pagou a fatura. Sem isto, a
+  // renovação automática era a única venda da Stripe que continuava entrando
+  // com líquido igual ao valor cheio.
+  const taxasFatura = await buscarTaxas(paymentIntentDaFatura(invoice));
   recordTransaction({
     provider: "stripe",
     providerRef: invoice.id,
@@ -271,6 +290,9 @@ async function processarRenovacaoPaga(
     // Fatura de renovação: por definição é cobrança que se repetiu sozinha.
     description: nomeDoProduto(plan?.name, true),
     amountCents: invoice.amount_paid,
+    netAmountCents: taxasFatura?.netCents,
+    feeCents: taxasFatura?.feeCents,
+    splitCents: taxasFatura?.splitCents,
     currency: (invoice.currency || "usd").toUpperCase(),
     method: "card",
     status: "paid",

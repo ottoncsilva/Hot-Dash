@@ -99,7 +99,8 @@ export default function PaymentSettingsPage() {
   const [taxas, setTaxas] = useState<TodasTaxasForm>({
     syncpay: TAXAS_FORM_VAZIO,
     stripe: TAXAS_FORM_VAZIO,
-    terceiros: TAXAS_FORM_VAZIO,
+    terceirosSyncpay: TAXAS_FORM_VAZIO,
+    terceirosStripe: TAXAS_FORM_VAZIO,
   });
 
   useEffect(() => {
@@ -183,7 +184,8 @@ export default function PaymentSettingsPage() {
         setTaxas({
           syncpay: taxasParaForm(d.settings.taxas.syncpay),
           stripe: taxasParaForm(d.settings.taxas.stripe),
-          terceiros: taxasParaForm(d.settings.taxas.terceiros),
+          terceirosSyncpay: taxasParaForm(d.settings.taxas.terceirosSyncpay),
+          terceirosStripe: taxasParaForm(d.settings.taxas.terceirosStripe),
         });
         setLastPaid(d.lastPaid);
       })
@@ -381,7 +383,8 @@ export default function PaymentSettingsPage() {
           taxas: {
             syncpay: formParaTaxas(taxas.syncpay),
             stripe: formParaTaxas(taxas.stripe),
-            terceiros: formParaTaxas(taxas.terceiros),
+            terceirosSyncpay: formParaTaxas(taxas.terceirosSyncpay),
+            terceirosStripe: formParaTaxas(taxas.terceirosStripe),
           },
         },
       );
@@ -389,7 +392,8 @@ export default function PaymentSettingsPage() {
       setTaxas({
         syncpay: taxasParaForm(settings.taxas.syncpay),
         stripe: taxasParaForm(settings.taxas.stripe),
-        terceiros: taxasParaForm(settings.taxas.terceiros),
+        terceirosSyncpay: taxasParaForm(settings.taxas.terceirosSyncpay),
+        terceirosStripe: taxasParaForm(settings.taxas.terceirosStripe),
       });
       setSyncClientSecret("");
       setStripeSecretKey("");
@@ -928,10 +932,19 @@ export default function PaymentSettingsPage() {
       <div className="mt-4 card p-4">
         <p className="font-medium text-white">Terceiros (Bobz)</p>
         <p className="mt-1 text-xs text-zinc-500">
-          Quem opera o bot por fora e retém a comissão no <b>split</b> da transação. Taxas diferentes entre
-          funil e LTV é o que permite ao Financeiro separar os dois.
+          Quem opera o bot por fora e retém a própria comissão. Cobra tabelas diferentes em cada gateway, por
+          isso são duas. Taxas diferentes entre funil e LTV é o que permite separar os dois.
         </p>
-        <TaxasBlock valor={taxas.terceiros} onChange={(v) => setTaxas((t) => ({ ...t, terceiros: v }))} />
+        <p className="eyebrow mt-3">na syncpay</p>
+        <TaxasBlock
+          valor={taxas.terceirosSyncpay}
+          onChange={(v) => setTaxas((t) => ({ ...t, terceirosSyncpay: v }))}
+        />
+        <p className="eyebrow mt-3">na stripe</p>
+        <TaxasBlock
+          valor={taxas.terceirosStripe}
+          onChange={(v) => setTaxas((t) => ({ ...t, terceirosStripe: v }))}
+        />
       </div>
 
       <div className="mt-3 flex items-center gap-3">

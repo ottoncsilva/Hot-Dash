@@ -18,8 +18,15 @@ import type { Transaction } from "./transactions";
 
 export type OrigemVenda = "bot" | "ltv" | "painel";
 
-/** Quem retém dinheiro de uma venda. `terceiros` é quem opera o bot por fora. */
-export type CobradorTaxa = "syncpay" | "stripe" | "terceiros";
+/**
+ * Quem retém dinheiro de uma venda.
+ *
+ * O terceiro que opera o bot por fora aparece DUAS vezes porque cobra tabelas
+ * diferentes conforme o gateway que liquidou: no PIX da SyncPay o repasse dele
+ * é uma coisa, no cartão da Stripe é outra (medido: 0,75 + 5%/20% lá,
+ * 0,75 + 10% aqui). Uma tabela só classificaria errado metade das vendas.
+ */
+export type CobradorTaxa = "syncpay" | "stripe" | "terceirosSyncpay" | "terceirosStripe";
 
 /** Taxa fixa por transação (centavos) mais percentual sobre a venda. */
 export type LinhaTaxa = { fixoCents: number; percent: number };
@@ -29,9 +36,18 @@ export type TabelaTaxas = { funil: LinhaTaxa; ltv: LinhaTaxa };
 export type TaxasPorCobrador = Record<CobradorTaxa, TabelaTaxas>;
 
 export const TAXAS_PADRAO: TaxasPorCobrador = {
+  // Tabela da SyncPay: R$ 0,80 fixos no PIX. Igual nos dois tipos, então não
+  // classifica nada — e é isso mesmo, o gateway não sabe o que foi vendido.
   syncpay: { funil: { fixoCents: 80, percent: 0 }, ltv: { fixoCents: 80, percent: 0 } },
-  stripe: { funil: { fixoCents: 0, percent: 0 }, ltv: { fixoCents: 0, percent: 0 } },
-  terceiros: { funil: { fixoCents: 75, percent: 5 }, ltv: { fixoCents: 75, percent: 20 } },
+  // Tabela da Stripe no cartão brasileiro: R$ 0,39 + 3,99%. Também igual nos
+  // dois tipos (conferido numa venda de R$ 24,76 → R$ 1,38 de processamento).
+  stripe: { funil: { fixoCents: 39, percent: 3.99 }, ltv: { fixoCents: 39, percent: 3.99 } },
+  terceirosSyncpay: { funil: { fixoCents: 75, percent: 5 }, ltv: { fixoCents: 75, percent: 20 } },
+  // Na Stripe só se mediu UMA venda até agora (R$ 24,76 → R$ 3,23 de tarifa da
+  // plataforma = 0,75 + 10%), e ela não diz de que tipo era. As duas linhas
+  // saem iguais de propósito: assim o critério fica calado até alguém saber
+  // qual dos dois tipos custa 10% e qual custa outra coisa.
+  terceirosStripe: { funil: { fixoCents: 75, percent: 10 }, ltv: { fixoCents: 75, percent: 10 } },
 };
 
 /**
@@ -91,8 +107,18 @@ export function origemDaVenda(
 ): OrigemVenda | undefined {
   if (taxas) {
     const valor = t.amountCents || 0;
-    const peloSplit = tipoPelaTaxa(valor, t.splitCents ?? 0, taxas.terceiros);
-    if (peloSplit) return peloSplit;
+    // A tabela do terceiro é a do GATEWAY que liquidou — ele cobra diferente
+    // em cada um. Provedor desconhecido não tem tabela e pula direto.
+    const terceiro =
+      t.provider === "stripe"
+        ? taxas.terceirosStripe
+        : t.provider === "syncpay"
+          ? taxas.terceirosSyncpay
+          : null;
+    if (terceiro) {
+      const peloSplit = tipoPelaTaxa(valor, t.splitCents ?? 0, terceiro);
+      if (peloSplit) return peloSplit;
+    }
     const doGateway = t.provider === "stripe" ? taxas.stripe : t.provider === "syncpay" ? taxas.syncpay : null;
     if (doGateway) {
       const pelaTaxa = tipoPelaTaxa(valor, t.feeCents ?? 0, doGateway);

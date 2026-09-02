@@ -368,6 +368,35 @@ export default function PaymentsPage() {
     return sorted;
   }, [data, paidFilter, sort, busca, botFilter, methodFilter, verFunil, verLtv]);
 
+  /**
+   * O TOTAL da seleção atual: as quatro colunas de valor somadas sobre
+   * exatamente as linhas que estão na tela, filtros aplicados.
+   *
+   * Uma soma POR MOEDA, nunca uma só. A lista mistura real do PIX com dólar (e
+   * o que mais a Stripe cobrar) do cartão internacional, e juntar os dois num
+   * número daria um total que não existe em lugar nenhum. Quase sempre sai uma
+   * linha só; quando sai mais de uma, é porque o recorte tem mesmo dois
+   * dinheiros diferentes.
+   *
+   * Cobrança sem taxa/líquido informados (pendente, ou provedor que não
+   * manda) entra com zero nessas colunas e com o valor cheio na de venda — é
+   * o que a linha mostra, e o rodapé não pode discordar da tabela em cima
+   * dele.
+   */
+  const totaisDaSelecao = useMemo(() => {
+    const porMoeda = new Map<string, { venda: number; taxa: number; split: number; liquido: number }>();
+    for (const t of filteredTransactions) {
+      const moeda = t.currency || "BRL";
+      const acc = porMoeda.get(moeda) || { venda: 0, taxa: 0, split: 0, liquido: 0 };
+      acc.venda += t.amountCents;
+      acc.taxa += t.feeCents ?? 0;
+      acc.split += t.splitCents ?? 0;
+      acc.liquido += t.netAmountCents ?? 0;
+      porMoeda.set(moeda, acc);
+    }
+    return [...porMoeda].sort((a, b) => b[1].venda - a[1].venda);
+  }, [filteredTransactions]);
+
   return (
     <div className="page">
       <PageHeader
@@ -886,6 +915,37 @@ export default function PaymentsPage() {
           </table>
         )}
       </div>
+
+      {/* TOTAL DA SELEÇÃO. Container próprio, fora da tabela, para não rolar
+          junto com ela na horizontal — é o número que se quer ler sem
+          procurar. Soma as quatro colunas de valor sobre as linhas que estão
+          na tela agora: mudou filtro, busca ou período, muda aqui. */}
+      {totaisDaSelecao.length > 0 && (
+        <div className="mt-3 card p-4">
+          {totaisDaSelecao.map(([moeda, t], i) => (
+            <div
+              key={moeda}
+              className={`flex flex-wrap items-end justify-end gap-x-8 gap-y-3 ${i > 0 ? "mt-3 border-t border-white/[0.06] pt-3" : ""}`}
+            >
+              <p className="mr-auto font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                total da seleção
+                <span className="ml-2 text-zinc-600">
+                  {filteredTransactions.length} cobrança{filteredTransactions.length === 1 ? "" : "s"}
+                </span>
+                {totaisDaSelecao.length > 1 && <span className="ml-2 text-zinc-400">{moeda}</span>}
+              </p>
+              <TotalDaColuna rotulo="venda" valor={valorDaVenda(t.venda, moeda)} />
+              <TotalDaColuna rotulo="taxa" valor={`-${valorDaVenda(t.taxa, moeda)}`} classe="text-zinc-400" />
+              <TotalDaColuna
+                rotulo="split"
+                valor={`-${valorDaVenda(t.split, moeda)}`}
+                classe={t.split > 0 ? "text-amber-400/80" : "text-zinc-600"}
+              />
+              <TotalDaColuna rotulo="líquido" valor={valorDaVenda(t.liquido, moeda)} classe="text-emerald-400" />
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Mais largo que o padrão: o relatório do Canal de Vendas divide a
           tela com os campos, e em `max-w-md` cada linha dele quebrava em duas. */}
@@ -1421,6 +1481,16 @@ function SummaryChip({
 }
 
 /** Check verde quando pago; ícone neutro de "gerado/aguardando" caso contrário. */
+/** Uma das quatro colunas do rodapé de total. */
+function TotalDaColuna({ rotulo, valor, classe = "text-white" }: { rotulo: string; valor: string; classe?: string }) {
+  return (
+    <div className="text-right">
+      <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">{rotulo}</p>
+      <p className={`font-display text-base font-semibold ${classe}`}>{valor}</p>
+    </div>
+  );
+}
+
 function PaidCheck({ paid }: { paid: boolean }) {
   if (paid) {
     return (

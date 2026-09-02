@@ -43,11 +43,13 @@ export const TAXAS_PADRAO: TaxasPorCobrador = {
   // dois tipos (conferido numa venda de R$ 24,76 → R$ 1,38 de processamento).
   stripe: { funil: { fixoCents: 39, percent: 3.99 }, ltv: { fixoCents: 39, percent: 3.99 } },
   terceirosSyncpay: { funil: { fixoCents: 75, percent: 5 }, ltv: { fixoCents: 75, percent: 20 } },
-  // Na Stripe só se mediu UMA venda até agora (R$ 24,76 → R$ 3,23 de tarifa da
-  // plataforma = 0,75 + 10%), e ela não diz de que tipo era. As duas linhas
-  // saem iguais de propósito: assim o critério fica calado até alguém saber
-  // qual dos dois tipos custa 10% e qual custa outra coisa.
-  terceirosStripe: { funil: { fixoCents: 75, percent: 10 }, ltv: { fixoCents: 75, percent: 10 } },
+  // No cartão o mesmo terceiro cobra o DOBRO no funil (10%, contra 5% no PIX) e
+  // os mesmos 20% no LTV. A linha do funil está conferida numa venda real:
+  // R$ 24,76 de venda deram R$ 3,23 de tarifa da plataforma, que é exatamente
+  // 0,75 + 10%. A do LTV veio da tabela informada pelo operador — o fixo de
+  // R$ 0,75 é o mesmo dos outros três casos, mas ainda não foi visto numa
+  // venda de LTV no cartão.
+  terceirosStripe: { funil: { fixoCents: 75, percent: 10 }, ltv: { fixoCents: 75, percent: 20 } },
 };
 
 /**

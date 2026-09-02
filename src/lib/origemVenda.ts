@@ -43,12 +43,20 @@ export const TAXAS_PADRAO: TaxasPorCobrador = {
   // dois tipos (conferido numa venda de R$ 24,76 → R$ 1,38 de processamento).
   stripe: { funil: { fixoCents: 39, percent: 3.99 }, ltv: { fixoCents: 39, percent: 3.99 } },
   terceirosSyncpay: { funil: { fixoCents: 75, percent: 5 }, ltv: { fixoCents: 75, percent: 20 } },
-  // No cartão o mesmo terceiro cobra o DOBRO no funil (10%, contra 5% no PIX) e
-  // os mesmos 20% no LTV. A linha do funil está conferida numa venda real:
-  // R$ 24,76 de venda deram R$ 3,23 de tarifa da plataforma, que é exatamente
-  // 0,75 + 10%. A do LTV veio da tabela informada pelo operador — o fixo de
-  // R$ 0,75 é o mesmo dos outros três casos, mas ainda não foi visto numa
-  // venda de LTV no cartão.
+  // O fixo de R$ 0,75 é o mesmo nos quatro casos: é a tabela do terceiro, não
+  // varia com gateway nem com tipo de venda.
+  //
+  // O funil no cartão está em 10% e NÃO deveria: a combinação é 5%, igual à do
+  // PIX. Uma venda de R$ 24,76 veio com R$ 3,23 de tarifa da plataforma, que é
+  // 0,75 + 10% na bicada — cobrança errada do lado deles, não regra nova. Fica
+  // parametrizado com o que está sendo COBRADO de verdade, porque é contra o
+  // número real que a classificação compara; se um dia corrigirem para 5%, é
+  // este campo que muda.
+  //
+  // Enquanto durar o erro, uma venda de funil no cartão a 5% não bate com
+  // nenhuma das duas linhas e sai SEM classificação — cai no `origin`, como
+  // antes. Errado nunca sai; invisível, sim: o jeito de perceber a correção é
+  // ver venda de cartão parando de ser separada.
   terceirosStripe: { funil: { fixoCents: 75, percent: 10 }, ltv: { fixoCents: 75, percent: 20 } },
 };
 

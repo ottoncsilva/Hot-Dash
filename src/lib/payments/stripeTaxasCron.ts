@@ -61,6 +61,11 @@ export async function runStripeTaxasPendentes(): Promise<{ conferidas: number; p
           AND (
             fee_cents IS NULL
             OR (COALESCE(currency, 'BRL') <> 'BRL' AND settled_amount_cents IS NULL)
+            -- Cobrança e liquidação com o MESMO número numa venda que não é em
+            -- real: o valor em real foi digitado no campo da cobrança, na época
+            -- em que era o único jeito de o total fechar. A Stripe sabe quanto
+            -- foi cobrado de verdade e devolve o par ao lugar.
+            OR (COALESCE(currency, 'BRL') <> 'BRL' AND settled_amount_cents = amount_cents)
           )
           AND provider_ref IS NOT NULL AND provider_ref <> ''
           AND COALESCE(paid_at, created_at) BETWEEN ? AND ?

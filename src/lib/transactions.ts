@@ -688,12 +688,18 @@ export function completarTaxasDoGateway(
     netCents: number | null;
     moeda?: string;
     grossCents?: number | null;
+    /** O valor NA MOEDA DA COBRANÇA, como a Stripe registrou. */
+    chargedCents?: number;
   },
 ): boolean {
   const atual = getTransaction(id);
   if (!atual) return false;
+  // Venda internacional que ainda não tem o valor em real — ou que tem os dois
+  // iguais, sinal de que o de real foi parar também no campo da cobrança
+  // (correção à mão feita quando o painel ainda não convertia).
   const faltaConversao =
-    (atual.currency || "BRL") !== "BRL" && atual.settledAmountCents === undefined;
+    (atual.currency || "BRL") !== "BRL" &&
+    (atual.settledAmountCents === undefined || atual.settledAmountCents === atual.amountCents);
   // Taxa já gravada (pelo webhook ou corrigida à mão) manda. Mas uma venda
   // internacional sem o valor em real ainda precisa ser completada, mesmo com
   // a taxa preenchida — senão ela fica fora do faturamento para sempre.
@@ -713,17 +719,29 @@ export function completarTaxasDoGateway(
     taxas.moeda && taxas.grossCents != null && taxas.moeda !== (atual.currency || "BRL"),
   );
   const liquido = taxas.netCents ?? (converteu ? taxas.grossCents! : atual.amountCents) - taxas.feeCents - taxas.splitCents;
+  // Numa venda que converteu, a coluna `amount_cents` é a da COBRANÇA (US$
+  // 19,90) e a de liquidação é a do depósito (R$ 101,28). Enquanto o painel
+  // não sabia ler a conversão, o jeito de acertar o total era digitar o valor
+  // em real no campo da venda — e aí a linha passava a mostrar o número de
+  // real com o cifrão de dólar. A Stripe sabe qual é qual: quando ela
+  // discorda do que está gravado, o valor dela manda. Só na venda que
+  // converteu: em real, uma correção à mão é correção mesmo e fica.
+  const cobrado =
+    converteu && taxas.chargedCents != null && taxas.chargedCents !== atual.amountCents
+      ? taxas.chargedCents
+      : null;
   getDb()
     .prepare(
       `UPDATE transactions
           SET fee_cents = ?, split_cents = ?, net_amount_cents = ?,
+              amount_cents = COALESCE(?, amount_cents),
               settled_amount_cents = COALESCE(?, settled_amount_cents),
               settled_currency = COALESCE(?, settled_currency),
               updated_at = ?
         WHERE id = ?`,
     )
     .run(
-      taxas.feeCents, taxas.splitCents, liquido,
+      taxas.feeCents, taxas.splitCents, liquido, cobrado,
       converteu ? taxas.grossCents : null,
       converteu ? taxas.moeda : null,
       Date.now(), id,

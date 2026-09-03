@@ -748,9 +748,14 @@ export default function PaymentsPage() {
                 const split = t.splitCents;
                 // Taxa, split e líquido são cobrados pelo gateway na moeda em
                 // que ele LIQUIDA — numa venda em dólar depositada em real,
-                // eles vêm em real. Formatá-los com o cifrão da cobrança
-                // colocaria "US$" num número que é de real.
-                const moedaLiquidada = t.settledCurrency || t.currency;
+                // eles vêm em real. Quando o gateway converteu, a VENDA também
+                // sai em real:
+                // senão a linha mostra US$ 19,90 menos R$ 6,46 menos R$ 10,74,
+                // que não dá R$ 84,08 nem coisa nenhuma. O que o cliente pagou
+                // em dólar vai embaixo, pequeno.
+                const converteu = t.settledAmountCents !== undefined && Boolean(t.settledCurrency);
+                const moedaLiquidada = converteu ? t.settledCurrency : t.currency;
+                const vendaLiquidada = converteu ? t.settledAmountCents! : t.amountCents;
                 return (
                   <tr key={t.id} className="hover:bg-white/[0.04]">
                     <td className="p-3">
@@ -882,26 +887,32 @@ export default function PaymentsPage() {
                         {STATUS_LABEL[t.status] || t.status}
                       </span>
                     </td>
-                    {/* Os quatro valores da linha saem na MOEDA DA VENDA — taxa,
-                        split e líquido são recortes do mesmo dinheiro, então
-                        seguem a moeda dele. */}
+                    {/* Os quatro valores da linha saem na moeda de LIQUIDAÇÃO —
+                        o dinheiro que de fato entrou. Em cima, grande, o valor
+                        em real; embaixo, pequeno, o que o cliente pagou na
+                        moeda dele. */}
                     <td className={`p-3 text-right font-display font-semibold ${pago ? "text-white" : "text-zinc-500"}`}>
-                      {valorDaVenda(t.amountCents, t.currency)}
+                      {valorDaVenda(vendaLiquidada, moedaLiquidada)}
+                      {converteu && (
+                        <span className="mt-0.5 block font-mono text-[10px] font-normal text-zinc-500">
+                          {valorDaVenda(t.amountCents, t.currency)}
+                        </span>
+                      )}
                     </td>
                     <td className="p-3 text-right font-mono text-xs text-zinc-500">
-                      {taxa === undefined ? "—" : `-${valorDaVenda(taxa, t.currency)}`}
+                      {taxa === undefined ? "—" : `-${valorDaVenda(taxa, moedaLiquidada)}`}
                     </td>
                     <td className="p-3 text-right font-mono text-xs">
                       {split === undefined ? (
                         <span className="text-zinc-700">—</span>
                       ) : split > 0 ? (
-                        <span className="text-amber-400/80">-{valorDaVenda(split, t.currency)}</span>
+                        <span className="text-amber-400/80">-{valorDaVenda(split, moedaLiquidada)}</span>
                       ) : (
-                        <span className="text-zinc-700">-{valorDaVenda(0, t.currency)}</span>
+                        <span className="text-zinc-700">-{valorDaVenda(0, moedaLiquidada)}</span>
                       )}
                     </td>
                     <td className={`p-3 text-right font-display font-semibold ${pago ? "text-emerald-400" : "text-zinc-600"}`}>
-                      {liquido === undefined ? "—" : valorDaVenda(liquido, t.currency)}
+                      {liquido === undefined ? "—" : valorDaVenda(liquido, moedaLiquidada)}
                     </td>
                     {/* Remover: o webhook da SyncPay é por conta e traz
                         movimento que não é venda (saque, por exemplo). */}

@@ -82,6 +82,19 @@ export default function ProfileDetailPage() {
   const [botToken, setBotToken] = useState("");
   // Existe token salvo? A API só informa isso — nunca o token em si.
   const [hasToken, setHasToken] = useState(false);
+  /**
+   * O campo do token nasce SÓ LEITURA e libera no primeiro clique.
+   *
+   * É a única defesa que funciona contra o gerenciador de senhas: um
+   * `type="password"` é um campo de senha para o navegador, e o Chrome ignora
+   * `autocomplete="off"` neles. Ao voltar na modelo ele preenchia o campo
+   * sozinho — com a senha do painel, não com o token — e o próximo "Salvar"
+   * mandava aquilo como token novo. Daí o "Esse token não tem o formato de um
+   * token de bot do Telegram" ao editar qualquer outra coisa, numa modelo cujo
+   * token já estava salvo e funcionando. Campo só-leitura o navegador não
+   * preenche; o clique de quem vai digitar libera.
+   */
+  const [tokenLiberado, setTokenLiberado] = useState(false);
   const [botIdVip, setBotIdVip] = useState("");
   const [botIdPrevias, setBotIdPrevias] = useState("");
   // Canal de Vendas — terceiro canal, OPCIONAL (ao contrário dos dois
@@ -188,17 +201,24 @@ export default function ProfileDetailPage() {
       // Basta o TOKEN. Exigir os IDs dos canais aqui era metade do impasse: o
       // operador colava o token de uma modelo nova, nada era salvo, e o
       // "Detectar" — que só aparece com o token salvo — nunca aparecia.
-      if (botToken.trim() || hasToken) {
+      // Token só sai daqui se o campo tiver sido ABERTO por quem está usando a
+      // tela (ver `tokenLiberado`). Valor que apareceu sozinho no campo é do
+      // gerenciador de senhas, não do operador, e mandá-lo como "token novo"
+      // era o que fazia o salvamento de qualquer outro dado morrer no erro de
+      // formato.
+      const tokenNovo = tokenLiberado ? botToken.trim() : "";
+      if (tokenNovo || hasToken) {
         await apiSend("/api/telegram", "POST", {
           action: "save-bot-credentials",
           profileId: id,
-          botToken: botToken.trim(),
+          botToken: tokenNovo,
           idVip: botIdVip.trim(),
           idAquecimento: botIdPrevias.trim(),
           idVendas: botIdVendas.trim(),
         });
-        if (botToken.trim()) setHasToken(true);
+        if (tokenNovo) setHasToken(true);
         setBotToken("");
+        setTokenLiberado(false);
         setBotOrig({ token: "", vip: botIdVip.trim(), prev: botIdPrevias.trim(), vendas: botIdVendas.trim() });
       }
       showToast("Salvo!");
@@ -275,7 +295,9 @@ export default function ProfileDetailPage() {
     bioWhatsappButton !== (profile.bioWhatsappButton || "") ||
     bioTelegramLink !== (profile.bioTelegramLink || "") ||
     bioTelegramButton !== (profile.bioTelegramButton || "") ||
-    botToken !== botOrig.token ||
+    // Mesma regra do envio: campo preenchido pelo navegador não conta como
+    // alteração — senão o botão "Salvar" acendia sozinho ao abrir a modelo.
+    (tokenLiberado && botToken !== botOrig.token) ||
     botIdVip !== botOrig.vip ||
     botIdPrevias !== botOrig.prev ||
     botIdVendas !== botOrig.vendas;
@@ -558,7 +580,12 @@ export default function ProfileDetailPage() {
                   <input
                     className="input font-mono"
                     type="password"
-                    autoComplete="off"
+                    name="bot-token"
+                    autoComplete="new-password"
+                    data-lpignore="true"
+                    data-1p-ignore=""
+                    readOnly={!tokenLiberado}
+                    onFocus={() => setTokenLiberado(true)}
                     placeholder={
                       hasToken ? "•••••••• (em branco = manter)" : "Ex: 123456:ABC-DEF..."
                     }

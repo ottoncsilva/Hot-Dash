@@ -5,8 +5,9 @@ import { activeProvider } from "@/lib/payments";
  * O saldo na SyncPay, com a memória de quando ele foi lido.
  *
  * Mora aqui, e não dentro da rota, porque quem precisa dele deixou de ser só a
- * tela: uma venda aprovada também manda buscar (ver `atualizarSaldoAposVenda`),
- * e dois caches para o mesmo número divergiriam no primeiro dia.
+ * tela: venda aprovada e saque também mandam buscar (ver
+ * `atualizarSaldoAposMovimento`), e dois caches para o mesmo número
+ * divergiriam no primeiro dia.
  *
  * A rota de saldo da SyncPay é limitada — ela responde 429 quando se insiste —,
  * então toda leitura passa pelos dois freios abaixo.
@@ -24,15 +25,15 @@ const TTL_MS = 60_000;
 const MIN_MS = 15_000;
 
 /**
- * Espera antes de consultar depois de uma venda. O webhook chega no instante
- * da aprovação, e o dinheiro entra no saldo um pouco depois: perguntar no
- * mesmo milissegundo devolveria o valor de ANTES da venda — e ele ficaria
- * guardado como se fosse o de agora.
+ * Espera antes de consultar depois de um movimento. O webhook chega no instante
+ * da aprovação (ou do saque), e o dinheiro entra ou sai do saldo um pouco
+ * depois: perguntar no mesmo milissegundo devolveria o valor de ANTES — e ele
+ * ficaria guardado como se fosse o de agora.
  *
  * Cinco segundos é a mesma espera que o aviso de venda no celular já usa
  * (`sendPushEventAoVivo`), pelo mesmo motivo: dar tempo ao gateway.
  */
-const ESPERA_POS_VENDA_MS = 5_000;
+const ESPERA_POS_MOVIMENTO_MS = 5_000;
 
 let cache: { at: number; cents: number | null } | null = null;
 
@@ -90,18 +91,23 @@ export async function lerSaldoSyncpay(force = false): Promise<LeituraSaldo> {
 }
 
 /**
- * VENDA APROVADA na SyncPay: busca o saldo de novo.
+ * MEXEU NO DINHEIRO na SyncPay: busca o saldo de novo.
+ *
+ * Vale para os dois lados. Venda aprovada credita; SAQUE debita — e o saque
+ * era o único movimento que o painel via passar e ignorava por inteiro, então
+ * o card seguia mostrando o valor de antes dele. Nenhum dos dois vira
+ * transação por aqui: isto só marca que o número guardado envelheceu.
  *
  * Antes, o saldo só era consultado quando alguém ABRIA o Dashboard. Com o
- * painel aberto e parado, ou fechado, a venda entrava e o número continuava o
- * de antes até a próxima visita. Agora a própria venda manda atualizar.
+ * painel aberto e parado, ou fechado, o movimento passava e o número
+ * continuava o de antes até a próxima visita.
  *
  * Não espera nem lança: é chamada de dentro do webhook, e o gateway não pode
  * ficar segurando a resposta — nem receber erro — por causa de uma consulta de
  * saldo que é só informativa.
  */
-export function atualizarSaldoAposVenda(): void {
+export function atualizarSaldoAposMovimento(): void {
   setTimeout(() => {
     lerSaldoSyncpay(true).catch(() => {});
-  }, ESPERA_POS_VENDA_MS).unref?.();
+  }, ESPERA_POS_MOVIMENTO_MS).unref?.();
 }

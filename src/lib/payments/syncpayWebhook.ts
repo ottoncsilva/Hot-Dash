@@ -2,7 +2,7 @@ import "server-only";
 import { normalizeStatus, recordTransaction, updateStatusByRef } from "@/lib/transactions";
 import { logWebhookEvent } from "@/lib/webhookLog";
 import { avisarVendaAprovada, deliverPaidTransaction } from "./deliverPayment";
-import { atualizarSaldoAposVenda } from "./saldoSyncpay";
+import { atualizarSaldoAposMovimento } from "./saldoSyncpay";
 import { buscarRelatorioExterno } from "@/lib/externalSaleReport";
 
 /**
@@ -116,9 +116,14 @@ export async function processarWebhookSyncPay(
       return { ok: true, ignored: true };
     }
 
-    // SAQUE: some antes de encostar no banco.
+    // SAQUE: continua sem virar transação — não é venda, e some antes de
+    // encostar no banco. Mas MEXE NO SALDO, e era o único movimento de
+    // dinheiro que o painel via passar e ignorava por inteiro: o card seguia
+    // mostrando o valor de antes do saque até alguém abrir o Dashboard.
+    // Ignorado como venda, não como evento.
     if (tipo === "cashout") {
-      registra("ignorado · saque (cashout)");
+      atualizarSaldoAposMovimento();
+      registra("ignorado como venda · saque (cashout) · saldo mandado atualizar");
       return { ok: true, ignored: true, reason: "cashout" };
     }
 
@@ -137,7 +142,7 @@ export async function processarWebhookSyncPay(
     if (updated) registra(`cobrança atualizada · ${normalizeStatus(status)}`);
 
     // Entrou dinheiro? O saldo do Dashboard tem que saber. Ver
-    // `atualizarSaldoAposVenda` — os dois caminhos abaixo marcam aqui.
+    // `atualizarSaldoAposMovimento` — os dois caminhos abaixo marcam aqui.
     let virouPaga = false;
 
     if (updated && updated.becamePaid) {
@@ -202,7 +207,7 @@ export async function processarWebhookSyncPay(
 
     // Depois de tudo gravado, e sem segurar a resposta ao gateway: a consulta
     // sai sozinha alguns segundos depois.
-    if (virouPaga) atualizarSaldoAposVenda();
+    if (virouPaga) atualizarSaldoAposMovimento();
 
     return { ok: true };
   } catch {

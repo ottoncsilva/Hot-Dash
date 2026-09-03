@@ -185,7 +185,10 @@ export default function ProfileDetailPage() {
       // Credenciais do bot. O token só é enviado quando o operador digita um
       // novo: campo vazio com token já salvo significa "mantenha o que está lá"
       // (a rota resolve isso), então dá para editar só os IDs dos grupos.
-      if ((botToken.trim() || hasToken) && botIdVip.trim() && botIdPrevias.trim()) {
+      // Basta o TOKEN. Exigir os IDs dos canais aqui era metade do impasse: o
+      // operador colava o token de uma modelo nova, nada era salvo, e o
+      // "Detectar" — que só aparece com o token salvo — nunca aparecia.
+      if (botToken.trim() || hasToken) {
         await apiSend("/api/telegram", "POST", {
           action: "save-bot-credentials",
           profileId: id,
@@ -562,10 +565,20 @@ export default function ProfileDetailPage() {
                     value={botToken}
                     onChange={(e) => setBotToken(e.target.value)}
                   />
-                  {hasToken && (
+                  {hasToken ? (
                     <p className="mt-1 text-[11px] text-zinc-500">
                       O token salvo não volta para a tela — ele dá controle total do bot. Vazio, mantém o atual.
                     </p>
+                  ) : (
+                    /* O "Detectar" de cada canal só existe com o token SALVO —
+                       ele pergunta ao Telegram usando o bot. Sem esta linha, o
+                       botão simplesmente não aparecia e parecia ter sumido. */
+                    botToken.trim() && (
+                      <p className="mt-1 text-[11px] text-amber-400/80">
+                        Salve para liberar o <b>Detectar</b> dos canais — ele pergunta ao Telegram usando
+                        este bot.
+                      </p>
+                    )
                   )}
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">

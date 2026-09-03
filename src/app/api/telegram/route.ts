@@ -306,8 +306,17 @@ export async function POST(req: NextRequest) {
           );
         }
       }
-      if (!profileId || !token || !idVip || !idAquecimento) {
-        throw new ApiError(400, "Preencha o Token do Bot e os IDs dos canais VIP e Prévias.");
+      // Só o TOKEN é obrigatório para salvar. Os canais não, e a exigência
+      // criava um impasse: numa modelo nova o operador cola o token e ainda
+      // não sabe os IDs — é justamente para descobri-los que existe o
+      // "Detectar", e ele só aparece com o token JÁ SALVO. Pedir os canais
+      // aqui deixava os dois lados esperando o outro.
+      //
+      // Bot sem canal não opera, e não precisa de trava para isso: ele nasce
+      // com `operationActive` desligado, e o autopost já pula post sem
+      // destino (ver `runTelegramAutopost`).
+      if (!profileId || !token) {
+        throw new ApiError(400, "Informe a modelo e o Token do Bot.");
       }
       const botId = existing?.id || randomUUID();
 
@@ -355,8 +364,13 @@ export async function POST(req: NextRequest) {
         profileId,
         botToken: token,
         botUsername: usernameDoToken || existing?.botUsername,
-        idVip: String(idVip).trim(),
-        idAquecimento: String(idAquecimento).trim(),
+        // Mesma regra do Canal de Vendas logo abaixo: campo AUSENTE quer dizer
+        // "não mexi nisso" (chamada antiga da API), campo vazio é uma escolha.
+        // Sem isso, salvar só o token apagaria os canais de um bot que já
+        // estava configurado.
+        idVip: idVip !== undefined ? String(idVip).trim() : existing?.idVip || "",
+        idAquecimento:
+          idAquecimento !== undefined ? String(idAquecimento).trim() : existing?.idAquecimento || "",
         // Canal de Vendas é OPCIONAL — ao contrário de VIP/Prévias, campo
         // vazio é uma escolha válida (bot sem relatório de vendas), não "não
         // mudou nada". Só cai no que já estava salvo quando a tela não manda

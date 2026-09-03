@@ -6,6 +6,7 @@ import { IconTrash, IconPlus } from "@/components/icons";
 import { useConfirm } from "@/hooks/useConfirm";
 import type { SltNetwork } from "@/lib/sltNetworks";
 import { BackToSettings, KeyLabel } from "../_shared";
+import CampoSecreto from "@/components/CampoSecreto";
 import { showToast } from "@/lib/toast";
 
 type SltState = {
@@ -122,12 +123,11 @@ export default function SltSettingsPage() {
         <div className="mt-3">
           <KeyLabel salva={Boolean(sltState?.hasApiKey)}>API Key</KeyLabel>
         </div>
-        <input
-          className="input font-mono"
-          type="password"
+        <CampoSecreto
+          name="slt-api-key"
           placeholder={sltState?.hasApiKey ? "•••••••• (em branco = manter)" : "slt_live_..."}
           value={sltApiKey}
-          onChange={(e) => setSltApiKey(e.target.value)}
+          onChange={setSltApiKey}
         />
         <p className="mt-1 text-[11px] text-zinc-500">
           Gerada em slt.bio → Dashboard → Settings → API Keys (planos Pro/Agency).

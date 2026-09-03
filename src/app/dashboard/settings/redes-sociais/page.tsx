@@ -5,6 +5,7 @@ import Link from "next/link";
 import { apiGet, apiSend } from "@/lib/api";
 import { IconCopy, IconInstagram } from "@/components/icons";
 import { BackToSettings } from "../_shared";
+import CampoSecreto from "@/components/CampoSecreto";
 import { showToast } from "@/lib/toast";
 import type { InstagramAppSettingsPublic } from "@/lib/settings";
 
@@ -213,17 +214,23 @@ function InstagramApp({
 
         <div>
           <label className="eyebrow mb-1.5 block">Instagram App ID</label>
-          <input className="input" value={appId} onChange={(e) => setAppId(e.target.value)} />
+          <CampoSecreto
+            tipo="texto"
+            className="input"
+            name="instagram-app-id"
+            value={appId}
+            onChange={setAppId}
+          />
         </div>
         <div>
           <label className="eyebrow mb-1.5 block">
             Instagram App Secret {app?.hasSecret && <span className="text-emerald-400">· salvo</span>}
           </label>
-          <input
+          <CampoSecreto
             className="input"
-            type="password"
+            name="instagram-app-secret"
             value={secret}
-            onChange={(e) => setSecret(e.target.value)}
+            onChange={setSecret}
             placeholder={app?.hasSecret ? "•••••••• (deixe vazio para manter)" : ""}
           />
           <p className="mt-1 text-[11px] text-zinc-600">

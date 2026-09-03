@@ -8,6 +8,7 @@ import { MoneyInput, type MoneyCurrency } from "@/components/MoneyInput";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import type { CobradorTaxa, TabelaTaxas } from "@/lib/origemVenda";
 import { BackToSettings, ConnectionBadge, KeyLabel, WebhookDiaryPanel } from "../_shared";
+import CampoSecreto from "@/components/CampoSecreto";
 import { showToast } from "@/lib/toast";
 
 function brl(cents: number) {
@@ -475,23 +476,23 @@ export default function PaymentSettingsPage() {
           />
         </label>
         <label className="eyebrow mb-1.5 mt-3 block">Client ID</label>
-        <input
-          className="input font-mono"
+        <CampoSecreto
+          tipo="texto"
+          name="syncpay-client-id"
           placeholder="ex.: 11111111-2222-3333-4444-555555555555"
           value={syncClientId}
-          onChange={(e) => setSyncClientId(e.target.value)}
+          onChange={setSyncClientId}
         />
         <div className="mt-3">
           <KeyLabel salva={Boolean(cfg?.syncpay.hasSecret)}>Client Secret</KeyLabel>
         </div>
-        <input
-          className="input font-mono"
-          type="password"
+        <CampoSecreto
+          name="syncpay-client-secret"
           placeholder={
             cfg?.syncpay.hasSecret ? "•••••••• (em branco = manter)" : "cole o client secret"
           }
           value={syncClientSecret}
-          onChange={(e) => setSyncClientSecret(e.target.value)}
+          onChange={setSyncClientSecret}
         />
         <p className="mt-1.5 flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
           <IconLock size={12} /> obtenha em app.syncpayments.com.br → developer api
@@ -706,26 +707,24 @@ export default function PaymentSettingsPage() {
         <div className="mt-3">
           <KeyLabel salva={Boolean(cfg?.stripe.hasSecretKey)}>Secret Key</KeyLabel>
         </div>
-        <input
-          className="input font-mono"
-          type="password"
+        <CampoSecreto
+          name="stripe-secret-key"
           placeholder={
             cfg?.stripe.hasSecretKey ? "•••••••• (em branco = manter)" : "sk_live_... ou sk_test_..."
           }
           value={stripeSecretKey}
-          onChange={(e) => setStripeSecretKey(e.target.value)}
+          onChange={setStripeSecretKey}
         />
         <div className="mt-3">
           <KeyLabel salva={Boolean(cfg?.stripe.hasWebhookSecret)}>Webhook Signing Secret</KeyLabel>
         </div>
-        <input
-          className="input font-mono"
-          type="password"
+        <CampoSecreto
+          name="stripe-webhook-secret"
           placeholder={
             cfg?.stripe.hasWebhookSecret ? "•••••••• (em branco = manter)" : "whsec_..."
           }
           value={stripeWebhookSecret}
-          onChange={(e) => setStripeWebhookSecret(e.target.value)}
+          onChange={setStripeWebhookSecret}
         />
         <p className="mt-1.5 flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
           <IconLock size={12} /> obtenha em dashboard.stripe.com → developers → api keys / webhooks

@@ -5,6 +5,7 @@ import { apiGet, apiSend } from "@/lib/api";
 import { IconRefresh } from "@/components/icons";
 import type { AiSettingsPublic } from "@/lib/settings";
 import { BackToSettings, ConnectionBadge, KeyLabel } from "../_shared";
+import CampoSecreto from "@/components/CampoSecreto";
 import { showToast } from "@/lib/toast";
 
 // Usados só se a busca ao vivo (lista real de modelos do provedor) falhar.
@@ -347,12 +348,11 @@ export default function AiSettingsPage() {
               
               <div>
                 <KeyLabel salva={Boolean(cfg?.openai.hasKey)}>API key</KeyLabel>
-                <input
-                  className="input font-mono"
-                  type="password"
+                <CampoSecreto
+                  name="openai-key"
                   placeholder={cfg?.openai.hasKey ? "•••••••• (em branco = manter)" : "sk-..."}
                   value={openaiKey}
-                  onChange={(e) => setOpenaiKey(e.target.value)}
+                  onChange={setOpenaiKey}
                 />
                 <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
                   platform.openai.com → api keys
@@ -440,12 +440,11 @@ export default function AiSettingsPage() {
               
               <div>
                 <KeyLabel salva={Boolean(cfg?.gemini.hasKey)}>API key</KeyLabel>
-                <input
-                  className="input font-mono"
-                  type="password"
+                <CampoSecreto
+                  name="gemini-key"
                   placeholder={cfg?.gemini.hasKey ? "•••••••• (em branco = manter)" : "AIza..."}
                   value={geminiKey}
-                  onChange={(e) => setGeminiKey(e.target.value)}
+                  onChange={setGeminiKey}
                 />
                 <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
                   aistudio.google.com → get api key
@@ -454,12 +453,11 @@ export default function AiSettingsPage() {
 
               <div className="md:col-span-2">
                 <KeyLabel salva={temChaveMidia}>Chave só para imagem e vídeo (opcional)</KeyLabel>
-                <input
-                  className="input font-mono"
-                  type="password"
+                <CampoSecreto
+                  name="google-media-key"
                   placeholder={temChaveMidia ? "•••••••• (em branco = manter)" : "vazio = usa a chave acima"}
                   value={googleMediaKey}
-                  onChange={(e) => setGoogleMediaKey(e.target.value)}
+                  onChange={setGoogleMediaKey}
                 />
                 <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
                   Só para cobrar o Nano Banana e o Veo noutro projeto do Google — os dois exigem plano pago.
@@ -539,12 +537,11 @@ export default function AiSettingsPage() {
               </div>
               <div>
                 <KeyLabel salva={Boolean(cfg?.grok.hasKey)}>API Key</KeyLabel>
-                <input
-                  className="input font-mono"
-                  type="password"
+                <CampoSecreto
+                  name="grok-key"
                   placeholder={cfg?.grok.hasKey ? "•••••••• (em branco = manter)" : "xoxb-..."}
                   value={grokKey}
-                  onChange={(e) => setGrokKey(e.target.value)}
+                  onChange={setGrokKey}
                 />
               </div>
               <div className="md:col-span-2">
@@ -633,12 +630,11 @@ export default function AiSettingsPage() {
               </div>
               <div>
                 <KeyLabel salva={Boolean(cfg?.openrouter?.hasKey)}>API Key</KeyLabel>
-                <input
-                  className="input font-mono"
-                  type="password"
+                <CampoSecreto
+                  name="openrouter-key"
                   placeholder={cfg?.openrouter?.hasKey ? "•••••••• (em branco = manter)" : "sk-or-v1-..."}
                   value={orKey}
-                  onChange={(e) => setOrKey(e.target.value)}
+                  onChange={setOrKey}
                 />
                 <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
                   openrouter.ai → keys
@@ -688,12 +684,11 @@ export default function AiSettingsPage() {
             <div className="grid gap-4 md:grid-cols-2 mt-4">
               <div className="md:col-span-2">
                 <KeyLabel salva={Boolean(cfg?.magnific?.hasKey)}>Chave API Magnific</KeyLabel>
-                <input
-                  className="input font-mono"
-                  type="password"
+                <CampoSecreto
+                  name="magnific-key"
                   placeholder={cfg?.magnific?.hasKey ? "•••••••• (em branco = manter)" : "sk_..."}
                   value={magnificKey}
-                  onChange={(e) => setMagnificKey(e.target.value)}
+                  onChange={setMagnificKey}
                 />
               </div>
               <div className="md:col-span-2">
@@ -729,12 +724,11 @@ export default function AiSettingsPage() {
             <div className="grid gap-4 md:grid-cols-2 mt-4">
               <div className="md:col-span-2">
                 <KeyLabel salva={Boolean(cfg?.byteplus?.hasKey)}>Chave API BytePlus (ARK_API_KEY)</KeyLabel>
-                <input
-                  className="input font-mono"
-                  type="password"
+                <CampoSecreto
+                  name="byteplus-key"
                   placeholder={cfg?.byteplus?.hasKey ? "•••••••• (em branco = manter)" : "..."}
                   value={byteplusKey}
-                  onChange={(e) => setByteplusKey(e.target.value)}
+                  onChange={setByteplusKey}
                 />
               </div>
               <div className="md:col-span-2">
@@ -798,12 +792,11 @@ export default function AiSettingsPage() {
               </div>
               <div className="md:col-span-2">
                 <KeyLabel salva={Boolean(cfg?.nudenet?.hasKey)}>Token (opcional)</KeyLabel>
-                <input
-                  className="input font-mono"
-                  type="password"
+                <CampoSecreto
+                  name="nudenet-token"
                   placeholder={cfg?.nudenet?.hasKey ? "•••••••• (em branco = manter)" : "só se definiu NUDENET_API_KEY no serviço"}
                   value={nudenetToken}
-                  onChange={(e) => setNudenetToken(e.target.value)}
+                  onChange={setNudenetToken}
                 />
               </div>
             </div>

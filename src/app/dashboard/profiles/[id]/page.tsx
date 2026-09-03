@@ -41,6 +41,7 @@ const VIP_SOURCE_LABEL: Record<string, string> = {
 import { showToast } from "@/lib/toast";
 import DetectChat from "@/components/telegram/bot/DetectChat";
 import { KeyLabel } from "../../settings/_shared";
+import CampoSecreto from "@/components/CampoSecreto";
 
 /** Junta o que era "Como ela é" (Santinha/Safadinha/Explícita) com o Tom que
  *  só existia no LTV — são a mesma ideia (o jeito dela na conversa), então
@@ -83,16 +84,13 @@ export default function ProfileDetailPage() {
   // Existe token salvo? A API só informa isso — nunca o token em si.
   const [hasToken, setHasToken] = useState(false);
   /**
-   * O campo do token nasce SÓ LEITURA e libera no primeiro clique.
+   * O campo do token foi ABERTO por quem está usando a tela?
    *
-   * É a única defesa que funciona contra o gerenciador de senhas: um
-   * `type="password"` é um campo de senha para o navegador, e o Chrome ignora
-   * `autocomplete="off"` neles. Ao voltar na modelo ele preenchia o campo
-   * sozinho — com a senha do painel, não com o token — e o próximo "Salvar"
-   * mandava aquilo como token novo. Daí o "Esse token não tem o formato de um
-   * token de bot do Telegram" ao editar qualquer outra coisa, numa modelo cujo
-   * token já estava salvo e funcionando. Campo só-leitura o navegador não
-   * preenche; o clique de quem vai digitar libera.
+   * O `CampoSecreto` já impede o gerenciador de senhas de preenchê-lo (nasce
+   * só-leitura), mas aqui o valor ainda vale uma segunda checagem: um token
+   * que apareceu sozinho no campo é do navegador, não do operador, e mandá-lo
+   * como "token novo" derrubava o salvamento de qualquer outro dado da modelo
+   * no erro de formato.
    */
   const [tokenLiberado, setTokenLiberado] = useState(false);
   const [botIdVip, setBotIdVip] = useState("");
@@ -577,20 +575,16 @@ export default function ProfileDetailPage() {
               <div className="mt-3 space-y-3">
                 <div>
                   <KeyLabel salva={hasToken}>Bot Token</KeyLabel>
-                  <input
-                    className="input font-mono"
-                    type="password"
+                  <CampoSecreto
                     name="bot-token"
-                    autoComplete="new-password"
-                    data-lpignore="true"
-                    data-1p-ignore=""
-                    readOnly={!tokenLiberado}
-                    onFocus={() => setTokenLiberado(true)}
                     placeholder={
                       hasToken ? "•••••••• (em branco = manter)" : "Ex: 123456:ABC-DEF..."
                     }
                     value={botToken}
-                    onChange={(e) => setBotToken(e.target.value)}
+                    onChange={(v) => {
+                      setTokenLiberado(true);
+                      setBotToken(v);
+                    }}
                   />
                   {hasToken ? (
                     <p className="mt-1 text-[11px] text-zinc-500">

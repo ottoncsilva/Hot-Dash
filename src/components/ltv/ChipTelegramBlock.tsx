@@ -4,6 +4,7 @@ import { useState } from "react";
 import { IconClose, IconSend } from "@/components/icons";
 import { apiSend } from "@/lib/api";
 import { showToast } from "@/lib/toast";
+import CampoSecreto from "@/components/CampoSecreto";
 import type { LtvAccount } from "@/lib/ltvDb";
 
 /**
@@ -180,11 +181,11 @@ export default function ChipTelegramBlock({
               <span className="eyebrow mb-1.5 block">
                 Senha da verificação em duas etapas
               </span>
-              <input
+              <CampoSecreto
                 className="input"
-                type="password"
+                name="telegram-2fa"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={setPassword}
               />
             </label>
           )}

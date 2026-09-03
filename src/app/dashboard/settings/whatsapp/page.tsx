@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
 import { BackToSettings, KeyLabel } from "../_shared";
+import CampoSecreto from "@/components/CampoSecreto";
 import type { TelegramAppSettingsPublic, UazapiSettingsPublic } from "@/lib/settings";
 import { showToast } from "@/lib/toast";
 
@@ -93,14 +94,13 @@ export default function ConexoesLtvPage() {
           </div>
           <div>
             <KeyLabel salva={Boolean(cfg?.hasAdminToken)}>Admin Token</KeyLabel>
-            <input
-              className="input font-mono"
-              type="password"
+            <CampoSecreto
+              name="uazapi-admin-token"
               placeholder={
                 cfg?.hasAdminToken ? "•••••••• (em branco = manter)" : "Cole o admintoken aqui"
               }
               value={adminToken}
-              onChange={(e) => setAdminToken(e.target.value)}
+              onChange={setAdminToken}
             />
             <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
               é ele que cria e apaga instância
@@ -130,22 +130,22 @@ export default function ConexoesLtvPage() {
         <div className="grid gap-4 md:grid-cols-2">
           <div>
             <label className="eyebrow mb-1.5 block">api_id</label>
-            <input
-              className="input font-mono"
+            <CampoSecreto
+              tipo="texto"
               inputMode="numeric"
+              name="telegram-api-id"
               placeholder="1234567"
               value={apiId}
-              onChange={(e) => setApiId(e.target.value)}
+              onChange={setApiId}
             />
           </div>
           <div>
             <KeyLabel salva={Boolean(tg?.hasApiHash)}>api_hash</KeyLabel>
-            <input
-              className="input font-mono"
-              type="password"
+            <CampoSecreto
+              name="telegram-api-hash"
               placeholder={tg?.hasApiHash ? "•••••••• (em branco = manter)" : "Cole o api_hash aqui"}
               value={apiHash}
-              onChange={(e) => setApiHash(e.target.value)}
+              onChange={setApiHash}
             />
           </div>
         </div>

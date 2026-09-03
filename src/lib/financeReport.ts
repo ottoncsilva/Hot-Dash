@@ -136,7 +136,12 @@ export function buildFinanceReport(
   const linhas = getDb()
     .prepare(
       `SELECT t.id, t.provider_ref, t.created_at, t.paid_at, t.status, t.customer,
-              p.name AS profile_name, t.amount_cents, t.fee_cents, t.split_cents,
+              p.name AS profile_name,
+              -- O valor que ENTROU, na moeda de liquidação. Era a coluna crua,
+              -- e uma venda cobrada em dólar somava 19,90 dólares como se
+              -- fossem 19,90 reais num relatório que é todo em real.
+              COALESCE(t.settled_amount_cents, t.amount_cents) AS amount_cents,
+              t.fee_cents, t.split_cents,
               t.net_amount_cents, t.method, t.source_code
          FROM transactions t
          LEFT JOIN profiles p ON p.id = t.profile_id

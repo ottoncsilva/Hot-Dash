@@ -95,6 +95,8 @@ type Row = {
   net_amount_cents: number | null;
   fee_cents: number | null;
   split_cents: number | null;
+  settled_amount_cents: number | null;
+  settled_currency: string | null;
   paid_at: number | null;
   reprocessed_at: number | null;
   currency: string;
@@ -122,6 +124,12 @@ function toClient(r: Row): Transaction {
     netAmountCents: r.net_amount_cents ?? undefined,
     feeCents: r.fee_cents ?? undefined,
     splitCents: r.split_cents ?? undefined,
+    // A liquidação em outra moeda. Sem estas duas linhas o banco guardava a
+    // conversão e a tela nunca a via: a venda em dólar aparecia sem o valor em
+    // real, taxa e líquido saíam com cifrão de dólar sobre número de real, e a
+    // soma do rodapé contava US$ 19,90 como se fossem R$ 19,90.
+    settledAmountCents: r.settled_amount_cents ?? undefined,
+    settledCurrency: r.settled_currency || undefined,
     paidAt: r.paid_at ?? undefined,
     currency: r.currency,
     method: r.method || undefined,

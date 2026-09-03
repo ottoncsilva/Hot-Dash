@@ -2,6 +2,7 @@ import "server-only";
 import { normalizeStatus, recordTransaction, updateStatusByRef } from "@/lib/transactions";
 import { logWebhookEvent } from "@/lib/webhookLog";
 import { avisarVendaAprovada, deliverPaidTransaction } from "./deliverPayment";
+import { atualizarSaldoAposVenda } from "./saldoSyncpay";
 import { buscarRelatorioExterno } from "@/lib/externalSaleReport";
 
 /**
@@ -135,7 +136,12 @@ export async function processarWebhookSyncPay(
     const updated = updateStatusByRef("syncpay", providerRef, status, { grossCents, netCents });
     if (updated) registra(`cobrança atualizada · ${normalizeStatus(status)}`);
 
+    // Entrou dinheiro? O saldo do Dashboard tem que saber. Ver
+    // `atualizarSaldoAposVenda` — os dois caminhos abaixo marcam aqui.
+    let virouPaga = false;
+
     if (updated && updated.becamePaid) {
+      virouPaga = true;
       await deliverPaidTransaction(updated.transaction, registra);
     }
 
@@ -189,9 +195,14 @@ export async function processarWebhookSyncPay(
       // acontecer. O texto é montado 5 segundos depois, quando o relatório do
       // Canal de Vendas já teve tempo de dizer o produto e a modelo.
       if (nova.status === "paid") {
+        virouPaga = true;
         await avisarVendaAprovada(nova.id).catch(() => {});
       }
     }
+
+    // Depois de tudo gravado, e sem segurar a resposta ao gateway: a consulta
+    // sai sozinha alguns segundos depois.
+    if (virouPaga) atualizarSaldoAposVenda();
 
     return { ok: true };
   } catch {

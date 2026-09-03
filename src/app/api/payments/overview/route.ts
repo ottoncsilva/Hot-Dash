@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUser } from "@/lib/apiAuth";
 import { getAppTimeZone, getFinanceSettings, getPaymentSettingsPublic } from "@/lib/settings";
 import { listTransactionsInRange, periodStatsInRange } from "@/lib/transactions";
-import { activeProvider, getProvider } from "@/lib/payments";
+import { getProvider } from "@/lib/payments";
+import { lerSaldoSyncpay } from "@/lib/payments/saldoSyncpay";
 import { getTelegramContactsByTransactions } from "@/lib/telegramDb";
 import { contatosDeRelatoriosExternos } from "@/lib/externalSaleReport";
 import { resolvePeriod } from "@/lib/periodRange";
@@ -34,12 +35,10 @@ export async function GET(req: NextRequest) {
     // Em paralelo: são duas chamadas de rede a provedores independentes, e
     // enfileirá-las dobraria a espera do carregamento da tela à toa.
     const [balanceCents, stripeBalance] = await Promise.all([
-      (async () => {
-        const provider = activeProvider();
-        if (!provider?.getBalance) return null;
-        const bal = await provider.getBalance().catch(() => null);
-        return bal?.availableCents ?? null;
-      })(),
+      // Pelo MESMO cache do Dashboard (ver `saldoSyncpay.ts`). Aqui a consulta
+      // era direta e sem freio nenhum: trocar de período no Financeiro batia
+      // na SyncPay a cada clique, e ela responde 429 quando se insiste.
+      (async () => (await lerSaldoSyncpay()).balanceCents)(),
       (async () => {
         const stripe = getProvider("stripe");
         if (!stripe?.getBalance) return null;

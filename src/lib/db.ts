@@ -1047,6 +1047,18 @@ function migrate(d: Database.Database) {
   // valor líquido, então "ainda sem líquido" nunca serviria como critério de
   // pendência — o lote ficaria reprocessando as mesmas vendas para sempre.
   ensureColumn(d, "transactions", "reprocessed_at", "INTEGER");
+  // A venda LIQUIDADA, quando o gateway converte de moeda: um cartão cobrado em
+  // dólar é depositado em real, e o extrato da Stripe traz os dois lados.
+  // `amount_cents`/`currency` continuam sendo o que o CLIENTE pagou (US$ 19,90);
+  // estas guardam o que de fato caiu na conta (R$ 101,28). Sem elas, a venda ou
+  // ficava fora do faturamento (que só soma real) ou entrava com o número
+  // errado — e nenhum dos dois é o que aconteceu.
+  //
+  // Taxa, split e líquido já são gravados na moeda de LIQUIDAÇÃO, que é como o
+  // gateway cobra: numa venda em real as duas moedas são a mesma e nada disto
+  // muda.
+  ensureColumn(d, "transactions", "settled_amount_cents", "INTEGER");
+  ensureColumn(d, "transactions", "settled_currency", "TEXT");
   // A SyncPay separa o desconto em TAXA (fixa, R$ 0,80) e SPLIT (repasse a
   // terceiros) — é assim que o "Resumo Financeiro" do painel dela mostra:
   // entrada − taxas − split = você recebe. Guardamos os dois para a conta

@@ -6,7 +6,7 @@ import { apiGet } from "@/lib/api";
 import type { Profile } from "@/lib/types";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import PageHeader from "@/components/PageHeader";
-import ReceitaEstrangeira, { type LinhaMoeda } from "@/components/ReceitaEstrangeira";
+import MoedasDoPeriodo, { type LinhaMoeda } from "@/components/MoedasDoPeriodo";
 import { DEFAULT_PERIOD } from "@/lib/periods";
 import { useProfile } from "@/context/ProfileContext";
 import { niceTicks } from "@/lib/chartTicks";
@@ -480,7 +480,7 @@ export default function FunilPage() {
           arrastadas de distância. Este card responde isso de cara, na mesma
           forma do "planos que mais convertem" logo abaixo. Come os mesmos
           `data.fontes`: um só filtro para os dois, sem chance de divergirem. */}
-      <ReceitaEstrangeira linhas={data?.receitaEstrangeira} className="mt-3" />
+      <MoedasDoPeriodo linhas={data?.receitaEstrangeira} className="mt-3" />
 
       <ResumoFontes fontes={data?.fontes} />
 

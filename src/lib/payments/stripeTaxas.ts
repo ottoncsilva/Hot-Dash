@@ -23,12 +23,20 @@ import Stripe from "stripe";
  */
 export type TaxasDaCobranca = {
   /** O que a Stripe cobrou, já SEM a comissão da plataforma. `null` quando a
-   *  cobrança ainda não entrou no saldo e só a comissão é conhecida. */
+   *  cobrança ainda não entrou no saldo e só a comissão é conhecida.
+   *  Na MOEDA DE LIQUIDAÇÃO, que é como a Stripe cobra. */
   feeCents: number | null;
   /** A comissão de quem opera o bot por fora (`application_fee`). */
   splitCents: number;
   /** O que sobrou: valor cheio − taxa − split. `null` junto com a taxa. */
   netCents: number | null;
+  /** A moeda em que o dinheiro ENTROU na conta. Numa venda em real é a mesma
+   *  da cobrança; num cartão internacional é o real do depósito. */
+  moeda: string;
+  /** O bruto NA MOEDA DE LIQUIDAÇÃO: US$ 19,90 cobrados viram R$ 101,28
+   *  depositados, com a cotação que a própria Stripe usou. `null` quando a
+   *  cobrança ainda não liquidou e só a comissão é conhecida. */
+  grossCents: number | null;
 };
 
 /**
@@ -73,28 +81,30 @@ export async function taxasDaCobranca(
     // que separa funil de LTV mesmo sem o resto.
     const comissao = charge.application_fee_amount;
     if (typeof comissao === "number" && comissao > 0) {
+      // `application_fee_amount` vem na moeda da COBRANÇA — é o único número
+      // conhecido nesse instante, e a conversão só existe na liquidação.
       return {
         ok: true,
-        taxas: { feeCents: null, splitCents: comissao, netCents: null },
+        taxas: {
+          feeCents: null,
+          splitCents: comissao,
+          netCents: null,
+          moeda: charge.currency.toUpperCase(),
+          grossCents: null,
+        },
       };
     }
     return { ok: false, motivo: "cobrança ainda sem balance_transaction" };
   }
 
   // A `balance_transaction` é na moeda de LIQUIDAÇÃO da conta, que não é
-  // obrigatoriamente a da cobrança (venda em dólar numa conta que liquida em
-  // real, por exemplo). Quando diferem, `fee` e `net` estão numa moeda e o
-  // valor gravado na transação está noutra: subtrair um do outro produziria um
-  // líquido inventado.
-  if (bt.currency !== charge.currency) {
-    return {
-      ok: false,
-      motivo: `moeda de liquidação (${bt.currency}) diferente da cobrança (${charge.currency})`,
-    };
-  }
-  if (bt.amount !== charge.amount) {
-    return { ok: false, motivo: `balance_transaction de ${bt.amount} para cobrança de ${charge.amount}` };
-  }
+  // obrigatoriamente a da cobrança: uma venda em dólar numa conta brasileira é
+  // depositada em real. Nesse caso `bt.amount` É a conversão — feita pela
+  // própria Stripe, com a cotação do momento — e vai junto, para o painel
+  // poder somar a venda no faturamento em real sem inventar cotação nenhuma.
+  //
+  // Isto era uma TRAVA: quando as moedas diferiam a leitura inteira era
+  // descartada, e a venda internacional entrava sem taxa e sem líquido.
 
   const comissaoPlataforma = (bt.fee_details || [])
     .filter((d) => d.type === "application_fee")
@@ -105,10 +115,14 @@ export async function taxasDaCobranca(
     taxas: {
       // `bt.fee` é o desconto TOTAL, comissão da plataforma inclusa. Aqui os
       // dois viram colunas separadas — é assim que o Financeiro já mostra a
-      // venda da SyncPay, e é o que a tela da Stripe também separa.
+      // venda da SyncPay, e é o que a tela da Stripe também separa. Tudo que
+      // não é comissão da plataforma entra na TAXA: processamento, conversão
+      // de moeda e imposto, exatamente como o extrato dela soma.
       feeCents: Math.max(0, bt.fee - comissaoPlataforma),
       splitCents: comissaoPlataforma,
       netCents: bt.net,
+      moeda: bt.currency.toUpperCase(),
+      grossCents: bt.amount,
     },
   };
 }

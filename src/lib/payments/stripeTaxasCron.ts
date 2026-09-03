@@ -9,6 +9,11 @@ import { taxasDaCobranca } from "./stripeTaxas";
  * REPESCAGEM das taxas da Stripe: venda paga que ficou sem taxa e sem
  * comissão da plataforma, buscada de novo no tique de 1 minuto.
  *
+ * Serve também para RESGATAR o que já passou: venda internacional gravada
+ * antes de o painel saber ler a liquidação continua sem o valor em real, e
+ * sem ele fica fora do faturamento. A mesma consulta que preenche a taxa
+ * preenche a conversão.
+ *
  * Existe porque a tentativa do webhook é UM TIRO, disparado milissegundos
  * depois do pagamento aprovar — e nesse instante a `balance_transaction` da
  * cobrança, que é onde os números moram, muitas vezes ainda não existe. Foi
@@ -49,7 +54,14 @@ export async function runStripeTaxasPendentes(): Promise<{ conferidas: number; p
          FROM transactions
         WHERE provider = 'stripe'
           AND status = 'paid'
-          AND fee_cents IS NULL
+          -- Falta a taxa, OU falta a conversão numa venda que não é em real.
+          -- A segunda condição é o que resgata a venda internacional antiga:
+          -- ela entrou antes de o painel saber ler a liquidação e, sem o valor
+          -- em real, fica fora do faturamento.
+          AND (
+            fee_cents IS NULL
+            OR (COALESCE(currency, 'BRL') <> 'BRL' AND settled_amount_cents IS NULL)
+          )
           AND provider_ref IS NOT NULL AND provider_ref <> ''
           AND COALESCE(paid_at, created_at) BETWEEN ? AND ?
         ORDER BY COALESCE(paid_at, created_at) DESC

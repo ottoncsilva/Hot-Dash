@@ -37,6 +37,13 @@ export type TaxasDaCobranca = {
    *  depositados, com a cotação que a própria Stripe usou. `null` quando a
    *  cobrança ainda não liquidou e só a comissão é conhecida. */
   grossCents: number | null;
+  /** O bruto NA MOEDA DA COBRANÇA, como o cliente pagou (US$ 19,90). É a
+   *  Stripe dizendo qual é o valor da venda — serve para conferir o que está
+   *  gravado numa venda internacional, onde os dois números convivem e é
+   *  fácil o de real acabar no lugar do de dólar. */
+  chargedCents: number;
+  /** A moeda em que o cliente foi COBRADO. */
+  chargedMoeda: string;
 };
 
 /**
@@ -91,6 +98,8 @@ export async function taxasDaCobranca(
           netCents: null,
           moeda: charge.currency.toUpperCase(),
           grossCents: null,
+          chargedCents: charge.amount,
+          chargedMoeda: charge.currency.toUpperCase(),
         },
       };
     }
@@ -123,6 +132,8 @@ export async function taxasDaCobranca(
       netCents: bt.net,
       moeda: bt.currency.toUpperCase(),
       grossCents: bt.amount,
+      chargedCents: charge.amount,
+      chargedMoeda: charge.currency.toUpperCase(),
     },
   };
 }

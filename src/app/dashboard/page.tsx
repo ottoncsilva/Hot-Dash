@@ -9,7 +9,7 @@ import type { PeriodStats, QuandoRow } from "@/lib/transactions";
 import { IconSettings } from "@/components/icons";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import PageHeader from "@/components/PageHeader";
-import ReceitaEstrangeira, { type LinhaMoeda } from "@/components/ReceitaEstrangeira";
+import MoedasDoPeriodo, { type LinhaMoeda } from "@/components/MoedasDoPeriodo";
 import CurvaSort, {
   ALTURA_LISTA,
   FAIXA_ALTURA,
@@ -239,6 +239,13 @@ function HeroFaturamento({
           </p>
         </div>
       </div>
+
+      {/* A ABERTURA POR MOEDA, embaixo dos dois números e dentro do mesmo card.
+          Os grandes são em real porque é o que entra na conta — o cartão
+          cobrado em dólar a Stripe deposita em real. Aqui embaixo fica quanto
+          foi VENDIDO em cada moeda, que o total em real não conta. Só aparece
+          quando há mais de uma moeda no período. */}
+      <MoedasDoPeriodo linhas={data?.receitaEstrangeira} className="mt-3" />
 
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <MiniNumero
@@ -529,9 +536,6 @@ function BotSalesPanel({
           visual que o saldo do gateway, e no celular a primeira tela acabava
           antes de mostrar o faturamento. */}
       <HeroFaturamento data={data} periodo={rotuloPeriodo} />
-
-      {/* Só aparece quando existe venda em outra moeda no período. */}
-      <ReceitaEstrangeira linhas={data?.receitaEstrangeira} className="mt-3" />
 
       {/* A META e o GRÁFICO trocam de ordem conforme a tela.
           No CELULAR o gráfico vem primeiro e a meta logo abaixo dele: a tela é

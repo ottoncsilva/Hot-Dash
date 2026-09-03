@@ -385,17 +385,25 @@ export default function PaymentsPage() {
    * dele.
    */
   const totaisDaSelecao = useMemo(() => {
-    const porMoeda = new Map<string, { venda: number; taxa: number; split: number; liquido: number }>();
+    // UM total, na moeda de LIQUIDAÇÃO — o dinheiro que entrou. Antes era uma
+    // linha por moeda de cobrança, porque não havia como converter; agora a
+    // conversão vem do próprio extrato do gateway.
+    const acc = { venda: 0, taxa: 0, split: 0, liquido: 0 };
+    // E, embaixo, quanto foi COBRADO em cada moeda — o que o total em real não
+    // conta. Mesma leitura da linha do Dashboard.
+    const porMoeda = new Map<string, number>();
     for (const t of filteredTransactions) {
-      const moeda = t.currency || "BRL";
-      const acc = porMoeda.get(moeda) || { venda: 0, taxa: 0, split: 0, liquido: 0 };
-      acc.venda += t.amountCents;
+      acc.venda += t.settledAmountCents ?? t.amountCents;
       acc.taxa += t.feeCents ?? 0;
       acc.split += t.splitCents ?? 0;
-      acc.liquido += t.netAmountCents ?? 0;
-      porMoeda.set(moeda, acc);
+      acc.liquido += t.netAmountCents ?? t.settledAmountCents ?? t.amountCents;
+      const m = t.currency || "BRL";
+      porMoeda.set(m, (porMoeda.get(m) || 0) + t.amountCents);
     }
-    return [...porMoeda].sort((a, b) => b[1].venda - a[1].venda);
+    return {
+      ...acc,
+      cobrado: [...porMoeda].sort((a, b) => b[1] - a[1]),
+    };
   }, [filteredTransactions]);
 
   return (
@@ -738,6 +746,11 @@ export default function PaymentsPage() {
                 // entrada − taxas − split = você recebe).
                 const taxa = t.feeCents;
                 const split = t.splitCents;
+                // Taxa, split e líquido são cobrados pelo gateway na moeda em
+                // que ele LIQUIDA — numa venda em dólar depositada em real,
+                // eles vêm em real. Formatá-los com o cifrão da cobrança
+                // colocaria "US$" num número que é de real.
+                const moedaLiquidada = t.settledCurrency || t.currency;
                 return (
                   <tr key={t.id} className="hover:bg-white/[0.04]">
                     <td className="p-3">
@@ -924,31 +937,45 @@ export default function PaymentsPage() {
       {/* TOTAL DA SELEÇÃO. Container próprio, fora da tabela, para não rolar
           junto com ela na horizontal — é o número que se quer ler sem
           procurar. Soma as quatro colunas de valor sobre as linhas que estão
-          na tela agora: mudou filtro, busca ou período, muda aqui. */}
-      {totaisDaSelecao.length > 0 && (
+          na tela agora: mudou filtro, busca ou período, muda aqui.
+
+          UM total, na moeda de LIQUIDAÇÃO. Eram vários, um por moeda de
+          cobrança, porque não havia como converter dólar em real sem inventar
+          cotação. Agora a cotação vem do próprio extrato do gateway, e o que
+          foi cobrado em cada moeda aparece embaixo, pequeno. */}
+      {filteredTransactions.length > 0 && (
         <div className="mt-3 card p-4">
-          {totaisDaSelecao.map(([moeda, t], i) => (
-            <div
-              key={moeda}
-              className={`flex flex-wrap items-end justify-end gap-x-8 gap-y-3 ${i > 0 ? "mt-3 border-t border-white/[0.06] pt-3" : ""}`}
-            >
-              <p className="mr-auto font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                total da seleção
-                <span className="ml-2 text-zinc-600">
-                  {filteredTransactions.length} cobrança{filteredTransactions.length === 1 ? "" : "s"}
+          <div className="flex flex-wrap items-end justify-end gap-x-8 gap-y-3">
+            <p className="mr-auto font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+              total da seleção
+              <span className="ml-2 text-zinc-600">
+                {filteredTransactions.length} cobrança{filteredTransactions.length === 1 ? "" : "s"}
+              </span>
+            </p>
+            <TotalDaColuna rotulo="venda" valor={brl(totaisDaSelecao.venda)} />
+            <TotalDaColuna rotulo="taxa" valor={`-${brl(totaisDaSelecao.taxa)}`} classe="text-zinc-400" />
+            <TotalDaColuna
+              rotulo="split"
+              valor={`-${brl(totaisDaSelecao.split)}`}
+              classe={totaisDaSelecao.split > 0 ? "text-amber-400/80" : "text-zinc-600"}
+            />
+            <TotalDaColuna rotulo="líquido" valor={brl(totaisDaSelecao.liquido)} classe="text-emerald-400" />
+          </div>
+
+          {/* Quanto foi COBRADO em cada moeda. Só quando há mais de uma: numa
+              seleção só de real seria o mesmo número de novo, menor. */}
+          {totaisDaSelecao.cobrado.length > 1 && (
+            <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-white/[0.06] pt-3">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                cobrado por moeda
+              </span>
+              {totaisDaSelecao.cobrado.map(([m, cents]) => (
+                <span key={m} className="whitespace-nowrap text-xs text-zinc-400">
+                  {valorDaVenda(cents, m)}
                 </span>
-                {totaisDaSelecao.length > 1 && <span className="ml-2 text-zinc-400">{moeda}</span>}
-              </p>
-              <TotalDaColuna rotulo="venda" valor={valorDaVenda(t.venda, moeda)} />
-              <TotalDaColuna rotulo="taxa" valor={`-${valorDaVenda(t.taxa, moeda)}`} classe="text-zinc-400" />
-              <TotalDaColuna
-                rotulo="split"
-                valor={`-${valorDaVenda(t.split, moeda)}`}
-                classe={t.split > 0 ? "text-amber-400/80" : "text-zinc-600"}
-              />
-              <TotalDaColuna rotulo="líquido" valor={valorDaVenda(t.liquido, moeda)} classe="text-emerald-400" />
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
 

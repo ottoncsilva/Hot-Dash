@@ -51,6 +51,11 @@ export type Transaction = {
   feeCents?: number;
   /** Split: parte repassada a terceiros. Zero na maioria das vendas. */
   splitCents?: number;
+  /** A venda como o gateway LIQUIDOU, quando converteu de moeda: o cliente
+   *  pagou US$ 19,90 (`amountCents`/`currency`) e caiu R$ 101,28. Ausente
+   *  quando não houve conversão — que é o caso de toda venda em real. */
+  settledAmountCents?: number;
+  settledCurrency?: string;
   currency: string;
   method?: string;
   status: string;
@@ -225,6 +230,10 @@ export function recordTransaction(input: {
   /** O que quem opera o bot por fora reteve — `application_fee` na Stripe,
    *  split na SyncPay. É o número que separa funil de LTV nessas vendas. */
   splitCents?: number;
+  /** A venda como o gateway LIQUIDOU, quando ele converteu de moeda: US$ 19,90
+   *  cobrados viram R$ 101,28 depositados. Só vem quando difere da cobrança. */
+  settledAmountCents?: number;
+  settledCurrency?: string;
   /** Código do deep-link que trouxe o lead (origem do tráfego). */
   sourceCode?: string;
   /**
@@ -263,8 +272,9 @@ export function recordTransaction(input: {
       `INSERT INTO transactions
         (id, provider, provider_ref, profile_id, bot_id, description, customer,
          amount_cents, net_amount_cents, fee_cents, split_cents, paid_at,
-         currency, method, status, source_code, origin, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         currency, method, status, source_code, origin,
+         settled_amount_cents, settled_currency, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -284,6 +294,8 @@ export function recordTransaction(input: {
       input.status,
       input.sourceCode || null,
       input.origin || null,
+      input.settledAmountCents ?? null,
+      input.settledCurrency || null,
       now,
       now,
     );
@@ -298,7 +310,7 @@ export function recordTransaction(input: {
 export function totalPaidCentsByProfile(profileId: string): number {
   const r = getDb()
     .prepare(
-      `SELECT COALESCE(SUM(amount_cents),0) s FROM transactions
+      `SELECT COALESCE(SUM(${VALOR_LIQUIDADO}),0) s FROM transactions
         WHERE status = 'paid' AND ${SO_REAL} AND profile_id = ?`,
     )
     .get(profileId) as { s: number };
@@ -576,7 +588,15 @@ export function updateStatusByRef(
   providerRef: string,
   status: string,
   /** Valores informados pelo gateway: o cheio e o líquido (já sem a taxa). */
-  amounts?: { grossCents?: number; netCents?: number; feeCents?: number; splitCents?: number },
+  amounts?: {
+    grossCents?: number;
+    netCents?: number;
+    feeCents?: number;
+    splitCents?: number;
+    /** A venda como o gateway liquidou, quando converteu de moeda. */
+    settledAmountCents?: number;
+    settledCurrency?: string;
+  },
 ): { transaction: Transaction; becamePaid: boolean } | null {
   const existing = findByProviderRef(provider, providerRef);
   if (!existing) return null;
@@ -622,14 +642,23 @@ export function updateStatusByRef(
     net = gross;
   }
 
+  // A liquidação só entra quando VEM: uma atualização que não fala de moeda não
+  // pode apagar a conversão que outra já gravou.
   getDb()
     .prepare(
       `UPDATE transactions
        SET status = ?, amount_cents = ?, net_amount_cents = ?, fee_cents = ?, split_cents = ?,
+           settled_amount_cents = COALESCE(?, settled_amount_cents),
+           settled_currency = COALESCE(?, settled_currency),
            paid_at = ?, updated_at = ?
        WHERE id = ?`,
     )
-    .run(normalized, gross, net, fee, split, paidAt, now, existing.id);
+    .run(
+      normalized, gross, net, fee, split,
+      amounts?.settledAmountCents ?? null,
+      amounts?.settledCurrency || null,
+      paidAt, now, existing.id,
+    );
   return { transaction: getTransaction(existing.id)!, becamePaid };
 }
 
@@ -645,26 +674,52 @@ export function updateStatusByRef(
  */
 export function completarTaxasDoGateway(
   id: string,
-  taxas: { feeCents: number | null; splitCents: number; netCents: number | null },
+  taxas: {
+    feeCents: number | null;
+    splitCents: number;
+    netCents: number | null;
+    moeda?: string;
+    grossCents?: number | null;
+  },
 ): boolean {
   const atual = getTransaction(id);
-  if (!atual || atual.feeCents !== undefined) return false;
+  if (!atual) return false;
+  const faltaConversao =
+    (atual.currency || "BRL") !== "BRL" && atual.settledAmountCents === undefined;
+  // Taxa já gravada (pelo webhook ou corrigida à mão) manda. Mas uma venda
+  // internacional sem o valor em real ainda precisa ser completada, mesmo com
+  // a taxa preenchida — senão ela fica fora do faturamento para sempre.
+  if (atual.feeCents !== undefined && !faltaConversao) return false;
   if (taxas.feeCents === null) {
-    // Só a comissão da plataforma é conhecida: grava ela e deixa taxa e
-    // líquido para a próxima passada, quando a cobrança tiver liquidado.
+    // Só a comissão da plataforma é conhecida (a cobrança ainda não entrou no
+    // saldo): grava ela e deixa taxa, líquido e conversão para a próxima
+    // passada — nenhum dos três existe antes da liquidação.
     getDb()
       .prepare("UPDATE transactions SET split_cents = ?, updated_at = ? WHERE id = ?")
       .run(taxas.splitCents, Date.now(), id);
     return true;
   }
-  const liquido = taxas.netCents ?? atual.amountCents - taxas.feeCents - taxas.splitCents;
+  // A liquidação em outra moeda entra junto: sem ela, a venda em dólar teria
+  // taxa e líquido em real ao lado de um bruto em dólar, e a linha não fecharia.
+  const converteu = Boolean(
+    taxas.moeda && taxas.grossCents != null && taxas.moeda !== (atual.currency || "BRL"),
+  );
+  const liquido = taxas.netCents ?? (converteu ? taxas.grossCents! : atual.amountCents) - taxas.feeCents - taxas.splitCents;
   getDb()
     .prepare(
       `UPDATE transactions
-          SET fee_cents = ?, split_cents = ?, net_amount_cents = ?, updated_at = ?
+          SET fee_cents = ?, split_cents = ?, net_amount_cents = ?,
+              settled_amount_cents = COALESCE(?, settled_amount_cents),
+              settled_currency = COALESCE(?, settled_currency),
+              updated_at = ?
         WHERE id = ?`,
     )
-    .run(taxas.feeCents, taxas.splitCents, liquido, Date.now(), id);
+    .run(
+      taxas.feeCents, taxas.splitCents, liquido,
+      converteu ? taxas.grossCents : null,
+      converteu ? taxas.moeda : null,
+      Date.now(), id,
+    );
   return true;
 }
 
@@ -815,39 +870,63 @@ function methodBucket(method: string | null): "PIX" | "Cartão" | "Boleto" | "Ou
  * com "R$" na frente. Quanto mais internacional a operação, mais errado o
  * número — e errado para MENOS, porque o dólar vale mais que o real.
  *
- * Toda consulta de valor passa a ser em REAL. O que é cobrado em outra moeda
- * sai do total e aparece separado (ver `receitaPorMoeda`), que é o único jeito
- * honesto: converter exigiria a cotação do DIA de cada venda, que não temos.
+ * A regra agora é a MOEDA DE LIQUIDAÇÃO, não a da cobrança. Um cartão cobrado
+ * em dólar que a Stripe deposita em real É faturamento em real, e entra pelo
+ * valor que de fato caiu na conta (`settled_amount_cents`) — não pelo valor em
+ * dólar, que viraria um número inventado, nem de fora do total, que é onde ele
+ * ficava antes.
  *
- * `COALESCE` porque a coluna nasceu depois: venda anterior à migração tem
- * `currency` nulo e é real.
+ * Nada disso é estimativa: os dois lados vêm do extrato da própria Stripe
+ * (ver `payments/stripeTaxas.ts`), com a cotação que ela usou na hora.
+ *
+ * `COALESCE` em cascata porque as colunas nasceram em épocas diferentes: venda
+ * sem liquidação registrada vale pela moeda da cobrança, e venda anterior à
+ * coluna `currency` é real.
  */
-const SO_REAL = "COALESCE(currency,'BRL') = 'BRL'";
-/** A mesma regra quando a consulta dá apelido à tabela (`t`). */
-const SO_REAL_T = "COALESCE(t.currency,'BRL') = 'BRL'";
+/** A moeda em que o dinheiro ENTROU. */
+const MOEDA_LIQUIDADA = "COALESCE(settled_currency, currency, 'BRL')";
+/** O valor que ENTROU, na moeda acima. */
+const VALOR_LIQUIDADO = "COALESCE(settled_amount_cents, amount_cents)";
+const SO_REAL = `${MOEDA_LIQUIDADA} = 'BRL'`;
+const SO_REAL_T = "COALESCE(t.settled_currency, t.currency, 'BRL') = 'BRL'";
+/** O valor que entrou, com apelido de tabela. */
+const VALOR_LIQUIDADO_T = "COALESCE(t.settled_amount_cents, t.amount_cents)";
 
-/** Uma linha por moeda estrangeira do período — o que saiu do total em real. */
-export type ReceitaEstrangeira = {
+/** Uma linha por moeda de COBRANÇA do período. */
+export type ReceitaPorMoeda = {
+  /** A moeda em que o CLIENTE pagou. */
   currency: string;
   paidCount: number;
+  /** Faturamento bruto NA MOEDA DA COBRANÇA (US$ 19,90). */
   paidCents: number;
-  netCents: number;
+  /** O mesmo faturamento em real, como o gateway liquidou (R$ 101,28). Quando
+   *  a liquidação ainda não foi lida, é o próprio valor cobrado. */
+  paidBrlCents: number;
+  /** Líquido em real. */
+  netBrlCents: number;
 };
 
 /**
- * O faturamento que NÃO é em real, do mesmo período, uma linha por moeda.
+ * O faturamento aberto POR MOEDA DE COBRANÇA — as duas linhas pequenas
+ * embaixo do total.
  *
- * Existe para o total em real poder ser só de real sem esconder venda nenhuma:
- * o que sai do "Faturamento" aparece aqui, com o símbolo certo. Sem isso, tirar
- * a venda internacional da soma seria trocar um número errado por um número
- * incompleto — e o operador ia procurar a venda que "sumiu".
+ * O total grande é um só, em real, porque é isso que entra na conta: o cartão
+ * cobrado em dólar é depositado em real, e o extrato da Stripe traz os dois
+ * lados. Mas quanto foi VENDIDO em dólar é informação que o total em real não
+ * carrega, e é a que diz se o internacional está crescendo — por isso cada
+ * moeda aparece aqui com o símbolo dela.
+ *
+ * Antes isto era "vendas em outra moeda": a venda internacional ficava FORA do
+ * faturamento e aparecia num bloco à parte, porque converter exigiria uma
+ * cotação que não se tinha. Agora se tem — a da própria liquidação —, então o
+ * total volta a ser o total.
  */
 export function receitaPorMoeda(
   sinceMs: number | null,
   untilMs: number | null,
   profileId?: string,
-): ReceitaEstrangeira[] {
-  const clauses: string[] = ["status = 'paid'", `NOT (${SO_REAL})`];
+): ReceitaPorMoeda[] {
+  const clauses: string[] = ["status = 'paid'"];
   const params: (number | string)[] = [];
   if (sinceMs !== null) {
     clauses.push("created_at >= ?");
@@ -865,13 +944,14 @@ export function receitaPorMoeda(
     .prepare(
       `SELECT COALESCE(currency,'BRL') currency, COUNT(*) paidCount,
               COALESCE(SUM(amount_cents),0) paidCents,
-              COALESCE(SUM(COALESCE(net_amount_cents, amount_cents)),0) netCents
+              COALESCE(SUM(${VALOR_LIQUIDADO}),0) paidBrlCents,
+              COALESCE(SUM(COALESCE(net_amount_cents, ${VALOR_LIQUIDADO})),0) netBrlCents
          FROM transactions
         WHERE ${clauses.join(" AND ")}
         GROUP BY COALESCE(currency,'BRL')
-        ORDER BY paidCents DESC`,
+        ORDER BY paidBrlCents DESC`,
     )
-    .all(...params) as ReceitaEstrangeira[];
+    .all(...params) as ReceitaPorMoeda[];
 }
 
 export type PeriodStats = {
@@ -1092,7 +1172,7 @@ function computePeriodStats(
       .prepare(
         // `n` = líquido: usa net_amount_cents quando o gateway já informou;
         // senão cai no valor cheio, para vendas antigas não sumirem do total.
-        `SELECT COUNT(*) c, COALESCE(SUM(amount_cents),0) s,
+        `SELECT COUNT(*) c, COALESCE(SUM(${VALOR_LIQUIDADO}),0) s,
                 COALESCE(SUM(COALESCE(net_amount_cents, amount_cents)),0) n
          FROM transactions WHERE status = ? AND ${SO_REAL} ${where}`,
       )
@@ -1105,7 +1185,7 @@ function computePeriodStats(
 
   const methodRows = db
     .prepare(
-      `SELECT COALESCE(method,'') method, COUNT(*) c, COALESCE(SUM(amount_cents),0) s
+      `SELECT COALESCE(method,'') method, COUNT(*) c, COALESCE(SUM(${VALOR_LIQUIDADO}),0) s
        FROM transactions WHERE status = 'paid' AND ${SO_REAL} ${where}
        GROUP BY method`,
     )
@@ -1162,7 +1242,7 @@ export function revenueSeriesForDays(days: number, profileId?: string): { day: s
     const dayEnd = addDaysInTimeZone(dayStart, 1, tz);
     const params: (string | number)[] = [dayStart, dayEnd];
     let sql =
-      `SELECT COALESCE(SUM(amount_cents),0) s FROM transactions
+      `SELECT COALESCE(SUM(${VALOR_LIQUIDADO}),0) s FROM transactions
        WHERE status = 'paid' AND ${SO_REAL} AND created_at >= ? AND created_at < ?`;
     if (profileId) {
       sql += " AND profile_id = ?";
@@ -1235,7 +1315,7 @@ function hourlySeriesForDay(dayStartMs: number, profileId?: string): { day: stri
     const hourEnd = hourStart + 3_600_000;
     const params: (string | number)[] = [hourStart, hourEnd];
     let sql =
-      `SELECT COALESCE(SUM(amount_cents),0) s FROM transactions
+      `SELECT COALESCE(SUM(${VALOR_LIQUIDADO}),0) s FROM transactions
        WHERE status = 'paid' AND ${SO_REAL} AND created_at >= ? AND created_at < ?`;
     if (profileId) {
       sql += " AND profile_id = ?";
@@ -1268,7 +1348,7 @@ function seriesBetween(
     const dayEnd = addDaysInTimeZone(dayStart, 1, tz);
     const params: (string | number)[] = [dayStart, dayEnd];
     let sql =
-      `SELECT COALESCE(SUM(amount_cents),0) s FROM transactions
+      `SELECT COALESCE(SUM(${VALOR_LIQUIDADO}),0) s FROM transactions
        WHERE status = 'paid' AND ${SO_REAL} AND created_at >= ? AND created_at < ?`;
     if (profileId) {
       sql += " AND profile_id = ?";

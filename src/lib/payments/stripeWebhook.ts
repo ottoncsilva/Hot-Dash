@@ -174,11 +174,19 @@ async function processarCheckoutCompleto(
   // igual ao cheio, e a comissão de quem opera o bot por fora ficava invisível.
   const taxas = await buscarTaxas(session.payment_intent, registra);
 
+  // Cobrança em dólar liquidada em real: `grossCents` continua sendo o que o
+  // cliente pagou (US$ 19,90) e a conversão vai para as colunas de liquidação
+  // (R$ 101,28) — é ela que entra no faturamento em real.
+  const moedaCobranca = (session.currency || "usd").toUpperCase();
+  const converteu = Boolean(taxas?.moeda && taxas.grossCents != null && taxas.moeda !== moedaCobranca);
+
   const updated = updateStatusByRef("stripe", providerRef, "paid", {
     grossCents,
     netCents: taxas?.netCents ?? undefined,
     feeCents: taxas?.feeCents ?? undefined,
     splitCents: taxas?.splitCents,
+    settledAmountCents: converteu ? taxas!.grossCents! : undefined,
+    settledCurrency: converteu ? taxas!.moeda : undefined,
   });
   if (updated) registra("cobrança atualizada · paid");
 
@@ -189,7 +197,7 @@ async function processarCheckoutCompleto(
     // de fallback do webhook da SyncPay. Se o Canal de Vendas já mandou o
     // relatório dessa venda (ex.: Bobz), ele já diz de qual modelo/bot é.
     const vinculo = buscarRelatorioExterno("stripe", providerRef);
-    recordTransaction({
+    const nova = recordTransaction({
       provider: "stripe",
       providerRef,
       profileId: vinculo?.profileId,
@@ -208,7 +216,9 @@ async function processarCheckoutCompleto(
       netAmountCents: taxas?.netCents ?? undefined,
       feeCents: taxas?.feeCents ?? undefined,
       splitCents: taxas?.splitCents,
-      currency: (session.currency || "usd").toUpperCase(),
+      settledAmountCents: converteu ? taxas!.grossCents! : undefined,
+      settledCurrency: converteu ? taxas!.moeda : undefined,
+      currency: moedaCobranca,
       method: "card",
       status: normalizeStatus("paid"),
       // O relatório do Canal de Vendas também traz o deep-link que trouxe o
@@ -222,6 +232,13 @@ async function processarCheckoutCompleto(
         ? `venda nova · paid · vinculada pelo Canal de Vendas (bot ${vinculo.botId})`
         : "venda nova · paid · sem relatório do Canal de Vendas ainda (Sem modelo)",
     );
+
+    // ALERTA NO CELULAR. Esta venda não passa por `deliverPaidTransaction`
+    // (não há inscrição para ativar: o checkout é de fora), e sem isto era a
+    // ÚNICA venda paga do painel que não avisava ninguém. O caminho do
+    // PaymentIntent solto e os dois da SyncPay já avisavam; este ficou de
+    // fora — e é justamente por onde entra a venda de bot operado por fora.
+    await avisarVendaAprovada(nova.id).catch(() => {});
     return { ok: true };
   }
 
@@ -307,6 +324,10 @@ async function processarRenovacaoPaga(
     netAmountCents: taxasFatura?.netCents ?? undefined,
     feeCents: taxasFatura?.feeCents ?? undefined,
     splitCents: taxasFatura?.splitCents,
+    ...(taxasFatura?.moeda && taxasFatura.grossCents != null &&
+    taxasFatura.moeda !== (invoice.currency || "usd").toUpperCase()
+      ? { settledAmountCents: taxasFatura.grossCents, settledCurrency: taxasFatura.moeda }
+      : {}),
     currency: (invoice.currency || "usd").toUpperCase(),
     method: "card",
     status: "paid",
@@ -466,6 +487,9 @@ async function processarPaymentIntentSucedido(
     netAmountCents: taxasPi?.netCents ?? undefined,
     feeCents: taxasPi?.feeCents ?? undefined,
     splitCents: taxasPi?.splitCents,
+    ...(taxasPi?.moeda && taxasPi.grossCents != null && taxasPi.moeda !== (pi.currency || "usd").toUpperCase()
+      ? { settledAmountCents: taxasPi.grossCents, settledCurrency: taxasPi.moeda }
+      : {}),
     currency: (pi.currency || "usd").toUpperCase(),
     method: "card",
     // Mesma completude do outro caminho de venda fria: origem de tráfego e

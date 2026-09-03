@@ -7,7 +7,6 @@ import type { Profile } from "@/lib/types";
 import type { PaymentSettingsPublic } from "@/lib/settings";
 import type { PeriodStats, QuandoRow } from "@/lib/transactions";
 import { IconSettings } from "@/components/icons";
-import FaixaRolavel from "@/components/FaixaRolavel";
 import PeriodPicker, { periodQuery, type PeriodState } from "@/components/PeriodPicker";
 import PageHeader from "@/components/PageHeader";
 import ReceitaEstrangeira, { type LinhaMoeda } from "@/components/ReceitaEstrangeira";
@@ -871,13 +870,15 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
   if (series.length === 0) {
     return <div className="grid h-40 place-items-center text-xs text-zinc-600">sem dados no período</div>;
   }
-  // Mesma conta do `minWidth` que a faixa rolável já aplicava: nunca mais
-  // estreito que 38px por dia (senão os rótulos colam uns nos outros), e
-  // nunca mais estreito que o card (período curto continua preenchendo o
-  // card como sempre preencheu). É exatamente a largura que o navegador vai
-  // desenhar — por isso o viewBox pode copiá-la e não há mais o que esticar.
-  const larguraMinima = Math.max(280, series.length * 38);
-  const W = Math.max(larguraMinima, larguraCard);
+  // O gráfico CABE na tela, sempre. Antes ele reservava 38px por dia e a faixa
+  // rolava na horizontal: com 30 dias, num celular, dois terços do período
+  // ficavam fora da tela e nada dizia quanto faltava. Agora a largura é a do
+  // card e pronto — o que se perde são rótulos de data, e esses a gente
+  // desbasta logo abaixo em vez de empurrar o gráfico para fora.
+  //
+  // O 600 é só o primeiro quadro, antes do ResizeObserver medir. Como o
+  // viewBox copia a largura real, ninguém vê a diferença.
+  const W = larguraCard || 600;
   const H = 160;
   const PAD = 8;
   const max = Math.max(1, ...series.map((s) => s.cents));
@@ -895,6 +896,26 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
   // 5.000/10.000/... — sempre a mesma escala usada pra plotar os pontos.
   const gridTicks = niceTicks(max);
 
+  /** Qual dia está sob o dedo/cursor, a partir da posição dentro do gráfico. */
+  function indiceEmX(clientX: number, alvo: HTMLElement): number {
+    const r = alvo.getBoundingClientRect();
+    if (r.width <= 0) return 0;
+    // Da posição em pixels para a mesma escala do viewBox, e daí para o ponto
+    // mais próximo — arredondando, não truncando: o dia que vale é o mais
+    // perto do dedo, não o que ficou para trás.
+    const x = ((clientX - r.left) / r.width) * W;
+    const i = stepX > 0 ? Math.round((x - PAD) / stepX) : 0;
+    return Math.min(series.length - 1, Math.max(0, i));
+  }
+
+  /**
+   * Quantos rótulos de data pular para eles não colarem uns nos outros.
+   * "02/09" precisa de uns 34px; abaixo disso vira borrão. O primeiro e o
+   * último sempre aparecem — são eles que dizem o período.
+   */
+  const larguraPorDia = W / series.length;
+  const passoRotulo = Math.max(1, Math.ceil(34 / Math.max(1, larguraPorDia)));
+
   return (
     <div ref={wrapRef}>
       <div className="flex items-center justify-between">
@@ -903,12 +924,7 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
         </span>
         <span className="font-display text-sm font-semibold text-emerald-400">{brl(total)}</span>
       </div>
-      {/* Gráfico + datas rolam JUNTOS: com 30 dias os rótulos não caberiam num
-          celular, então garantimos uma largura mínima por dia e deixamos rolar.
-          A faixa põe o degradê nas pontas: rolar já rolava, mas nada dizia que
-          havia mais dias fora da tela. */}
-      <FaixaRolavel className="mt-2" ariaLabel="Faturamento por dia">
-      <div style={{ minWidth: `${W}px` }}>
+      <div className="mt-2">
       {/* `relative` para ancorar a camada de interação e o balão do valor. */}
       <div className="relative" onMouseLeave={() => setActive(null)}>
       <svg viewBox={`0 0 ${W} ${H}`} className="h-40 w-full" preserveAspectRatio="none">
@@ -960,29 +976,55 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
         ))}
       </svg>
 
-      {/* Camada de interação: uma faixa invisível por ponto, cobrindo toda a
-          altura. Passar o mouse ou tocar mostra o valor daquele dia. Faixas em
-          vez de mirar no pontinho: no toque, acertar um círculo de 5px é
-          impossível. */}
-      <div className="absolute inset-0 flex">
-        {series.map((s, i) => (
-          <button
-            key={i}
-            type="button"
-            aria-label={`${s.day}: ${brl(s.cents)}`}
-            className="h-full flex-1 cursor-default"
-            onMouseEnter={() => setActive(i)}
-            onFocus={() => setActive(i)}
-            onTouchStart={() => setActive(i)}
-          />
-        ))}
+      {/* Camada de interação: uma folha só, cobrindo o gráfico inteiro, que lê a
+          POSIÇÃO do dedo/cursor. Eram faixas invisíveis, uma por dia, e cada
+          uma só reagia a tocar nela — arrastar o dedo pelo gráfico não
+          acompanhava, e com 30 dias num celular cada faixa tinha 10px.
+          Posição em vez de alvo: acertar não é mais problema de mira.
+
+          `pan-y` no toque: o arrasto na horizontal é do gráfico, o na vertical
+          continua rolando a página. Sem isso, ou o gráfico não lê o dedo, ou a
+          página trava enquanto ele passa por cima. */}
+      <div
+        className="absolute inset-0 touch-pan-y"
+        onPointerDown={(e) => {
+          // Captura: o dedo pode sair da caixa no meio do arrasto e a leitura
+          // continua valendo, em vez de o ponto ativo sumir na borda.
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setActive(indiceEmX(e.clientX, e.currentTarget));
+        }}
+        onPointerMove={(e) => {
+          // No mouse vale sempre (é o passar por cima de sempre); no toque só
+          // chega evento enquanto o dedo está na tela, que é justo o arrasto.
+          setActive(indiceEmX(e.clientX, e.currentTarget));
+        }}
+        onPointerUp={(e) => {
+          // Tirou o dedo, some o balão. No mouse, quem limpa é sair da área.
+          if (e.pointerType !== "mouse") setActive(null);
+        }}
+        onPointerCancel={() => setActive(null)}
+      >
+        {/* Só para teclado e leitor de tela: um botão por dia, sem pegar
+            ponteiro nenhum (quem lê o dedo é a folha acima). Tab percorre os
+            dias e cada um se anuncia com valor. */}
+        <div className="pointer-events-none flex h-full">
+          {series.map((s, i) => (
+            <button
+              key={i}
+              type="button"
+              aria-label={`${s.day}: ${brl(s.cents)}`}
+              className="h-full flex-1 cursor-default"
+              onFocus={() => setActive(i)}
+              onBlur={() => setActive((a) => (a === i ? null : a))}
+            />
+          ))}
+        </div>
       </div>
 
-      {/* Balão com o valor do ponto ativo. Fica ACIMA do ponto, mas vira para
-          BAIXO quando o ponto é alto: a área do gráfico rola na horizontal e
-          isso faz o navegador cortar tudo que passa do topo — nos dias de pico
-          o balão simplesmente sumia. Nas pontas ele encosta na borda lateral em
-          vez de vazar para fora. */}
+      {/* Balão com o valor do ponto ativo. Fica ACIMA do ponto e vira para
+          BAIXO quando o ponto é alto, senão nos dias de pico ele nasceria por
+          cima do topo do card. Nas pontas encosta na borda lateral em vez de
+          vazar para fora. */}
       {active !== null && (() => {
         const abaixo = points[active].y < H * 0.4;
         const dx = active === 0 ? "0" : active === series.length - 1 ? "-100%" : "-50%";
@@ -1005,18 +1047,27 @@ function RevenueChart({ series }: { series: { day: string; cents: number }[] }) 
         );
       })()}
       </div>
-      {/* TODAS as datas do período (antes só apareciam primeira, meio e última).
-          Cada rótulo fica alinhado ao seu ponto no gráfico. */}
+      {/* As datas, alinhadas cada uma ao seu ponto. Sem rolagem, nem toda cabe:
+          aparece uma a cada `passoRotulo`, mais a última — e o dia exato de
+          qualquer ponto sai no balão, arrastando o dedo. Todas as células
+          continuam existindo (mesmo vazias) para o alinhamento não escorregar. */}
       <div
         className="mt-1 grid text-center text-[10px] text-zinc-600"
         style={{ gridTemplateColumns: `repeat(${series.length}, minmax(0, 1fr))` }}
       >
-        {series.map((s, i) => (
-          <span key={i} className="truncate">{s.day}</span>
-        ))}
+        {series.map((s, i) => {
+          const ultimo = i === series.length - 1;
+          // O último tem preferência: se o passo cairia no vizinho dele, o
+          // vizinho cede — dois rótulos colados na ponta é o que se evita.
+          const mostra = ultimo || (i % passoRotulo === 0 && series.length - 1 - i >= passoRotulo);
+          return (
+            <span key={i} className={`truncate ${active === i ? "text-zinc-300" : ""}`}>
+              {mostra ? s.day : ""}
+            </span>
+          );
+        })}
       </div>
       </div>
-      </FaixaRolavel>
     </div>
   );
 }

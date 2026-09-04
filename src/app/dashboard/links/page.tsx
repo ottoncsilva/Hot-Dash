@@ -74,6 +74,19 @@ type Data = {
   poplinks?: PoplinkRow[];
 };
 
+/**
+ * O que entra numa seção de modelo: uma página do SLT ou um PopLink.
+ *
+ * Os dois no mesmo grupo, ordenados por clique, porque para quem lê é a mesma
+ * pergunta — o que esta modelo divulgou e o que rendeu. Separá-los em duas
+ * listas obrigava a comparar dois blocos para saber quem ganhou de quem.
+ */
+type Item = { tipo: "page"; p: PageRow } | { tipo: "poplink"; pl: PoplinkRow };
+
+function cliquesDoItem(i: Item): number {
+  return i.tipo === "page" ? i.p.clicks : i.pl.clicks;
+}
+
 /** Uma linha da quebra por país. */
 type PaisRow = { country: string; views: number; clicks: number };
 
@@ -313,22 +326,66 @@ function PainelLinks({ period }: { period: PeriodState }) {
     }
   }
 
-  const grupos = useMemo(
-    () => (data?.groups || []).filter((g) => !profileId || g.profileId === profileId),
-    [data, profileId],
+  const nomeDoPerfil = useMemo(
+    () => new Map((data?.profiles || []).map((p) => [p.id, p.name])),
+    [data],
   );
-  // Página sem modelo não pertence a modelo NENHUMA — então some assim que o
-  // filtro escolhe uma. Aparecer ali seria dizer que é dela.
-  const semModelo = useMemo(() => (profileId ? [] : data?.unassigned || []), [data, profileId]);
-  const paginas = useMemo(
-    () => [...grupos.flatMap((g) => g.pages), ...semModelo],
+
+  /**
+   * As seções por modelo, com página e PopLink na MESMA lista, do mais
+   * clicado ao menos.
+   *
+   * A mescla é aqui e não no servidor porque `groups` só traz modelo que tem
+   * PÁGINA — uma que só divulgue por PopLink não apareceria. Montando do lado
+   * de cá, o modelo entra pelo que tiver: página, PopLink ou os dois.
+   */
+  const grupos = useMemo(() => {
+    const porModelo = new Map<string, { profileId: string; profileName: string; itens: Item[] }>();
+    for (const g of data?.groups || []) {
+      porModelo.set(g.profileId, {
+        profileId: g.profileId,
+        profileName: g.profileName,
+        itens: g.pages.map((p) => ({ tipo: "page", p }) as Item),
+      });
+    }
+    for (const pl of data?.poplinks || []) {
+      if (!pl.profileId) continue;
+      const grupo = porModelo.get(pl.profileId) || {
+        profileId: pl.profileId,
+        profileName: nomeDoPerfil.get(pl.profileId) || "Modelo",
+        itens: [] as Item[],
+      };
+      grupo.itens.push({ tipo: "poplink", pl });
+      porModelo.set(pl.profileId, grupo);
+    }
+    return [...porModelo.values()]
+      .filter((g) => !profileId || g.profileId === profileId)
+      .map((g) => ({ ...g, itens: [...g.itens].sort((a, b) => cliquesDoItem(b) - cliquesDoItem(a)) }))
+      .sort((a, b) => a.profileName.localeCompare(b.profileName, "pt-BR"));
+  }, [data, profileId, nomeDoPerfil]);
+
+  // Página e PopLink sem modelo não pertencem a modelo NENHUMA — então somem
+  // assim que o filtro escolhe uma. Aparecer ali seria dizer que são dela.
+  const semModelo = useMemo<Item[]>(() => {
+    if (profileId) return [];
+    const itens: Item[] = [
+      ...(data?.unassigned || []).map((p) => ({ tipo: "page", p }) as Item),
+      ...(data?.poplinks || []).filter((pl) => !pl.profileId).map((pl) => ({ tipo: "poplink", pl }) as Item),
+    ];
+    return itens.sort((a, b) => cliquesDoItem(b) - cliquesDoItem(a));
+  }, [data, profileId]);
+
+  const todosOsItens = useMemo(
+    () => [...grupos.flatMap((g) => g.itens), ...semModelo],
     [grupos, semModelo],
   );
-  // Mesma regra das páginas: PopLink sem modelo não é de modelo nenhuma, então
-  // some assim que o filtro escolhe uma.
+  const paginas = useMemo(
+    () => todosOsItens.flatMap((i) => (i.tipo === "page" ? [i.p] : [])),
+    [todosOsItens],
+  );
   const poplinks = useMemo(
-    () => (data?.poplinks || []).filter((pl) => !profileId || pl.profileId === profileId),
-    [data, profileId],
+    () => todosOsItens.flatMap((i) => (i.tipo === "poplink" ? [i.pl] : [])),
+    [todosOsItens],
   );
 
   const total = useMemo(() => {
@@ -401,13 +458,6 @@ function PainelLinks({ period }: { period: PeriodState }) {
     [data],
   );
 
-  // O PopLink não vive dentro de um card de modelo (não tem página), então o
-  // nome dela precisa aparecer na própria linha.
-  const nomeDoPerfil = useMemo(
-    () => new Map((data?.profiles || []).map((p) => [p.id, p.name])),
-    [data],
-  );
-
   return (
     <>
       {erro && (
@@ -447,66 +497,53 @@ function PainelLinks({ period }: { period: PeriodState }) {
             </div>
             {semModelo.length > 0 && (
               <p className="text-[11px] text-amber-400">
-                {semModelo.length} {semModelo.length === 1 ? "página" : "páginas"} sem modelo atribuída
+                {semModelo.length} sem modelo atribuída
               </p>
             )}
           </div>
 
-          {paginas.length === 0 ? (
+          {todosOsItens.length === 0 ? (
             <p className="mt-4 card p-6 text-center text-sm text-zinc-500">
               {profileId
-                ? "Nenhuma página do SLT atribuída a esta modelo."
+                ? "Nada do SLT atribuído a esta modelo."
                 : "Nenhuma página encontrada nessa conta do SLT."}
             </p>
           ) : vista === "link" ? (
-            <PorLink paginas={paginas} modeloDaPagina={modeloDaPagina} />
+            <PorLink
+              paginas={paginas}
+              poplinks={poplinks}
+              modeloDaPagina={modeloDaPagina}
+              nomeDoPerfil={nomeDoPerfil}
+            />
           ) : (
             <div className="mt-4 space-y-6">
               {semModelo.length > 0 && (
                 <Secao titulo="Sem modelo atribuída" alerta>
-                  {semModelo.map((p) => (
-                    <PaginaCard
-                      key={p.pageId}
-                      pagina={p}
+                  {semModelo.map((item) => (
+                    <CardDoItem
+                      key={item.tipo === "page" ? item.p.pageId : item.pl.id}
+                      item={item}
                       redeLabel={redeLabel}
-                      onEditar={() => setEditando(alvoDaPagina(p))}
-                      onDetalhes={() => setDetalhando(detalheDaPagina(p))}
+                      onEditar={setEditando}
+                      onDetalhes={setDetalhando}
                     />
                   ))}
                 </Secao>
               )}
               {grupos.map((g) => (
                 <Secao key={g.profileId} titulo={g.profileName}>
-                  {[...g.pages]
-                    .sort((a, b) => b.clicks - a.clicks || b.views - a.views)
-                    .map((p) => (
-                      <PaginaCard
-                        key={p.pageId}
-                        pagina={p}
-                        redeLabel={redeLabel}
-                        onEditar={() => setEditando(alvoDaPagina(p))}
-                        onDetalhes={() => setDetalhando(detalheDaPagina(p))}
-                      />
-                    ))}
+                  {g.itens.map((item) => (
+                    <CardDoItem
+                      key={item.tipo === "page" ? item.p.pageId : item.pl.id}
+                      item={item}
+                      redeLabel={redeLabel}
+                      onEditar={setEditando}
+                      onDetalhes={setDetalhando}
+                    />
+                  ))}
                 </Secao>
               ))}
             </div>
-          )}
-
-          {/* OS POPLINKS, em bloco próprio e depois das páginas.
-              Não cabem em nenhuma das duas vistas acima: as duas partem da
-              página (uma agrupa por ela, a outra dá a página de cada link), e
-              o PopLink não tem página. Também não é ruído: é a mesma pergunta
-              — o que foi divulgado, quanto foi clicado, quanto rendeu — só
-              que num link que vai direto ao destino. */}
-          {poplinks.length > 0 && (
-            <PainelPoplinks
-              poplinks={poplinks}
-              redeLabel={redeLabel}
-              nomeDoPerfil={nomeDoPerfil}
-              onEditar={(pl) => setEditando(alvoDoPoplink(pl))}
-              onDetalhes={(pl) => setDetalhando(detalheDoPoplink(pl))}
-            />
           )}
         </>
       )}
@@ -842,22 +879,48 @@ function PaginaCard({
  */
 function PorLink({
   paginas,
+  poplinks,
   modeloDaPagina,
+  nomeDoPerfil,
 }: {
   paginas: PageRow[];
+  poplinks: PoplinkRow[];
   modeloDaPagina: Map<string, string>;
+  nomeDoPerfil: Map<string, string>;
 }) {
-  const linhas = paginas
-    .flatMap((p) =>
+  // PopLink entra na MESMA lista, na mesma ordem de clique: aqui a pergunta é
+  // "o que rendeu mais no recorte", e ele concorre com os outros links.
+  const linhas = [
+    ...paginas.flatMap((p) =>
       p.links.map((l) => ({
-        ...l,
         chave: `${p.pageId}|${l.id}`,
-        pagina: nomeDaPagina(p),
+        titulo: l.label || l.url,
+        url: l.url,
+        plataforma: l.platform,
+        poplink: false,
+        clicks: l.clicks,
+        code: l.code,
+        sales: l.sales,
+        revenueCents: l.revenueCents,
+        contexto: `${modeloDaPagina.get(p.pageId) || "Sem modelo"} · ${nomeDaPagina(p)}`,
         endereco: enderecoDaPagina(p),
-        modelo: modeloDaPagina.get(p.pageId) || "Sem modelo",
       })),
-    )
-    .sort((a, b) => b.clicks - a.clicks);
+    ),
+    ...poplinks.map((pl) => ({
+      chave: `poplink|${pl.id}`,
+      titulo: pl.shortUrl.replace(/^https?:\/\//, ""),
+      url: pl.url,
+      plataforma: "",
+      poplink: true,
+      clicks: pl.clicks,
+      code: pl.code,
+      sales: pl.sales,
+      revenueCents: pl.revenueCents,
+      contexto: `${(pl.profileId && nomeDoPerfil.get(pl.profileId)) || "Sem modelo"} · PopLink`,
+      // O PopLink não tem página: o endereço que o explica é o destino.
+      endereco: pl.url,
+    })),
+  ].sort((a, b) => b.clicks - a.clicks);
   const total = linhas.reduce((s, l) => s + l.clicks, 0);
   const maior = linhas[0]?.clicks || 0;
   const mostradas = linhas.slice(0, POR_LINK_TETO);
@@ -867,7 +930,7 @@ function PorLink({
   if (linhas.length === 0) {
     return (
       <p className="mt-4 card p-6 text-center text-sm text-zinc-500">
-        Nenhum link cadastrado nas páginas deste recorte.
+        Nenhum link neste recorte.
       </p>
     );
   }
@@ -881,19 +944,24 @@ function PorLink({
         >
           <div className="min-w-0 sm:flex-1">
             <div className="flex items-center gap-2">
-              {mostrarPlataforma(l.platform) && (
-                <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] lowercase text-zinc-500">
-                  {l.platform}
+              {l.poplink ? (
+                <span className="shrink-0 rounded bg-orange-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-orange-300">
+                  poplink
                 </span>
+              ) : (
+                mostrarPlataforma(l.plataforma) && (
+                  <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] lowercase text-zinc-500">
+                    {l.plataforma}
+                  </span>
+                )
               )}
               <span className="truncate text-zinc-200" title={l.url}>
-                {l.label || l.url}
+                {l.titulo}
               </span>
               <PilulaCodigo code={l.code} />
             </div>
             <p className="mt-0.5 truncate text-[11px] text-zinc-500">
-              {l.modelo} · {l.pagina}{" "}
-              <span className="font-mono text-zinc-600">{l.endereco}</span>
+              {l.contexto} <span className="font-mono text-zinc-600">{l.endereco}</span>
             </p>
           </div>
           <div className="mt-1 flex items-center justify-end gap-3 sm:mt-0 sm:contents">
@@ -917,145 +985,137 @@ function PorLink({
   );
 }
 
-/**
- * Onde a página é CONFIGURADA: modelo e rede de tráfego, os dois de escolher
- * numa lista (nada de digitar), e só gravados no "Salvar" — antes eram dois
- * seletores soltos no card que salvavam a cada troca, o que fazia um clique
- * errado virar atribuição errada sem aviso.
- */
-/**
- * O bloco dos POPLINKS.
- *
- * Um PopLink é o link curto da SLT (igpopl.ink/apelido) que manda direto para
- * o destino — sem página, sem botões. Por isso a linha dele é mais curta que
- * a de um link de página: só existe CLIQUE para mostrar. Não há visualização
- * nem "cliques por visita" — não porque falte medir, mas porque não há página
- * onde isso aconteceria.
- *
- * O resto é igual: o `?start=` do destino é o que liga o clique à venda, a
- * barra compara um PopLink com o outro, e o lápis atribui modelo e rede.
- */
-function PainelPoplinks({
-  poplinks,
+/** Um item da seção do modelo — página ou PopLink, o mesmo lugar na lista. */
+function CardDoItem({
+  item,
   redeLabel,
-  nomeDoPerfil,
   onEditar,
   onDetalhes,
 }: {
-  poplinks: PoplinkRow[];
+  item: Item;
   redeLabel: Map<string, string>;
-  nomeDoPerfil: Map<string, string>;
-  onEditar: (pl: PoplinkRow) => void;
-  onDetalhes: (pl: PoplinkRow) => void;
+  onEditar: (alvo: AlvoDaConfig) => void;
+  onDetalhes: (alvo: AlvoDoDetalhe) => void;
 }) {
-  const lista = [...poplinks].sort((a, b) => b.clicks - a.clicks);
-  const total = lista.reduce((s, pl) => s + pl.clicks, 0);
-  const maior = lista[0]?.clicks || 0;
-  const { sales, cents } = somarVendas(lista);
-  const semModelo = lista.filter((pl) => !pl.profileId).length;
-
+  if (item.tipo === "page") {
+    return (
+      <PaginaCard
+        pagina={item.p}
+        redeLabel={redeLabel}
+        onEditar={() => onEditar(alvoDaPagina(item.p))}
+        onDetalhes={() => onDetalhes(detalheDaPagina(item.p))}
+      />
+    );
+  }
   return (
-    <div className="mt-6">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <p className="eyebrow text-orange-300/80">poplinks</p>
-        <p className="text-[11px] text-zinc-500">
-          {nBR(total)} {total === 1 ? "clique" : "cliques"} · {sales}{" "}
-          {sales === 1 ? "venda" : "vendas"} ·{" "}
-          <span className={cents > 0 ? "text-emerald-400" : ""}>{brl(cents)}</span>
-          {semModelo > 0 && (
-            <span className="text-amber-400">
-              {" "}
-              · {semModelo} sem modelo
+    <PoplinkCard
+      poplink={item.pl}
+      redeLabel={redeLabel}
+      onEditar={() => onEditar(alvoDoPoplink(item.pl))}
+      onDetalhes={() => onDetalhes(detalheDoPoplink(item.pl))}
+    />
+  );
+}
+
+/**
+ * O card de um POPLINK — o link curto (igpopl.ink) que manda direto para o
+ * destino, sem página e sem botões no meio.
+ *
+ * Fica na MESMA lista dos cards de página, ordenado por clique junto com
+ * eles: para quem lê é a mesma pergunta, "o que esta modelo divulgou e o que
+ * rendeu". A etiqueta laranja é o que diz qual é qual — e por que este card é
+ * mais curto: sem página não há visualização nem "cliques por visita", e sem
+ * botões não há lista de links dentro. O clique é a única métrica que existe.
+ */
+function PoplinkCard({
+  poplink: pl,
+  redeLabel,
+  onEditar,
+  onDetalhes,
+}: {
+  poplink: PoplinkRow;
+  redeLabel: Map<string, string>;
+  onEditar: () => void;
+  onDetalhes: () => void;
+}) {
+  const endereco = pl.shortUrl.replace(/^https?:\/\//, "");
+  return (
+    <div className="card p-3">
+      {/* Mesmo cabeçalho do card de página: identidade à esquerda,
+          qualificadores e ações à direita. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+          <span className="rounded bg-orange-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-orange-300">
+            poplink
+          </span>
+          <a
+            href={pl.shortUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="truncate text-sm font-semibold text-white hover:text-orange-200"
+          >
+            {endereco}
+          </a>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {pl.trafficSource ? (
+            <span className="chip">{redeLabel.get(pl.trafficSource) || pl.trafficSource}</span>
+          ) : (
+            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-400">
+              sem rede
             </span>
           )}
-        </p>
+          {/* O escudo da SLT: com ele ligado, ela filtra varredura de bot e
+              VPN antes de deixar o clique passar. Muda o que o número ao lado
+              significa, então é informação, não enfeite. */}
+          {pl.shieldEnabled && (
+            <span
+              className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-zinc-500"
+              title={
+                pl.blockedCountries.length > 0
+                  ? `Proteção ligada · países bloqueados: ${pl.blockedCountries.join(", ")}`
+                  : "Proteção ligada — a SLT filtra varredura de bot antes de contar o clique"
+              }
+            >
+              escudo
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={onDetalhes}
+            className="btn-ghost h-8 shrink-0 px-3 text-xs"
+            aria-label={`Detalhes de ${pl.slug}`}
+          >
+            <IconList size={14} />
+            Detalhes
+          </button>
+          <button
+            type="button"
+            onClick={onEditar}
+            className="btn-ghost h-8 shrink-0 px-3 text-xs"
+            aria-label={`Editar ${pl.slug}`}
+          >
+            <IconEdit size={14} />
+            Editar
+          </button>
+        </div>
       </div>
-      <p className="mt-0.5 text-[11px] text-zinc-600">
-        Link curto que vai direto ao destino — sem página e sem botões, então o clique é a única
-        métrica que existe.
+
+      <p className="mt-1 truncate font-mono text-[11px] text-zinc-600" title={pl.url}>
+        → {pl.url}
       </p>
 
-      <div className="mt-2 card divide-y divide-white/[0.06]">
-        {lista.map((pl) => (
-          // Mesma quebra dos links de página: duas linhas no celular, uma a
-          // partir de `sm` (`sm:contents` dissolve o agrupamento do celular).
-          <div key={pl.id} className="px-3 py-2 text-xs sm:flex sm:items-center sm:gap-3">
-            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                <a
-                  href={pl.shortUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="truncate font-mono text-[11px] text-orange-300 hover:text-orange-200"
-                  title={pl.shortUrl}
-                >
-                  {pl.shortUrl.replace(/^https?:\/\//, "")}
-                </a>
-                {pl.profileId ? (
-                  <span className="chip shrink-0">{nomeDoPerfil.get(pl.profileId) || "Modelo"}</span>
-                ) : (
-                  <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-400">
-                    sem modelo
-                  </span>
-                )}
-                {pl.trafficSource && (
-                  <span className="chip shrink-0">
-                    {redeLabel.get(pl.trafficSource) || pl.trafficSource}
-                  </span>
-                )}
-                {/* O escudo da SLT: quando ligado, ela filtra varredura de bot
-                    e VPN antes de deixar o clique passar. Muda o que o número
-                    ao lado significa, então é informação, não enfeite. */}
-                {pl.shieldEnabled && (
-                  <span
-                    className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-zinc-500"
-                    title={
-                      pl.blockedCountries.length > 0
-                        ? `Proteção ligada · países bloqueados: ${pl.blockedCountries.join(", ")}`
-                        : "Proteção ligada — a SLT filtra varredura de bot antes de contar o clique"
-                    }
-                  >
-                    escudo
-                  </span>
-                )}
-              </div>
-              <span className="truncate text-zinc-500" title={pl.url}>
-                → {pl.url}
-              </span>
-            </div>
-            <div className="mt-1.5 flex items-center justify-end gap-3 sm:mt-0 sm:contents">
-              <PilulaCodigo code={pl.code} />
-              <BarraDeCliques
-                clicks={pl.clicks}
-                total={total}
-                maior={maior}
-                dica={`${pl.clicks} de ${total} cliques nos PopLinks · ${pl.url}`}
-              />
-              <ValorDoLink link={pl} />
-              {/* Só o ícone: a linha do PopLink é estreita no celular, e o
-                  rótulo "Detalhes" ao lado dos outros quatro blocos a
-                  estouraria. Mesmo botão do card de página. */}
-              <button
-                type="button"
-                onClick={() => onDetalhes(pl)}
-                className="shrink-0 text-zinc-700 transition-colors hover:text-white"
-                aria-label={`Detalhes de ${pl.slug}`}
-                title="De onde vieram os cliques"
-              >
-                <IconList size={14} />
-              </button>
-              <button
-                type="button"
-                onClick={() => onEditar(pl)}
-                className="shrink-0 text-zinc-700 transition-colors hover:text-white"
-                aria-label={`Configurar ${pl.slug}`}
-                title="Modelo e rede"
-              >
-                <IconEdit size={14} />
-              </button>
-            </div>
-          </div>
-        ))}
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-xs text-zinc-400">
+        <span>
+          Cliques <b className="text-zinc-200">{nBR(pl.clicks)}</b>
+        </span>
+        <span>
+          Receita <b className={pl.revenueCents > 0 ? "text-emerald-400" : "text-zinc-200"}>{brl(pl.revenueCents)}</b>
+        </span>
+        <span>
+          Vendas <b className="text-zinc-200">{pl.sales}</b>
+        </span>
+        <PilulaCodigo code={pl.code} />
       </div>
     </div>
   );

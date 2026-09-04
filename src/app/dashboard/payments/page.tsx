@@ -96,7 +96,6 @@ function rotuloDoBot(b: BotOpcao): string {
   return `${b.botUsername ? "@" + b.botUsername : "bot sem @"} · ${b.profileName}`;
 }
 
-type PaidFilter = "all" | "paid" | "unpaid";
 /** De onde a venda veio. Já foi a lista de opções de um seletor de Origem —
  *  hoje é só a classificação, lida pelos dois interruptores da lista. */
 const ORIGIN_LABEL: Record<OrigemVenda, string> = {
@@ -143,7 +142,20 @@ export default function PaymentsPage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [charging, setCharging] = useState(false);
-  const [paidFilter, setPaidFilter] = useState<PaidFilter>("all");
+  /**
+   * STATUS, o mesmo par de interruptores das fontes de venda: os dois nascem
+   * LIGADOS e o operador desmarca o que quer esconder.
+   *
+   * Era uma caixa só, "Só pagos", que só sabia responder uma das duas
+   * perguntas — para ver apenas o que está em aberto não havia caminho.
+   *
+   * "Pendentes" é tudo que NÃO está pago: gerado, falhou, estornado,
+   * chargeback. É o que a caixa antiga já entendia por "não pago", e é o que
+   * garante que os dois marcados mostrem a lista inteira — um "pendente"
+   * estrito faria a venda estornada sumir sem nenhum filtro dizer isso.
+   */
+  const [verPagos, setVerPagos] = useState(true);
+  const [verPendentes, setVerPendentes] = useState(true);
   const [sort, setSort] = useState<SortKey>("created_desc");
   // Filtros de recorte da lista. Vazio = sem filtro; as opções de bot e de
   // método são montadas a partir do que EXISTE no período carregado, para o
@@ -184,7 +196,7 @@ export default function PaymentsPage() {
     verSeAindaRola();
     window.addEventListener("resize", verSeAindaRola);
     return () => window.removeEventListener("resize", verSeAindaRola);
-  }, [verSeAindaRola, busca, paidFilter, botFilter, methodFilter, verFunil, verLtv, sort, data]);
+  }, [verSeAindaRola, busca, verPagos, verPendentes, botFilter, methodFilter, verFunil, verLtv, sort, data]);
   // Mesmo seletor do Dashboard, com o mesmo padrão (hoje). O recorte é feito no
   // servidor — ver /api/payments/overview.
   const [period, setPeriod] = useState<PeriodState>({ period: DEFAULT_PERIOD, from: "", to: "" });
@@ -319,8 +331,8 @@ export default function PaymentsPage() {
     if (!data) return [];
     let list = data.transactions;
 
-    if (paidFilter === "paid") list = list.filter((t) => t.status === "paid");
-    else if (paidFilter === "unpaid") list = list.filter((t) => t.status !== "paid");
+    if (!verPagos) list = list.filter((t) => t.status !== "paid");
+    if (!verPendentes) list = list.filter((t) => t.status === "paid");
 
     if (botFilter !== "all") {
       list = list.filter((t) =>
@@ -367,7 +379,7 @@ export default function PaymentsPage() {
       }
     });
     return sorted;
-  }, [data, paidFilter, sort, busca, botFilter, methodFilter, verFunil, verLtv]);
+  }, [data, verPagos, verPendentes, sort, busca, botFilter, methodFilter, verFunil, verLtv]);
 
   /**
    * O TOTAL da seleção atual: as quatro colunas de valor somadas sobre
@@ -524,11 +536,15 @@ export default function PaymentsPage() {
       <div className="mt-8">
         <p className="eyebrow">pix gerados</p>
         <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-3">
-        {/* No celular, a busca e a caixa de marcar em cima e os seletores numa
-            grade de duas colunas. O número de seletores VARIA (bot e método só
-            aparecem quando há mais de uma opção), então grade fixa deixaria um
-            órfão sozinho e estreito em contagem ímpar — daí a regra do
-            `col-span-2` no último. Do `sm` em diante vira uma linha só. */}
+        {/* NO CELULAR, uma linha por assunto, sempre com DUAS colunas
+            iguais: status, depois origem da venda, depois os seletores. Era
+            uma grade única com tudo dentro — caixa de marcar e lista lado a
+            lado, em ordem que mudava com o número de seletores disponíveis, o
+            que embaralhava a leitura a cada período. Agrupado por assunto, a
+            posição de cada filtro é sempre a mesma.
+
+            Do `sm` em diante os três grupos se emendam numa linha só, que é
+            como cabia antes e continua cabendo. */}
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-nowrap sm:items-end">
           <BuscaRecolhivel
             valor={busca}
@@ -536,24 +552,52 @@ export default function PaymentsPage() {
             placeholder="Buscar cliente, produto, bot..."
           />
 
-          {/* CAIXA DE MARCAR, não lista. Eram três opções ("todos", "sim",
-              "não") num seletor que ocupava o mesmo espaço de um filtro
-              inteiro para uma pergunta de sim-ou-não. Marcada, mostra só o que
-              foi pago; desmarcada, mostra tudo. */}
-          <label className="flex shrink-0 cursor-pointer items-center gap-2 py-1.5 text-xs text-zinc-400 hover:text-zinc-200">
-            <input
-              type="checkbox"
-              className="h-4 w-4 accent-emerald-500"
-              checked={paidFilter === "paid"}
-              onChange={(e) => setPaidFilter(e.target.checked ? "paid" : "all")}
-            />
-            Só pagos
-          </label>
+          {/* 1. STATUS. */}
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
+            <ChipFiltro
+              cor="emerald"
+              ativo={verPagos}
+              onChange={setVerPagos}
+              title="Desmarque para esconder as cobranças já pagas"
+            >
+              Pagos
+            </ChipFiltro>
+            <ChipFiltro
+              cor="amber"
+              ativo={verPendentes}
+              onChange={setVerPendentes}
+              title="Tudo que não está pago: gerado, falhou, estornado, chargeback"
+            >
+              Pendentes
+            </ChipFiltro>
+          </div>
 
+          {/* 2. FONTE DA VENDA. */}
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
+            <ChipFiltro
+              cor="emerald"
+              ativo={verFunil}
+              onChange={setVerFunil}
+              title="Desmarque para esconder as vendas do bot de vendas"
+            >
+              Funil
+            </ChipFiltro>
+            <ChipFiltro
+              cor="fuchsia"
+              ativo={verLtv}
+              onChange={setVerLtv}
+              title="Desmarque para esconder as vendas do agente de LTV"
+            >
+              LTV
+            </ChipFiltro>
+          </div>
+
+          {/* 3. SELETORES. Bot e método só entram quando há mais de uma opção
+              no período: um seletor com uma escolha só não filtra nada e ocupa
+              lugar. Com contagem ímpar o último ocupa a linha inteira, para
+              não sobrar um órfão estreito ao lado do vazio. */}
           {(() => {
             const seletores: React.ReactNode[] = [];
-            // Bot e método só entram quando há mais de uma opção no período:
-            // um seletor com uma escolha só não filtra nada e ocupa lugar.
             if (botOptions.length > 1)
               seletores.push(
                 <select
@@ -569,6 +613,19 @@ export default function PaymentsPage() {
                   ))}
                 </select>,
               );
+            seletores.push(
+              <select
+                key="ordem"
+                className="input w-full py-1.5 text-xs sm:w-auto"
+                aria-label="Ordenar"
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortKey)}
+              >
+                {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
+                  <option key={k} value={k}>{SORT_LABEL[k]}</option>
+                ))}
+              </select>,
+            );
             if (methodOptions.length > 1)
               seletores.push(
                 <select
@@ -584,63 +641,9 @@ export default function PaymentsPage() {
                   ))}
                 </select>,
               );
-            seletores.push(
-              <label
-                key="ver-funil"
-                className={`flex w-full cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs transition-colors sm:w-auto [@media(pointer:coarse)]:min-h-[44px] ${
-                  verFunil
-                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
-                    : "border-white/10 text-zinc-500 hover:bg-white/5"
-                }`}
-                title="Desmarque para esconder as vendas do bot de vendas"
-              >
-                <input
-                  type="checkbox"
-                  className="h-3.5 w-3.5 accent-emerald-500"
-                  checked={verFunil}
-                  onChange={(e) => setVerFunil(e.target.checked)}
-                />
-                Vendas Funil
-              </label>,
-              <label
-                key="ver-ltv"
-                className={`flex w-full cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs transition-colors sm:w-auto [@media(pointer:coarse)]:min-h-[44px] ${
-                  verLtv
-                    ? "border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300"
-                    : "border-white/10 text-zinc-500 hover:bg-white/5"
-                }`}
-                title="Desmarque para esconder as vendas do agente de LTV"
-              >
-                <input
-                  type="checkbox"
-                  className="h-3.5 w-3.5 accent-fuchsia-500"
-                  checked={verLtv}
-                  onChange={(e) => setVerLtv(e.target.checked)}
-                />
-                LTV
-              </label>,
-              <select
-                key="ordem"
-                className="input w-full py-1.5 text-xs sm:w-auto"
-                aria-label="Ordenar"
-                value={sort}
-                onChange={(e) => setSort(e.target.value as SortKey)}
-              >
-                {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
-                  <option key={k} value={k}>{SORT_LABEL[k]}</option>
-                ))}
-              </select>,
-            );
             const impar = seletores.length % 2 === 1;
             return (
-              /* Duas colunas no celular; do `sm` em diante, UMA LINHA.
-                 O que quebrava antes não era a linha única e sim a falta de
-                 `shrink-0`: os controles se espremiam abaixo da largura do
-                 próprio texto e saía "Bot: todo", "Métc", "Geração (m" e a
-                 etiqueta "Vendas Funil" quebrando em duas por dentro da borda.
-                 Sem encolher, cada um fica do tamanho do que escreve — e cabem
-                 porque a busca virou lupa e devolveu a largura dela. */
-              <div className="grid grid-cols-2 gap-2 sm:flex sm:max-w-full sm:flex-nowrap sm:items-end sm:overflow-x-auto">
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0 sm:items-end">
                 {seletores.map((sel, i) => (
                   <div
                     key={i}
@@ -655,19 +658,21 @@ export default function PaymentsPage() {
         </div>
 
         <div className="flex flex-wrap items-end gap-2">
-          {(paidFilter !== "all" ||
-            sort !== "created_desc" ||
+          {(sort !== "created_desc" ||
             busca ||
             botFilter !== "all" ||
             methodFilter !== "all" ||
-            // Os dois interruptores nascem LIGADOS: desligar qualquer um é um
-            // filtro ativo, e o "Limpar" religa os dois.
+            // Os QUATRO interruptores nascem LIGADOS: desligar qualquer um é
+            // um filtro ativo, e o "Limpar" religa todos.
+            !verPagos ||
+            !verPendentes ||
             !verFunil ||
             !verLtv) && (
             <button
               type="button"
               onClick={() => {
-                setPaidFilter("all");
+                setVerPagos(true);
+                setVerPendentes(true);
                 setSort("created_desc");
                 setBusca("");
                 setBotFilter("all");
@@ -1016,6 +1021,59 @@ export default function PaymentsPage() {
         />
       </Modal>
     </div>
+  );
+}
+
+/**
+ * Um interruptor de filtro: caixa de marcar vestida de etiqueta, que acende na
+ * cor do que ela representa.
+ *
+ * São quatro na tela, dois a dois, e todos nascem LIGADOS — a lista começa
+ * mostrando tudo e quem usa DESMARCA o que quer esconder. Ligado é o estado
+ * normal, então a cor aqui não é destaque: é o lembrete de qual recorte está
+ * fora quando algo apaga.
+ *
+ * `justify-center` e a altura mínima no toque: no celular os quatro dividem
+ * duas colunas iguais, e um alvo menor que 44px erra o dedo.
+ */
+function ChipFiltro({
+  ativo,
+  onChange,
+  cor,
+  title,
+  children,
+}: {
+  ativo: boolean;
+  onChange: (v: boolean) => void;
+  cor: "emerald" | "amber" | "fuchsia";
+  title: string;
+  children: React.ReactNode;
+}) {
+  const aceso = {
+    emerald: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
+    amber: "border-amber-500/40 bg-amber-500/10 text-amber-300",
+    fuchsia: "border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300",
+  }[cor];
+  const marca = {
+    emerald: "accent-emerald-500",
+    amber: "accent-amber-500",
+    fuchsia: "accent-fuchsia-500",
+  }[cor];
+  return (
+    <label
+      title={title}
+      className={`flex w-full cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs transition-colors sm:w-auto [@media(pointer:coarse)]:min-h-[44px] ${
+        ativo ? aceso : "border-white/10 text-zinc-500 hover:bg-white/5"
+      }`}
+    >
+      <input
+        type="checkbox"
+        className={`h-3.5 w-3.5 ${marca}`}
+        checked={ativo}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      {children}
+    </label>
   );
 }
 

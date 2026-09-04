@@ -3,7 +3,7 @@ import { errorResponse, requireUser, ApiError } from "@/lib/apiAuth";
 import { getDb } from "@/lib/db";
 import { listProfiles } from "@/lib/profiles";
 import { getSltCatalogue } from "@/lib/sltSync";
-import { sltPageStats, sltLinkClicks } from "@/lib/salesFunnel";
+import { sltPageStats, sltLinkClicks, sltPoplinkClicks } from "@/lib/salesFunnel";
 import { isValidSltNetworkKey, listSltNetworks } from "@/lib/sltNetworksStore";
 import { codigosDeRastreio } from "@/lib/rastreio";
 import { getAppTimeZone } from "@/lib/settings";
@@ -96,8 +96,14 @@ export async function GET(req: NextRequest) {
     const redeDoPage = new Map(mapa.map((m) => [m.page_id, m.traffic_source]));
 
     const linksPorPagina = new Map<string, typeof catalogo.links>();
+    const poplinks: typeof catalogo.links = [];
     for (const l of catalogo.links) {
-      if (!l.page_id) continue; // PopLink solto, sem página — não entra no agrupamento por página
+      // PopLink não tem página: é o link curto (igpopl.ink) que manda direto
+      // para o destino, sem botões no meio. Vai para a lista dele.
+      if (l.type === "poplink" || !l.page_id) {
+        poplinks.push(l);
+        continue;
+      }
       const lista = linksPorPagina.get(l.page_id) || [];
       lista.push(l);
       linksPorPagina.set(l.page_id, lista);
@@ -142,6 +148,56 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    /**
+     * OS POPLINKS. Um por vez, sem página em volta.
+     *
+     * A única métrica que existe para eles é o CLIQUE — o PopLink não tem
+     * página nem botões, então não há visualização nem revelação para contar
+     * (ver `sltPoplinkClicks`). O que os coloca no mesmo pé dos outros links
+     * é o `?start=` do destino: quando ele existe, o clique dá para seguir
+     * até a venda exatamente como o de um link de página.
+     *
+     * A atribuição de modelo e rede reusa `slt_page_profiles` com a chave
+     * `poplink:<id>`: é a mesma pergunta ("de quem é isto?") e o mesmo
+     * diálogo na tela — o prefixo só impede que um id de PopLink se
+     * confunda com um id de página.
+     */
+    const cliquesPorId = new Map<string, number>();
+    const cliquesPorSlug = new Map<string, number>();
+    for (const c of sltPoplinkClicks(range.since, range.until)) {
+      if (c.poplinkId) cliquesPorId.set(c.poplinkId, (cliquesPorId.get(c.poplinkId) || 0) + c.clicks);
+      // Evento gravado antes de a coluna do id existir: só o apelido
+      // identifica. Some com o do id quando os dois apontam para o mesmo.
+      else if (c.poplinkSlug)
+        cliquesPorSlug.set(c.poplinkSlug, (cliquesPorSlug.get(c.poplinkSlug) || 0) + c.clicks);
+    }
+    const poplinksSaida = poplinks.map((l) => {
+      const chave = `poplink:${l.id}`;
+      const perfil = profileDoPage.get(chave) || null;
+      const code = codigoDoLink(l.url);
+      const venda = code
+        ? perfil
+          ? vendaPorPerfilCodigo.get(`${perfil}|${code.toLowerCase()}`)
+          : vendaPorCodigo.get(code.toLowerCase())
+        : undefined;
+      return {
+        id: l.id,
+        slug: l.label,
+        // O endereço que se divulga. A API manda pronto; se faltar, monta-se
+        // do apelido, que é o que ele é.
+        shortUrl: l.poplink_url || `https://igpopl.ink/${l.label}`,
+        url: l.url,
+        clicks: (cliquesPorId.get(l.id) || 0) + (cliquesPorSlug.get(l.label) || 0),
+        code,
+        sales: venda?.sales || 0,
+        revenueCents: venda?.cents || 0,
+        profileId: perfil,
+        trafficSource: redeDoPage.get(chave) || null,
+        shieldEnabled: l.shield_enabled === true,
+        blockedCountries: l.blocked_countries || [],
+      };
+    });
+
     const porProfile = new Map(profiles.map((p) => [p.id, { profileId: p.id, profileName: p.name, pages: [] as typeof paginas }]));
     const semModelo: typeof paginas = [];
     for (const p of paginas) {
@@ -160,6 +216,7 @@ export async function GET(req: NextRequest) {
       networks: listSltNetworks(),
       groups,
       unassigned: semModelo,
+      poplinks: poplinksSaida,
     });
   } catch (err) {
     return errorResponse(err);

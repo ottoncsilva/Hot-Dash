@@ -40,6 +40,13 @@
   ],
   "screenshots": [
     {
+      "src": "/screenshots/desktop.png",
+      "sizes": "1440x792",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Dashboard do Hot Dash"
+    },
+    {
       "src": "/screenshots/celular.png",
       "sizes": "900x1688",
       "type": "image/png",

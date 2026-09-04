@@ -35,10 +35,9 @@ export default function BuscaRecolhivel({
   const ref = useRef<HTMLInputElement>(null);
   const mostrarCampo = aberta || Boolean(valor);
 
-  // Termo limpo POR FORA (o "Limpar" da tela) recolhe a lupa de volta. Sem
-  // isto o campo ficava aberto e vazio depois de limpar os filtros. Só quando
-  // ele não está com o foco: quem está digitando e apagou tudo continua
-  // digitando.
+  // Termo limpo POR FORA (a tela zerando o filtro) recolhe a lupa de volta.
+  // Sem isto o campo ficava aberto e vazio depois. Só quando ele não está com
+  // o foco: quem está digitando e apagou tudo continua digitando.
   useEffect(() => {
     if (!valor && document.activeElement !== ref.current) setAberta(false);
   }, [valor]);

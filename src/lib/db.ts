@@ -1535,6 +1535,14 @@ function migrate(d: Database.Database) {
   // não por ping — já os cliques continuam por evento (conferido contra
   // `/v1/summary` da SLT: bateu praticamente 1 a 1, sem esse problema).
   ensureColumn(d, "slt_events", "session_id", "TEXT");
+  // Id do PopLink (o link curto igpopl.ink, que manda direto para o destino
+  // sem passar por página nenhuma). O evento dele já vinha com `poplink_slug`
+  // gravado; o id não. Sem ele, casar o clique com o PopLink do catálogo só
+  // dava pelo apelido — e apelido o operador renomeia, o que desligaria o
+  // histórico do link em silêncio. Com o id, o casamento é exato; o apelido
+  // fica de reserva para o que já está gravado sem ele.
+  ensureColumn(d, "slt_events", "poplink_id", "TEXT");
+  d.exec(`CREATE INDEX IF NOT EXISTS idx_slt_events_poplink ON slt_events(poplink_id)`);
   ensureSltPageProfilesSchema(d);
   ensureDefaultSltNetworks(d);
   ensurePostNetworksAccountId(d);

@@ -124,11 +124,19 @@ export type SltLink = {
   type: "link" | "poplink";
   id: string;
   page_id: string | null;
+  /** Para um PopLink, é o DESTINO — para onde o clique vai parar. */
   url: string;
+  /** Para um PopLink, é o apelido (o `<slug>` de igpopl.ink/<slug>). */
   label: string;
   platform: string;
   created_at: string;
+  /** Só em PopLink: o endereço curto que se divulga. */
   poplink_url?: string;
+  /** Só em PopLink: a proteção contra varredura (bot, VPN, país bloqueado)
+   *  ligada no painel da SLT. */
+  shield_enabled?: boolean;
+  block_consumer_vpn?: boolean;
+  blocked_countries?: string[];
 };
 
 export type SltPage = {
@@ -200,8 +208,8 @@ function gravarEventos(eventos: SltEvent[]): number {
   const agora = Date.now();
   const stmt = db.prepare(
     `INSERT OR IGNORE INTO slt_events
-       (id, created_at, event_type, page_id, page_slug, page_display_name, link_label, link_url, link_platform, poplink_slug, referer, country, domain, synced_at, session_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, created_at, event_type, page_id, page_slug, page_display_name, link_label, link_url, link_platform, poplink_slug, poplink_id, referer, country, domain, synced_at, session_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const inserir = db.transaction((linhas: SltEvent[]) => {
     let gravados = 0;
@@ -219,6 +227,7 @@ function gravarEventos(eventos: SltEvent[]): number {
         e.link_url || null,
         e.link_platform || null,
         e.poplink_slug || null,
+        e.poplink_id || null,
         e.referer || null,
         e.country || null,
         e.domain || null,

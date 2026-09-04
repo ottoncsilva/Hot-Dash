@@ -420,7 +420,6 @@ export type SltPageStat = {
   pageSlug: string;
   views: number;
   clicks: number;
-  poplinkClicks: number;
 };
 
 /**
@@ -442,16 +441,18 @@ export function sltPageStats(sinceMs: number | null, untilMs: number | null = nu
     .prepare(
       `SELECT COALESCE(page_slug, '') page_slug,
               COUNT(DISTINCT CASE WHEN event_type = 'page_viewed' THEN COALESCE(session_id, id) END) views,
-              SUM(CASE WHEN event_type = 'link_clicked' THEN 1 ELSE 0 END) clicks,
-              SUM(CASE WHEN event_type = 'poplink_click' THEN 1 ELSE 0 END) poplink_clicks
+              SUM(CASE WHEN event_type = 'link_clicked' THEN 1 ELSE 0 END) clicks
        FROM slt_events
        ${where}
        GROUP BY COALESCE(page_slug, '')`,
     )
-    .all(...params) as { page_slug: string; views: number; clicks: number; poplink_clicks: number }[];
+    .all(...params) as { page_slug: string; views: number; clicks: number }[];
+  // Clique de POPLINK nunca entrou aqui: o evento dele vem sem página
+  // (`page_slug` nulo) e cai neste filtro. Contá-lo por página seria erro —
+  // ele não passa por página nenhuma. Quem o conta é `sltPoplinkClicks`.
   return rows
     .filter((r) => r.page_slug)
-    .map((r) => ({ pageSlug: r.page_slug, views: r.views, clicks: r.clicks, poplinkClicks: r.poplink_clicks }));
+    .map((r) => ({ pageSlug: r.page_slug, views: r.views, clicks: r.clicks }));
 }
 
 export type SltLinkClickStat = {
@@ -482,6 +483,50 @@ export function sltLinkClicks(sinceMs: number | null, untilMs: number | null = n
     )
     .all(...params) as { page_id: string; link_url: string; c: number }[];
   return rows.map((r) => ({ pageId: r.page_id, linkUrl: r.link_url, clicks: r.c }));
+}
+
+export type SltPoplinkClickStat = {
+  /** Id do PopLink no SLT. Vazio nos eventos gravados antes da coluna existir
+   *  — aí o casamento é pelo apelido. */
+  poplinkId: string;
+  poplinkSlug: string;
+  clicks: number;
+};
+
+/**
+ * Cliques por POPLINK — o link curto (igpopl.ink) que manda direto para o
+ * destino, sem página no meio.
+ *
+ * É a única métrica que existe para ele, e é por construção: o PopLink não
+ * tem página nem botões, então não há `page_viewed` nem `link_revealed` para
+ * contar. O evento vem sem página e sem link (`page_id`, `link_id` nulos) e
+ * se identifica por `poplink_id`/`poplink_slug` — daí uma consulta própria em
+ * vez de um recorte de `sltLinkClicks`, que casa por página+URL.
+ *
+ * Agrupa pelos DOIS campos: o id é o casamento exato com o catálogo, o
+ * apelido cobre o que foi gravado antes de a coluna do id existir. A tela
+ * soma os dois quando eles apontam para o mesmo PopLink.
+ */
+export function sltPoplinkClicks(
+  sinceMs: number | null,
+  untilMs: number | null = null,
+): SltPoplinkClickStat[] {
+  const db = getDb();
+  const { clauses, params } = range(sinceMs, untilMs);
+  const where = [
+    "event_type = 'poplink_click'",
+    "(poplink_id IS NOT NULL OR poplink_slug IS NOT NULL)",
+    ...clauses,
+  ];
+  const rows = db
+    .prepare(
+      `SELECT COALESCE(poplink_id, '') poplink_id, COALESCE(poplink_slug, '') poplink_slug, COUNT(*) c
+       FROM slt_events
+       WHERE ${where.join(" AND ")}
+       GROUP BY COALESCE(poplink_id, ''), COALESCE(poplink_slug, '')`,
+    )
+    .all(...params) as { poplink_id: string; poplink_slug: string; c: number }[];
+  return rows.map((r) => ({ poplinkId: r.poplink_id, poplinkSlug: r.poplink_slug, clicks: r.c }));
 }
 
 export type ProfileRevenue = {

@@ -40,6 +40,30 @@ type PageRow = {
   trafficSource: string | null;
 };
 type Group = { profileId: string; profileName: string; pages: PageRow[] };
+/**
+ * Um POPLINK: o link curto da SLT (igpopl.ink/apelido) que manda direto para
+ * o destino, sem página nem botões no meio.
+ *
+ * Por isso ele traz UM número só, o clique — não existe visualização de
+ * página nem revelação de botão para contar. A venda chega do mesmo jeito
+ * que nos outros links: pelo `?start=` que o destino carrega.
+ */
+type PoplinkRow = {
+  id: string;
+  slug: string;
+  /** O endereço que se divulga (igpopl.ink/apelido). */
+  shortUrl: string;
+  /** Para onde o clique vai parar. */
+  url: string;
+  clicks: number;
+  code: string | null;
+  sales: number;
+  revenueCents: number;
+  profileId: string | null;
+  trafficSource: string | null;
+  shieldEnabled: boolean;
+  blockedCountries: string[];
+};
 type Data = {
   connected: boolean;
   period?: PeriodKey;
@@ -47,6 +71,18 @@ type Data = {
   networks?: SltNetwork[];
   groups?: Group[];
   unassigned?: PageRow[];
+  poplinks?: PoplinkRow[];
+};
+
+/** O que o diálogo de configuração precisa saber, seja de uma página ou de um
+ *  PopLink: a chave que o servidor grava e o que escrever no cabeçalho. */
+type AlvoDaConfig = {
+  chave: string;
+  titulo: string;
+  subtitulo: string;
+  rotulo: string;
+  profileId: string | null;
+  trafficSource: string | null;
 };
 
 /** As duas metades do Rastreio: a página do SLT (view → clique) e o código do
@@ -110,7 +146,9 @@ function enderecoDaPagina(p: { activeDomain: string; slug: string }): string {
  * código, e é a mesma venda. Somar link a link inflaria a receita — então o
  * total anda por código distinto.
  */
-function somarVendas(links: LinkRow[]): { sales: number; cents: number } {
+function somarVendas(
+  links: { code: string | null; sales: number; revenueCents: number }[],
+): { sales: number; cents: number } {
   const vistos = new Set<string>();
   let sales = 0;
   let cents = 0;
@@ -228,7 +266,7 @@ function PainelLinks({ period }: { period: PeriodState }) {
   const [data, setData] = useState<Data | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [vista, setVista] = useState<"pagina" | "link">("pagina");
-  const [editando, setEditando] = useState<PageRow | null>(null);
+  const [editando, setEditando] = useState<AlvoDaConfig | null>(null);
   const [salvando, setSalvando] = useState(false);
   // Só LÊ a modelo: quem a escolhe é o Rastreio, acima, com os chips que as
   // duas abas dividem.
@@ -246,10 +284,12 @@ function PainelLinks({ period }: { period: PeriodState }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period]);
 
-  async function salvar(pageId: string, patch: { profileId: string; trafficSource: string }) {
+  async function salvar(chave: string, patch: { profileId: string; trafficSource: string }) {
     setSalvando(true);
     try {
-      await apiSend("/api/links", "POST", { pageId, ...patch });
+      // O servidor guarda os dois na mesma tabela; a chave do PopLink vem
+      // prefixada (`poplink:<id>`) para não se confundir com id de página.
+      await apiSend("/api/links", "POST", { pageId: chave, ...patch });
       setEditando(null);
       load();
     } catch (e) {
@@ -270,30 +310,60 @@ function PainelLinks({ period }: { period: PeriodState }) {
     () => [...grupos.flatMap((g) => g.pages), ...semModelo],
     [grupos, semModelo],
   );
+  // Mesma regra das páginas: PopLink sem modelo não é de modelo nenhuma, então
+  // some assim que o filtro escolhe uma.
+  const poplinks = useMemo(
+    () => (data?.poplinks || []).filter((pl) => !profileId || pl.profileId === profileId),
+    [data, profileId],
+  );
 
   const total = useMemo(() => {
     const todosLinks = paginas.flatMap((p) => p.links);
-    const { sales, cents } = somarVendas(todosLinks);
+    // O dinheiro dos PopLinks entra na MESMA soma: ela anda por código
+    // distinto, então um código que está numa página e num PopLink conta uma
+    // vez só — que é a venda que de fato aconteceu.
+    const { sales, cents } = somarVendas([...todosLinks, ...poplinks]);
+    const cliquesPoplink = poplinks.reduce((s, pl) => s + pl.clicks, 0);
     return {
       views: paginas.reduce((s, p) => s + p.views, 0),
+      // CLIQUES DE PÁGINA e cliques de PopLink ficam separados de propósito:
+      // o primeiro tem visualização por trás (dá para dividir um pelo outro),
+      // o segundo não passa por página nenhuma. Somados, "cliques por visita"
+      // viraria uma conta sem sentido.
       clicks: paginas.reduce((s, p) => s + p.clicks, 0),
+      poplinkClicks: cliquesPoplink,
       // Clique que dá pra seguir: o que caiu num link com `?start=`.
-      rastreaveis: todosLinks.reduce((s, l) => s + (l.code ? l.clicks : 0), 0),
+      rastreaveis:
+        todosLinks.reduce((s, l) => s + (l.code ? l.clicks : 0), 0) +
+        poplinks.reduce((s, pl) => s + (pl.code ? pl.clicks : 0), 0),
       sales,
       cents,
     };
-  }, [paginas]);
+  }, [paginas, poplinks]);
 
   /** Os mesmos cinco números de sempre, agora no formato que a faixa
    *  compartilhada com a aba de Códigos entende. */
-  const numeros: NumeroDoResumo[] = useMemo(
-    () => [
+  const numeros: NumeroDoResumo[] = useMemo(() => {
+    const cliquesTotais = total.clicks + total.poplinkClicks;
+    return [
       { rotulo: "Visualizações", valor: nBR(total.views), nota: "nas páginas" },
       { rotulo: "Cliques", valor: nBR(total.clicks), nota: "em algum link" },
+      // Só aparece quando existe PopLink no recorte: uma coluna zerada numa
+      // conta que não usa a função é espaço gasto para não dizer nada.
+      ...(total.poplinkClicks > 0 || poplinks.length > 0
+        ? [
+            {
+              rotulo: "PopLinks",
+              valor: nBR(total.poplinkClicks),
+              nota: "cliques diretos ao destino",
+              cor: "text-orange-300",
+            },
+          ]
+        : []),
       {
         rotulo: "Rastreáveis",
         valor: nBR(total.rastreaveis),
-        nota: `${pct(total.rastreaveis, total.clicks)} dos cliques têm código`,
+        nota: `${pct(total.rastreaveis, cliquesTotais)} dos cliques têm código`,
         cor: "text-sky-300",
       },
       { rotulo: "Vendas", valor: nBR(total.sales), nota: "vindas destes códigos" },
@@ -303,9 +373,8 @@ function PainelLinks({ period }: { period: PeriodState }) {
         nota: "o que estes links trouxeram",
         cor: "text-emerald-400",
       },
-    ],
-    [total],
-  );
+    ];
+  }, [total, poplinks]);
 
   const modeloDaPagina = useMemo(() => {
     const m = new Map<string, string>();
@@ -315,6 +384,13 @@ function PainelLinks({ period }: { period: PeriodState }) {
 
   const redeLabel = useMemo(
     () => new Map((data?.networks || []).map((n) => [n.key, n.label])),
+    [data],
+  );
+
+  // O PopLink não vive dentro de um card de modelo (não tem página), então o
+  // nome dela precisa aparecer na própria linha.
+  const nomeDoPerfil = useMemo(
+    () => new Map((data?.profiles || []).map((p) => [p.id, p.name])),
     [data],
   );
 
@@ -379,7 +455,7 @@ function PainelLinks({ period }: { period: PeriodState }) {
                       key={p.pageId}
                       pagina={p}
                       redeLabel={redeLabel}
-                      onEditar={() => setEditando(p)}
+                      onEditar={() => setEditando(alvoDaPagina(p))}
                     />
                   ))}
                 </Secao>
@@ -393,18 +469,33 @@ function PainelLinks({ period }: { period: PeriodState }) {
                         key={p.pageId}
                         pagina={p}
                         redeLabel={redeLabel}
-                        onEditar={() => setEditando(p)}
+                        onEditar={() => setEditando(alvoDaPagina(p))}
                       />
                     ))}
                 </Secao>
               ))}
             </div>
           )}
+
+          {/* OS POPLINKS, em bloco próprio e depois das páginas.
+              Não cabem em nenhuma das duas vistas acima: as duas partem da
+              página (uma agrupa por ela, a outra dá a página de cada link), e
+              o PopLink não tem página. Também não é ruído: é a mesma pergunta
+              — o que foi divulgado, quanto foi clicado, quanto rendeu — só
+              que num link que vai direto ao destino. */}
+          {poplinks.length > 0 && (
+            <PainelPoplinks
+              poplinks={poplinks}
+              redeLabel={redeLabel}
+              nomeDoPerfil={nomeDoPerfil}
+              onEditar={(pl) => setEditando(alvoDoPoplink(pl))}
+            />
+          )}
         </>
       )}
 
       <DialogoEditar
-        pagina={editando}
+        alvo={editando}
         profiles={data?.profiles || []}
         networks={data?.networks || []}
         salvando={salvando}
@@ -413,6 +504,31 @@ function PainelLinks({ period }: { period: PeriodState }) {
       />
     </>
   );
+}
+
+/** A página, no formato que o diálogo de configuração entende. */
+function alvoDaPagina(p: PageRow): AlvoDaConfig {
+  return {
+    chave: p.pageId,
+    titulo: nomeDaPagina(p),
+    subtitulo: enderecoDaPagina(p),
+    rotulo: "Configurar página",
+    profileId: p.profileId,
+    trafficSource: p.trafficSource,
+  };
+}
+
+/** O PopLink, no mesmo formato. A chave vai prefixada — ver o POST de
+ *  `/api/links`. */
+function alvoDoPoplink(pl: PoplinkRow): AlvoDaConfig {
+  return {
+    chave: `poplink:${pl.id}`,
+    titulo: pl.slug,
+    subtitulo: pl.shortUrl.replace(/^https?:\/\//, ""),
+    rotulo: "Configurar PopLink",
+    profileId: pl.profileId,
+    trafficSource: pl.trafficSource,
+  };
 }
 
 function Secao({
@@ -503,7 +619,14 @@ function BarraDeCliques({
  * link, e três links por card viravam 40px de card só para quebrar linha onde
  * cabia lado a lado.
  */
-function ValorDoLink({ link }: { link: LinkRow }) {
+function ValorDoLink({
+  link,
+}: {
+  /* Estrutural de propósito: serve tanto para o link de uma página quanto
+     para um PopLink — os dois têm código, venda e receita, e é só disso que
+     esta caixa precisa. */
+  link: { code: string | null; sales: number; revenueCents: number };
+}) {
   const caixa = "flex shrink-0 items-baseline justify-end gap-1.5 sm:block sm:w-24 sm:text-right";
   if (!link.code) {
     return (
@@ -744,36 +867,167 @@ function PorLink({
  * seletores soltos no card que salvavam a cada troca, o que fazia um clique
  * errado virar atribuição errada sem aviso.
  */
+/**
+ * O bloco dos POPLINKS.
+ *
+ * Um PopLink é o link curto da SLT (igpopl.ink/apelido) que manda direto para
+ * o destino — sem página, sem botões. Por isso a linha dele é mais curta que
+ * a de um link de página: só existe CLIQUE para mostrar. Não há visualização
+ * nem "cliques por visita" — não porque falte medir, mas porque não há página
+ * onde isso aconteceria.
+ *
+ * O resto é igual: o `?start=` do destino é o que liga o clique à venda, a
+ * barra compara um PopLink com o outro, e o lápis atribui modelo e rede.
+ */
+function PainelPoplinks({
+  poplinks,
+  redeLabel,
+  nomeDoPerfil,
+  onEditar,
+}: {
+  poplinks: PoplinkRow[];
+  redeLabel: Map<string, string>;
+  nomeDoPerfil: Map<string, string>;
+  onEditar: (pl: PoplinkRow) => void;
+}) {
+  const lista = [...poplinks].sort((a, b) => b.clicks - a.clicks);
+  const total = lista.reduce((s, pl) => s + pl.clicks, 0);
+  const maior = lista[0]?.clicks || 0;
+  const { sales, cents } = somarVendas(lista);
+  const semModelo = lista.filter((pl) => !pl.profileId).length;
+
+  return (
+    <div className="mt-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <p className="eyebrow text-orange-300/80">poplinks</p>
+        <p className="text-[11px] text-zinc-500">
+          {nBR(total)} {total === 1 ? "clique" : "cliques"} · {sales}{" "}
+          {sales === 1 ? "venda" : "vendas"} ·{" "}
+          <span className={cents > 0 ? "text-emerald-400" : ""}>{brl(cents)}</span>
+          {semModelo > 0 && (
+            <span className="text-amber-400">
+              {" "}
+              · {semModelo} sem modelo
+            </span>
+          )}
+        </p>
+      </div>
+      <p className="mt-0.5 text-[11px] text-zinc-600">
+        Link curto que vai direto ao destino — sem página e sem botões, então o clique é a única
+        métrica que existe.
+      </p>
+
+      <div className="mt-2 card divide-y divide-white/[0.06]">
+        {lista.map((pl) => (
+          // Mesma quebra dos links de página: duas linhas no celular, uma a
+          // partir de `sm` (`sm:contents` dissolve o agrupamento do celular).
+          <div key={pl.id} className="px-3 py-2 text-xs sm:flex sm:items-center sm:gap-3">
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                <a
+                  href={pl.shortUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="truncate font-mono text-[11px] text-orange-300 hover:text-orange-200"
+                  title={pl.shortUrl}
+                >
+                  {pl.shortUrl.replace(/^https?:\/\//, "")}
+                </a>
+                {pl.profileId ? (
+                  <span className="chip shrink-0">{nomeDoPerfil.get(pl.profileId) || "Modelo"}</span>
+                ) : (
+                  <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                    sem modelo
+                  </span>
+                )}
+                {pl.trafficSource && (
+                  <span className="chip shrink-0">
+                    {redeLabel.get(pl.trafficSource) || pl.trafficSource}
+                  </span>
+                )}
+                {/* O escudo da SLT: quando ligado, ela filtra varredura de bot
+                    e VPN antes de deixar o clique passar. Muda o que o número
+                    ao lado significa, então é informação, não enfeite. */}
+                {pl.shieldEnabled && (
+                  <span
+                    className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-zinc-500"
+                    title={
+                      pl.blockedCountries.length > 0
+                        ? `Proteção ligada · países bloqueados: ${pl.blockedCountries.join(", ")}`
+                        : "Proteção ligada — a SLT filtra varredura de bot antes de contar o clique"
+                    }
+                  >
+                    escudo
+                  </span>
+                )}
+              </div>
+              <span className="truncate text-zinc-500" title={pl.url}>
+                → {pl.url}
+              </span>
+            </div>
+            <div className="mt-1.5 flex items-center justify-end gap-3 sm:mt-0 sm:contents">
+              <PilulaCodigo code={pl.code} />
+              <BarraDeCliques
+                clicks={pl.clicks}
+                total={total}
+                maior={maior}
+                dica={`${pl.clicks} de ${total} cliques nos PopLinks · ${pl.url}`}
+              />
+              <ValorDoLink link={pl} />
+              <button
+                type="button"
+                onClick={() => onEditar(pl)}
+                className="shrink-0 text-zinc-700 transition-colors hover:text-white"
+                aria-label={`Configurar ${pl.slug}`}
+                title="Modelo e rede"
+              >
+                <IconEdit size={14} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Modelo e rede de UM alvo — uma página do SLT ou um PopLink.
+ *
+ * O mesmo diálogo para os dois porque é a mesma pergunta ("de quem é isto, e
+ * por qual rede chega?"), respondida na mesma tabela. Só o que se escreve no
+ * cabeçalho e a chave gravada mudam — e os dois vêm prontos no `alvo`.
+ */
 function DialogoEditar({
-  pagina,
+  alvo,
   profiles,
   networks,
   salvando,
   onFechar,
   onSalvar,
 }: {
-  pagina: PageRow | null;
+  alvo: AlvoDaConfig | null;
   profiles: { id: string; name: string }[];
   networks: SltNetwork[];
   salvando: boolean;
   onFechar: () => void;
-  onSalvar: (pageId: string, patch: { profileId: string; trafficSource: string }) => void;
+  onSalvar: (chave: string, patch: { profileId: string; trafficSource: string }) => void;
 }) {
   const [profileId, setProfileId] = useState("");
   const [rede, setRede] = useState("");
 
   useEffect(() => {
-    setProfileId(pagina?.profileId || "");
-    setRede(pagina?.trafficSource || "");
-  }, [pagina]);
+    setProfileId(alvo?.profileId || "");
+    setRede(alvo?.trafficSource || "");
+  }, [alvo]);
 
-  if (!pagina) return null;
+  if (!alvo) return null;
 
   return (
     <Modal open onClose={onFechar}>
-      <p className="eyebrow">Configurar página</p>
-      <h2 className="mt-1 font-display text-lg text-white">{nomeDaPagina(pagina)}</h2>
-      <p className="mt-0.5 font-mono text-[11px] text-zinc-600">{enderecoDaPagina(pagina)}</p>
+      <p className="eyebrow">{alvo.rotulo}</p>
+      <h2 className="mt-1 font-display text-lg text-white">{alvo.titulo}</h2>
+      <p className="mt-0.5 font-mono text-[11px] text-zinc-600">{alvo.subtitulo}</p>
 
       <div className="mt-5 space-y-4">
         <div>
@@ -808,7 +1062,7 @@ function DialogoEditar({
             ))}
           </select>
           <p className="mt-1.5 text-[11px] text-zinc-500">
-            É a rede que traz o lead para esta página — usada para separar o tráfego no Funil de Vendas.
+            É a rede que traz o lead — usada para separar o tráfego no Funil de Vendas.
           </p>
         </div>
       </div>
@@ -821,7 +1075,7 @@ function DialogoEditar({
           type="button"
           className="btn-primary"
           disabled={salvando}
-          onClick={() => onSalvar(pagina.pageId, { profileId, trafficSource: rede })}
+          onClick={() => onSalvar(alvo.chave, { profileId, trafficSource: rede })}
         >
           {salvando ? "Salvando…" : "Salvar"}
         </button>

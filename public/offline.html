@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#070708" />
+    <title>Hot Dash · sem conexão</title>
+    <!--
+      A tela de SEM CONEXÃO do app instalado.
+
+      HTML puro, sem uma linha de JavaScript e sem nenhum arquivo de fora, de
+      propósito: é a única página que precisa funcionar justamente quando nada
+      carrega. O painel é feito de pedaços com hash no nome (Next.js), e o
+      service worker não tem como guardar todos — guardar só a casca fazia o
+      app abrir numa tela branca quebrada, que é pior que dizer a verdade.
+    -->
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: calc(2rem + env(safe-area-inset-top)) 1.5rem calc(2rem + env(safe-area-inset-bottom));
+        background: #070708;
+        color: #e4e4e7;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        text-align: center;
+      }
+      .caixa { max-width: 22rem; }
+      .marca {
+        display: inline-flex;
+        height: 3.5rem;
+        width: 3.5rem;
+        align-items: center;
+        justify-content: center;
+        border-radius: 0.875rem;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .marca img { height: 2rem; width: 2rem; border-radius: 0.5rem; }
+      h1 { margin: 1.25rem 0 0; font-size: 1.125rem; font-weight: 600; color: #fff; }
+      p { margin: 0.5rem 0 0; font-size: 0.875rem; line-height: 1.6; color: #a1a1aa; }
+      .dica { margin-top: 0.75rem; font-size: 0.75rem; color: #71717a; }
+      a.botao {
+        display: inline-block;
+        margin-top: 1.5rem;
+        border-radius: 0.5rem;
+        background: #10b981;
+        padding: 0.625rem 1.25rem;
+        font-size: 0.875rem;
+        font-weight: 700;
+        color: #04140d;
+        text-decoration: none;
+      }
+      a.botao:active { background: #059669; }
+    </style>
+  </head>
+  <body>
+    <div class="caixa">
+      <!-- O ícone vai EMBUTIDO (data URI), não por `src`. O service worker
+           só intercepta navegação; um `<img>` apontando para /icons/ iria à
+           rede e apareceria quebrado justamente aqui, que é a única tela em
+           que nada carrega. Embutido, a página não depende de arquivo nenhum. -->
+      <span class="marca"><img alt="" src="data:image/png;base64,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" /></span>
+      <h1>Sem conexão</h1>
+      <p>
+        O Hot Dash lê tudo do servidor — venda, mensagem, agenda. Sem internet não há o que
+        mostrar, e um número velho na tela seria pior que nenhum.
+      </p>
+      <p class="dica">Confira o Wi-Fi ou os dados e tente de novo.</p>
+      <a class="botao" href="/dashboard">Tentar de novo</a>
+    </div>
+  </body>
+</html>

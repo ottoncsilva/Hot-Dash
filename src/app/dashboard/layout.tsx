@@ -37,6 +37,7 @@ import {
   IconInstagram,
 } from "@/components/icons";
 import NavGroup, { type NavSubItem } from "@/components/NavGroup";
+import BotaoInstalar from "@/components/BotaoInstalar";
 import CommandPalette from "@/components/CommandPalette";
 import PullToRefresh from "@/components/PullToRefresh";
 import MobileDrawer from "@/components/MobileDrawer";
@@ -477,6 +478,9 @@ function UserBox({
       <p className="truncate px-1 font-mono text-[11px] text-zinc-600">
         {email}
       </p>
+      {/* Some sozinho depois de instalado — quem decide se aparece é o
+          navegador, não a tela. Ver `BotaoInstalar`. */}
+      <BotaoInstalar className="mt-2" />
       <button
         onClick={onSignOut}
         className="mt-2 flex w-full items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-zinc-400 transition-all hover:bg-white/5 hover:text-zinc-200 [@media(pointer:coarse)]:min-h-[44px]"

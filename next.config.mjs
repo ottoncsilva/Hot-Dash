@@ -20,6 +20,37 @@ const nextConfig = {
   // O LTV do WhatsApp virou submenu de LTV. Quem tem o caminho antigo salvo
   // (favorito, atalho na tela do celular, link colado numa conversa) não pode
   // cair num 404 — o painel é usado do celular o dia inteiro.
+  /**
+   * O SERVICE WORKER nunca pode vir de cache.
+   *
+   * O navegador só descobre que há uma versão nova do app instalado ao
+   * rebuscar `/sw.js`; se um proxy ou o próprio Chrome guardar o arquivo, o
+   * PWA fica preso na versão antiga sem nada avisar. `max-age=0` com
+   * `must-revalidate` obriga a conferir com o servidor em toda visita — é um
+   * arquivo de 2 KB, o custo é nenhum.
+   *
+   * O manifesto entra pelo mesmo motivo: é dele que saem nome, ícone e
+   * atalhos, e um manifesto velho em cache mantém o ícone velho na área de
+   * trabalho.
+   */
+  async headers() {
+    return [
+      {
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+      {
+        source: "/manifest.webmanifest",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
+          { key: "Content-Type", value: "application/manifest+json; charset=utf-8" },
+        ],
+      },
+    ];
+  },
   async redirects() {
     return [
       { source: "/dashboard/whatsapp", destination: "/dashboard/ltv/whatsapp", permanent: false },

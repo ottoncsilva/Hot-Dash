@@ -535,7 +535,6 @@ export default function PaymentsPage() {
           seletores e o texto de cada um era cortado. */}
       <div className="mt-8">
         <p className="eyebrow">pix gerados</p>
-        <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-3">
         {/* NO CELULAR, uma linha por assunto, sempre com DUAS colunas
             iguais: status, depois origem da venda, depois os seletores. Era
             uma grade única com tudo dentro — caixa de marcar e lista lado a
@@ -545,7 +544,7 @@ export default function PaymentsPage() {
 
             Do `sm` em diante os três grupos se emendam numa linha só, que é
             como cabia antes e continua cabendo. */}
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-nowrap sm:items-end">
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-nowrap sm:items-end">
           <BuscaRecolhivel
             valor={busca}
             onChange={setBusca}
@@ -655,37 +654,6 @@ export default function PaymentsPage() {
               </div>
             );
           })()}
-        </div>
-
-        <div className="flex flex-wrap items-end gap-2">
-          {(sort !== "created_desc" ||
-            busca ||
-            botFilter !== "all" ||
-            methodFilter !== "all" ||
-            // Os QUATRO interruptores nascem LIGADOS: desligar qualquer um é
-            // um filtro ativo, e o "Limpar" religa todos.
-            !verPagos ||
-            !verPendentes ||
-            !verFunil ||
-            !verLtv) && (
-            <button
-              type="button"
-              onClick={() => {
-                setVerPagos(true);
-                setVerPendentes(true);
-                setSort("created_desc");
-                setBusca("");
-                setBotFilter("all");
-                setMethodFilter("all");
-                setVerFunil(true);
-                setVerLtv(true);
-              }}
-              className="btn-ghost py-1.5 text-xs"
-            >
-              Limpar
-            </button>
-          )}
-        </div>
         </div>
       </div>
 

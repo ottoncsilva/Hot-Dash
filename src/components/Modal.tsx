@@ -80,7 +80,18 @@ export default function Modal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm"
+      /* `items-start` + `my-auto` no diálogo, e não `items-center`.
+         Um item CENTRALIZADO mais alto que a tela transborda para os dois
+         lados, e a rolagem não alcança o que sobra em cima — o topo fica
+         inacessível. Era o que acontecia com a correção de uma cobrança que
+         tem relatório do Canal de Vendas: a janela abria já no meio, sem
+         título, com o começo escondido atrás da barra de status. Alinhado no
+         topo, a rolagem chega ao fim dos dois lados, e o `my-auto` mantém a
+         centralização de sempre para a janela que cabe na tela.
+
+         O respiro acompanha a área segura: sem isso a janela alta encosta no
+         notch em cima e na barra de gestos embaixo. */
+      className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto overscroll-contain bg-black/70 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-[calc(0.75rem+env(safe-area-inset-top))] backdrop-blur-sm sm:px-4 sm:pb-4 sm:pt-4"
       onClick={onClose}
     >
       <div
@@ -88,7 +99,7 @@ export default function Modal({
         role="dialog"
         aria-modal="true"
         tabIndex={-1}
-        className={`card w-full ${maxWidth} animate-fade-in bg-ink-850 p-6 outline-none`}
+        className={`card my-auto w-full ${maxWidth} animate-fade-in bg-ink-850 p-5 outline-none sm:p-6`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

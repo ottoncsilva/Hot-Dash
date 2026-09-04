@@ -1279,12 +1279,18 @@ function EditarCobranca({
           </div>
 
           {sugestoes.length > 0 && (
-            <div className="mt-2.5 grid gap-1">
+            /* `grid-cols-1` e não só `grid`: a coluna implícita de um grid é
+               dimensionada por `auto`, e `auto` não encolhe abaixo do conteúdo
+               mínimo da linha — a faixa ficava mais larga que a caixa e os
+               botões "já está"/"substituir" saíam pela direita, para fora da
+               janela, no celular. `grid-cols-1` é `minmax(0, 1fr)`, que manda
+               a linha caber. */
+            <div className="mt-2.5 grid grid-cols-1 gap-1">
               {sugestoes.map((s) => {
                 const igual = s.atual === s.valor;
                 return (
-                  <div key={s.chave} className="flex items-center gap-2 text-xs">
-                    <span className="w-28 shrink-0 text-[11px] text-zinc-500">{s.label}</span>
+                  <div key={s.chave} className="flex min-w-0 items-center gap-2 text-xs">
+                    <span className="w-24 shrink-0 text-[11px] text-zinc-500 sm:w-28">{s.label}</span>
                     <span className={`min-w-0 flex-1 truncate ${igual ? "text-zinc-500" : "text-zinc-200"}`}>
                       {s.mostrar}
                     </span>

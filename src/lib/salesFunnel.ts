@@ -529,6 +529,61 @@ export function sltPoplinkClicks(
   return rows.map((r) => ({ poplinkId: r.poplink_id, poplinkSlug: r.poplink_slug, clicks: r.c }));
 }
 
+/** De onde vieram os cliques de UMA página ou de UM PopLink. */
+export type SltPaisStat = {
+  /** ISO de duas letras, como a SLT manda. Vazio quando o evento veio sem
+   *  país — acontece, e some do total seria pior do que mostrar "sem país". */
+  country: string;
+  views: number;
+  clicks: number;
+};
+
+/** O que o detalhamento por país está olhando: uma página do SLT ou um
+ *  PopLink. Os dois campos de cada um porque o evento pode ter sido gravado
+ *  com só um deles (o id de página e o de PopLink são colunas que nasceram
+ *  depois do apelido). */
+export type AlvoDoDetalhe =
+  | { tipo: "page"; id: string; slug: string }
+  | { tipo: "poplink"; id: string; slug: string };
+
+/**
+ * PAÍS de cada clique, por alvo.
+ *
+ * O país já vinha em todo evento e já estava gravado — só nunca tinha sido
+ * lido. Não custa chamada nenhuma à SLT: sai do histórico local, que o painel
+ * guarda sem prazo (a janela de 7 dias é da API, não daqui).
+ *
+ * Visualização conta por SESSÃO única, o mesmo critério de `sltPageStats` —
+ * senão o detalhe por país somaria mais views que o card acima dele. PopLink
+ * não tem visualização: não passa por página nenhuma.
+ */
+export function sltPaisesDoAlvo(
+  alvo: AlvoDoDetalhe,
+  sinceMs: number | null,
+  untilMs: number | null = null,
+): SltPaisStat[] {
+  const db = getDb();
+  const { clauses, params } = range(sinceMs, untilMs);
+  const doAlvo =
+    alvo.tipo === "page"
+      ? { sql: "(page_id = ? OR page_slug = ?)", args: [alvo.id, alvo.slug] }
+      : { sql: "(poplink_id = ? OR poplink_slug = ?)", args: [alvo.id, alvo.slug] };
+  const rows = db
+    .prepare(
+      `SELECT COALESCE(country, '') country,
+              COUNT(DISTINCT CASE WHEN event_type = 'page_viewed' THEN COALESCE(session_id, id) END) views,
+              SUM(CASE WHEN event_type IN ('link_clicked', 'poplink_click') THEN 1 ELSE 0 END) clicks
+         FROM slt_events
+        WHERE ${doAlvo.sql}${clauses.length ? ` AND ${clauses.join(" AND ")}` : ""}
+        GROUP BY COALESCE(country, '')`,
+    )
+    .all(...doAlvo.args, ...params) as { country: string; views: number; clicks: number }[];
+  return rows
+    .map((r) => ({ country: r.country, views: r.views || 0, clicks: r.clicks || 0 }))
+    .filter((r) => r.views > 0 || r.clicks > 0)
+    .sort((a, b) => b.clicks - a.clicks || b.views - a.views);
+}
+
 export type ProfileRevenue = {
   profileId: string;
   profileName: string;

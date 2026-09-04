@@ -6,7 +6,7 @@ import { apiGet, apiSend } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import ToggleChip from "@/components/ToggleChip";
-import { IconEdit } from "@/components/icons";
+import { IconEdit, IconList } from "@/components/icons";
 import { showToast } from "@/lib/toast";
 import { useProfile } from "@/context/ProfileContext";
 import type { SltNetwork } from "@/lib/sltNetworks";
@@ -72,6 +72,19 @@ type Data = {
   groups?: Group[];
   unassigned?: PageRow[];
   poplinks?: PoplinkRow[];
+};
+
+/** Uma linha da quebra por país. */
+type PaisRow = { country: string; views: number; clicks: number };
+
+/** O alvo do "Detalhes" — a mesma pergunta ("de onde vieram os cliques?")
+ *  para uma página ou para um PopLink. */
+type AlvoDoDetalhe = {
+  tipo: "page" | "poplink";
+  id: string;
+  slug: string;
+  titulo: string;
+  subtitulo: string;
 };
 
 /** O que o diálogo de configuração precisa saber, seja de uma página ou de um
@@ -267,6 +280,7 @@ function PainelLinks({ period }: { period: PeriodState }) {
   const [erro, setErro] = useState<string | null>(null);
   const [vista, setVista] = useState<"pagina" | "link">("pagina");
   const [editando, setEditando] = useState<AlvoDaConfig | null>(null);
+  const [detalhando, setDetalhando] = useState<AlvoDoDetalhe | null>(null);
   const [salvando, setSalvando] = useState(false);
   // Só LÊ a modelo: quem a escolhe é o Rastreio, acima, com os chips que as
   // duas abas dividem.
@@ -456,6 +470,7 @@ function PainelLinks({ period }: { period: PeriodState }) {
                       pagina={p}
                       redeLabel={redeLabel}
                       onEditar={() => setEditando(alvoDaPagina(p))}
+                      onDetalhes={() => setDetalhando(detalheDaPagina(p))}
                     />
                   ))}
                 </Secao>
@@ -470,6 +485,7 @@ function PainelLinks({ period }: { period: PeriodState }) {
                         pagina={p}
                         redeLabel={redeLabel}
                         onEditar={() => setEditando(alvoDaPagina(p))}
+                        onDetalhes={() => setDetalhando(detalheDaPagina(p))}
                       />
                     ))}
                 </Secao>
@@ -489,6 +505,7 @@ function PainelLinks({ period }: { period: PeriodState }) {
               redeLabel={redeLabel}
               nomeDoPerfil={nomeDoPerfil}
               onEditar={(pl) => setEditando(alvoDoPoplink(pl))}
+              onDetalhes={(pl) => setDetalhando(detalheDoPoplink(pl))}
             />
           )}
         </>
@@ -502,8 +519,33 @@ function PainelLinks({ period }: { period: PeriodState }) {
         onFechar={() => setEditando(null)}
         onSalvar={salvar}
       />
+
+      <DialogoPaises alvo={detalhando} period={period} onFechar={() => setDetalhando(null)} />
     </>
   );
+}
+
+/** A página, no formato que o "Detalhes" entende. Os DOIS identificadores
+ *  porque o evento pode ter sido gravado só com o apelido (a coluna do id de
+ *  página nasceu depois). */
+function detalheDaPagina(p: PageRow): AlvoDoDetalhe {
+  return {
+    tipo: "page",
+    id: p.pageId,
+    slug: p.slug,
+    titulo: nomeDaPagina(p),
+    subtitulo: enderecoDaPagina(p),
+  };
+}
+
+function detalheDoPoplink(pl: PoplinkRow): AlvoDoDetalhe {
+  return {
+    tipo: "poplink",
+    id: pl.id,
+    slug: pl.slug,
+    titulo: pl.slug,
+    subtitulo: pl.shortUrl.replace(/^https?:\/\//, ""),
+  };
 }
 
 /** A página, no formato que o diálogo de configuração entende. */
@@ -652,10 +694,12 @@ function PaginaCard({
   pagina,
   redeLabel,
   onEditar,
+  onDetalhes,
 }: {
   pagina: PageRow;
   redeLabel: Map<string, string>;
   onEditar: () => void;
+  onDetalhes: () => void;
 }) {
   // O denominador do % é a soma dos cliques DOS LINKS, não o clique da página:
   // as duas contagens vêm de consultas diferentes (página por slug, link por
@@ -700,6 +744,18 @@ function PaginaCard({
               despublicada
             </span>
           )}
+          {/* DETALHES: de onde vieram os cliques. Fica atrás de um botão e não
+              no card porque é pergunta de vez em quando — o card responde
+              "quanto", este responde "de onde". */}
+          <button
+            type="button"
+            onClick={onDetalhes}
+            className="btn-ghost h-8 shrink-0 px-3 text-xs"
+            aria-label={`Detalhes de ${nomeDaPagina(pagina)}`}
+          >
+            <IconList size={14} />
+            Detalhes
+          </button>
           <button
             type="button"
             onClick={onEditar}
@@ -884,11 +940,13 @@ function PainelPoplinks({
   redeLabel,
   nomeDoPerfil,
   onEditar,
+  onDetalhes,
 }: {
   poplinks: PoplinkRow[];
   redeLabel: Map<string, string>;
   nomeDoPerfil: Map<string, string>;
   onEditar: (pl: PoplinkRow) => void;
+  onDetalhes: (pl: PoplinkRow) => void;
 }) {
   const lista = [...poplinks].sort((a, b) => b.clicks - a.clicks);
   const total = lista.reduce((s, pl) => s + pl.clicks, 0);
@@ -974,6 +1032,18 @@ function PainelPoplinks({
                 dica={`${pl.clicks} de ${total} cliques nos PopLinks · ${pl.url}`}
               />
               <ValorDoLink link={pl} />
+              {/* Só o ícone: a linha do PopLink é estreita no celular, e o
+                  rótulo "Detalhes" ao lado dos outros quatro blocos a
+                  estouraria. Mesmo botão do card de página. */}
+              <button
+                type="button"
+                onClick={() => onDetalhes(pl)}
+                className="shrink-0 text-zinc-700 transition-colors hover:text-white"
+                aria-label={`Detalhes de ${pl.slug}`}
+                title="De onde vieram os cliques"
+              >
+                <IconList size={14} />
+              </button>
               <button
                 type="button"
                 onClick={() => onEditar(pl)}
@@ -988,6 +1058,144 @@ function PainelPoplinks({
         ))}
       </div>
     </div>
+  );
+}
+
+/** Bandeira a partir do ISO de duas letras: cada letra vira o "indicador
+ *  regional" correspondente, e o par forma a bandeira. Código estranho
+ *  (vazio, tamanho errado) devolve vazio em vez de um retângulo torto. */
+function bandeira(iso: string): string {
+  const c = iso.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(c)) return "";
+  return String.fromCodePoint(...[...c].map((l) => 0x1f1e6 + l.charCodeAt(0) - 65));
+}
+
+/** "BR" → "Brasil". `Intl.DisplayNames` já sabe os nomes em português; código
+ *  que ele não reconhece volta como veio, que ainda é melhor que nada. */
+function nomeDoPais(iso: string): string {
+  const c = iso.trim().toUpperCase();
+  if (!c) return "Sem país";
+  try {
+    return new Intl.DisplayNames(["pt-BR"], { type: "region" }).of(c) || c;
+  } catch {
+    return c;
+  }
+}
+
+/**
+ * DE ONDE vieram os cliques — de uma página ou de um PopLink.
+ *
+ * O país já vinha em todo evento da SLT e já estava gravado; só nunca tinha
+ * sido lido. Não custa consulta à SLT: sai do histórico local, que o painel
+ * guarda sem prazo (a janela de 7 dias é da API, não daqui).
+ *
+ * Fica atrás de um botão, e não no card, porque é pergunta de vez em quando:
+ * o card responde "quanto", isto responde "de onde". Buscar só ao abrir
+ * também é o que impede a carga da tela de crescer por país × página.
+ */
+function DialogoPaises({
+  alvo,
+  period,
+  onFechar,
+}: {
+  alvo: AlvoDoDetalhe | null;
+  period: PeriodState;
+  onFechar: () => void;
+}) {
+  const [linhas, setLinhas] = useState<PaisRow[] | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!alvo) return;
+    setLinhas(null);
+    setErro(null);
+    const q = new URLSearchParams({
+      tipo: alvo.tipo,
+      id: alvo.id,
+      slug: alvo.slug,
+    });
+    apiGet<{ paises: PaisRow[] }>(`/api/links/detalhes?${q}&${periodQuery(period)}`)
+      .then((d) => setLinhas(d.paises || []))
+      .catch((e) => setErro(e instanceof Error ? e.message : "Falha ao carregar."));
+  }, [alvo, period]);
+
+  if (!alvo) return null;
+
+  const totalCliques = (linhas || []).reduce((s, l) => s + l.clicks, 0);
+  const totalViews = (linhas || []).reduce((s, l) => s + l.views, 0);
+  // PopLink não tem visualização — não passa por página nenhuma. A coluna só
+  // aparece onde ela quer dizer alguma coisa.
+  const temViews = alvo.tipo === "page";
+
+  return (
+    <Modal open onClose={onFechar}>
+      <p className="eyebrow">de onde vieram</p>
+      <h2 className="mt-1 font-display text-lg text-white">{alvo.titulo}</h2>
+      <p className="mt-0.5 font-mono text-[11px] text-zinc-600">{alvo.subtitulo}</p>
+
+      {erro && <p className="mt-4 text-sm text-red-300">{erro}</p>}
+
+      {!linhas && !erro && (
+        <div className="mt-4 space-y-2">
+          <div className="h-6 animate-pulse rounded bg-white/[0.03]" />
+          <div className="h-6 animate-pulse rounded bg-white/[0.03]" />
+          <div className="h-6 animate-pulse rounded bg-white/[0.03]" />
+        </div>
+      )}
+
+      {linhas && linhas.length === 0 && (
+        <p className="mt-4 text-sm text-zinc-500">
+          Nenhum clique ou visita neste período.
+        </p>
+      )}
+
+      {linhas && linhas.length > 0 && (
+        <div className="mt-4">
+          <div className="flex items-center gap-2 pb-1 text-[10px] font-mono uppercase tracking-wider text-zinc-600">
+            <span className="flex-1">país</span>
+            {temViews && <span className="w-12 text-right">views</span>}
+            <span className="w-12 text-right">cliques</span>
+            <span className="w-10 text-right">%</span>
+          </div>
+          <div className="max-h-[50vh] overflow-y-auto">
+            {linhas.map((l) => (
+              <div
+                key={l.country || "sem"}
+                className="flex items-center gap-2 border-t border-white/[0.06] py-1.5 text-xs"
+              >
+                <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                  <span aria-hidden>{bandeira(l.country)}</span>
+                  <span className="truncate text-zinc-200">{nomeDoPais(l.country)}</span>
+                </span>
+                {temViews && (
+                  <span className="w-12 text-right font-mono text-zinc-400">{nBR(l.views)}</span>
+                )}
+                <span className="w-12 text-right font-mono text-zinc-200">{nBR(l.clicks)}</span>
+                <span className="w-10 text-right font-mono text-sky-400">
+                  {pct(l.clicks, totalCliques)}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 flex items-center gap-2 border-t border-white/10 pt-2 text-xs">
+            <span className="flex-1 text-zinc-500">
+              {linhas.length} {linhas.length === 1 ? "país" : "países"}
+            </span>
+            {temViews && (
+              <span className="w-12 text-right font-mono text-zinc-400">{nBR(totalViews)}</span>
+            )}
+            <span className="w-12 text-right font-mono text-white">{nBR(totalCliques)}</span>
+            <span className="w-10" />
+          </div>
+        </div>
+      )}
+
+      <div className="mt-5 flex justify-end">
+        <button type="button" className="btn-ghost" onClick={onFechar}>
+          Fechar
+        </button>
+      </div>
+    </Modal>
   );
 }
 

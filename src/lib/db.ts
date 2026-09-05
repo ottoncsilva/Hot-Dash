@@ -1056,6 +1056,29 @@ function migrate(d: Database.Database) {
       FOREIGN KEY (target_id) REFERENCES delivery_targets(id) ON DELETE CASCADE
     );
 
+    -- O ESPELHO do post no chat de quem acompanha tudo (ver
+    -- postDelivery.espelharParaAlerta). Guardamos a mensagem enviada para
+    -- poder SELÁ-LA depois: quando alguém confirma no celular, o alerta que
+    -- estava lá em cima recebe um "✅ CONFIRMADO" na frente, em vez de
+    -- continuar dizendo para sempre que o post está por sair.
+    --
+    -- O TEXTO vai junto de propósito. Reeditar exige remontar a mensagem
+    -- inteira, e remontá-la a partir do post no momento da resposta traria o
+    -- post de HOJE — que pode já ter sido editado. O que foi enviado é o que
+    -- tem de continuar aparecendo; só o selo é novo.
+    CREATE TABLE IF NOT EXISTS post_alerts (
+      id         TEXT PRIMARY KEY,
+      post_id    TEXT NOT NULL,
+      chat_id    TEXT NOT NULL,
+      message_id TEXT,
+      text       TEXT NOT NULL,
+      sent_at    INTEGER NOT NULL,
+      FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_post_alerts_post
+      ON post_alerts(post_id);
+
     CREATE INDEX IF NOT EXISTS idx_post_deliveries_post
       ON post_deliveries(post_id);
     CREATE INDEX IF NOT EXISTS idx_post_deliveries_aberta

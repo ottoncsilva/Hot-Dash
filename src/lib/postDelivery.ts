@@ -10,6 +10,7 @@ import {
   listDeliveryAlertChats,
 } from "./settings";
 import {
+  editTelegramMessageText,
   editTelegramReplyMarkup,
   sendTelegramMedia,
   sendTelegramMediaGroup,
@@ -40,9 +41,21 @@ import { NETWORK_LABELS, type SocialNetwork } from "./types";
 
 /** Quanto tempo depois do horário ainda vale entregar. */
 const JANELA_ATRASO_MS = 30 * 60 * 1000;
-/** Folga para frente: o tique é de 1 minuto, então o post das 14:00 sai às
- *  14:00 e não às 14:01. */
-const JANELA_ADIANTE_MS = 60 * 1000;
+/**
+ * ANTECEDÊNCIA: o pacote sai 5 minutos ANTES da hora combinada.
+ *
+ * O post das 14:00 chega no celular às 13:55. Não é folga de relógio — é o
+ * tempo real entre receber e publicar: abrir a mensagem, salvar a foto, abrir
+ * o Instagram, colar a legenda. Entregue às 14:00 em ponto, o post das 14:00
+ * saía sempre alguns minutos atrasado.
+ *
+ * A hora que a mensagem ANUNCIA continua sendo a combinada ("HORA DE POSTAR —
+ * 14:00"): quem recebe tem de publicar às 14h, não às 13h55.
+ *
+ * Cobre também o tique de 1 minuto do agendador, que era o motivo original de
+ * existir uma folga para frente aqui.
+ */
+const JANELA_ADIANTE_MS = 5 * 60 * 1000;
 /** Silêncio a partir do qual o sistema cobra a confirmação. */
 const PRAZO_COBRANCA_MS = 30 * 60 * 1000;
 /** Quanto o botão "Adiar" empurra. */
@@ -451,6 +464,10 @@ async function espelharParaAlerta(botToken: string): Promise<number> {
   }
 
   const marcar = db.prepare("UPDATE posts SET alerted_at = ? WHERE id = ?");
+  const registrarAlerta = db.prepare(
+    `INSERT INTO post_alerts (id, post_id, chat_id, message_id, text, sent_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  );
   let enviados = 0;
 
   for (const [postId, grupo] of porPost) {
@@ -462,11 +479,21 @@ async function espelharParaAlerta(botToken: string): Promise<number> {
         if (post && post.media.length > 0) {
           await enviarMidias(botToken, destino.chatId, post.media.map((m) => m.id));
         }
-        await enviarPacote(
+        const res = await enviarPacote(
           botToken,
           destino.chatId,
           texto,
           copiar ? { inline_keyboard: [[copiar]] } : undefined,
+        );
+        // Guardado para receber o selo quando a resposta chegar do celular
+        // (ver `avisarAlertaDaResposta`).
+        registrarAlerta.run(
+          randomUUID(),
+          postId,
+          destino.chatId,
+          messageIdDe(res) || null,
+          texto,
+          Date.now(),
         );
         enviados++;
       } catch (err) {
@@ -568,13 +595,16 @@ export type Entrega = {
   /** Vai junto porque o botão de copiar legenda continua na mensagem depois
    *  de respondida — ter o texto à mão é útil justamente ao publicar. */
   caption: string | null;
+  /** Nome do aparelho que respondeu, para o alerta dizer QUEM confirmou. */
+  target_label: string;
 };
 
 export function getDelivery(id: string): Entrega | null {
   const r = getDb()
     .prepare(
       `SELECT d.id, d.post_id, d.target_id, d.status, d.message_id, d.answered_at,
-              d.snooze_count, t.chat_id, pr.name AS profile_name,
+              d.snooze_count, t.chat_id, t.label AS target_label,
+              pr.name AS profile_name,
               p.scheduled_at, p.posted_at, p.caption
          FROM post_deliveries d
          JOIN delivery_targets t ON t.id = d.target_id
@@ -705,6 +735,92 @@ export async function fecharMensagemDaEntrega(
     });
   } catch (err) {
     console.error(`[hotdash] não consegui fechar a mensagem da entrega ${entrega.id}:`, err);
+  }
+}
+
+/**
+ * AVISA QUEM ACOMPANHA TUDO que a resposta chegou.
+ *
+ * Duas coisas, e as duas fazem falta:
+ *
+ *  1. O ESPELHO que estava lá em cima recebe um selo na frente — "✅ POST
+ *     CONFIRMADO". Sem isso o alerta das 14h continua para sempre dizendo que
+ *     o post está por sair, e rolar a conversa de ontem não conta a história
+ *     do dia: conta a lista do que estava marcado.
+ *  2. Uma mensagem NOVA, curta, com o resultado. Ela existe porque editar não
+ *     notifica ninguém: quem está com o celular no bolso só descobre que o
+ *     post saiu se chegar mensagem.
+ *
+ * As linhas do espelho são APAGADAS depois de seladas. É o que faz o "Adiar"
+ * funcionar: o post volta para a fila, o alerta é reenviado no horário novo, e
+ * o espelho antigo (já selado) não é reescrito por cima com a resposta do
+ * próximo. O efeito colateral aceito é o post que vai para DOIS aparelhos: o
+ * espelho leva o selo do primeiro que responder, e o segundo aparece só como
+ * mensagem nova — o que está certo, porque o espelho é um por POST.
+ *
+ * Nunca lança: a resposta da pessoa já está gravada, e uma falha em avisar
+ * terceiros não pode desfazer isso.
+ */
+export async function avisarAlertaDaResposta(
+  botToken: string,
+  entrega: Entrega,
+  acao: DeliveryAction,
+): Promise<void> {
+  const db = getDb();
+  const linhas = db
+    .prepare("SELECT id, chat_id, message_id, text FROM post_alerts WHERE post_id = ?")
+    .all(entrega.post_id) as {
+    id: string;
+    chat_id: string;
+    message_id: string | null;
+    text: string;
+  }[];
+
+  const hora = hhmm(entrega.scheduled_at);
+  const selo =
+    acao === "posted"
+      ? `✅ <b>POST CONFIRMADO</b> — publicado às ${hhmm(entrega.posted_at || entrega.answered_at || Date.now())}`
+      : acao === "failed"
+        ? "❌ <b>NÃO FOI POSTADO</b>"
+        : `⏰ <b>ADIADO</b> — volta às ${hhmm(entrega.scheduled_at)}`;
+
+  const aviso =
+    acao === "posted"
+      ? `✅ <b>${esc(entrega.profile_name)}</b> — o post das ${hora} foi publicado às ` +
+        `${hhmm(entrega.posted_at || entrega.answered_at || Date.now())}.
+` +
+        `📲 Confirmado em ${esc(entrega.target_label)}.`
+      : acao === "failed"
+        ? `❌ <b>${esc(entrega.profile_name)}</b> — o post das ${hora} foi marcado como ` +
+          `NÃO POSTADO em ${esc(entrega.target_label)}.`
+        : `⏰ <b>${esc(entrega.profile_name)}</b> — o post das ${hora} foi adiado em ` +
+          `${esc(entrega.target_label)}. Volta às ${hhmm(entrega.scheduled_at)}.`;
+
+  // O botão de copiar continua na mensagem selada: quem acompanha às vezes é
+  // quem vai repostar o mesmo texto noutro lugar.
+  const copiar = botaoCopiar(entrega.post_id, entrega.caption);
+
+  for (const l of linhas) {
+    if (l.message_id) {
+      await editTelegramMessageText(
+        botToken,
+        l.chat_id,
+        l.message_id,
+        `${selo}
+
+${l.text}`,
+        copiar ? { inline_keyboard: [[copiar]] } : undefined,
+      );
+    }
+    try {
+      await sendTelegramMessage(botToken, l.chat_id, aviso);
+    } catch (err) {
+      console.error(`[hotdash] aviso de resposta para o chat ${l.chat_id} falhou:`, err);
+    }
+  }
+
+  if (linhas.length > 0) {
+    db.prepare("DELETE FROM post_alerts WHERE post_id = ?").run(entrega.post_id);
   }
 }
 

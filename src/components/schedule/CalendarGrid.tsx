@@ -27,7 +27,6 @@ function weekRangeLabel(a: Date, b: Date): string {
   return `${a.getDate()} ${monA} – ${b.getDate()} ${monB} ${year}`;
 }
 
-const isReady = (p: ScheduledPost) => p.media && p.media.length > 0 && Boolean(p.caption && p.caption.trim());
 const isOverdue = (p: ScheduledPost) => p.status === "scheduled" && p.scheduledAt < Date.now();
 
 export default function CalendarGrid({
@@ -292,12 +291,6 @@ export default function CalendarGrid({
                             />
                           ))}
                         <span className="font-mono">{fmtTime(p.scheduledAt)}</span>
-                        {!isReady(p) && !isTelegram && (
-                          <span
-                            className="ml-auto inline-block h-1.5 w-1.5 rounded-full bg-red-500"
-                            title="Incompleto (falta mídia ou legenda)"
-                          />
-                        )}
                       </span>
                       <span className="block truncate text-zinc-400">
                         {p.profileName} {isTelegram ? `· ${targetType}` : `· ${p.networks[0]?.postType}`}

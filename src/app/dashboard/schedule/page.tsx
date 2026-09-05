@@ -64,7 +64,24 @@ function fmtDayLong(ms: number): string {
 const isTelegramPost = (p: ScheduledPost) => p.networks.some((n) => n.network === "telegram");
 
 /** Post "pronto" para postar = tem mídia E legenda. */
-const isReady = (p: ScheduledPost) => p.media.length > 0 && Boolean(p.caption && p.caption.trim());
+/**
+ * Valor do filtro de etiquetas que significa "sem etiqueta nenhuma".
+ *
+ * Não é o id de etiqueta nenhuma de propósito: o `""` já quer dizer "todas", e
+ * um terceiro estado precisa de um valor próprio. O prefixo evita colidir com
+ * um id de verdade.
+ */
+const SEM_ETIQUETA = "__sem_etiqueta__";
+
+/** Os horários fixos da operação, como atalho no formulário de post. */
+const HORARIOS_PADRAO = ["09:00", "13:00", "18:00"];
+
+/* O selo de "pronto / incompleto" saiu daqui.
+   Ele chamava de INCOMPLETO todo post sem legenda, e post sem legenda é
+   normal: foto que fala sozinha, story, reels que já tem o texto no vídeo.
+   O aviso pintava de laranja metade do cronograma para dizer uma coisa que
+   não era problema — e o que é problema de verdade (não postou) já tem cor
+   própria no cartão. */
 
 /** Atrasado = ainda agendado e o horário já passou. Um post marcado como
  *  "não postei" no celular NÃO é atrasado: ele saiu da fila, alguém já disse
@@ -142,22 +159,6 @@ async function sharePostMedia(post: ScheduledPost): Promise<void> {
   } catch (err) {
     if ((err as Error)?.name !== "AbortError") await fallback();
   }
-}
-
-/** Selo de prontidão (pronto = mídia + legenda). */
-function ReadyBadge({ post }: { post: ScheduledPost }) {
-  const ready = isReady(post);
-  return (
-    <span
-      className={`chip ${
-        ready
-          ? "border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-300"
-          : "border-amber-500/30 bg-amber-500/[0.08] text-amber-300"
-      }`}
-    >
-      {ready ? "pronto" : "incompleto"}
-    </span>
-  );
 }
 
 export default function SchedulePage() {
@@ -379,8 +380,12 @@ export default function SchedulePage() {
           celular já faz, com explicação de como instalar o app e a escolha
           dos tipos de alerta. Era duplicata, não atalho. */}
 
-      {/* Filtros + abas */}
-      <div className="mt-6 card p-4">
+      {/* Filtros + abas.
+          APERTADO de propósito (`mt-4`/`p-2.5`, contra `mt-6`/`p-4`): esta
+          barra diz quatro coisas curtas e fica acima da única coisa que
+          importa na tela, que é o calendário. Cada rem gasto aqui é um rem a
+          menos de coluna do dia — e a coluna do dia é onde se trabalha. */}
+      <div className="mt-4 card p-2.5">
         {/* UMA LINHA SÓ a partir de `sm`: abas, contas, status e o olho. No
             celular ainda quebra — sete colunas de filtro em 390px não cabem sem
             virar sopa de letrinha —, mas no desktop a barra deixou de gastar
@@ -686,7 +691,6 @@ function PostDetail({
         {isOverdue(post) && (
           <span className="chip border-amber-500/30 bg-amber-500/[0.08] text-amber-300">atrasado</span>
         )}
-        <ReadyBadge post={post} />
       </div>
 
       {post.media.length > 0 && (
@@ -927,7 +931,6 @@ function ListView({
                         postado {fmtTime(p.postedAt)}
                       </span>
                     )}
-                    <ReadyBadge post={p} />
                   </p>
                   {p.caption && (
                     <p className="mt-0.5 truncate text-xs text-zinc-500">{p.caption}</p>
@@ -1100,7 +1103,6 @@ function QueueCard({
             <span className={`font-mono text-xs ${overdue ? "text-amber-400" : "text-zinc-400"}`}>
               {when} · {fmtTime(post.scheduledAt)}
             </span>
-            <ReadyBadge post={post} />
           </div>
           <p className="mt-1 truncate text-sm font-medium text-zinc-200">{post.profileName}</p>
           <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
@@ -1332,7 +1334,12 @@ function PostForm({
   const filteredLibrary = useMemo(() => {
     if (!library) return null;
     let list = library;
-    if (mediaTagFilter) {
+    if (mediaTagFilter === SEM_ETIQUETA) {
+      // A pilha que nenhuma etiqueta alcança. Faltava justamente ela: a mídia
+      // recém-subida nasce sem etiqueta, e era a única que não dava para
+      // isolar aqui — só desligando o filtro inteiro.
+      list = list.filter((m) => (m.tags || []).length === 0);
+    } else if (mediaTagFilter) {
       list = list.filter((m) => m.tags?.some((t) => t.id === mediaTagFilter));
     }
     // Sem conta marcada não há "nunca postada onde?": o filtro fica inerte em
@@ -1460,6 +1467,20 @@ function PostForm({
             </div>
           </div>
 
+          {/* OS TRÊS HORÁRIOS DA CASA. São os que a operação usa todo dia, e
+              digitá-los no campo de hora custa quatro toques no celular. Ficam
+              logo abaixo do campo, e não dentro dele, porque continuam sendo
+              atalho: qualquer outro horário se escreve à mão como sempre.
+              O chip aceso é o que casa com a hora que está no campo. */}
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+            <span className="eyebrow">horários</span>
+            {HORARIOS_PADRAO.map((h) => (
+              <ToggleChip key={h} active={time === h} onClick={() => setTime(h)}>
+                {h}
+              </ToggleChip>
+            ))}
+          </div>
+
           {/* Redes (multi) + tipo por rede — só as contas cadastradas na modelo */}
           <div className="shrink-0">
             <label className="eyebrow mb-1.5 block">Redes sociais</label>
@@ -1551,6 +1572,7 @@ function PostForm({
                   onChange={(e) => setMediaTagFilter(e.target.value)}
                 >
                   <option value="">Todas as etiquetas</option>
+                  <option value={SEM_ETIQUETA}>Sem etiqueta</option>
                   {tags.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.name}

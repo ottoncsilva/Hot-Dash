@@ -5,6 +5,7 @@ import { apiGet, apiSend } from "@/lib/api";
 import Modal from "@/components/Modal";
 import AuthImage from "@/components/AuthImage";
 import ToggleChip from "@/components/ToggleChip";
+import PostMediaPreview from "@/components/schedule/PostMediaPreview";
 import FilterDropdown from "@/components/FilterDropdown";
 import ScheduleTemplateModal from "@/components/schedule/ScheduleTemplateModal";
 import GenerateScheduleModal from "@/components/schedule/GenerateScheduleModal";
@@ -74,7 +75,14 @@ const isTelegramPost = (p: ScheduledPost) => p.networks.some((n) => n.network ==
 const SEM_ETIQUETA = "__sem_etiqueta__";
 
 /** Os horários fixos da operação, como atalho no formulário de post. */
-const HORARIOS_PADRAO = ["09:00", "13:00", "18:00"];
+const HORARIOS_PADRAO = ["07:00", "09:00", "13:00", "18:00", "21:00"];
+
+/** Data de hoje (offset 0) ou de daqui a N dias, no formato do <input type=date>. */
+function comOffsetDeDias(dias: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + dias);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 /* O selo de "pronto / incompleto" saiu daqui.
    Ele chamava de INCOMPLETO todo post sem legenda, e post sem legenda é
@@ -577,6 +585,8 @@ function PostDetail({
 }) {
   const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  /** Índice da mídia aberta em tamanho grande. `null` = preview fechado. */
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
   async function copyCaption() {
     if (!post.caption) return;
@@ -693,12 +703,19 @@ function PostDetail({
         )}
       </div>
 
+      {/* As miniaturas ABREM. Elas são quadrados recortados — servem para saber
+          quantas mídias o post tem e reconhecer de relance, não para conferir o
+          enquadramento; e num vídeo mostravam só o primeiro quadro parado.
+          Tocar abre a mídia inteira, e vídeo toca (ver `PostMediaPreview`). */}
       {post.media.length > 0 && (
         <div className="mt-3 grid grid-cols-3 gap-2">
-          {post.media.map((m) => (
-            <div
+          {post.media.map((m, i) => (
+            <button
               key={m.id}
-              className="relative aspect-square overflow-hidden rounded-lg border border-white/10 bg-ink-800"
+              type="button"
+              onClick={() => setPreviewIndex(i)}
+              title={m.kind === "video" ? "Ver o vídeo" : "Ver a foto"}
+              className="relative aspect-square overflow-hidden rounded-lg border border-white/10 bg-ink-800 transition-colors hover:border-white/40"
             >
               {m.kind === "image" ? (
                 <AuthImage
@@ -720,9 +737,18 @@ function PostDetail({
                   </div>
                 </>
               )}
-            </div>
+            </button>
           ))}
         </div>
+      )}
+
+      {previewIndex !== null && (
+        <PostMediaPreview
+          media={post.media}
+          index={previewIndex}
+          onIndexChange={setPreviewIndex}
+          onClose={() => setPreviewIndex(null)}
+        />
       )}
 
       {post.caption && <p className="mt-3 text-sm text-zinc-400">{post.caption}</p>}
@@ -1450,35 +1476,59 @@ function PostForm({
           </p>
         )}
 
-        <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3">
+        {/* O `overflow-y-auto` daqui é rede de segurança, não o normal: com o
+            que cabe numa tela de computador ou tablet nada transborda e ele
+            nunca aparece (a grade de mídias é quem absorve a sobra). Num
+            celular pequeno, porém, a soma dos mínimos pode passar da altura —
+            e sem isto o excedente vazava por cima da legenda e dos botões, com
+            texto escrito em cima de texto. Rolar é ruim; sobrepor é pior. */}
+        <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
           {/* A MODELO não é escolhida aqui: quem manda é o menu do painel, e ter
               dois lugares para a mesma escolha só criava a chance de agendar na
               modelo errada sem perceber. Em "Todos" o formulário não adivinha —
               pedir a escolha no menu é melhor que gravar no primeiro perfil da
               lista, que era o que acontecia. */}
+          {/* Cada atalho fica embaixo do SEU campo: hoje/amanhã sob a data,
+              os horários sob a hora. Na primeira versão os horários ficaram
+              soltos abaixo da linha inteira e liam como se fossem da data.
+              Sem rótulo em cima deles — um chip com "09:00" escrito não
+              precisa de ninguém dizendo que é um horário. */}
           <div className="grid shrink-0 grid-cols-2 gap-3">
             <div>
               <label className="eyebrow mb-1.5 block">Data</label>
               <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {(
+                  [
+                    ["Hoje", 0],
+                    ["Amanhã", 1],
+                  ] as const
+                ).map(([rotulo, offset]) => {
+                  const valor = comOffsetDeDias(offset);
+                  return (
+                    <ToggleChip key={rotulo} active={date === valor} onClick={() => setDate(valor)}>
+                      {rotulo}
+                    </ToggleChip>
+                  );
+                })}
+              </div>
             </div>
             <div>
               <label className="eyebrow mb-1.5 block">Hora</label>
               <input type="time" className="input" value={time} onChange={(e) => setTime(e.target.value)} />
+              {/* UMA LINHA que rola de lado, e não `flex-wrap`. No celular o
+                  chip cresce para 44px de alvo de toque: cinco horários
+                  quebrados em três fileiras somavam ~132px e empurravam a
+                  legenda e os botões para fora da janela. Deslizando, ocupam
+                  uma fileira em qualquer largura. */}
+              <div className="rolagem-sem-barra mt-1.5 flex gap-1.5 overflow-x-auto">
+                {HORARIOS_PADRAO.map((h) => (
+                  <ToggleChip key={h} active={time === h} onClick={() => setTime(h)}>
+                    {h}
+                  </ToggleChip>
+                ))}
+              </div>
             </div>
-          </div>
-
-          {/* OS TRÊS HORÁRIOS DA CASA. São os que a operação usa todo dia, e
-              digitá-los no campo de hora custa quatro toques no celular. Ficam
-              logo abaixo do campo, e não dentro dele, porque continuam sendo
-              atalho: qualquer outro horário se escreve à mão como sempre.
-              O chip aceso é o que casa com a hora que está no campo. */}
-          <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-            <span className="eyebrow">horários</span>
-            {HORARIOS_PADRAO.map((h) => (
-              <ToggleChip key={h} active={time === h} onClick={() => setTime(h)}>
-                {h}
-              </ToggleChip>
-            ))}
           </div>
 
           {/* Redes (multi) + tipo por rede — só as contas cadastradas na modelo */}
@@ -1562,7 +1612,14 @@ function PostForm({
           </div>
 
           {/* Mídias da biblioteca (por referência — nada é duplicado) */}
-          <div className="flex min-h-0 flex-1 flex-col">
+          {/* O PISO É DESTE BLOCO, não da grade lá dentro.
+              Quando estava na grade, o bloco continuava encolhendo abaixo do
+              piso dela e o conteúdo vazava por cima da legenda — texto escrito
+              em cima de texto num celular pequeno. Com o piso aqui (o cabeçalho
+              com os filtros mais uma fileira de miniaturas — 10,5rem), o encolhimento
+              para no lugar certo e a sobra vira rolagem do corpo, que é o que
+              a rede de segurança acima existe para fazer. */}
+          <div className="flex min-h-[10.5rem] flex-1 flex-col overflow-hidden">
             <div className="mb-1.5 flex shrink-0 flex-wrap items-center justify-between gap-2">
               <label className="eyebrow block">Mídias da biblioteca</label>
               <div className="flex gap-2">
@@ -1645,7 +1702,7 @@ function PostForm({
               //
               // Com a caixa de fora segurando a altura e a rolagem, a grade
               // volta a crescer pelo conteúdo, como antes.
-              <div className="min-h-[8.5rem] flex-1 overflow-y-auto">
+              <div className="min-h-0 flex-1 overflow-y-auto">
               <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
                 {filteredLibrary.map((m) => {
                   const idx = mediaIds.indexOf(m.id);

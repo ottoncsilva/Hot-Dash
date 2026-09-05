@@ -371,12 +371,15 @@ export default function CronogramaCalendar({
                                 {postado ? rotuloDaConta(p) : p.networks[0]?.postType}
                               </span>
                             </span>
-                            {/* No confirmado a conta entra na MESMA linha da
-                                hora (logo acima): duas linhas para um post que
-                                já saiu é o dobro de altura por nada. */}
-                            {!postado && (
-                              <span className="block truncate text-zinc-400">{rotuloDaConta(p)}</span>
-                            )}
+                            {/* SEGUNDA LINHA. No pendente é a conta (a primeira
+                                já diz o formato); no confirmado é o formato,
+                                porque lá em cima a conta é o que se procura
+                                primeiro — "o que já saiu no @fulano?". Duas
+                                linhas curtas em vez da miniatura continua sendo
+                                um sexto da altura de um cartão pendente. */}
+                            <span className="block truncate text-zinc-400">
+                              {postado ? p.networks[0]?.postType : rotuloDaConta(p)}
+                            </span>
                           </div>
                         </div>
                       );

@@ -71,6 +71,11 @@ type Bot = {
   previasApprovalMode: ApprovalMode;
   pixGeneratingMessage?: string;
   pixCaption?: string;
+  /** A tela "como prefere pagar?" (PIX ou cartão), entre escolher o item e
+   *  gerar a cobrança. Só aparece com o cartão no Brasil ligado. */
+  paymentChoiceMessage?: string;
+  paymentChoiceBtnPix?: string;
+  paymentChoiceBtnCard?: string;
   successButtonText?: string;
   successButtonTextEn?: string;
   successButtonTextEs?: string;
@@ -110,8 +115,9 @@ type Bot = {
   originGateMessage?: string;
   originGateBtnBr?: string;
   originGateBtnIntl?: string;
-  /** Botão extra pro lead brasileiro pagar no cartão (Stripe, em BRL), numa
-   *  mensagem em sequência depois dos planos em PIX. */
+  /** O lead brasileiro pode pagar no cartão (Stripe, em BRL) além do Pix.
+   *  Ligado, o clique num plano abre a escolha de método; desligado, gera o
+   *  Pix direto. */
   acceptCardBr?: boolean;
   /** Boas-vindas do ramo internacional — traduções GRAVADAS (mesmo padrão
    *  de `successMessageEn/Es`). Vazio cai num texto padrão em inglês/espanhol. */
@@ -180,6 +186,11 @@ type CheckoutDefaults = {
   generatingMessage: string;
   payButton: string;
   checkButton: string;
+};
+type PaymentChoiceDefaults = {
+  message: string;
+  btnPix: string;
+  btnCard: string;
 };
 type Plan = {
   id: string;
@@ -268,6 +279,7 @@ export default function BotVendasPage() {
   const [subs, setSubs] = useState<Sub[]>([]);
   const [pixDefaults, setPixDefaults] = useState<PixDefaults | null>(null);
   const [checkoutDefaults, setCheckoutDefaults] = useState<CheckoutDefaults | null>(null);
+  const [escolhaDefaults, setEscolhaDefaults] = useState<PaymentChoiceDefaults | null>(null);
   // Passos-modelo do "Puxar padrão" no Alerta de Renovação. Os três gatilhos
   // de Recuperação ainda não têm o deles — nascem vazios até serem definidos.
   const [renewalDefaults, setRenewalDefaults] = useState<FunnelStep[]>([]);
@@ -305,6 +317,10 @@ export default function BotVendasPage() {
   // não filho, e precisa acompanhar a digitação das três juntas.
   const [pixGerando, setPixGerando] = useState("");
   const [pixLegenda, setPixLegenda] = useState("");
+  // Tela "como prefere pagar?" — só existe com o cartão no Brasil ligado.
+  const [escolhaMsg, setEscolhaMsg] = useState("");
+  const [escolhaBtnPix, setEscolhaBtnPix] = useState("");
+  const [escolhaBtnCard, setEscolhaBtnCard] = useState("");
   const [pixProva, setPixProva] = useState(false);
   const [pixProvaTexto, setPixProvaTexto] = useState("");
   const [pixProvaTextoEn, setPixProvaTextoEn] = useState("");
@@ -371,6 +387,7 @@ export default function BotVendasPage() {
         subscriptions: Sub[];
         pixDefaults: PixDefaults;
         checkoutDefaults: CheckoutDefaults;
+        paymentChoiceDefaults: PaymentChoiceDefaults;
         renewalDefaults: FunnelStep[];
         buttonRoles: ButtonRoleInfo[];
         metrics?: { today?: { paidCount?: number } };
@@ -385,6 +402,7 @@ export default function BotVendasPage() {
       setSubs(d.subscriptions || []);
       setPixDefaults(d.pixDefaults || null);
       setCheckoutDefaults(d.checkoutDefaults || null);
+      setEscolhaDefaults(d.paymentChoiceDefaults || null);
       setRenewalDefaults(d.renewalDefaults || []);
       setWelcome(d.bot?.welcomeMessage || "");
       setWelcomeIds(d.bot?.welcomeMediaIds || []);
@@ -406,6 +424,9 @@ export default function BotVendasPage() {
       // chega preenchido, pronto pra editar por cima se quiser.
       setPixGerando(d.bot?.pixGeneratingMessage || d.pixDefaults?.generatingMessage || "");
       setPixLegenda(d.bot?.pixCaption || d.pixDefaults?.caption || "");
+      setEscolhaMsg(d.bot?.paymentChoiceMessage || d.paymentChoiceDefaults?.message || "");
+      setEscolhaBtnPix(d.bot?.paymentChoiceBtnPix || d.paymentChoiceDefaults?.btnPix || "");
+      setEscolhaBtnCard(d.bot?.paymentChoiceBtnCard || d.paymentChoiceDefaults?.btnCard || "");
       setPixProva(Boolean(d.bot?.pixSocialProof));
       setPixProvaTexto(d.bot?.pixSocialProofText || d.pixDefaults?.socialProofText || "");
       setPixProvaTextoEn(d.bot?.pixSocialProofTextEn || "");
@@ -493,11 +514,10 @@ export default function BotVendasPage() {
     style: corDo((p.highlight && CORES_DO_PLANO[p.highlight]) || bot?.buttonStyles?.plans),
   }));
 
-  // Botão extra "prefere pagar no cartão", em SEQUÊNCIA depois dos planos em
-  // PIX — mesmo texto do webhook (`enviarAberturaBrasil`).
-  const cardBrBotoes = cardBrOn
-    ? [{ text: "💳 Pagar no cartão", kind: "custom" as const, style: corDo(bot?.buttonStyles?.cardBrOffer) }]
-    : [];
+  // A tela "como prefere pagar?", que entra DEPOIS de escolher o plano. Só
+  // existe com o cartão no Brasil ligado — sem ele o clique no plano gera o
+  // Pix na hora, e é isso que o preview mostra. Mesmos textos e mesmas cores
+  // que o webhook usa (`enviarEscolhaDeMetodo`).
 
   // Plano de EXEMPLO para o funil (o primeiro ativo) — é o que substitui
   // {plano} e {valor} na legenda do PIX, igual ao webhook faz de verdade.
@@ -665,6 +685,14 @@ export default function BotVendasPage() {
                     bot={bot}
                     pixDefaults={pixDefaults}
                     checkoutDefaults={checkoutDefaults}
+                    escolhaDefaults={escolhaDefaults}
+                    escolhaMsg={escolhaMsg}
+                    setEscolhaMsg={setEscolhaMsg}
+                    escolhaBtnPix={escolhaBtnPix}
+                    setEscolhaBtnPix={setEscolhaBtnPix}
+                    escolhaBtnCard={escolhaBtnCard}
+                    setEscolhaBtnCard={setEscolhaBtnCard}
+                    cardBrOn={cardBrOn}
                     gerando={pixGerando}
                     setGerando={setPixGerando}
                     legenda={pixLegenda}
@@ -860,7 +888,25 @@ export default function BotVendasPage() {
                   pixSocialProofTextIntl={temPlanoUsd ? provaSocialIntlEfetivo : undefined}
                   successMessageIntl={temPlanoUsd ? sucessoTextoIntlEfetivo : undefined}
                   successButtonsIntl={temPlanoUsd ? successButtonsIntl : undefined}
-                  cardBrButtons={cardBrBotoes}
+                  escolhaMetodo={
+                    cardBrOn
+                      ? {
+                          texto: (escolhaMsg || escolhaDefaults?.message || "")
+                            .replace(/{plano}/gi, planoNome)
+                            .replace(/{valor}/gi, planoValor),
+                          pix: {
+                            text: escolhaBtnPix || escolhaDefaults?.btnPix || "",
+                            kind: "custom" as const,
+                            style: corDo(bot?.buttonStyles?.confirmPurchase),
+                          },
+                          cartao: {
+                            text: escolhaBtnCard || escolhaDefaults?.btnCard || "",
+                            kind: "custom" as const,
+                            style: corDo(bot?.buttonStyles?.cardBrOffer),
+                          },
+                        }
+                      : undefined
+                  }
                   originGateStyle={corDo(bot?.buttonStyles?.originGate)}
                   pixCheckStyle={corDo(bot?.buttonStyles?.pixCheck)}
                   checkoutPayStyle={corDo(bot?.buttonStyles?.checkoutPay)}
@@ -1633,7 +1679,8 @@ function IntlConfigCard({
         <div className="min-w-0">
           <p className="text-sm font-medium text-white">💳 Aceitar cartão no Brasil também</p>
           <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
-            Botão extra depois dos planos, pra pagar no cartão em vez de Pix. Requer Stripe conectada.
+            Depois de escolher o plano, o lead escolhe entre Pix e cartão. Desligado,
+            o clique no plano gera o Pix na hora. Requer Stripe conectada.
           </p>
         </div>
         <Switch checked={cardBrOn} onChange={setCardBrOn} ariaLabel="Aceitar cartão no Brasil também" />
@@ -1859,6 +1906,14 @@ function PixRow({
   bot,
   pixDefaults,
   checkoutDefaults,
+  escolhaDefaults,
+  escolhaMsg,
+  setEscolhaMsg,
+  escolhaBtnPix,
+  setEscolhaBtnPix,
+  escolhaBtnCard,
+  setEscolhaBtnCard,
+  cardBrOn,
   gerando,
   setGerando,
   legenda,
@@ -1905,6 +1960,16 @@ function PixRow({
   bot: Bot;
   pixDefaults: PixDefaults | null;
   checkoutDefaults: CheckoutDefaults | null;
+  escolhaDefaults: PaymentChoiceDefaults | null;
+  escolhaMsg: string;
+  setEscolhaMsg: (v: string) => void;
+  escolhaBtnPix: string;
+  setEscolhaBtnPix: (v: string) => void;
+  escolhaBtnCard: string;
+  setEscolhaBtnCard: (v: string) => void;
+  /** A escolha de método só existe com o cartão no Brasil ligado — sem ele o
+   *  clique no plano vai direto pro PIX, e o bloco desta tela não faz sentido. */
+  cardBrOn: boolean;
   gerando: string;
   setGerando: (v: string) => void;
   legenda: string;
@@ -1950,6 +2015,7 @@ function PixRow({
   const [busy, setBusy] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const provaRef = useRef<HTMLTextAreaElement>(null);
+  const escolhaRef = useRef<HTMLTextAreaElement>(null);
   // Não entra no preview (não muda nada visível na conversa), então fica
   // local — sem precisar subir pro componente pai como os campos vizinhos.
   const [cardRecurring, setCardRecurring] = useState(bot.acceptCardRecurring !== false);
@@ -1962,6 +2028,9 @@ function PixRow({
         profileId,
         pixGeneratingMessage: gerando,
         pixCaption: legenda,
+        paymentChoiceMessage: escolhaMsg,
+        paymentChoiceBtnPix: escolhaBtnPix,
+        paymentChoiceBtnCard: escolhaBtnCard,
         pixSocialProof: prova,
         pixSocialProofText: provaTexto,
         pixSocialProofTextEn: provaTextoEn,
@@ -2005,6 +2074,70 @@ function PixRow({
         O que o lead vê entre clicar no plano e pagar. Vazio usa o texto padrão.
       </p>
 
+      {/* ESCOLHA DE MÉTODO — a primeira tela depois de escolher o plano, e só
+          existe quando há mesmo o que escolher. Com o cartão desligado, o
+          clique no plano gera o PIX na hora e este bloco não teria efeito
+          nenhum: em vez de deixá-lo editável e mudo, a tela diz por quê. */}
+      <div className="mt-4 rounded-xl border border-white/10 bg-ink-850 p-3.5">
+        <p className="text-sm font-semibold text-white">Escolha do método</p>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
+          Depois de escolher o plano (e responder o Order Bump, se houver), o lead
+          decide entre Pix e cartão.
+        </p>
+
+        {!cardBrOn ? (
+          <p className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-[11px] leading-relaxed text-zinc-500">
+            Esta tela não aparece: com “Aceitar cartão no Brasil” desligado (em
+            Configurações internacionais) não há o que escolher, e o clique no plano
+            gera o Pix na hora.
+          </p>
+        ) : (
+          <>
+            <label className="eyebrow mt-3 block">Pergunta</label>
+            <textarea
+              ref={escolhaRef}
+              className="input mt-1.5 min-h-[90px] font-mono text-xs"
+              placeholder={escolhaDefaults?.message}
+              value={escolhaMsg}
+              onChange={(e) => setEscolhaMsg(e.target.value)}
+            />
+            <VarChips
+              vars={[
+                ["{plano}", "nome do plano ou da oferta escolhida"],
+                ["{valor}", "o total que vai ser cobrado — já com desconto e com o Order Bump"],
+              ]}
+              targetRef={escolhaRef}
+              onChange={setEscolhaMsg}
+            />
+
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="eyebrow mb-1.5 block">Botão do Pix</label>
+                <input
+                  className="input"
+                  placeholder={escolhaDefaults?.btnPix}
+                  value={escolhaBtnPix}
+                  onChange={(e) => setEscolhaBtnPix(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="eyebrow mb-1.5 block">Botão do cartão</label>
+                <input
+                  className="input"
+                  placeholder={escolhaDefaults?.btnCard}
+                  value={escolhaBtnCard}
+                  onChange={(e) => setEscolhaBtnCard(e.target.value)}
+                />
+              </div>
+            </div>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-500">
+              Os dois saem um embaixo do outro. Lado a lado, “Pagar com cartão” é
+              cortado nos aparelhos de tela estreita (Galaxy, Moto G).
+            </p>
+          </>
+        )}
+      </div>
+
       {/* PIX — código copia-e-cola + QR. Nunca aparece pra quem paga no
           cartão (seção própria logo abaixo). */}
       <div className="mt-4 rounded-xl border border-white/10 bg-ink-850 p-3.5">
@@ -2035,16 +2168,17 @@ function PixRow({
         />
         <VarChips
           vars={[
-            ["{pix_code}", "o código copia-e-cola — sem ele o cliente não tem o que copiar"],
             ["{plano}", "nome do plano ou da oferta comprada"],
             ["{valor}", "valor já com o desconto aplicado"],
           ]}
           targetRef={areaRef}
           onChange={setLegenda}
         />
-        <p className="mt-1 text-[11px] text-zinc-500">
-          Aceita <code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;code&gt;</code>. Sem{" "}
-          <b>{"{pix_code}"}</b>, o código entra no fim mesmo assim.
+        <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+          Aceita <code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;code&gt;</code>. A chave
+          Pix <b>não vai nesta mensagem</b>: ela fica no botão “Copiar Chave Pix” abaixo, que
+          copia no toque. Escrita aqui, ela ficaria copiável nesta conversa para sempre — e uma
+          tela antiga entregaria uma chave já vencida.
         </p>
 
         <label className="eyebrow mt-4 block">Botões que acompanham o PIX</label>

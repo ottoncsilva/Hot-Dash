@@ -22,6 +22,7 @@ import {
   recordSeenChat,
   buildAccessMessage,
   PIX_DEFAULTS,
+  PAYMENT_CHOICE_DEFAULTS,
   CHECKOUT_DEFAULTS,
   MESSAGE_DEFAULTS,
   RENEWAL_DEFAULT_STEPS,
@@ -256,6 +257,7 @@ export async function GET(req: NextRequest) {
       activeSubscriptions,
       provaSocial,
       pixDefaults: PIX_DEFAULTS,
+      paymentChoiceDefaults: PAYMENT_CHOICE_DEFAULTS,
       checkoutDefaults: CHECKOUT_DEFAULTS,
       // Passos-modelo do Alerta de Renovação, para o botão "Puxar padrão" —
       // mesmo conteúdo que já vem pré-carregado em bot novo (ver POST
@@ -631,6 +633,18 @@ export async function POST(req: NextRequest) {
             ? String(body.pixGeneratingMessage)
             : bot.pixGeneratingMessage,
         pixCaption: body.pixCaption !== undefined ? String(body.pixCaption) : bot.pixCaption,
+        paymentChoiceMessage:
+          body.paymentChoiceMessage !== undefined
+            ? String(body.paymentChoiceMessage)
+            : bot.paymentChoiceMessage,
+        paymentChoiceBtnPix:
+          body.paymentChoiceBtnPix !== undefined
+            ? String(body.paymentChoiceBtnPix)
+            : bot.paymentChoiceBtnPix,
+        paymentChoiceBtnCard:
+          body.paymentChoiceBtnCard !== undefined
+            ? String(body.paymentChoiceBtnCard)
+            : bot.paymentChoiceBtnCard,
         pixSocialProof:
           body.pixSocialProof !== undefined ? Boolean(body.pixSocialProof) : bot.pixSocialProof,
         pixSocialProofText: pixSocialProofTextNovo,

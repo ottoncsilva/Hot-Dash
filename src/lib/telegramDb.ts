@@ -38,8 +38,17 @@ export type TelegramBotConfig = {
   previasApprovalMode: ApprovalMode;
   /** Aviso enviado enquanto a cobrança é criada. Vazio = padrão. */
   pixGeneratingMessage?: string;
-  /** Legenda do PIX. Aceita {plano}, {valor} e {pix_code}. Vazio = padrão. */
+  /** Legenda do PIX. Aceita {plano} e {valor}. Vazio = padrão.
+   *  `{pix_code}` NÃO é mais substituído — vira vazio: a chave só existe
+   *  dentro do botão de copiar (ver o comentário de `PIX_DEFAULTS.caption`). */
   pixCaption?: string;
+  /** A tela "como prefere pagar?", entre escolher o item e gerar a cobrança.
+   *  Aceita {plano} e {valor}. Vazio = padrão. Só aparece no ramo brasileiro
+   *  e só com cartão disponível — ver `acceptCardBr`. */
+  paymentChoiceMessage?: string;
+  /** Textos dos dois botões dessa tela. Vazio = padrão. */
+  paymentChoiceBtnPix?: string;
+  paymentChoiceBtnCard?: string;
   /** Texto do botão de acesso ao VIP na aprovação. Vazio = link solto no texto. */
   successButtonText?: string;
   /** Ids da Galeria escolhidos a dedo para a abertura do /start, em ordem. */
@@ -110,9 +119,9 @@ export type TelegramBotConfig = {
   originGateMessage?: string;
   originGateBtnBr?: string;
   originGateBtnIntl?: string;
-  /** Libera um botão extra pro lead BRASILEIRO pagar no cartão (Stripe, em
-   *  BRL) depois da lista de planos em PIX — mensagem separada, em sequência.
-   *  Só aparece de verdade com a Stripe conectada. */
+  /** O lead BRASILEIRO pode pagar no cartão (Stripe, em BRL) além do PIX.
+   *  Ligado, o clique num plano abre a escolha "como prefere pagar?"; desligado,
+   *  gera o PIX direto. Só vale de verdade com a Stripe conectada. */
   acceptCardBr?: boolean;
   /** Boas-vindas do ramo internacional — traduções GRAVADAS (mesmo padrão de
    *  `successMessageEn/Es`: populadas sozinhas a cada save do texto em PT,
@@ -170,17 +179,21 @@ export const PIX_DEFAULTS = {
    */
   socialProofText: "🔥 {vendas_hoje} pessoa(s) garantiram o acesso hoje.",
   /**
-   * A tela do PIX. O `<code>` do copia-e-cola é o que faz o Telegram copiar o
-   * código inteiro com UM toque — por isso a instrução "toque na chave acima"
-   * só funciona com ele.
+   * A tela do PIX.
+   *
+   * A CHAVE NÃO VEM AQUI. Ela vive só dentro do botão "Copiar Chave Pix", que
+   * é nativo do Telegram e copia no toque. Escrita no corpo, ela ficaria
+   * copiável nesta mensagem para sempre — e uma tela de ontem entregaria a
+   * chave de ontem, já vencida, sem o servidor participar do toque.
+   *
+   * Por isso o texto aponta para BAIXO (o botão), e não mais para cima.
    */
   caption:
     `🌟 Você selecionou o seguinte plano:\n\n` +
     `🎁 Plano: <b>{plano}</b>\n` +
     `💰 Valor: <b>{valor}</b>\n\n` +
-    `💠 Pagamento via Pix – Copia e Cola (ou QR Code, dependendo do seu banco):\n\n` +
-    `<code>{pix_code}</code>\n\n` +
-    `👆 Toque na chave PIX acima para copiá-la 💖\n\n` +
+    `💠 Pagamento via Pix – Copia e Cola (ou QR Code, dependendo do seu banco).\n\n` +
+    `👇 Toque em <b>Copiar Chave Pix</b> aqui embaixo e cole no seu banco 💖\n\n` +
     `‼️ Depois de pagar, é só clicar no botão abaixo pra confirmar seu pagamento e liberar seu acesso amor, vem logo tô te esperando 👇✨`,
   /** Textos dos três botões que acompanham o PIX. */
   btnCheck: "Verificar Status do Pagamento",
@@ -195,6 +208,23 @@ export const PIX_DEFAULTS = {
  *  `PIX_DEFAULTS`: ficam aqui pra UI mostrar como placeholder e restaurar. Só
  *  o texto em PT ("Aceitar cartão no Brasil"); o internacional já tem os
  *  seus fixos, traduzidos, no webhook. */
+/**
+ * A tela de ESCOLHA DE MÉTODO — o passo entre escolher o item e gerar a
+ * cobrança, quando o bot aceita cartão além do PIX.
+ *
+ * O texto cita o item e o valor de propósito: é a última confirmação antes de
+ * o dinheiro entrar em jogo, e o lead acabou de rolar uma lista de planos.
+ * Sem repetir o que ele escolheu, a pergunta "como prefere pagar?" chega solta.
+ *
+ * O {valor} aqui é o TOTAL — já com desconto do funil e com o Order Bump, se
+ * ele aceitou. É o número que vai ser cobrado, não o de tabela.
+ */
+export const PAYMENT_CHOICE_DEFAULTS = {
+  message: "Você escolheu <b>{plano}</b> — {valor}.\n\nComo prefere pagar?",
+  btnPix: "💠 Pagar com Pix",
+  btnCard: "💳 Pagar com cartão",
+} as const;
+
 export const CHECKOUT_DEFAULTS = {
   generatingMessage: "⏳ Gerando cobrança no cartão...",
   payButton: "Pagar 👉",
@@ -502,6 +532,9 @@ function toBotConfig(row: any): TelegramBotConfig {
     previasApprovalMode: toApprovalMode(row.previas_approval_mode, "all"),
     pixGeneratingMessage: row.pix_generating_message || undefined,
     pixCaption: row.pix_caption || undefined,
+    paymentChoiceMessage: row.payment_choice_message || undefined,
+    paymentChoiceBtnPix: row.payment_choice_btn_pix || undefined,
+    paymentChoiceBtnCard: row.payment_choice_btn_card || undefined,
     successButtonText: row.success_button_text || undefined,
     welcomeMediaIds: parseIds(row.welcome_media_ids),
     welcomeMediaMode: row.welcome_media_mode === "separate" ? "separate" : "album",
@@ -636,8 +669,8 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
   const id = config.id || Math.random().toString(36).substring(2, 15);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, success_message_en, success_message_es, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, pix_downsell_plan_mode, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, renewal_funnel, renewal_enabled, intl_enabled, intl_ask_first, origin_gate_message, origin_gate_btn_br, origin_gate_btn_intl, accept_card_br, welcome_message_en, welcome_message_es, success_button_text_en, success_button_text_es, pix_social_proof_text_en, pix_social_proof_text_es, checkout_generating_message, checkout_pay_button_text, checkout_pay_button_text_en, checkout_pay_button_text_es, checkout_check_button_text, checkout_check_button_text_en, checkout_check_button_text_es, checkout_show_check_button, id_vendas, accept_card_recurring, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO telegram_bots (id, profile_id, bot_token, bot_username, id_vip, id_aquecimento, id_registro, support_username, welcome_message, welcome_media_tags, success_message, success_message_en, success_message_es, downsell_funnel, upsell_funnel, previews_welcome_message, operation_active, vip_approval_mode, previas_approval_mode, pix_generating_message, pix_caption, success_button_text, welcome_media_ids, welcome_media_mode, pix_social_proof, pix_social_proof_text, pix_audio_url, pix_btn_check, pix_btn_qr, pix_btn_copy, pix_not_paid_message, previas_welcome_funnel, vip_welcome_funnel, pix_downsell_funnel, pix_downsell_plan_mode, downsell_enabled, pix_downsell_enabled, upsell_enabled, effect_welcome, effect_pix, effect_success, previas_use_welcome, vip_use_welcome, dynamic_price_enabled, dynamic_price_cents, dynamic_price_direction, button_styles, renewal_funnel, renewal_enabled, intl_enabled, intl_ask_first, origin_gate_message, origin_gate_btn_br, origin_gate_btn_intl, accept_card_br, welcome_message_en, welcome_message_es, success_button_text_en, success_button_text_es, pix_social_proof_text_en, pix_social_proof_text_es, checkout_generating_message, checkout_pay_button_text, checkout_pay_button_text_en, checkout_pay_button_text_es, checkout_check_button_text, checkout_check_button_text_en, checkout_check_button_text_es, checkout_show_check_button, id_vendas, accept_card_recurring, payment_choice_message, payment_choice_btn_pix, payment_choice_btn_card, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(profile_id) DO UPDATE SET
        bot_token = excluded.bot_token,
        bot_username = excluded.bot_username,
@@ -707,7 +740,10 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
        checkout_check_button_text_es = excluded.checkout_check_button_text_es,
        checkout_show_check_button = excluded.checkout_show_check_button,
        id_vendas = excluded.id_vendas,
-       accept_card_recurring = excluded.accept_card_recurring`
+       accept_card_recurring = excluded.accept_card_recurring,
+       payment_choice_message = excluded.payment_choice_message,
+       payment_choice_btn_pix = excluded.payment_choice_btn_pix,
+       payment_choice_btn_card = excluded.payment_choice_btn_card`
   ).run(
     id,
     config.profileId,
@@ -784,6 +820,9 @@ export function saveBotConfig(config: Omit<TelegramBotConfig, "id"> & { id?: str
     config.checkoutShowCheckButton === false ? 0 : 1,
     config.idVendas?.trim() || null,
     config.acceptCardRecurring === false ? 0 : 1,
+    config.paymentChoiceMessage?.trim() || null,
+    config.paymentChoiceBtnPix?.trim() || null,
+    config.paymentChoiceBtnCard?.trim() || null,
     now
   );
   // Lê PELO PERFIL, não pelo `id` que acabou de ser passado. O INSERT resolve

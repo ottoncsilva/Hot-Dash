@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { TelegramPlan, TelegramBotConfig } from "@/lib/telegramDb";
 import { moedaPorIdioma, formatarMoeda, type MoedaIntl } from "@/lib/moedaIntl";
-import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, getTelegramLead, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, recurringFromDurationDays, primeiraVezQueVejoEsteUpdate, BUMP_DEFAULTS, PIX_DEFAULTS, CHECKOUT_DEFAULTS } from "@/lib/telegramDb";
+import { getBotConfig, listActivePlans, listCustomButtons, saveSubscription, getSubscription, getPlan, findActiveSubscription, getTelegramLead, countActiveSubscriptions, enqueueApproval, buildAccessMessage, buildPlanKeyboardRows, recurringFromDurationDays, primeiraVezQueVejoEsteUpdate, BUMP_DEFAULTS, PIX_DEFAULTS, CHECKOUT_DEFAULTS, PAYMENT_CHOICE_DEFAULTS } from "@/lib/telegramDb";
 import { upsertTelegramUser, setTelegramUserBlocked, setTelegramUserGroup, getTelegramUser, setTelegramUserLanguage, limparTelegramUserLanguage } from "@/lib/telegramUsers";
 import { registrarChegadaTelegram, registraMudancaDeGrupo } from "@/lib/telegramIngest";
 import { getMailingOffer } from "@/lib/telegramMailing";
@@ -85,6 +85,85 @@ const PROVA_SOCIAL_INTL_DEFAULTS = {
 } as const;
 
 /**
+ * O bot pode oferecer cartão ao lead brasileiro AGORA?
+ *
+ * São duas condições: o operador ligou o cartão no Brasil (`acceptCardBr`) e a
+ * Stripe está de fato operando. Sem a segunda, o lead escolheria "cartão" e
+ * bateria num "checkout temporariamente indisponível".
+ *
+ * A pergunta é feita ao MESMO `getProvider("stripe")` que vai criar a
+ * cobrança, e não a `getStripeCredentials()` como fazia o botão antigo: aquele
+ * só olhava se existe uma chave gravada, e ignorava o interruptor da Stripe.
+ * Com a chave salva e a Stripe desligada, o botão aparecia e o caminho morria
+ * no erro. Perguntar a quem cobra é a única forma de as duas respostas nunca
+ * discordarem.
+ */
+function cartaoBrDisponivel(bot: TelegramBotConfig): boolean {
+  return Boolean(bot.acceptCardBr && getProvider("stripe"));
+}
+
+/**
+ * A tela "como prefere pagar?" — o passo entre escolher o item e gerar a
+ * cobrança.
+ *
+ * Substitui o botão solto "💳 Pagar no cartão" que ia depois dos planos e, ao
+ * ser tocado, REABRIA a lista inteira em cartão: o lead via os mesmos planos
+ * duas vezes e escolhia duas vezes. Agora ele escolhe o item uma vez e só
+ * depois diz como paga.
+ *
+ * Os dois botões vão UM EM CADA LINHA: lado a lado, "Pagar com cartão" é
+ * truncado nos aparelhos de 360dp (Galaxy, Moto G), que são boa parte da base.
+ *
+ * Todo o estado necessário para retomar a compra viaja no `callback_data` —
+ * item, desconto e bump aceito —, do mesmo jeito que o Order Bump já faz. Não
+ * há nada guardado no banco entre esta tela e a cobrança.
+ */
+async function enviarEscolhaDeMetodo(
+  bot: TelegramBotConfig,
+  chatId: string,
+  item: {
+    /** "p" = plano do catálogo, "o" = oferta de mailing. */
+    tipo: "p" | "o";
+    id: string;
+    nome: string;
+    /** O que vai ser cobrado: já com desconto do funil e com o bump aceito. */
+    totalCents: number;
+    discountPercent: number;
+    comBump: boolean;
+  },
+): Promise<void> {
+  const sufixo = `${item.id}${item.discountPercent > 0 ? `_${item.discountPercent}` : ""}${item.comBump ? "_b" : ""}`;
+  const valorStr = (item.totalCents / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+  const texto = (bot.paymentChoiceMessage?.trim() || PAYMENT_CHOICE_DEFAULTS.message)
+    .replace(/{plano}/gi, item.nome)
+    .replace(/{valor}/gi, valorStr);
+
+  await sendTelegramMessage(bot.botToken, chatId, texto, {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          {
+            text: bot.paymentChoiceBtnPix?.trim() || PAYMENT_CHOICE_DEFAULTS.btnPix,
+            callback_data: `pay_pix_${item.tipo}${sufixo}`,
+            ...buttonStyleProps(bot, "confirmPurchase"),
+          },
+        ],
+        [
+          {
+            text: bot.paymentChoiceBtnCard?.trim() || PAYMENT_CHOICE_DEFAULTS.btnCard,
+            callback_data: `pay_card_${item.tipo}${sufixo}`,
+            ...buttonStyleProps(bot, "cardBrOffer"),
+          },
+        ],
+      ],
+    },
+  });
+}
+
+/**
  * Abertura BRASILEIRA do /start: planos em BRL + PIX, botão extra de cartão
  * (opcional), botões customizados, suporte e prova social — o funil de
  * sempre, sem tradução nenhuma. Função nomeada porque agora tem DOIS pontos
@@ -164,25 +243,19 @@ async function enviarAberturaBrasil(
     extra: efeitoProps(bot.effectWelcome),
   });
 
-  // Cartão no Brasil — botão EXTRA, numa mensagem em SEQUÊNCIA (não editada
-  // na de cima): o lead brasileiro que preferir cartão a PIX abre o mesmo
-  // catálogo, cobrado em BRL pela Stripe (`card_menu` → `buy_card_`). Só
-  // aparece com a Stripe conectada — sem credenciais, o botão levaria a uma
-  // cobrança que nunca seria gerada.
-  if (bot.acceptCardBr && plans.length > 0) {
-    const { getStripeCredentials } = await import("@/lib/settings");
-    if (getStripeCredentials()) {
-      await sendTelegramMessage(bot.botToken, String(chat.id), "💳 Prefere pagar no cartão?", {
-        reply_markup: {
-          inline_keyboard: [[{ text: "💳 Pagar no cartão", callback_data: "card_menu", ...buttonStyleProps(bot, "cardBrOffer") }]],
-        },
-      });
-    }
-  }
+  // O CARTÃO NÃO É MAIS UM BOTÃO AQUI.
+  //
+  // Antes saía, logo abaixo dos planos, uma segunda mensagem com "💳 Pagar no
+  // cartão" — e tocá-la REABRIA a lista inteira de planos, agora em cartão. O
+  // lead via os mesmos planos duas vezes e escolhia duas vezes.
+  //
+  // Agora a ordem é a natural: escolhe o plano, depois escolhe como pagar
+  // (ver `enviarEscolhaDeMetodo`). O interruptor `acceptCardBr` continua
+  // valendo — só mudou o lugar onde ele aparece.
 
-  // PROVA SOCIAL — sempre por ÚLTIMO: depois dos planos, do "Not from
-  // Brazil?" (que já vem junto da mensagem de boas-vindas) e do "pagar no
-  // cartão" acima. É o fechamento da abertura, não o meio dela.
+  // PROVA SOCIAL — sempre por ÚLTIMO: depois dos planos e do "Not from
+  // Brazil?" (que já vem junto da mensagem de boas-vindas). É o fechamento da
+  // abertura, não o meio dela.
   //
   // O portão de antes era `hoje > 0 || assinantes > 0`, um OU onde devia ser
   // um E: com assinantes ativos e nenhuma venda no dia, a linha saía
@@ -567,10 +640,10 @@ export async function POST(
         return NextResponse.json({ ok: true });
       }
 
+      // Clique DIRETO num botão de plano — é o que decide se o Order Bump
+      // ainda vai ser oferecido. Um clique vindo da escolha de método
+      // (`pay_*`) não é: ali o bump já foi respondido.
       const isPlanBuy = typeof data === "string" && data.startsWith("buy_plan_");
-      // Oferta de um MAILING: mesmo fluxo do plano, mas com nome/preço/duração
-      // ajustados só para aquele disparo (o plano original fica intacto).
-      const isOfferBuy = typeof data === "string" && data.startsWith("buy_offer_");
       // Compra INTERNACIONAL (cartão, via Stripe) — MESMO plano do catálogo,
       // só que cobrado pelo priceUsdCents em vez do priceCents. Sem bump: o
       // botão do bump só é oferecido a partir de `buy_plan_` (isPlanBuy),
@@ -580,7 +653,10 @@ export async function POST(
       // catálogo, MESMO preço em reais do PIX (`priceCents`), só o método de
       // pagamento muda. Nasce do botão extra "Prefere pagar no cartão?"
       // (`card_menu`, ver `enviarAberturaBrasil`).
-      const isCardBrBuy = typeof data === "string" && data.startsWith("buy_card_");
+      // Declarado aqui, mas só fica com o valor final depois da escolha de
+      // método logo abaixo — `buy_card_` é o formato LEGADO (mensagens antigas
+      // que ainda têm o botão "Pagar no cartão" na tela do lead).
+      const isCardBrLegacy = typeof data === "string" && data.startsWith("buy_card_");
       // Idioma gravado quando o lead escolheu no menu internacional (D.2).
       // Sem escolha registrada (ex.: link antigo), cai em inglês — era o
       // único idioma do fluxo intl antes do menu de idioma existir.
@@ -611,7 +687,38 @@ export async function POST(
         }
       }
 
+      // ---- Método escolhido na tela "como prefere pagar?" ----
+      // `pay_pix_` / `pay_card_` carregam de volta o MESMO item, o mesmo
+      // desconto e o bump que já tinha sido aceito — tudo no callback_data,
+      // como o Order Bump acima já faz. Nada fica guardado no banco entre a
+      // pergunta e a resposta.
+      //
+      // A partir daqui o clique é indistinguível de um clique direto no item:
+      // o que muda é só o provedor da cobrança.
+      let cartaoBrEscolhido = false;
+      const metodoAcao = typeof data === "string" && data.match(/^pay_(pix|card)_([po])(.+)$/);
+      if (metodoAcao) {
+        const [, metodo, tipoItem, sufixo] = metodoAcao;
+        const comBump = sufixo.endsWith("_b");
+        const resto = comBump ? sufixo.slice(0, -2) : sufixo;
+        dataEfetivo = `${tipoItem === "p" ? "buy_plan_" : "buy_offer_"}${resto}`;
+        cartaoBrEscolhido = metodo === "card";
+        if (comBump) {
+          // Relê o bump do plano em vez de confiar num valor no callback: se o
+          // operador mudou o preço da oferta adicional entre a pergunta e a
+          // resposta, vale o que está cadastrado agora.
+          const p = getPlan(resto.split("_")[0]);
+          if (p?.bump?.enabled && p.bump.priceCents > 0) bumpAceito = p.bump;
+        }
+      }
+
+      /** Cobrança no CARTÃO em reais (Stripe): o botão novo ou o legado. */
+      const isCardBrBuy = isCardBrLegacy || cartaoBrEscolhido;
+
       const isPlanBuyEfetivo = typeof dataEfetivo === "string" && dataEfetivo.startsWith("buy_plan_");
+      // Oferta de um MAILING: mesmo fluxo do plano, mas com nome/preço/duração
+      // ajustados só para aquele disparo (o plano original fica intacto).
+      const isOfferBuy = typeof dataEfetivo === "string" && dataEfetivo.startsWith("buy_offer_");
 
       if (isPlanBuyEfetivo || isOfferBuy || isIntlBuy || isCardBrBuy) {
         let planId = "";
@@ -653,26 +760,18 @@ export async function POST(
           itemName = plan.name;
           basePriceCents = plan.priceUsdCents!;
           // (o número é o mesmo; quem muda é a moeda em `moedaIntl`)
-        } else if (isCardBrBuy) {
-          // Mesmo formato de callback (`<id>[_<desconto>]`), mesmo catálogo —
-          // só o método de pagamento (cartão via Stripe, não PIX) e a moeda
-          // (BRL, não USD) mudam em relação ao `isIntlBuy`.
-          const parts = data.replace("buy_card_", "").split("_");
-          planId = parts[0];
-          discountPercent = parseInt(parts[1]) || 0;
-          const plan = getPlan(planId);
-          if (!plan) {
-            await sendTelegramMessage(bot.botToken, String(message.chat.id), "⚠️ Plano não encontrado ou inativo.");
-            return NextResponse.json({ ok: true });
-          }
-          itemName = plan.name;
-          basePriceCents = plan.priceCents;
-        } else {
+        } else if (isOfferBuy) {
           // Mesmo sufixo de desconto do plano (`_<percentual>`) — o Downsell de
           // PIX gerado manda esse botão quando o lead escolheu a oferta de um
           // mailing, não um plano do catálogo. UUID não tem "_", então o split
           // é seguro do mesmo jeito que já era para `buy_plan_`.
-          const parts = data.replace("buy_offer_", "").split("_");
+          //
+          // Vem ANTES do cartão legado de propósito: desde a escolha de método,
+          // uma OFERTA paga no cartão tem `isCardBrBuy` verdadeiro e
+          // `dataEfetivo` em `buy_offer_`. Na ordem antiga ela seria lida como
+          // se fosse um plano do catálogo, e o `getPlan` de um id de oferta
+          // devolveria nada.
+          const parts = dataEfetivo.replace("buy_offer_", "").split("_");
           offerId = parts[0];
           discountPercent = parseInt(parts[1]) || 0;
           const offer = getMailingOffer(offerId);
@@ -687,6 +786,21 @@ export async function POST(
           planId = offer.planId || "";
           itemName = offer.name;
           basePriceCents = offer.priceCents;
+        } else {
+          // LEGADO `buy_card_`: mensagens antigas, já entregues, que ainda têm
+          // na tela do lead o botão "Pagar no cartão" de quando ele reabria a
+          // lista inteira. O Telegram não deixa apagar botão de mensagem já
+          // enviada, então este ramo continua atendendo — só não é mais gerado.
+          const parts = data.replace("buy_card_", "").split("_");
+          planId = parts[0];
+          discountPercent = parseInt(parts[1]) || 0;
+          const plan = getPlan(planId);
+          if (!plan) {
+            await sendTelegramMessage(bot.botToken, String(message.chat.id), "⚠️ Plano não encontrado ou inativo.");
+            return NextResponse.json({ ok: true });
+          }
+          itemName = plan.name;
+          basePriceCents = plan.priceCents;
         }
 
         // Primeiro clique num plano COM bump: oferece, e para por aqui. O PIX
@@ -747,6 +861,42 @@ export async function POST(
             }
             return NextResponse.json({ ok: true });
           }
+        }
+
+        // ---- "Como prefere pagar?" — PIX ou cartão ----
+        //
+        // Entra DEPOIS do Order Bump, e não antes: o valor mostrado aqui é o
+        // total que vai ser cobrado, e com o bump respondido primeiro esse
+        // número já é o definitivo. (Foi também o que passou a levar o bump
+        // para o cartão, que antes nunca o via.)
+        //
+        // Só no ramo brasileiro: o lead internacional já vem pelo checkout no
+        // cartão e não tem PIX para escolher.
+        //
+        // Sem cartão para oferecer, não há escolha a fazer — segue direto para
+        // o PIX, exatamente como sempre foi. Uma tela com um botão só seria um
+        // toque a mais sem nada em troca.
+        if (!isIntlBuy && !metodoAcao && !isCardBrBuy && cartaoBrDisponivel(bot)) {
+          // O valor exibido NÃO passa pela variação de centavos do preço
+          // dinâmico: ela só existe no PIX (é como o pagamento é casado com o
+          // lead), e aqui o método ainda não foi escolhido. Mostrar a variação
+          // e depois cobrar outro valor no cartão seria pior que a diferença
+          // de centavos que aparece só na tela do PIX.
+          let totalCents = basePriceCents;
+          if (discountPercent > 0 && discountPercent <= 100) {
+            totalCents = Math.floor(totalCents * (1 - discountPercent / 100));
+          }
+          if (bumpAceito) totalCents += bumpAceito.priceCents;
+
+          await enviarEscolhaDeMetodo(bot, String(message.chat.id), {
+            tipo: isPlanBuyEfetivo ? "p" : "o",
+            id: isPlanBuyEfetivo ? planId : offerId,
+            nome: itemName,
+            totalCents,
+            discountPercent,
+            comBump: Boolean(bumpAceito),
+          });
+          return NextResponse.json({ ok: true });
         }
 
         const provider = isIntlBuy || isCardBrBuy ? getProvider("stripe") : activeProvider();
@@ -819,7 +969,15 @@ export async function POST(
           isStripeBuy &&
           bot.acceptCardRecurring !== false &&
           planStripe?.kind === "subscription" &&
-          discountPercent === 0
+          discountPercent === 0 &&
+          // OFERTA DE MAILING NUNCA VIRA RECORRENTE. Ela tem preço PRÓPRIO
+          // (não um percentual sobre o plano), mas guarda o `planId` de origem
+          // para resolver a duração e o entregável — então ela passaria por
+          // todos os critérios acima e a Stripe cobraria o preço promocional
+          // TODO CICLO, para sempre. É o mesmo perigo que o `discountPercent
+          // === 0` já evita no funil de recuperação; aqui o desconto está
+          // embutido no preço, e por isso aquele guarda não o pega.
+          !offerId
             ? recurringFromDurationDays(planStripe.durationDays)
             : null;
 
@@ -965,31 +1123,41 @@ export async function POST(
         // Envia o PIX: QR Code (imagem) + código copia-e-cola na legenda. Se a
         // geração do QR falhar por algum motivo, cai para só o texto.
         const pixCode = charge.pixCode || "";
-        // Legenda configurável (aba Tela de pagamento). {pix_code} é o único
-        // marcador que não pode faltar — sem ele o cliente não tem o que copiar,
-        // então, se o operador o apagar, o código é acrescentado no fim.
+        // A CHAVE NÃO É MAIS ESCRITA NA MENSAGEM.
+        //
+        // Ela ia no corpo, dentro de um <code> — que no Telegram é "toque para
+        // copiar". O problema é que a mensagem fica na conversa para sempre:
+        // uma tela de Pix de ontem continuava entregando a chave de ontem, já
+        // vencida, e esse toque não passa pelo servidor, então não havia como
+        // recusá-lo. Agora a chave existe num lugar só, o botão nativo
+        // "Copiar Chave Pix" logo abaixo (ver `botaoCopiar`).
+        //
+        // `{pix_code}` numa legenda customizada vira VAZIO em vez de quebrar —
+        // e não há mais o "se o operador apagou o marcador, gruda o código no
+        // fim": era rede de segurança de quando o corpo era o único lugar com
+        // a chave, e hoje seria justamente o que traria o problema de volta.
         const valorStr = (amountCents / 100).toLocaleString("pt-BR", {
           style: "currency",
           currency: "BRL",
         });
-        let pixCaption = (bot.pixCaption?.trim() || PIX_DEFAULTS.caption)
+        const pixCaption = (bot.pixCaption?.trim() || PIX_DEFAULTS.caption)
           .replace(/{plano}/gi, itemName)
-          .replace(/{valor}/gi, valorStr);
-        if (/{pix_code}/i.test(pixCaption)) {
-          pixCaption = pixCaption.replace(/{pix_code}/gi, `<code>${pixCode}</code>`);
-        } else {
-          pixCaption += `\n\n<code>${pixCode}</code>`;
-        }
+          .replace(/{valor}/gi, valorStr)
+          // A legenda antiga costumava embrulhar o marcador (`<code>{pix_code}
+          // </code>`), então tirar só o marcador deixaria um <code></code> oco
+          // no meio da mensagem. Some com o embrulho junto.
+          .replace(/<code>\s*{pix_code}\s*<\/code>/gi, "")
+          .replace(/{pix_code}/gi, "")
+          // Sem a linha do código, a legenda antiga fica com um buraco de
+          // linhas em branco onde ela estava.
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
 
-        // A tela do PIX vai como TEXTO, não como legenda de foto.
-        //
-        // A diferença é prática: o Telegram só faz "toque para copiar" no
-        // conteúdo de um <code>, e legenda de foto tem limite de 1024
-        // caracteres — o copia-e-cola do PIX sozinho já passa de 200, e com o
-        // texto da oferta o corte vinha em cima justamente do código. O QR
-        // continua disponível, mas atrás de um botão, que é o que também
-        // deixa a mensagem curta o suficiente para o código aparecer inteiro
-        // sem rolagem.
+        // A tela do PIX vai como TEXTO, não como legenda de foto: legenda de
+        // foto para em 1024 caracteres, e o texto da oferta passa disso com
+        // facilidade. O QR fica atrás de um botão pelo mesmo motivo — e
+        // porque a chave, que é o que o cliente veio buscar, está no botão de
+        // copiar, não na imagem.
         const btn = (t: string | undefined, padrao: string) => (t?.trim() || padrao);
         await sendTelegramMessage(bot.botToken, String(message.chat.id), pixCaption, {
           reply_markup: {

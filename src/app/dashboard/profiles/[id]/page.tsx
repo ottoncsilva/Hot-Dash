@@ -24,11 +24,13 @@ import {
 } from "@/components/icons";
 import {
   NETWORK_LABELS,
+  type DeliveryTarget,
   type Profile,
   type SocialAccount,
   type SocialNetwork,
 } from "@/lib/types";
 import { buildSocialUrl, networkMeta } from "@/lib/socialLinks";
+import { REDES_COM_ENTREGA } from "@/lib/postTypes";
 
 /** De onde veio o link do VIP descoberto (espelha VIP_LINK_SOURCE_LABEL). */
 const VIP_SOURCE_LABEL: Record<string, string> = {
@@ -42,6 +44,7 @@ import { showToast } from "@/lib/toast";
 import DetectChat from "@/components/telegram/bot/DetectChat";
 import { KeyLabel } from "../../settings/_shared";
 import CampoSecreto from "@/components/CampoSecreto";
+import AparelhosBlock from "@/components/profiles/AparelhosBlock";
 
 /** Junta o que era "Como ela é" (Santinha/Safadinha/Explícita) com o Tom que
  *  só existia no LTV — são a mesma ideia (o jeito dela na conversa), então
@@ -104,6 +107,9 @@ export default function ProfileDetailPage() {
   const [avatarKey, setAvatarKey] = useState(0);
   const [editingAccount, setEditingAccount] = useState<SocialAccount | null>(null);
   const [addingAccount, setAddingAccount] = useState(false);
+  // Os aparelhos vivem no bloco abaixo, mas o formulário de conta precisa da
+  // mesma lista para montar o "Entregar em" — por isso o estado é daqui.
+  const [targets, setTargets] = useState<DeliveryTarget[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const { confirm, ConfirmDialog } = useConfirm();
 
@@ -695,8 +701,10 @@ export default function ProfileDetailPage() {
         <IconChevronRight size={18} />
       </Link>
 
+      <AparelhosBlock profileId={id} onChanged={setTargets} />
+
       {/* Contas */}
-      <div className="mt-6 flex items-center justify-between">
+      <div className="mt-8 flex items-center justify-between">
         <h2 className="font-display text-lg font-semibold">
           Contas{" "}
           <span className="font-mono text-sm text-zinc-600">
@@ -720,6 +728,7 @@ export default function ProfileDetailPage() {
             profileId={id}
             account={acc}
             accounts={profile.accounts}
+            targets={targets}
             onEdit={() => setEditingAccount(acc)}
             onChanged={(p) => {
               setProfile(p);
@@ -746,6 +755,7 @@ export default function ProfileDetailPage() {
           profileId={id}
           account={editingAccount}
           accounts={profile.accounts}
+          targets={targets}
           onClose={() => {
             setAddingAccount(false);
             setEditingAccount(null);
@@ -767,6 +777,7 @@ function AccountRow({
   profileId,
   account,
   accounts,
+  targets,
   onEdit,
   onChanged,
   confirm,
@@ -775,6 +786,8 @@ function AccountRow({
   account: SocialAccount;
   /** Todas as contas da modelo — só para desenhar o espelho pelos dois lados. */
   accounts: SocialAccount[];
+  /** Aparelhos de entrega — para dizer, na linha, para onde o post vai. */
+  targets: DeliveryTarget[];
   onEdit: () => void;
   onChanged: (p: Profile) => void;
   confirm: (opts: { message: string } | string) => Promise<boolean>;
@@ -794,6 +807,10 @@ function AccountRow({
     account.network === "instagram"
       ? accounts.filter((a) => a.linkedAccountId === account.id)
       : [];
+
+  const aparelho = account.deliveryTargetId
+    ? targets.find((t) => t.id === account.deliveryTargetId)
+    : undefined;
 
   async function alternarAtiva() {
     setAlternando(true);
@@ -890,6 +907,17 @@ function AccountRow({
               Instagram e o próprio app replica aqui
             </p>
           )}
+          {aparelho && (
+            <p className="mt-1.5 text-[11px] text-zinc-500">
+              entrega em <span className="text-zinc-300">{aparelho.label}</span>
+              {!aparelho.chatId && (
+                <span className="text-amber-400"> — aparelho ainda não vinculado</span>
+              )}
+              {aparelho.chatId && !aparelho.active && (
+                <span className="text-amber-400"> — aparelho desativado</span>
+              )}
+            </p>
+          )}
           {espelhadaPor.length > 0 && (
             <p className="mt-1.5 text-[11px] text-zinc-500">
               replica em{" "}
@@ -984,6 +1012,7 @@ function AccountForm({
   profileId,
   account,
   accounts,
+  targets,
   onClose,
   onSaved,
 }: {
@@ -991,6 +1020,8 @@ function AccountForm({
   account: SocialAccount | null;
   /** Todas as contas da modelo — a origem das opções de espelho. */
   accounts: SocialAccount[];
+  /** Aparelhos de entrega da modelo — as opções de "Entregar em". */
+  targets: DeliveryTarget[];
   onClose: () => void;
   onSaved: (p: Profile) => void;
 }) {
@@ -1003,6 +1034,7 @@ function AccountForm({
   const [login, setLogin] = useState(account?.login || "");
   const [password, setPassword] = useState("");
   const [linkedAccountId, setLinkedAccountId] = useState(account?.linkedAccountId || "");
+  const [deliveryTargetId, setDeliveryTargetId] = useState(account?.deliveryTargetId || "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -1012,6 +1044,12 @@ function AccountForm({
   // mesma regra que o servidor aplica em `espelhoValido`. Repetida aqui só para
   // a tela não oferecer o que seria recusado; quem manda é o servidor.
   const podeEspelhar = network === "facebook" || network === "threads";
+
+  // A entrega no celular só vale para as redes que o Cronograma agenda e
+  // alguém publica NA MÃO. O Telegram é publicado sozinho pela automação; o
+  // WhatsApp e o e-mail não entram no Cronograma.
+  const podeEntregar = REDES_COM_ENTREGA.includes(network);
+  const aparelhosProntos = targets.filter((t) => t.active && t.chatId);
   const instagramsDaModelo = accounts.filter(
     (a) => a.network === "instagram" && a.id !== account?.id,
   );
@@ -1038,6 +1076,9 @@ function AccountForm({
       // TikTok tem que apagar um vínculo que deixou de fazer sentido, e omitir
       // o campo deixaria o antigo gravado.
       payload.linkedAccountId = podeEspelhar ? linkedAccountId || null : null;
+      // Mesma razão do espelho acima: trocar a rede para uma que não entrega
+      // tem de APAGAR a escolha antiga, então o campo vai sempre.
+      payload.deliveryTargetId = podeEntregar ? deliveryTargetId || null : null;
       const path = account
         ? `/api/profiles/${profileId}/accounts/${account.id}`
         : `/api/profiles/${profileId}/accounts`;
@@ -1102,6 +1143,29 @@ function AccountForm({
               {instagramsDaModelo.length === 0
                 ? "Cadastre um Instagram para esta modelo primeiro."
                 : "Quem publica é o Instagram — o app dele replica aqui sozinho. No Cronograma você agenda só o post do Instagram; esta conta aparece como réplica, não como destino separado."}
+            </p>
+          </div>
+        )}
+        {podeEntregar && (
+          <div>
+            <label className="eyebrow mb-1.5 block">Entregar em</label>
+            <select
+              className="input"
+              value={deliveryTargetId}
+              onChange={(e) => setDeliveryTargetId(e.target.value)}
+              disabled={aparelhosProntos.length === 0}
+            >
+              <option value="">Nenhum — só no Cronograma</option>
+              {aparelhosProntos.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-500">
+              {aparelhosProntos.length === 0
+                ? "Nenhum aparelho vinculado ainda — cadastre e vincule um em “Aparelhos de entrega”, logo acima."
+                : "Na hora do post, este celular recebe a mídia, a legenda e os botões de confirmação. Duas contas podem usar aparelhos diferentes."}
             </p>
           </div>
         )}

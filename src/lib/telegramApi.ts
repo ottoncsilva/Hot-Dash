@@ -330,6 +330,61 @@ function enviarMensagem(
   });
 }
 
+/**
+ * Tira o "relógio" do botão que a pessoa acabou de tocar.
+ *
+ * Sem esta chamada o Telegram deixa o botão girando por até 30 segundos e
+ * depois some com o giro sem dizer nada — quem tocou fica sem saber se o
+ * clique valeu e toca de novo. O `text` aparece como um aviso curto no topo
+ * da conversa (ou como alerta, com `showAlert`).
+ *
+ * Nunca lança: é um enfeite de resposta, e derrubar o tratamento do clique
+ * por causa dele seria perder a ação que a pessoa pediu de verdade.
+ */
+export async function answerTelegramCallback(
+  botToken: string,
+  callbackQueryId: string,
+  text?: string,
+  showAlert = false,
+): Promise<void> {
+  try {
+    await telegramFetch(botToken, "answerCallbackQuery", {
+      callback_query_id: callbackQueryId,
+      text: text || undefined,
+      show_alert: showAlert,
+    });
+  } catch {
+    /* o clique já foi tratado; o aviso é secundário */
+  }
+}
+
+/**
+ * Troca o TECLADO de uma mensagem já enviada, deixando o texto como está.
+ *
+ * É o que substitui os botões pelo resultado depois da resposta — sem isso a
+ * mensagem antiga continua clicável para sempre e alguém rolando a conversa de
+ * ontem marca "não postei" num post que já saiu.
+ *
+ * Mexe só no teclado, e não no texto (`editMessageText`), de propósito: o
+ * texto original tem HTML nosso, e reenviá-lo a partir do que o Telegram
+ * devolve no update — que vem sem as marcações — faria o `parse_mode` recusar
+ * qualquer legenda que tivesse um "<" ou um "&".
+ *
+ * `replyMarkup` ausente remove o teclado.
+ */
+export async function editTelegramReplyMarkup(
+  botToken: string,
+  chatId: string,
+  messageId: string,
+  replyMarkup?: unknown,
+): Promise<void> {
+  await telegramFetch(botToken, "editMessageReplyMarkup", {
+    chat_id: chatId,
+    message_id: Number(messageId),
+    reply_markup: replyMarkup,
+  });
+}
+
 export async function sendTelegramMedia(
   botToken: string,
   chatId: string,

@@ -60,7 +60,12 @@ export async function PATCH(
           : undefined,
         caption: typeof body.caption === "string" ? body.caption : undefined,
         status:
-          body.status === "posted" || body.status === "scheduled" ? body.status : undefined,
+          body.status === "posted" || body.status === "scheduled" || body.status === "failed"
+            ? body.status
+            : undefined,
+        // Só o painel manda `postedAt` (ao marcar postado na mão, para valer a
+        // hora do clique); a entrega no celular passa pelo `postDelivery`.
+        postedAt: Number.isFinite(Number(body.postedAt)) ? Number(body.postedAt) : undefined,
         mediaIds: Array.isArray(body.mediaIds)
           ? body.mediaIds.filter((m: unknown): m is string => typeof m === "string")
           : undefined,

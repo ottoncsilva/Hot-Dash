@@ -277,6 +277,7 @@ export default function CronogramaCalendar({
                   >
                     {mostrados.map((p) => {
                       const postado = p.status === "posted";
+                      const naoPostado = p.status === "failed";
                       const capa = p.media[0];
                       return (
                         <div
@@ -289,13 +290,16 @@ export default function CronogramaCalendar({
                           onKeyDown={(e) => {
                             if (e.key === "Enter") onPostClick(p);
                           }}
-                          // Duas cores e mais nada: verde já saiu, laranja
-                          // clarinho ainda falta. É a única pergunta que o
-                          // cartão precisa responder de longe.
+                          // Três cores e mais nada: verde já saiu, vermelho
+                          // NÃO vai sair (alguém respondeu isso no celular),
+                          // laranja clarinho ainda falta. É a única pergunta
+                          // que o cartão precisa responder de longe.
                           className={`block cursor-pointer overflow-hidden rounded-md border transition-colors ${
                             postado
                               ? "border-emerald-500/40 bg-emerald-500/[0.10] hover:border-emerald-500/60"
-                              : "border-amber-400/25 bg-amber-400/[0.07] hover:border-amber-400/50"
+                              : naoPostado
+                                ? "border-red-500/45 bg-red-500/[0.12] hover:border-red-500/70"
+                                : "border-amber-400/25 bg-amber-400/[0.07] hover:border-amber-400/50"
                           }`}
                         >
                           {view === "week" && capa && (
@@ -321,9 +325,24 @@ export default function CronogramaCalendar({
                                 />
                               ))}
                               <span
-                                className={`font-mono ${postado ? "text-emerald-200" : "text-amber-100/90"}`}
+                                className={`font-mono ${
+                                  postado
+                                    ? "text-emerald-200"
+                                    : naoPostado
+                                      ? "text-red-200"
+                                      : "text-amber-100/90"
+                                }`}
+                                title={
+                                  postado && p.postedAt
+                                    ? `Publicado às ${fmtTime(p.postedAt)}`
+                                    : undefined
+                                }
                               >
-                                {fmtTime(p.scheduledAt)}
+                                {/* No cartão vale a hora que ACONTECEU: é ela
+                                    que responde "a que horas isso foi ao ar?".
+                                    A combinada fica no título, para quem
+                                    quiser comparar. */}
+                                {fmtTime(postado && p.postedAt ? p.postedAt : p.scheduledAt)}
                               </span>
                               <span className="truncate text-zinc-400">
                                 {p.networks[0]?.postType}

@@ -31,14 +31,13 @@ import type { AiProvider } from "@/lib/settings";
 import {
   NETWORK_DOT_COLORS,
   POST_TYPES,
+  REDES_COM_ENTREGA,
   type PostNetwork,
   type ScheduledPost,
 } from "@/lib/postTypes";
 import PageHeader from "@/components/PageHeader";
 
 const WEEKDAYS = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
-
-const ALLOWED_SCHEDULE_NETWORKS = ["instagram", "threads", "tiktok", "facebook", "x", "youtube"];
 
 function mediaUrl(m: { id: string; updatedAt?: number }): string {
   return `/api/media/${m.id}/file?v=${m.updatedAt || 0}`;
@@ -67,8 +66,13 @@ const isTelegramPost = (p: ScheduledPost) => p.networks.some((n) => n.network ==
 /** Post "pronto" para postar = tem mídia E legenda. */
 const isReady = (p: ScheduledPost) => p.media.length > 0 && Boolean(p.caption && p.caption.trim());
 
-/** Atrasado = ainda agendado e o horário já passou. */
+/** Atrasado = ainda agendado e o horário já passou. Um post marcado como
+ *  "não postei" no celular NÃO é atrasado: ele saiu da fila, alguém já disse
+ *  que não vai sair. São coisas diferentes e a tela mostra as duas. */
 const isOverdue = (p: ScheduledPost) => p.status === "scheduled" && p.scheduledAt < Date.now();
+
+/** O post que voltou do celular com "não postei" — vermelho no calendário. */
+const isFailed = (p: ScheduledPost) => p.status === "failed";
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -217,14 +221,14 @@ export default function SchedulePage() {
     if (selectedProfile) {
       return selectedProfile.accounts
         .filter(
-          (a) => ALLOWED_SCHEDULE_NETWORKS.includes(a.network) && a.active && !a.linkedAccountId,
+          (a) => REDES_COM_ENTREGA.includes(a.network) && a.active && !a.linkedAccountId,
         )
         .map((a) => ({ value: a.id, label: `${NETWORK_LABELS[a.network]} · @${a.username}` }));
     }
     const nets = new Set<SocialNetwork>();
     (posts || []).forEach((p) =>
       p.networks.forEach((n) => {
-        if (ALLOWED_SCHEDULE_NETWORKS.includes(n.network)) nets.add(n.network);
+        if (REDES_COM_ENTREGA.includes(n.network)) nets.add(n.network);
       }),
     );
     return Array.from(nets).map((n) => ({ value: n, label: NETWORK_LABELS[n] }));
@@ -256,13 +260,23 @@ export default function SchedulePage() {
   const rotuloContas =
     contasNoFiltro.size > 0 ? "contas" : selectedProfile ? "todas as contas" : "todas as redes";
 
+  /**
+   * Um clique só, três estados: agendado → postado → agendado.
+   *
+   * O "não postei" (que chega do celular) volta para AGENDADO no clique, e não
+   * para postado: quem abre o painel depois de um post falhar está desfazendo
+   * o problema — remarcando para tentar de novo —, não declarando que ele
+   * saiu. Marcar postado a partir dali continua a um clique de distância.
+   */
   async function togglePosted(post: ScheduledPost) {
-    const next = post.status === "posted" ? "scheduled" : "posted";
+    const next = post.status === "scheduled" ? "posted" : "scheduled";
     try {
       const { post: updated } = await apiSend<{ post: ScheduledPost }>(
         `/api/posts/${post.id}`,
         "PATCH",
-        { status: next },
+        // A hora vai junto: marcado na mão, vale a hora do clique — é a mesma
+        // pergunta que o botão do celular responde.
+        next === "posted" ? { status: next, postedAt: Date.now() } : { status: next },
       );
       setPosts((ps) => (ps || []).map((p) => (p.id === updated.id ? updated : p)));
       showToast(updated.status === "posted" ? "Marcado como postado." : "Voltou para agendado.");
@@ -437,6 +451,7 @@ export default function SchedulePage() {
               <option value="">Todos os status</option>
               <option value="scheduled">Agendados</option>
               <option value="posted">Postados</option>
+              <option value="failed">Não postados</option>
             </select>
             <button
               type="button"
@@ -722,9 +737,27 @@ function PostDetail({
         )}
       </div>
 
+      {post.status === "failed" && (
+        <p className="mt-3 rounded-lg border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-xs text-red-300">
+          Marcado como <b>não postado</b> no celular. Reagende para tentar de novo.
+        </p>
+      )}
+      {post.status === "posted" && post.postedAt && (
+        <p className="mt-3 text-xs text-zinc-500">
+          Publicado às <span className="text-emerald-400">{fmtTime(post.postedAt)}</span>
+          {fmtTime(post.postedAt) !== fmtTime(post.scheduledAt) && (
+            <> — combinado para as {fmtTime(post.scheduledAt)}</>
+          )}
+        </p>
+      )}
+
       <div className="mt-3 flex gap-2">
         <button onClick={onToggle} className="btn-ghost flex-1">
-          {post.status === "posted" ? "Marcar agendado" : "Marcar postado"}
+          {post.status === "posted"
+            ? "Marcar agendado"
+            : post.status === "failed"
+              ? "Voltar para agendado"
+              : "Marcar postado"}
         </button>
       </div>
       <div className="mt-2 flex gap-2">
@@ -792,23 +825,37 @@ function ListView({
               <div
                 key={p.id}
                 onClick={() => onDetail(p)}
-                className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-white/[0.04]"
+                className={`flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-white/[0.04] ${
+                  isFailed(p) ? "bg-red-500/[0.05]" : ""
+                }`}
               >
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     onToggle(p);
                   }}
-                  title={p.status === "posted" ? "Marcar como agendado" : "Marcar como postado"}
+                  title={
+                    p.status === "posted"
+                      ? "Marcar como agendado"
+                      : p.status === "failed"
+                        ? "Não foi postado — clique para reagendar"
+                        : "Marcar como postado"
+                  }
                   className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition-colors ${
                     p.status === "posted"
                       ? "bg-emerald-500/20 text-emerald-400"
-                      : "border border-white/15 text-zinc-500 hover:border-white/40 hover:text-zinc-300"
+                      : p.status === "failed"
+                        ? "bg-red-500/20 text-red-400"
+                        : "border border-white/15 text-zinc-500 hover:border-white/40 hover:text-zinc-300"
                   }`}
                 >
                   {p.status === "posted" ? (
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
                       <path d="M5 13l4 4 10-10" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  ) : p.status === "failed" ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth={3} strokeLinecap="round" />
                     </svg>
                   ) : (
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
@@ -869,6 +916,16 @@ function ListView({
                     ))}
                     {isOverdue(p) && (
                       <span className="chip border-amber-500/30 bg-amber-500/[0.08] text-amber-300">atrasado</span>
+                    )}
+                    {isFailed(p) && (
+                      <span className="chip border-red-500/30 bg-red-500/[0.08] text-red-300">não postado</span>
+                    )}
+                    {/* A hora REAL só aparece quando difere da combinada — se
+                        bateram, repeti-la seria ruído na linha. */}
+                    {p.status === "posted" && p.postedAt && fmtTime(p.postedAt) !== fmtTime(p.scheduledAt) && (
+                      <span className="chip border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-300">
+                        postado {fmtTime(p.postedAt)}
+                      </span>
                     )}
                     <ReadyBadge post={p} />
                   </p>
@@ -1178,7 +1235,7 @@ function PostForm({
   /**
    * As contas oferecidas como DESTINO. Três filtros, por três motivos:
    *
-   *  - a rede tem que servir para cronograma (`ALLOWED_SCHEDULE_NETWORKS`);
+   *  - a rede tem que servir para cronograma (`REDES_COM_ENTREGA`);
    *  - a conta tem que estar ATIVA — mas uma inativa continua listada enquanto
    *    ESTE post já a tiver marcada. Sumir com o destino de um post que já
    *    existia seria desfazer trabalho do operador sem avisar; ele desmarca se
@@ -1190,7 +1247,7 @@ function PostForm({
    */
   const accounts = todasAsContas.filter(
     (a) =>
-      ALLOWED_SCHEDULE_NETWORKS.includes(a.network) &&
+      REDES_COM_ENTREGA.includes(a.network) &&
       !a.linkedAccountId &&
       (a.active || networks.some((n) => n.accountId === a.id)),
   );

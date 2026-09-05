@@ -271,6 +271,8 @@ export default function CalendarGrid({
                       className={`block rounded-md border px-1.5 py-1 text-[10px] leading-tight transition-colors ${
                         p.status === "posted"
                           ? "border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-200"
+                          : p.status === "failed"
+                            ? "border-red-500/40 bg-red-500/[0.10] text-red-200"
                           : isOverdue(p)
                             ? "border-amber-500/30 bg-amber-500/[0.08] text-amber-200"
                             : isTelegramVIP

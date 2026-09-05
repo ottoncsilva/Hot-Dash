@@ -166,6 +166,79 @@ export function updateUazapiSettings(patch: {
   return getUazapiSettingsPublic();
 }
 
+// ---- Bot de entrega das postagens ----
+/**
+ * O bot do Telegram que entrega o post pronto no celular de quem publica —
+ * ver `lib/postDelivery.ts`.
+ *
+ * É UM bot para o painel inteiro, e não um por modelo, porque quem fala com
+ * ele é a OPERAÇÃO, não o público: o mesmo celular pode cuidar de duas
+ * modelos, e um bot por modelo obrigaria a mesma pessoa a manter N conversas
+ * abertas para receber o que é a mesma tarefa.
+ *
+ * E é um bot SEPARADO do bot de vendas de propósito: aquele fala com o lead,
+ * roda no webhook `/api/webhooks/telegram/[botId]` e não pode receber, no
+ * meio da operação de venda, um teclado interno de "postei / não postei".
+ */
+export type DeliveryBotSettingsPublic = {
+  hasToken: boolean;
+  botUsername?: string;
+  /** Quando o webhook foi registrado com sucesso pela última vez. */
+  webhookAt?: number;
+};
+
+type DeliveryBotStored = {
+  tokenEnc?: string;
+  botUsername?: string;
+  webhookAt?: number;
+};
+
+function rawDeliveryBot(): DeliveryBotStored {
+  return getJson<DeliveryBotStored>("deliveryBot", {});
+}
+
+export function getDeliveryBotSettingsPublic(): DeliveryBotSettingsPublic {
+  const s = rawDeliveryBot();
+  return {
+    hasToken: Boolean(s.tokenEnc),
+    botUsername: s.botUsername,
+    webhookAt: s.webhookAt,
+  };
+}
+
+export function getDeliveryBotToken(): string | null {
+  const s = rawDeliveryBot();
+  if (!s.tokenEnc) return null;
+  try {
+    return decryptSecret(s.tokenEnc);
+  } catch {
+    return null;
+  }
+}
+
+export function updateDeliveryBotSettings(patch: {
+  /** "" apaga o bot; string nova troca o token. */
+  token?: string;
+  botUsername?: string;
+  webhookAt?: number;
+}): DeliveryBotSettingsPublic {
+  const s = rawDeliveryBot();
+  if (patch.token !== undefined) {
+    s.tokenEnc = patch.token ? encryptSecret(patch.token) : undefined;
+    // Token novo é bot possivelmente outro: o @ e o webhook do anterior não
+    // valem mais nada, e deixá-los faria a tela mostrar um bot que não é o
+    // que está gravado.
+    if (!patch.token) {
+      s.botUsername = undefined;
+      s.webhookAt = undefined;
+    }
+  }
+  if (patch.botUsername !== undefined) s.botUsername = patch.botUsername || undefined;
+  if (patch.webhookAt !== undefined) s.webhookAt = patch.webhookAt || undefined;
+  setJson("deliveryBot", s);
+  return getDeliveryBotSettingsPublic();
+}
+
 // ---- SLT (slt.bio, link na bio) ----
 // UMA conta SLT cobre todas as modelos (confirmado com o operador) — por
 // isso a chave mora aqui, no mesmo nível do Stripe/SyncPay, e não no

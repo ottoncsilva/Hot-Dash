@@ -20,6 +20,7 @@ type AccountRow = {
   sort_order: number;
   active: number;
   linked_account_id: string | null;
+  delivery_target_id: string | null;
 };
 /**
  * O que a modelo NUNCA faz. Nasce preenchida em toda modelo nova (e no
@@ -89,6 +90,7 @@ function accountToClient(a: AccountRow): SocialAccount {
     // explícito desliga.
     active: a.active !== 0,
     linkedAccountId: a.linked_account_id || undefined,
+    deliveryTargetId: a.delivery_target_id || undefined,
   };
 }
 
@@ -325,6 +327,22 @@ function espelhoValido(
   return alvo?.network === "instagram" ? linkedAccountId : null;
 }
 
+/**
+ * O aparelho escolhido é DESTA modelo?
+ *
+ * Mesma cautela do `espelhoValido`: o id chega do formulário e nada impede
+ * que ele aponte para o aparelho de outra modelo — o que faria o post da
+ * Bruna cair no celular que opera a Carla. Id de fora vira `null` (conta sem
+ * entrega) em vez de erro: o resto do salvamento não tem culpa.
+ */
+function aparelhoValido(profileId: string, targetId?: string | null): string | null {
+  if (!targetId) return null;
+  const alvo = getDb()
+    .prepare("SELECT id FROM delivery_targets WHERE id = ? AND profile_id = ?")
+    .get(targetId, profileId) as { id: string } | undefined;
+  return alvo?.id || null;
+}
+
 export async function addAccount(
   profileId: string,
   input: {
@@ -335,6 +353,8 @@ export async function addAccount(
     password?: string;
     notes?: string;
     linkedAccountId?: string | null;
+    /** Aparelho que recebe os posts desta conta (ver `deliveryTargets.ts`). */
+    deliveryTargetId?: string | null;
   },
 ): Promise<Profile | null> {
   const exists = getDb()
@@ -347,8 +367,8 @@ export async function addAccount(
     .prepare(
       `INSERT INTO accounts
         (id, profile_id, network, username, url, login, password_enc, notes, created_at, sort_order,
-         active, linked_account_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+         active, linked_account_id, delivery_target_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     )
     .run(
       randomUUID(),
@@ -364,6 +384,7 @@ export async function addAccount(
       // O vínculo só faz sentido em Facebook/Threads apontando para um
       // Instagram DA MESMA MODELO — ver `espelhoValido`.
       espelhoValido(profileId, input.network, input.linkedAccountId),
+      aparelhoValido(profileId, input.deliveryTargetId),
     );
   getDb()
     .prepare("UPDATE profiles SET updated_at = ? WHERE id = ?")
@@ -382,6 +403,9 @@ export async function updateAccount(
     active?: boolean;
     /** "" ou null remove o vínculo; um id o define. Ver `espelhoValido`. */
     linkedAccountId?: string | null;
+    /** "" ou null tira a conta da entrega automática; um id escolhe o
+     *  aparelho. Ver `aparelhoValido`. */
+    deliveryTargetId?: string | null;
     /** undefined = mantém; "" = remove a senha; string = nova senha. */
     password?: string;
     notes?: string;
@@ -434,6 +458,10 @@ export async function updateAccount(
         | undefined)?.network as SocialNetwork | undefined);
     sets.push("linked_account_id = ?");
     vals.push(espelhoValido(profileId, redeAtual, input.linkedAccountId, accountId));
+  }
+  if (input.deliveryTargetId !== undefined) {
+    sets.push("delivery_target_id = ?");
+    vals.push(aparelhoValido(profileId, input.deliveryTargetId));
   }
   if (sets.length > 0) {
     vals.push(accountId);

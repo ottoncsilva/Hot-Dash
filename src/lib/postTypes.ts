@@ -34,6 +34,25 @@ export const NETWORK_DOT_COLORS: Record<SocialNetwork, string> = {
   outro: "#71717a",
 };
 
+/**
+ * Redes que o CRONOGRAMA agenda — as que alguém publica na mão.
+ *
+ * Ficam de fora: o Telegram (publicado sozinho pela automação, é outra tela),
+ * o WhatsApp e o e-mail (não são postagem de feed), o OnlyFans e o Privacy
+ * (conteúdo pago, fora do fluxo de captação) e "outro".
+ *
+ * A mesma lista decide quais contas podem ter APARELHO DE ENTREGA: entregar
+ * um post no celular só faz sentido onde existe alguém para publicá-lo.
+ */
+export const REDES_COM_ENTREGA: SocialNetwork[] = [
+  "instagram",
+  "threads",
+  "tiktok",
+  "facebook",
+  "x",
+  "youtube",
+];
+
 // Dias da semana, na ordem do Date.getDay() (0=domingo).
 export const WEEKDAY_LABELS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
@@ -59,7 +78,16 @@ export type PostNetwork = {
   accountActive?: boolean;
 };
 
-export type PostStatus = "scheduled" | "posted";
+/**
+ * Estado de um post do Cronograma.
+ *
+ * `failed` ("não postei") é o que o botão vermelho da entrega no celular
+ * grava. Ele NÃO é o mesmo que atrasado: atrasado é um post ainda agendado
+ * cujo horário passou, e que pode sair a qualquer momento; `failed` é a
+ * pessoa dizendo que aquele post não vai sair. Um continua na fila, o outro
+ * sai dela — por isso são estados diferentes e não uma data a mais.
+ */
+export type PostStatus = "scheduled" | "posted" | "failed";
 
 /** Enquete de um post (Telegram sendPoll). Sem mídia. */
 export type PostPoll = { question: string; options: string[] };
@@ -244,6 +272,11 @@ export type ScheduledPost = {
    *  Vazio = usa o "WhatsApp particular" do cadastro da modelo. */
   waLink?: string;
   status: PostStatus;
+  /** Hora REAL da publicação, confirmada no aparelho. Só existe em post
+   *  `posted`, e pode diferir de `scheduledAt` — é essa diferença que o card
+   *  do Cronograma mostra. Ausente em post marcado postado antes deste
+   *  recurso existir. */
+  postedAt?: number;
   media: {
     id: string;
     kind: "image" | "video";

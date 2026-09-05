@@ -24,6 +24,9 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     // Importamos dinamicamente para evitar carregar módulos de servidor no build global.
     const { processReminders } = await import("@/lib/cronTasks");
+    // Entrega da postagem no celular de quem publica (mídia + legenda + os
+    // botões de confirmação). Ver `lib/postDelivery.ts`.
+    const { runPostDelivery } = await import("@/lib/postDelivery");
     // O chip do Telegram vive NESTE processo: religa as sessões que já
     // estavam conectadas, senão todo deploy deixaria os leads no vácuo.
     try {
@@ -90,6 +93,17 @@ export async function register() {
           await processReminders();
         } catch (err) {
           console.error("[hotdash] Erro no cron (processReminders):", err);
+        }
+        try {
+          const r = await runPostDelivery();
+          if (r.enviados > 0) {
+            console.log(`[hotdash] entrega das postagens: ${r.enviados} pacote(s) no celular.`);
+          }
+          if (r.cobrados > 0) {
+            console.log(`[hotdash] entrega das postagens: ${r.cobrados} sem confirmação, cobrado(s).`);
+          }
+        } catch (err) {
+          console.error("[hotdash] Erro no cron (entrega das postagens):", err);
         }
         try {
           const posted = await runTelegramAutopost();

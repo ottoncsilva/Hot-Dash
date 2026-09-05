@@ -15,6 +15,8 @@ type PostRow = {
   cta: number | null;
   wa_link: string | null;
   status: string;
+  posted_at: number | null;
+  delivered_at: number | null;
   created_at: number;
   updated_at: number;
   profile_name?: string;
@@ -87,7 +89,8 @@ function toClient(r: PostRow): ScheduledPost {
     poll: parsePoll(r.poll),
     cta: r.cta === 1 ? true : r.cta === 0 ? false : undefined,
     waLink: r.wa_link || undefined,
-    status: r.status === "posted" ? "posted" : "scheduled",
+    status: r.status === "posted" ? "posted" : r.status === "failed" ? "failed" : "scheduled",
+    postedAt: r.posted_at || undefined,
     media: loadMedia(r.id),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -217,6 +220,9 @@ export function updatePost(
     scheduledAt?: number;
     caption?: string;
     status?: PostStatus;
+    /** Hora real da publicação. `null` limpa (ao desmarcar). `undefined`
+     *  preserva — exceto quando o status sai de `posted`, ver abaixo. */
+    postedAt?: number | null;
     mediaIds?: string[];
     /** true = post leva o botão/link do seu grupo (VIP→WhatsApp, Prévias→VIP). */
     cta?: boolean;
@@ -269,9 +275,20 @@ export function updatePost(
 
   const statusNovo = patch.status ?? existing.status;
 
+  // Hora real da publicação. Sair de `posted` LIMPA a hora, mesmo sem o
+  // chamador pedir: desmarcar um post é dizer que ele não foi publicado, e
+  // deixar a hora antiga gravada faria o card voltar a exibi-la se alguém
+  // remarcasse depois — uma hora que não aconteceu.
+  const postedAtVal =
+    patch.postedAt !== undefined
+      ? patch.postedAt
+      : statusNovo === "posted"
+        ? existing.postedAt ?? null
+        : null;
+
   const run = db.transaction(() => {
     db.prepare(
-      `UPDATE posts SET profile_id = ?, scheduled_at = ?, caption = ?, cta = ?, wa_link = ?, status = ?, updated_at = ?
+      `UPDATE posts SET profile_id = ?, scheduled_at = ?, caption = ?, cta = ?, wa_link = ?, status = ?, posted_at = ?, updated_at = ?
        WHERE id = ?`,
     ).run(
       patch.profileId ?? existing.profileId,
@@ -279,7 +296,8 @@ export function updatePost(
       caption,
       ctaVal,
       waVal,
-      patch.status ?? existing.status,
+      statusNovo,
+      postedAtVal,
       Date.now(),
       id,
     );
@@ -318,7 +336,9 @@ export function updatePost(
  *
  * Desmarcar apaga o registro (`unlogMediaPosted`), porque nas redes sociais a
  * marcação é a única fonte da verdade: um clique errado não pode virar
- * publicação eterna na contagem.
+ * publicação eterna na contagem. O "não postei" da entrega no celular
+ * (`failed`) cai no mesmo caminho pelo `status !== "posted"` — é o mesmo
+ * fato: aquela mídia não foi ao ar.
  */
 function registrarMidiaDoPost(
   postId: string,

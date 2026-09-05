@@ -11,6 +11,7 @@ export type PushEventType =
   | "sale"
   | "pix"
   | "scheduleReminder"
+  | "postSemConfirmacao"
   | "telegramPost"
   | "mailing"
   | "whatsappDown"
@@ -66,6 +67,13 @@ export const PUSH_EVENTS: PushEventDef[] = [
     label: "Postagem do cronograma",
     description:
       "15 minutos antes de um post agendado no Cronograma, para você publicar na mão.",
+    defaultOn: true,
+  },
+  {
+    id: "postSemConfirmacao",
+    label: "Post entregue e não confirmado",
+    description:
+      "O post foi para o celular de quem publica e, 30 minutos depois, ninguém tocou em “Postei” nem em “Não postei”. É o único jeito de saber que o horário passou em branco sem ficar conferindo o Cronograma — por isso nasce ligado.",
     defaultOn: true,
   },
   {

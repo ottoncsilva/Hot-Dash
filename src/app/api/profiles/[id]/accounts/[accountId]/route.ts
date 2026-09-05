@@ -48,6 +48,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       // desligar, que manda só o campo dele.
       active: typeof body.active === "boolean" ? body.active : undefined,
       linkedAccountId: body.linkedAccountId,
+      deliveryTargetId: body.deliveryTargetId,
     });
     if (!profile) {
       return NextResponse.json(

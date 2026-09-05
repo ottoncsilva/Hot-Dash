@@ -994,6 +994,72 @@ function migrate(d: Database.Database) {
       PRIMARY KEY (account_id, dia),
       FOREIGN KEY (account_id) REFERENCES ig_accounts(id) ON DELETE CASCADE
     );
+
+    -- APARELHO DE ENTREGA: o celular que recebe o post pronto (mídia +
+    -- legenda) na hora de publicar, pelo bot de entrega do Telegram.
+    --
+    -- É por MODELO porque é ela quem opera os celulares, e cada conta de rede
+    -- social (accounts.delivery_target_id) escolhe qual deles recebe — duas
+    -- contas de Instagram da mesma modelo podem rodar em aparelhos diferentes.
+    --
+    -- chat_id só existe depois do PAREAMENTO: a API do Telegram não deixa um
+    -- bot mandar mensagem para quem nunca falou com ele, então o aparelho
+    -- precisa mandar /vincular <pair_code> primeiro. Enquanto isso não
+    -- acontece o aparelho está cadastrado mas não recebe nada.
+    CREATE TABLE IF NOT EXISTS delivery_targets (
+      id          TEXT PRIMARY KEY,
+      profile_id  TEXT NOT NULL,
+      label       TEXT NOT NULL,
+      chat_id     TEXT,
+      -- Quem parear se identifica; guardar o @ ajuda a conferir que o vínculo
+      -- caiu no celular certo (o chat_id numérico não diz nada a ninguém).
+      chat_name   TEXT,
+      pair_code   TEXT,
+      paired_at   INTEGER,
+      active      INTEGER NOT NULL DEFAULT 1,
+      created_at  INTEGER NOT NULL,
+      updated_at  INTEGER NOT NULL,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_delivery_targets_profile
+      ON delivery_targets(profile_id);
+
+    -- O código de vínculo tem que ser único no painel inteiro: quem digita
+    -- /vincular ABC123 no Telegram não informa de qual modelo é o aparelho.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_targets_pair
+      ON delivery_targets(pair_code) WHERE pair_code IS NOT NULL;
+
+    -- Um ENVIO do pacote de postagem para um aparelho. É esta linha que o
+    -- botão do Telegram devolve (o callback_data carrega o id daqui), e é
+    -- ela que sabe se a confirmação já veio.
+    --
+    -- Tabela própria, e não colunas em posts, porque o mesmo post pode ir
+    -- para DOIS aparelhos (duas contas em celulares diferentes) e cada um
+    -- responde no seu tempo.
+    CREATE TABLE IF NOT EXISTS post_deliveries (
+      id           TEXT PRIMARY KEY,
+      post_id      TEXT NOT NULL,
+      target_id    TEXT NOT NULL,
+      -- sent | confirmed | snoozed | failed | error
+      status       TEXT NOT NULL DEFAULT 'sent',
+      sent_at      INTEGER NOT NULL,
+      -- Id da mensagem no Telegram: é por ele que o teclado é trocado pelo
+      -- resultado ("✅ Postado às 14:07") depois da resposta, o que impede o
+      -- segundo clique numa mensagem que já foi respondida.
+      message_id   TEXT,
+      answered_at  INTEGER,
+      snooze_count INTEGER NOT NULL DEFAULT 0,
+      nudged_at    INTEGER,
+      error        TEXT,
+      FOREIGN KEY (post_id)   REFERENCES posts(id)            ON DELETE CASCADE,
+      FOREIGN KEY (target_id) REFERENCES delivery_targets(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_post_deliveries_post
+      ON post_deliveries(post_id);
+    CREATE INDEX IF NOT EXISTS idx_post_deliveries_aberta
+      ON post_deliveries(status, sent_at);
   `);
 
   // Migrações incrementais (adiciona colunas que ainda não existem em bancos já criados).
@@ -1008,6 +1074,22 @@ function migrate(d: Database.Database) {
   // precisa buscar por URL pública). Guardar aqui reaproveita gravação,
   // limpeza de metadados e token público sem sujar a galeria da modelo.
   ensureColumn(d, "media", "hidden", "INTEGER NOT NULL DEFAULT 0");
+
+  // ENTREGA DA POSTAGEM (ver `lib/postDelivery.ts`).
+  // Aparelho que recebe o post desta conta. Vazio = a conta não entra na
+  // entrega automática (o operador continua vendo o post no Cronograma).
+  ensureColumn(d, "accounts", "delivery_target_id", "TEXT");
+  // Hora REAL da publicação, que volta do botão "Postei" no celular — não
+  // confundir com `scheduled_at`, que é a hora combinada. É a diferença
+  // entre as duas que o card do Cronograma mostra.
+  ensureColumn(d, "posts", "posted_at", "INTEGER");
+  // Quando o pacote (mídia + legenda) saiu para o aparelho. É a guarda de
+  // "já mandei este" do motor de entrega.
+  //
+  // NÃO reaproveita `posts.reminded`: aquele é do push de 15 minutos antes
+  // (`cronTasks.ts`), que continua existindo e tem outra janela — juntar os
+  // dois faria um cancelar o outro.
+  ensureColumn(d, "posts", "delivered_at", "INTEGER");
   // VIRALIZOU: uma caixinha já usada que rendeu nas redes. Fica marcada para
   // ser reaproveitada meses depois — é o oposto de "usada", que serve para
   // NÃO repetir. Só faz sentido em item já usado (ver `questionBox.ts`).

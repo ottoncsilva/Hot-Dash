@@ -30,6 +30,33 @@ export type SocialAccount = {
   /** Só em conta de Facebook/Threads: o `id` da conta de INSTAGRAM desta mesma
    *  modelo que ela espelha. Informativo — ver o comentário da coluna em db.ts. */
   linkedAccountId?: string;
+  /** Aparelho que recebe o post pronto no horário (`DeliveryTarget.id`).
+   *  Vazio = esta conta não entra na entrega; o post continua no Cronograma. */
+  deliveryTargetId?: string;
+};
+
+/**
+ * APARELHO DE ENTREGA: o celular que recebe, no horário do post, a mídia e a
+ * legenda prontas pelo bot de entrega do Telegram, com os botões de
+ * confirmação.
+ *
+ * `chatId` vazio = cadastrado mas ainda NÃO pareado: o Telegram não deixa um
+ * bot escrever para quem nunca falou com ele, então o aparelho precisa mandar
+ * `/vincular <pairCode>` uma vez. Até lá ele não recebe nada.
+ */
+export type DeliveryTarget = {
+  id: string;
+  profileId: string;
+  label: string;
+  chatId?: string;
+  /** Quem pareou (@usuário ou nome), para conferir que caiu no celular certo. */
+  chatName?: string;
+  /** Código a digitar no bot. Só existe enquanto o aparelho não parear. */
+  pairCode?: string;
+  pairedAt?: number;
+  active: boolean;
+  createdAt: number;
+  updatedAt: number;
 };
 
 /** Item do catálogo editável de status de modelo (Configurações > Status de modelos). */

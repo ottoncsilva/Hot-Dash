@@ -34,7 +34,10 @@ export async function GET(req: NextRequest) {
       profileId: sp.get("profileId") || undefined,
       from: from ? Number(from) : undefined,
       to: to ? Number(to) : undefined,
-      status: status === "scheduled" || status === "posted" ? (status as PostStatus) : undefined,
+      status:
+        status === "scheduled" || status === "posted" || status === "failed"
+          ? (status as PostStatus)
+          : undefined,
     });
     return NextResponse.json({ posts });
   } catch (err) {

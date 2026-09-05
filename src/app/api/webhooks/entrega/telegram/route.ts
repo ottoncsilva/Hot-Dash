@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  mostrarMenu,
+  nomeDoChat,
+  tratarCallbackDoMenu,
+  tratarMensagemDoMenu,
+} from "@/lib/deliveryBotMenu";
 import { findTargetByPairCode, pairTarget } from "@/lib/deliveryTargets";
 import {
   applyDeliveryAnswer,
+  enviarLegendaDoPost,
   fecharMensagemDaEntrega,
   DELIVERY_BOT_ID,
   type DeliveryAction,
 } from "@/lib/postDelivery";
 import { getProfile } from "@/lib/profiles";
-import { getDeliveryBotToken } from "@/lib/settings";
+import { authorizeDeliveryChat, getDeliveryBotToken } from "@/lib/settings";
 import {
   answerTelegramCallback,
   sendTelegramMessage,
@@ -26,11 +33,14 @@ export const dynamic = "force-dynamic";
  * fala com a OPERAÇÃO e é um só para o painel inteiro. Misturar os dois
  * colocaria um teclado interno de "não postei" no meio de um funil de compra.
  *
- * Duas coisas chegam aqui:
- *   • `/vincular ABC123` — o pareamento. Existe porque a API do Telegram não
- *     deixa um bot iniciar conversa: sem alguém falar com ele primeiro, não
- *     há chat_id nenhum para onde mandar o post.
- *   • `callback_query` — o toque num dos três botões.
+ * Três coisas chegam aqui:
+ *   • TEXTO — o código de acesso e os comandos, que abrem o MENU
+ *     (`lib/deliveryBotMenu.ts`): a pessoa escolhe a modelo e o aparelho
+ *     tocando em botões, em vez de decorar um código por aparelho.
+ *   • `/vincular ABC123` — o pareamento antigo, mantido porque quem já tinha
+ *     o comando na mão não pode ficar sem caminho.
+ *   • `callback_query` — os toques: nos botões do menu (`dm_*`) e nos da
+ *     entrega (`ent_*`).
  */
 
 const ACOES: Record<string, DeliveryAction> = {
@@ -54,38 +64,41 @@ export async function POST(req: NextRequest) {
 
     const update = await req.json().catch(() => ({}) as any);
 
-    /* -------------------------------------------------------- pareamento */
+    /* --------------------------------------------------- texto e menu */
     const msg = update?.message;
     const texto = typeof msg?.text === "string" ? msg.text.trim() : "";
     if (texto) {
       const chatId = String(msg.chat?.id ?? "");
-      const quem =
-        msg.from?.username ? `@${msg.from.username}` : msg.from?.first_name || undefined;
-      const m = texto.match(/^\/(?:vincular|start)(?:@\S+)?(?:\s+(\S+))?/i);
-      if (m) {
-        const codigo = m[1];
-        if (!codigo) {
-          await sendTelegramMessage(
-            botToken,
-            chatId,
-            "👋 Este é o bot de entrega do Hot Dash.\n\n" +
-              "Para ligar este celular a uma modelo, cadastre um aparelho no painel " +
-              "(Modelos → a modelo → Aparelhos de entrega) e mande aqui:\n\n" +
-              "<code>/vincular SEUCODIGO</code>",
-          );
-          return NextResponse.json({ ok: true });
-        }
-        const alvo = findTargetByPairCode(codigo);
+      const quem = nomeDoChat(msg.from);
+
+      // `/vincular ABC123` (e o `/start ABC123` do link t.me) — o caminho
+      // antigo. Continua valendo e AUTORIZA o chat: quem tem o código de um
+      // aparelho tirou-o do painel, então já pode usar o menu daqui em diante.
+      const m = texto.match(/^\/(vincular|start)(?:@\S+)?(?:\s+(\S+))?/i);
+      const comando = m?.[1]?.toLowerCase();
+      const argumento = m?.[2];
+      if (argumento) {
+        const alvo = findTargetByPairCode(argumento);
         if (!alvo) {
+          // Pelo `/start` o argumento vem de um link e pode ser o código de
+          // ACESSO — quem trata isso (e explica o que fazer quando não é nem
+          // um nem outro) é o menu.
+          if (comando === "start") {
+            await tratarMensagemDoMenu(botToken, chatId, argumento, quem);
+            return NextResponse.json({ ok: true });
+          }
           await sendTelegramMessage(
             botToken,
             chatId,
             "❌ Código não encontrado. Confira no painel, em Aparelhos de entrega — " +
-              "o código some depois de usado, e cada aparelho tem o seu.",
+              "o código some depois de usado, e cada aparelho tem o seu.\n\n" +
+              "Se preferir, mande o <b>código de acesso</b> do painel e escolha a " +
+              "modelo por uma lista.",
           );
           return NextResponse.json({ ok: true });
         }
         pairTarget(alvo.id, chatId, quem);
+        authorizeDeliveryChat(chatId, quem);
         const perfil = await getProfile(alvo.profileId);
         await sendTelegramMessage(
           botToken,
@@ -94,25 +107,62 @@ export async function POST(req: NextRequest) {
             (perfil ? ` à modelo <b>${perfil.name}</b>` : "") +
             ".\n\nÉ aqui que os posts vão chegar, na hora de publicar.",
         );
+        await mostrarMenu(botToken, chatId);
         return NextResponse.json({ ok: true });
       }
+
+      await tratarMensagemDoMenu(botToken, chatId, texto, quem);
+      return NextResponse.json({ ok: true });
     }
 
     /* ------------------------------------------------------------ botões */
     const cb = update?.callback_query;
     if (cb) {
       const data = String(cb.data || "");
-      const [prefixo, deliveryId] = data.split(":");
+      const chatId = String(cb.message?.chat?.id ?? "");
+      const messageId =
+        cb.message?.message_id === undefined ? undefined : String(cb.message.message_id);
+
+      // Os botões do MENU vêm primeiro: eles são de cadastro, não de entrega.
+      if (
+        chatId &&
+        (await tratarCallbackDoMenu(botToken, {
+          id: cb.id,
+          data,
+          chatId,
+          messageId,
+          quem: nomeDoChat(cb.from),
+        }))
+      ) {
+        return NextResponse.json({ ok: true });
+      }
+
+      const [prefixo, alvo] = data.split(":");
+
+      // "Copiar legenda" de legenda longa: o Telegram só copia até 256
+      // caracteres pelo botão, então acima disso o botão REENVIA a legenda
+      // sozinha, numa bolha que dá para segurar e copiar inteira.
+      if (prefixo === "ent_cap" && alvo && chatId) {
+        const foi = await enviarLegendaDoPost(botToken, chatId, alvo);
+        await answerTelegramCallback(
+          botToken,
+          cb.id,
+          foi ? "Legenda enviada aqui embaixo." : "Este post não tem legenda.",
+        );
+        return NextResponse.json({ ok: true });
+      }
+
       const acao = ACOES[prefixo];
-      if (!acao || !deliveryId) {
+      if (!acao || !alvo) {
         await answerTelegramCallback(botToken, cb.id);
         return NextResponse.json({ ok: true });
       }
 
-      const r = applyDeliveryAnswer(deliveryId, acao);
+      const r = applyDeliveryAnswer(alvo, acao);
       await answerTelegramCallback(botToken, cb.id, r.aviso || r.resumo);
       if (r.ok && r.entrega) {
-        // Fecha a mensagem: os três botões viram o selo do que foi decidido.
+        // Fecha a mensagem: os botões de resposta viram o selo do que foi
+        // decidido (o de copiar legenda fica).
         await fecharMensagemDaEntrega(botToken, r.entrega);
       }
       return NextResponse.json({ ok: true });

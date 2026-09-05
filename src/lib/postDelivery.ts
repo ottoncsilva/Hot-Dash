@@ -4,7 +4,11 @@ import { getDb } from "./db";
 import { getMediaRow } from "./media";
 import { getPost, updatePost } from "./posts";
 import { sendPushEvent } from "./push";
-import { getAppTimeZone, getDeliveryBotToken } from "./settings";
+import {
+  getAppTimeZone,
+  getDeliveryBotToken,
+  listDeliveryAlertChats,
+} from "./settings";
 import {
   editTelegramReplyMarkup,
   sendTelegramMedia,
@@ -45,6 +49,12 @@ const PRAZO_COBRANCA_MS = 30 * 60 * 1000;
 const ADIAR_MS = 30 * 60 * 1000;
 /** Teto de itens por álbum no Telegram. */
 const ALBUM_MAX = 10;
+/**
+ * Teto do `copy_text` do Telegram: um botão que copia para a área de
+ * transferência aceita no máximo 256 caracteres. Legenda maior que isso vai
+ * pelo caminho do botão que REENVIA a legenda sozinha (ver `botaoCopiar`).
+ */
+const COPY_MAX = 256;
 
 export type DeliveryAction = "posted" | "snooze" | "failed";
 
@@ -111,9 +121,37 @@ function montarTexto(
   return legenda ? `${cabecalho}\n\n<pre>${esc(legenda)}</pre>` : cabecalho;
 }
 
-function teclado(deliveryId: string) {
+/**
+ * O botão de COPIAR A LEGENDA.
+ *
+ * O bloco <pre> do texto já traz o ícone de copiar do próprio Telegram, mas
+ * ele é pequeno, some no meio do texto e some de vez quando a legenda é
+ * longa — e copiar a legenda é literalmente o próximo gesto de quem recebeu o
+ * post. Um botão grande, na mesma fileira dos outros, resolve isso.
+ *
+ * Dois caminhos porque o Telegram impõe um teto:
+ *   • até 256 caracteres, `copy_text` copia DE VERDADE para a área de
+ *     transferência num toque, sem sair da conversa;
+ *   • acima disso o `copy_text` é recusado pela API, então o botão reenvia a
+ *     legenda sozinha numa bolha só dela (`ent_cap`) — sem cabeçalho e sem
+ *     rede, que é o que dá para segurar e copiar sem pegar lixo junto.
+ *
+ * Carrega o `postId` (e não o id da entrega) porque o mesmo botão vai também
+ * no ESPELHO do alerta, que não tem entrega nenhuma atrás dele.
+ */
+function botaoCopiar(postId: string, caption: string | null) {
+  const legenda = (caption || "").trim();
+  if (!legenda) return null;
+  return legenda.length <= COPY_MAX
+    ? { text: "📋 Copiar legenda", copy_text: { text: legenda } }
+    : { text: "📋 Copiar legenda", callback_data: `ent_cap:${postId}` };
+}
+
+function teclado(deliveryId: string, postId: string, caption: string | null) {
+  const copiar = botaoCopiar(postId, caption);
   return {
     inline_keyboard: [
+      ...(copiar ? [[copiar]] : []),
       [{ text: "✅ Postei", callback_data: `ent_ok:${deliveryId}` }],
       [
         { text: "⏰ Adiar 30 min", callback_data: `ent_snz:${deliveryId}` },
@@ -121,6 +159,39 @@ function teclado(deliveryId: string) {
       ],
     ],
   };
+}
+
+type Teclado = { inline_keyboard: Record<string, unknown>[][] };
+
+/**
+ * Manda a mensagem do pacote, e se o TECLADO for o problema manda de novo sem
+ * o botão de copiar.
+ *
+ * O `copy_text` é recente na API do Telegram. Se um dia ele for recusado (API
+ * antiga num self-host, mudança de contrato), o post inteiro deixaria de
+ * chegar por causa de um atalho — e a legenda continua ali no bloco <pre> de
+ * qualquer jeito. Perder o botão é infinitamente melhor que perder o post.
+ */
+async function enviarPacote(
+  botToken: string,
+  chatId: string,
+  texto: string,
+  teclado: Teclado | undefined,
+): Promise<unknown> {
+  try {
+    return await sendTelegramMessage(botToken, chatId, texto, {
+      reply_markup: teclado,
+    });
+  } catch (err) {
+    const semCopiar = teclado?.inline_keyboard.filter(
+      (linha) => !linha.some((b) => "copy_text" in b),
+    );
+    if (!semCopiar || semCopiar.length === teclado!.inline_keyboard.length) throw err;
+    console.error("[hotdash] o Telegram recusou o botão de copiar; reenviando sem ele:", err);
+    return sendTelegramMessage(botToken, chatId, texto, {
+      reply_markup: semCopiar.length > 0 ? { inline_keyboard: semCopiar } : undefined,
+    });
+  }
 }
 
 /** Manda as mídias (sem legenda e sem botões — eles vão no texto). */
@@ -150,15 +221,22 @@ function messageIdDe(resultado: unknown): string | undefined {
  *
  * Chamada pelo tique de 1 minuto (`instrumentation.ts`).
  */
-export async function runPostDelivery(): Promise<{ enviados: number; cobrados: number }> {
+export async function runPostDelivery(): Promise<{
+  enviados: number;
+  cobrados: number;
+  alertados: number;
+}> {
   const botToken = getDeliveryBotToken();
   // Sem bot configurado não há o que fazer — e não é erro: quem não usa a
   // entrega no celular segue com o Cronograma e o push de sempre.
-  if (!botToken) return { enviados: 0, cobrados: 0 };
+  if (!botToken) return { enviados: 0, cobrados: 0, alertados: 0 };
 
   const enviados = await entregarPendentes(botToken);
+  // O espelho vem DEPOIS da entrega de propósito: quem publica tem de receber
+  // primeiro. O alerta é acompanhamento, não a tarefa.
+  const alertados = await espelharParaAlerta(botToken);
   const cobrados = await cobrarSemResposta(botToken);
-  return { enviados, cobrados };
+  return { enviados, cobrados, alertados };
 }
 
 async function entregarPendentes(botToken: string): Promise<number> {
@@ -232,11 +310,11 @@ async function entregarPendentes(botToken: string): Promise<number> {
       if (post && post.media.length > 0) {
         await enviarMidias(botToken, primeira.chat_id, post.media.map((m) => m.id));
       }
-      const res = await sendTelegramMessage(
+      const res = await enviarPacote(
         botToken,
         primeira.chat_id,
         montarTexto(linhasDoGrupo, primeira.scheduled_at, primeira.caption),
-        { reply_markup: teclado(deliveryId) },
+        teclado(deliveryId, primeira.post_id, primeira.caption),
       );
       insert.run(
         deliveryId,
@@ -274,6 +352,137 @@ async function entregarPendentes(botToken: string): Promise<number> {
   // de erro é o registro, e repetir a cada minuto entupiria o chat quando o
   // problema for o token do bot.
   for (const postId of postsTocados) marcarEnviado.run(Date.now(), postId);
+
+  return enviados;
+}
+
+type LinhaAlerta = {
+  post_id: string;
+  scheduled_at: number;
+  caption: string | null;
+  profile_name: string;
+  network: string;
+  post_type: string;
+  username: string | null;
+  target_label: string | null;
+  target_chat: string | null;
+};
+
+/** O texto do espelho — o mesmo pacote, com o rótulo de alerta e sem o "hora
+ *  de postar", que não é dirigido a quem lê aqui. */
+function montarTextoAlerta(linhas: LinhaAlerta[]): string {
+  const p = linhas[0];
+  const contas = linhas.map((l) => {
+    const usuario = l.username ? ` @${l.username.replace(/^@/, "")}` : "";
+    const onde = l.target_chat
+      ? ` → ${esc(l.target_label || "aparelho")}`
+      : l.target_label
+        ? ` → ${esc(l.target_label)} (não vinculado)`
+        : " → sem aparelho";
+    return `📱 ${esc(rotuloRede(l.network))}${esc(usuario)} · ${esc(l.post_type)}${onde}`;
+  });
+  const semAparelho = linhas.every((l) => !l.target_chat);
+  const cabecalho = [
+    `🔔 <b>POST DE ${hhmm(p.scheduled_at)}</b>`,
+    `👤 ${esc(p.profile_name)}`,
+    ...contas,
+    semAparelho
+      ? "⚠️ Nenhum celular vinculado — este post não foi entregue a ninguém."
+      : "☑️ A confirmação é pedida no aparelho de quem publica.",
+  ].join("\n");
+  const legenda = (p.caption || "").trim();
+  return legenda ? `${cabecalho}\n\n<pre>${esc(legenda)}</pre>` : cabecalho;
+}
+
+/**
+ * ESPELHO PARA QUEM TOCA A OPERAÇÃO.
+ *
+ * O Telegram cadastrado em Configurações → Entrega das postagens recebe uma
+ * cópia de TODO post que entra na hora, de todas as modelos, com mídia e
+ * legenda. É o "estou vendo tudo" de quem não vai abrir o Cronograma às 14h
+ * para saber o que estava marcado.
+ *
+ * Vai SEM os botões de confirmação de propósito: quem responde pelo post é o
+ * celular que publica. Dois lugares podendo marcar "postei" produziriam hora
+ * de publicação inventada por quem não publicou nada.
+ *
+ * A busca é um LEFT JOIN — e não o JOIN da entrega — porque o alerta cobre
+ * também o post cuja conta ainda não tem aparelho: é justamente esse que
+ * ninguém descobre até o dia acabar.
+ */
+async function espelharParaAlerta(botToken: string): Promise<number> {
+  const destinos = listDeliveryAlertChats();
+  if (destinos.length === 0) return 0;
+
+  const db = getDb();
+  const agora = Date.now();
+
+  const linhas = db
+    .prepare(
+      `SELECT p.id AS post_id, p.scheduled_at, p.caption, pr.name AS profile_name,
+              pn.network, pn.post_type, a.username,
+              t.label AS target_label, t.chat_id AS target_chat
+         FROM posts p
+         JOIN profiles pr      ON pr.id = p.profile_id
+         JOIN post_networks pn ON pn.post_id = p.id
+         JOIN accounts a       ON a.id = pn.account_id
+         LEFT JOIN delivery_targets t
+                ON t.id = a.delivery_target_id AND t.active <> 0
+        WHERE p.status = 'scheduled'
+          AND p.alerted_at IS NULL
+          AND p.scheduled_at <= ?
+          AND p.scheduled_at >= ?
+          AND pn.network <> 'telegram'
+          AND a.active <> 0
+        ORDER BY p.scheduled_at, p.id`,
+    )
+    .all(agora + JANELA_ADIANTE_MS, agora - JANELA_ATRASO_MS) as LinhaAlerta[];
+
+  if (linhas.length === 0) return 0;
+
+  // Uma mensagem por POST (não por conta e não por aparelho): para quem
+  // acompanha, "o post das 14h da Bruna" é um evento só, mesmo que saia em
+  // duas contas.
+  const porPost = new Map<string, LinhaAlerta[]>();
+  for (const l of linhas) {
+    const atual = porPost.get(l.post_id);
+    if (atual) atual.push(l);
+    else porPost.set(l.post_id, [l]);
+  }
+
+  const marcar = db.prepare("UPDATE posts SET alerted_at = ? WHERE id = ?");
+  let enviados = 0;
+
+  for (const [postId, grupo] of porPost) {
+    const post = getPost(postId);
+    const texto = montarTextoAlerta(grupo);
+    const copiar = botaoCopiar(postId, grupo[0].caption);
+    for (const destino of destinos) {
+      try {
+        if (post && post.media.length > 0) {
+          await enviarMidias(botToken, destino.chatId, post.media.map((m) => m.id));
+        }
+        await enviarPacote(
+          botToken,
+          destino.chatId,
+          texto,
+          copiar ? { inline_keyboard: [[copiar]] } : undefined,
+        );
+        enviados++;
+      } catch (err) {
+        // Um alerta que falha não pode travar o resto: é acompanhamento, e o
+        // post já foi entregue a quem publica.
+        console.error(
+          `[hotdash] alerta do post ${postId} para o chat ${destino.chatId} falhou:`,
+          err,
+        );
+      }
+    }
+    // Marca mesmo se todos os envios falharam, pelo mesmo motivo do
+    // `delivered_at`: repetir a cada minuto entupiria o chat quando o problema
+    // for o token ou o chat ter bloqueado o bot.
+    marcar.run(Date.now(), postId);
+  }
 
   return enviados;
 }
@@ -356,6 +565,9 @@ export type Entrega = {
   profile_name: string;
   scheduled_at: number;
   posted_at: number | null;
+  /** Vai junto porque o botão de copiar legenda continua na mensagem depois
+   *  de respondida — ter o texto à mão é útil justamente ao publicar. */
+  caption: string | null;
 };
 
 export function getDelivery(id: string): Entrega | null {
@@ -363,7 +575,7 @@ export function getDelivery(id: string): Entrega | null {
     .prepare(
       `SELECT d.id, d.post_id, d.target_id, d.status, d.message_id, d.answered_at,
               d.snooze_count, t.chat_id, pr.name AS profile_name,
-              p.scheduled_at, p.posted_at
+              p.scheduled_at, p.posted_at, p.caption
          FROM post_deliveries d
          JOIN delivery_targets t ON t.id = d.target_id
          JOIN posts p            ON p.id = d.post_id
@@ -441,7 +653,11 @@ export function applyDeliveryAnswer(
     // botão está pedindo mais 30 minutos, e um post das 14:00 respondido às
     // 14:25 voltaria em 5 minutos se a conta fosse pelo horário combinado.
     updatePost(e.post_id, { scheduledAt: agora + ADIAR_MS });
-    db.prepare("UPDATE posts SET delivered_at = NULL WHERE id = ?").run(e.post_id);
+    // `alerted_at` volta junto: quem acompanha pelo alerta tem de ver o post
+    // de novo no horário novo, senão o espelho registra 14h e some.
+    db.prepare(
+      "UPDATE posts SET delivered_at = NULL, alerted_at = NULL WHERE id = ?",
+    ).run(e.post_id);
     db.prepare(
       `UPDATE post_deliveries
           SET status = 'snoozed', answered_at = ?, snooze_count = snooze_count + 1
@@ -476,13 +692,40 @@ export async function fecharMensagemDaEntrega(
   if (!entrega.message_id || !entrega.chat_id) return;
   const selo = seloDaResposta(entrega);
   if (!selo) return;
+  // O botão de copiar SOBREVIVE à resposta: a pessoa toca "Postei" e em
+  // seguida ainda vai colar a legenda no Instagram. Tirá-lo aqui obrigaria a
+  // rolar a conversa para achar o <pre> de novo.
+  const copiar = botaoCopiar(entrega.post_id, entrega.caption);
   try {
     await editTelegramReplyMarkup(botToken, entrega.chat_id, entrega.message_id, {
-      inline_keyboard: [[{ text: selo, callback_data: `ent_ok:${entrega.id}` }]],
+      inline_keyboard: [
+        ...(copiar ? [[copiar]] : []),
+        [{ text: selo, callback_data: `ent_ok:${entrega.id}` }],
+      ],
     });
   } catch (err) {
     console.error(`[hotdash] não consegui fechar a mensagem da entrega ${entrega.id}:`, err);
   }
+}
+
+/**
+ * Reenvia a legenda SOZINHA, numa bolha só dela.
+ *
+ * É o caminho do botão "Copiar legenda" quando a legenda passa dos 256
+ * caracteres que o `copy_text` do Telegram aceita. Vai dentro de <pre>: é o
+ * bloco que o Telegram trata como código e entrega com o próprio ícone de
+ * copiar, e sem cabeçalho nenhum junto não há o que sobrar colado no texto.
+ */
+export async function enviarLegendaDoPost(
+  botToken: string,
+  chatId: string,
+  postId: string,
+): Promise<boolean> {
+  const post = getPost(postId);
+  const legenda = (post?.caption || "").trim();
+  if (!legenda) return false;
+  await sendTelegramMessage(botToken, chatId, `<pre>${esc(legenda)}</pre>`);
+  return true;
 }
 
 /**

@@ -1090,6 +1090,14 @@ function migrate(d: Database.Database) {
   // (`cronTasks.ts`), que continua existindo e tem outra janela — juntar os
   // dois faria um cancelar o outro.
   ensureColumn(d, "posts", "delivered_at", "INTEGER");
+  // Quando o ESPELHO do post saiu para os chats de alerta (o Telegram de quem
+  // toca a operação, que recebe cópia de todas as modelos).
+  //
+  // Coluna própria e não `delivered_at`: o alerta cobre também o post cuja
+  // conta não tem aparelho nenhum — aquele nunca entra na entrega e deixaria
+  // `delivered_at` nulo para sempre, fazendo o alerta se repetir a cada
+  // minuto durante a janela inteira.
+  ensureColumn(d, "posts", "alerted_at", "INTEGER");
   // VIRALIZOU: uma caixinha já usada que rendeu nas redes. Fica marcada para
   // ser reaproveitada meses depois — é o oposto de "usada", que serve para
   // NÃO repetir. Só faz sentido em item já usado (ver `questionBox.ts`).

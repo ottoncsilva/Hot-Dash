@@ -3,13 +3,25 @@
 import { useEffect, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api";
 import CampoSecreto from "@/components/CampoSecreto";
+import Switch from "@/components/Switch";
+import { IconCopy, IconRefresh, IconTrash } from "@/components/icons";
+import { useConfirm } from "@/hooks/useConfirm";
 import { showToast } from "@/lib/toast";
 import { BackToSettings, KeyLabel } from "../_shared";
+
+type DeliveryChat = {
+  chatId: string;
+  name?: string;
+  alert?: boolean;
+  authorizedAt: number;
+};
 
 type BotState = {
   hasToken: boolean;
   botUsername?: string;
   webhookAt?: number;
+  accessCode: string;
+  chats: DeliveryChat[];
 };
 
 /**
@@ -28,6 +40,7 @@ export default function EntregaSettingsPage() {
   const [token, setToken] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const { confirm, ConfirmDialog } = useConfirm();
 
   function load() {
     apiGet<{ settings: BotState; originProblem: string | null }>("/api/settings/delivery-bot")
@@ -52,6 +65,54 @@ export default function EntregaSettingsPage() {
       setMsg(e instanceof Error ? e.message : "Falha ao salvar.");
     } finally {
       setSalvando(false);
+    }
+  }
+
+  /** As ações da lista de celulares (POST com `action`, ver a rota). */
+  async function acaoChat(body: Record<string, unknown>, sucesso?: string) {
+    try {
+      const r = await apiSend<{ settings: BotState }>(
+        "/api/settings/delivery-bot",
+        "POST",
+        body,
+      );
+      setState(r.settings);
+      if (sucesso) showToast(sucesso, "success");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha na ação.", "error");
+    }
+  }
+
+  async function trocarCodigo() {
+    const ok = await confirm({
+      title: "Gerar um código novo?",
+      message:
+        "Os celulares já autorizados saem da lista e precisam mandar o código novo para abrir o menu. Os aparelhos que já recebem posts continuam recebendo.",
+      confirmLabel: "Gerar novo",
+      danger: true,
+    });
+    if (!ok) return;
+    await acaoChat({ action: "regenerate-code" }, "Código novo gerado.");
+  }
+
+  async function removerChat(c: DeliveryChat) {
+    const ok = await confirm({
+      title: `Remover ${c.name || c.chatId}?`,
+      message:
+        "Este celular perde o alerta e deixa de receber os posts dos aparelhos que estavam nele — esses aparelhos voltam a aparecer como pendentes no cadastro da modelo.",
+      confirmLabel: "Remover",
+      danger: true,
+    });
+    if (!ok) return;
+    await acaoChat({ action: "remove-chat", chatId: c.chatId }, "Celular removido.");
+  }
+
+  async function copiar(texto: string) {
+    try {
+      await navigator.clipboard.writeText(texto);
+      showToast("Código copiado.", "success");
+    } catch {
+      showToast("Não consegui copiar — digite na mão.", "error");
     }
   }
 
@@ -137,33 +198,127 @@ export default function EntregaSettingsPage() {
             {state.botUsername && (
               <p className="mt-1.5 text-xs text-zinc-500">
                 Bot: <span className="text-zinc-300">@{state.botUsername}</span> — é nele
-                que cada aparelho manda <code className="font-mono">/vincular</code>.
+                que cada celular abre o menu.
               </p>
             )}
           </div>
         )}
       </div>
 
+      {/* CELULARES E ALERTA. O código de acesso é o que substituiu o
+          `/vincular <código do aparelho>`: um código só, digitado uma vez por
+          celular, e daí em diante a escolha da modelo é uma lista de botões
+          dentro do próprio Telegram. */}
+      {state?.hasToken && (
+        <div className="mt-4 card p-4">
+          <p className="text-sm font-medium text-white">Celulares autorizados</p>
+          <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+            Mande este código no bot, pelo celular. Ele libera o{" "}
+            <span className="text-zinc-300">menu</span> — de lá a pessoa escolhe a
+            modelo e o aparelho tocando em botões, sem código por aparelho.
+          </p>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <code className="rounded bg-black/40 px-3 py-1.5 font-mono text-lg tracking-[0.2em] text-zinc-100">
+              {state.accessCode}
+            </code>
+            <button
+              onClick={() => copiar(state.accessCode)}
+              className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 hover:bg-white/5 hover:text-white"
+              aria-label="Copiar código"
+              title="Copiar código"
+            >
+              <IconCopy size={15} />
+            </button>
+            <button
+              onClick={trocarCodigo}
+              className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 hover:bg-white/5 hover:text-white"
+              aria-label="Gerar código novo"
+              title="Gerar código novo (tira todos os celulares da lista)"
+            >
+              <IconRefresh size={15} />
+            </button>
+          </div>
+
+          <div className="mt-4 space-y-2">
+            {state.chats.length === 0 && (
+              <p className="rounded-lg border border-dashed border-white/10 px-3 py-4 text-center text-xs text-zinc-500">
+                Nenhum celular autorizado ainda.
+              </p>
+            )}
+            {state.chats.map((c) => (
+              <div
+                key={c.chatId}
+                className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-ink-850 px-3 py-2.5"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm text-zinc-100">{c.name || "Sem nome"}</p>
+                  <p className="mt-0.5 font-mono text-[10px] text-zinc-600">{c.chatId}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="hidden text-[11px] text-zinc-500 sm:inline">alerta</span>
+                  <Switch
+                    checked={Boolean(c.alert)}
+                    ariaLabel="Receber alerta de todas as modelos"
+                    onChange={(v) =>
+                      acaoChat(
+                        { action: "set-alert", chatId: c.chatId, alert: v },
+                        v ? "Alerta ligado." : "Alerta desligado.",
+                      )
+                    }
+                  />
+                  <button
+                    onClick={() => removerChat(c)}
+                    className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 hover:bg-white/5 hover:text-red-400"
+                    aria-label="Remover celular"
+                    title="Remover celular"
+                  >
+                    <IconTrash size={15} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p className="mt-3 text-[11px] leading-relaxed text-zinc-600">
+            <span className="text-zinc-400">Alerta</span> = este celular recebe uma
+            cópia de <span className="text-zinc-400">todo post de todas as modelos</span>,
+            com mídia e legenda, na hora marcada — inclusive dos posts cuja conta ainda
+            não tem aparelho. É o acompanhamento de quem toca a operação: vai{" "}
+            <span className="text-zinc-400">sem</span> os botões de confirmação, que
+            continuam só no aparelho de quem publica.
+          </p>
+        </div>
+      )}
+
       <div className="mt-4 card p-4">
         <p className="text-sm font-medium text-white">Como ligar um celular</p>
         <ol className="mt-2 list-decimal space-y-1.5 pl-4 text-xs leading-relaxed text-zinc-500">
           <li>Salve o token acima.</li>
           <li>
-            Em <span className="text-zinc-300">Modelos → a modelo → Aparelhos de entrega</span>,
-            cadastre o celular e copie o comando.
+            No celular, abra o bot no Telegram e mande o{" "}
+            <span className="text-zinc-300">código de acesso</span> do cartão acima.
           </li>
-          <li>No celular, abra o bot no Telegram e mande o comando copiado.</li>
+          <li>
+            No menu que aparece, toque em{" "}
+            <span className="text-zinc-300">Receber posts de uma modelo</span>, escolha a
+            modelo e o aparelho — ou crie um aparelho ali mesmo, para este celular.
+          </li>
           <li>
             No cadastro de cada conta (Instagram, TikTok…), escolha o aparelho no campo{" "}
             <span className="text-zinc-300">Entregar em</span>.
           </li>
         </ol>
         <p className="mt-3 text-[11px] leading-relaxed text-zinc-600">
-          O passo do <code className="font-mono">/vincular</code> não é burocracia: a API do
-          Telegram não deixa um bot iniciar conversa. Sem alguém falar com ele primeiro,
-          não existe conversa para onde mandar o post.
+          O passo do código não é burocracia: a API do Telegram não deixa um bot iniciar
+          conversa — sem alguém falar com ele primeiro, não existe conversa para onde
+          mandar o post. E sem o código qualquer um que descobrisse o @ do bot abriria a
+          lista de modelos. O <code className="font-mono">/vincular</code> por aparelho
+          continua funcionando para quem já o usava.
         </p>
       </div>
+
+      {ConfirmDialog}
     </div>
   );
 }

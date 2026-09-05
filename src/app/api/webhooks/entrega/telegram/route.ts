@@ -8,6 +8,7 @@ import {
 import { findTargetByPairCode, pairTarget } from "@/lib/deliveryTargets";
 import {
   applyDeliveryAnswer,
+  avisarAlertaDaResposta,
   enviarLegendaDoPost,
   fecharMensagemDaEntrega,
   DELIVERY_BOT_ID,
@@ -164,6 +165,9 @@ export async function POST(req: NextRequest) {
         // Fecha a mensagem: os botões de resposta viram o selo do que foi
         // decidido (o de copiar legenda fica).
         await fecharMensagemDaEntrega(botToken, r.entrega);
+        // E quem acompanha TODAS as modelos recebe o resultado: o espelho lá
+        // em cima ganha o selo e chega um aviso novo (ver a função).
+        await avisarAlertaDaResposta(botToken, r.entrega, acao);
       }
       return NextResponse.json({ ok: true });
     }

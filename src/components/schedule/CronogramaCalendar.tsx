@@ -51,10 +51,6 @@ function weekRangeLabel(a: Date, b: Date): string {
   return `${a.getDate()} ${monA} – ${b.getDate()} ${monB} ${year}`;
 }
 
-/** Post pronto para ir ao ar: tem mídia E legenda. */
-const estaPronto = (p: ScheduledPost) =>
-  p.media.length > 0 && Boolean(p.caption && p.caption.trim());
-
 /** O @ do destino, com "+N" quando o post vai para mais de uma conta. */
 function rotuloDaConta(p: ScheduledPost): string {
   const primeira = p.networks[0];
@@ -142,12 +138,12 @@ export default function CronogramaCalendar({
         });
 
   return (
-    <div className="mt-4 card overflow-hidden">
-      <div className="flex flex-col gap-2 border-b border-white/[0.06] p-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="mt-3 card overflow-hidden">
+      <div className="flex flex-col gap-2 border-b border-white/[0.06] p-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <button
             onClick={() => shift(-1)}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
             aria-label={view === "week" ? "Semana anterior" : "Mês anterior"}
           >
             <IconArrowLeft size={16} />
@@ -187,7 +183,7 @@ export default function CronogramaCalendar({
           </button>
           <button
             onClick={() => shift(1)}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
             aria-label={view === "week" ? "Próxima semana" : "Próximo mês"}
           >
             <IconChevronRight size={16} />
@@ -207,7 +203,7 @@ export default function CronogramaCalendar({
             ).map((texto, i) => (
               <p
                 key={i}
-                className={`py-2 text-center font-mono text-[10px] uppercase tracking-wider ${
+                className={`py-1.5 text-center font-mono text-[10px] uppercase tracking-wider ${
                   view === "week" && days[i].getTime() === today.getTime()
                     ? "font-bold text-white"
                     : "text-zinc-600"
@@ -238,27 +234,39 @@ export default function CronogramaCalendar({
                     const postId = e.dataTransfer.getData("text/plain");
                     if (postId) onPostMove(postId, new Date(d));
                   }}
-                  // Na SEMANA a coluna vai até o rodapé da janela. As 21rem são
-                  // o que fica em volta no desktop: o py-10 do <main> (5rem
+                  // Na SEMANA a coluna vai até o rodapé da janela. As 18,5rem
+                  // são o que fica em volta no desktop: o py-10 do <main> (5rem
                   // somados), o cabeçalho da página (~3rem), a barra de filtros
-                  // com a margem (~5,9rem) e o cabeçalho daqui com a linha dos
-                  // dias (~6,3rem). Sobra ~1rem — a conta erra para o lado
+                  // com a margem (~4,2rem) e o cabeçalho daqui com a linha dos
+                  // dias (~5,3rem). Sobra ~1rem — a conta erra para o lado
                   // seguro, porque folga é invisível e falta traz de volta a
                   // barra de rolagem da página que isto veio tirar.
+                  //
+                  // Eram 21rem: a barra de filtros e este cabeçalho encolheram
+                  // (`p-2.5`/`p-2`), e a coluna fica com o que eles devolveram.
                   //
                   // Quem rola é o DIA, não a página: com a página rolando,
                   // arrastar um post para outro dia levava a grade junto e a
                   // coluna de destino saía da vista.
-                  className={`flex flex-col border-b border-r border-white/[0.04] p-1 text-left transition-colors ${
+                  // CLICAR NO DIA cria um post nele. O alvo é só o espaço
+                  // VAZIO (`e.target === e.currentTarget`): clique num cartão
+                  // continua abrindo o cartão, e o guarda é o que evita o
+                  // problema que o comentário abaixo descreve — a coluna
+                  // inteira virando um botão que dispara sem querer.
+                  onClick={(e) => {
+                    if (e.target === e.currentTarget) onDayClick(new Date(d));
+                  }}
+                  className={`flex cursor-pointer flex-col border-b border-r border-white/[0.04] p-1 text-left transition-colors ${
                     view === "week"
-                      ? "h-[calc(100dvh-21rem)] min-h-[320px]"
+                      ? "h-[calc(100dvh-18.5rem)] min-h-[320px]"
                       : "min-h-[84px] sm:min-h-[104px]"
                   } ${noMes ? "" : "opacity-35"} ${ehHoje && view === "week" ? "bg-white/[0.02]" : ""}`}
                 >
-                  {/* O número do dia é o botão de "criar aqui". O dia inteiro
-                      não é clicável de propósito: com a coluna ocupando a tela,
-                      um clique perdido em qualquer lugar dela abria o
-                      formulário sem querer o tempo todo. */}
+                  {/* O número do dia é o botão explícito de "criar aqui" — o
+                      espaço vazio da coluna faz o mesmo (ver o onClick acima).
+                      O botão fica porque no MÊS a coluna é baixa e quase toda
+                      ocupada pelos cartões: sem ele, sobraria pouco espaço
+                      vazio onde clicar. */}
                   <button
                     type="button"
                     onClick={() => onDayClick(new Date(d))}
@@ -273,6 +281,9 @@ export default function CronogramaCalendar({
                   </button>
 
                   <div
+                    onClick={(e) => {
+                      if (e.target === e.currentTarget) onDayClick(new Date(d));
+                    }}
                     className={`mt-1 space-y-1 ${view === "week" ? "flex-1 overflow-y-auto pr-0.5" : ""}`}
                   >
                     {mostrados.map((p) => {
@@ -302,7 +313,14 @@ export default function CronogramaCalendar({
                                 : "border-amber-400/25 bg-amber-400/[0.07] hover:border-amber-400/50"
                           }`}
                         >
-                          {view === "week" && capa && (
+                          {/* POST JÁ CONFIRMADO NÃO MOSTRA MINIATURA.
+                              A miniatura existe para RECONHECER o que ainda vai
+                              ao ar — "qual foto é a das 13h?". Depois do
+                              "Postei" a resposta já não interessa, e num dia
+                              cheio as fotas do que já saiu empurravam para fora
+                              da coluna justamente o que falta fazer. O cartão
+                              vira uma linha: hora, conta e o verde. */}
+                          {view === "week" && capa && !postado && (
                             <AuthImage
                               src={`/api/media/${capa.id}/thumbnail?v=${capa.updatedAt || 0}`}
                               alt=""
@@ -315,7 +333,11 @@ export default function CronogramaCalendar({
                               fallback={<div className="h-20 w-full bg-white/5" />}
                             />
                           )}
-                          <div className="px-1.5 py-1 text-[10px] leading-tight">
+                          <div
+                            className={`px-1.5 text-[10px] leading-tight ${
+                              postado ? "py-0.5 opacity-75" : "py-1"
+                            }`}
+                          >
                             <span className="flex items-center gap-1">
                               {p.networks.map((n) => (
                                 <span
@@ -344,17 +366,17 @@ export default function CronogramaCalendar({
                                     quiser comparar. */}
                                 {fmtTime(postado && p.postedAt ? p.postedAt : p.scheduledAt)}
                               </span>
+                              {postado && <span className="shrink-0 text-emerald-300">✓</span>}
                               <span className="truncate text-zinc-400">
-                                {p.networks[0]?.postType}
+                                {postado ? rotuloDaConta(p) : p.networks[0]?.postType}
                               </span>
-                              {!estaPronto(p) && (
-                                <span
-                                  className="ml-auto inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-red-500"
-                                  title="Incompleto: falta mídia ou legenda"
-                                />
-                              )}
                             </span>
-                            <span className="block truncate text-zinc-400">{rotuloDaConta(p)}</span>
+                            {/* No confirmado a conta entra na MESMA linha da
+                                hora (logo acima): duas linhas para um post que
+                                já saiu é o dobro de altura por nada. */}
+                            {!postado && (
+                              <span className="block truncate text-zinc-400">{rotuloDaConta(p)}</span>
+                            )}
                           </div>
                         </div>
                       );

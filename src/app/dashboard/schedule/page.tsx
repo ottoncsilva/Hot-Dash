@@ -1613,7 +1613,18 @@ function PostForm({
               // num acervo de centenas — a altura que a miniatura ganhava não
               // compensava o dobro de rolagem. É esta a única parte da janela
               // que rola, e o `flex-1` dá a ela toda a altura que sobrar.
-              <div className="grid min-h-[8rem] flex-1 grid-cols-4 gap-1.5 overflow-y-auto sm:grid-cols-6">
+              // QUEM ROLA É A CAIXA, NÃO A GRADE. Parece o mesmo, mas não é:
+              // a altura da miniatura vem do `aspect-[3/4]`, e o navegador só
+              // deixa a LINHA da grade se medir pela miniatura enquanto a
+              // altura da grade for indefinida. Com o `flex-1` na própria
+              // grade, a altura virou definida, as linhas passaram a dividir
+              // entre si os 130px disponíveis e cada foto virou uma tira
+              // sobreposta na de baixo — era o que aparecia no iPad deitado.
+              //
+              // Com a caixa de fora segurando a altura e a rolagem, a grade
+              // volta a crescer pelo conteúdo, como antes.
+              <div className="min-h-[8.5rem] flex-1 overflow-y-auto">
+              <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
                 {filteredLibrary.map((m) => {
                   const idx = mediaIds.indexOf(m.id);
                   const selected = idx !== -1;
@@ -1687,6 +1698,7 @@ function PostForm({
                     </button>
                   );
                 })}
+                </div>
               </div>
             )}
           </div>

@@ -19,12 +19,19 @@ import {
   IconMedia,
   IconDownload,
   IconTag,
+  IconCheck,
 } from "@/components/icons";
 import { NETWORK_LABELS, mediaFileUrl, mediaThumbUrl, type MediaItem, type Profile, type Tag } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 import PeriodPicker, { type PeriodState } from "@/components/PeriodPicker";
 import FilterDropdown from "@/components/FilterDropdown";
 import { resolvePeriodLocal } from "@/lib/periods";
+import {
+  destinosDaModelo,
+  marcadaAMaoEm,
+  vezesPostadaEm,
+  type DestinoPublicacao,
+} from "@/lib/destinosPublicacao";
 import { showToast } from "@/lib/toast";
 import { limiteUploadBytes, limiteUploadMb } from "@/lib/uploadLimit";
 import Link from "next/link";
@@ -87,6 +94,7 @@ export default function MediaPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
+  const [postadaPickerOpen, setPostadaPickerOpen] = useState(false);
   const [filterTagIds, setFilterTagIds] = useState<Set<string>>(new Set());
   const [filterNoTag, setFilterNoTag] = useState(false);
   // Filtro por tipo de mídia (vazio = tudo). Substituiu o filtro por proporção,
@@ -383,6 +391,97 @@ export default function MediaPage() {
     loadMedia();
   }
 
+  /**
+   * Onde esta modelo publica — a lista do "já postei isto". Sai do próprio
+   * cadastro dela (contas + Telegram), então não custa uma consulta a mais.
+   */
+  const destinos = useMemo(
+    () => destinosDaModelo(profiles.find((p) => p.id === profileId)),
+    [profiles, profileId],
+  );
+
+  /**
+   * Marca (ou desmarca) publicação nestas mídias.
+   *
+   * A resposta já traz a galeria atualizada — marcar meia dúzia de fotos e
+   * esperar um segundo recarregamento a cada toque deixava o chip aceso e a
+   * contagem atrasada.
+   */
+  async function marcarPostada(
+    ids: string[],
+    d: DestinoPublicacao,
+    marcar: boolean,
+  ): Promise<void> {
+    if (ids.length === 0) return;
+    try {
+      const r = await apiSend<{ media: MediaItem[] }>("/api/media/posted", "POST", {
+        ids,
+        profileId,
+        destino: d.destino,
+        accountId: d.accountId,
+        action: marcar ? "add" : "remove",
+      });
+      setMedia(r.media);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Falha ao marcar.", "error");
+    }
+  }
+
+  /** O toque num chip da mídia aberta. */
+  async function togglePostadaNoItem(
+    item: MediaItem,
+    d: DestinoPublicacao,
+    marcar: boolean,
+  ) {
+    // Desmarcar só vale para o que foi marcado À MÃO: o registro de um envio
+    // que o sistema fez é histórico, e apagá-lo aqui faria o Método MK
+    // reoferecer uma foto que o grupo já viu.
+    if (!marcar && !marcadaAMaoEm(item, d)) {
+      showToast(
+        "Esta publicação foi registrada pelo sistema — só dá para desmarcar o que foi marcado à mão.",
+        "error",
+      );
+      return;
+    }
+    await marcarPostada([item.id], d, marcar);
+  }
+
+  /** Quantos dos selecionados já têm publicação neste destino. */
+  function postadaStateForSelection(d: DestinoPublicacao): "all" | "some" | "none" {
+    const items = (media || []).filter((m) => selected.has(m.id));
+    if (items.length === 0) return "none";
+    const comPublicacao = items.filter((m) => vezesPostadaEm(m, d) > 0).length;
+    if (comPublicacao === 0) return "none";
+    if (comPublicacao === items.length) return "all";
+    return "some";
+  }
+
+  /**
+   * O toque num destino no popover da seleção.
+   *
+   * Marcar só alcança quem AINDA não tem publicação ali — repetir em quem já
+   * tem viraria uma segunda publicação que nunca houve. Desmarcar só alcança
+   * quem foi marcado à mão, pelo mesmo motivo do item aberto.
+   */
+  async function togglePostadaForSelection(d: DestinoPublicacao) {
+    const items = (media || []).filter((m) => selected.has(m.id));
+    const state = postadaStateForSelection(d);
+    if (state === "all") {
+      const alvos = items.filter((m) => marcadaAMaoEm(m, d)).map((m) => m.id);
+      if (alvos.length === 0) {
+        showToast(
+          "Nada a desmarcar: estas publicações foram registradas pelo sistema.",
+          "error",
+        );
+        return;
+      }
+      await marcarPostada(alvos, d, false);
+      return;
+    }
+    const alvos = items.filter((m) => vezesPostadaEm(m, d) === 0).map((m) => m.id);
+    await marcarPostada(alvos, d, true);
+  }
+
   function toggleFilterTag(tagId: string) {
     setFilterTagIds((prev) => {
       const next = new Set(prev);
@@ -563,14 +662,14 @@ export default function MediaPage() {
   // Esc limpa a seleção (quando não há modal/visualizador aberto).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !tagPickerOpen && viewerIndex === null) {
+      if (e.key === "Escape" && !tagPickerOpen && !postadaPickerOpen && viewerIndex === null) {
         setSelected((prev) => (prev.size > 0 ? new Set() : prev));
         setSelectMode(false);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tagPickerOpen, viewerIndex]);
+  }, [tagPickerOpen, postadaPickerOpen, viewerIndex]);
 
   // Colar (Ctrl/Cmd+V) uma imagem envia direto para o modelo selecionado.
   useEffect(() => {
@@ -871,6 +970,15 @@ export default function MediaPage() {
                     <IconTag size={14} /> Etiquetar
                   </button>
                 )}
+                {destinos.length > 0 && (
+                  <button
+                    onClick={() => setPostadaPickerOpen(true)}
+                    disabled={bulkBusy}
+                    className="btn-ghost px-3 py-1.5 text-xs"
+                  >
+                    <IconCheck size={14} /> Já postada
+                  </button>
+                )}
                 <button
                   onClick={bulkSave}
                   disabled={bulkBusy}
@@ -1007,6 +1115,8 @@ export default function MediaPage() {
           onDelete={removeOne}
           tags={tags}
           onToggleTag={toggleTagOnItem}
+          destinos={destinos}
+          onTogglePostada={togglePostadaNoItem}
           profileId={profileId}
           onEdited={(newItem) => {
             // Marca para o viewer seguir essa mídia quando a lista reordenar
@@ -1072,6 +1182,67 @@ export default function MediaPage() {
         </div>
         <button
           onClick={() => setTagPickerOpen(false)}
+          className="btn-primary mt-4 w-full"
+        >
+          Concluir
+        </button>
+      </Modal>
+
+      {/* Popover de "já postada" em massa.
+          É o mesmo desenho do de etiquetas de propósito: são o mesmo gesto —
+          aplicar uma classificação a tudo que está selecionado — e um segundo
+          formato para a mesma ideia só faria reaprender. */}
+      <Modal open={postadaPickerOpen} onClose={() => setPostadaPickerOpen(false)}>
+        <p className="eyebrow">histórico</p>
+        <h2 className="mt-1.5 font-display text-lg font-semibold">
+          Já postada — {selected.size} item(ns)
+        </h2>
+        <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+          Marque onde este conteúdo já foi ao ar. Serve para o acervo antigo: o
+          Método MK para de oferecer o que o público já viu, e o “nunca postada”
+          do Cronograma passa a dizer a verdade.
+        </p>
+        <div className="mt-4 space-y-1.5">
+          {destinos.map((d) => {
+            const state = postadaStateForSelection(d);
+            return (
+              <button
+                key={d.key}
+                onClick={() => togglePostadaForSelection(d)}
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-zinc-200 hover:bg-white/5"
+              >
+                <span
+                  className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border transition-all ${
+                    state === "none"
+                      ? "border-white/30 bg-transparent"
+                      : "border-white bg-white text-black"
+                  }`}
+                >
+                  {state === "all" && (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                      <path
+                        d="M5 13l4 4 10-10"
+                        stroke="currentColor"
+                        strokeWidth={3}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
+                  {state === "some" && <span className="h-0.5 w-2.5 rounded-full bg-black" />}
+                </span>
+                {d.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-[11px] leading-relaxed text-zinc-600">
+          Desmarcar só desfaz o que foi marcado aqui. Publicação que o sistema
+          registrou sozinho (o post que saiu no grupo, o post confirmado no
+          celular) é histórico e continua valendo.
+        </p>
+        <button
+          onClick={() => setPostadaPickerOpen(false)}
           className="btn-primary mt-4 w-full"
         >
           Concluir

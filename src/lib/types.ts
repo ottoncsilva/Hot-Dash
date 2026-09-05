@@ -158,6 +158,16 @@ export type MediaPostCounts = {
    */
   contas?: MediaAccountCount[];
   /**
+   * Destinos em que esta mídia foi marcada À MÃO na Galeria ("já postei
+   * isto"), e não por um envio do sistema. `previas`/`vip` para os grupos do
+   * Telegram, o id da conta para as redes sociais.
+   *
+   * A tela precisa da distinção para saber o que dá para DESMARCAR: registro
+   * de envio de verdade não se apaga por um toque na galeria (ver
+   * `mediaUsage.unlogManualMediaPost`).
+   */
+  manuais?: string[];
+  /**
    * Quantas vezes a mídia está AGENDADA em cada conta de rede social — post que
    * ainda não foi ao ar.
    *

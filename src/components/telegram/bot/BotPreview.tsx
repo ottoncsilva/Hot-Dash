@@ -205,7 +205,7 @@ export function FunnelPreview({
   pixSocialProofTextIntl,
   successMessageIntl,
   successButtonsIntl,
-  cardBrButtons,
+  escolhaMetodo,
   originGateStyle,
   pixCheckStyle,
   checkoutPayStyle,
@@ -270,14 +270,16 @@ export function FunnelPreview({
   pixSocialProofTextIntl?: string;
   successMessageIntl?: string;
   successButtonsIntl?: Btn[];
-  /** Botão extra "pagar no cartão" — só no ramo Brasil (é uma opção A MAIS
-   *  pro brasileiro, não existe do lado internacional). */
-  cardBrButtons?: Btn[];
+  /** A tela "como prefere pagar?", que entra DEPOIS de escolher o plano — só
+   *  no ramo Brasil e só quando o bot aceita cartão. Ausente = o clique no
+   *  plano gera o Pix na hora, que é o fluxo de quem não usa cartão. */
+  escolhaMetodo?: { texto: string; pix: Btn; cartao: Btn };
   /** Cor da pergunta "Brasil ou International?" (papel "originGate") — os
    *  botões desta pergunta especificamente, quando `intlAskFirst` está
-   *  ligado. O "Not from Brazil?" e o "pagar no cartão" já vêm com a cor
-   *  própria deles embutida em `buttons`/`cardBrButtons` (papéis
-   *  "notFromBrazil"/"cardBrOffer", calculados em `page.tsx`). */
+   *  ligado. O "Not from Brazil?" e os dois botões da escolha de método já
+   *  vêm com a cor própria deles embutida em `buttons`/`escolhaMetodo`
+   *  (papéis "notFromBrazil"/"confirmPurchase"/"cardBrOffer", calculados em
+   *  `page.tsx`). */
   originGateStyle?: PreviewStyle;
   /** Cor do botão "Verificar status"/"Check payment status" (papel
    *  "pixCheck") — mesmo botão nos dois provedores. */
@@ -294,7 +296,7 @@ export function FunnelPreview({
    *  verificar status some da tela, ficando só o link de pagamento. */
   checkoutShowCheck?: boolean;
   /** Mesmo trio do checkout acima, mas em PT — usado quando o lead
-   *  brasileiro clica em "pagar no cartão" (`cardBrButtons`): o cartão no
+   *  brasileiro escolhe cartão na tela de método (`escolhaMetodo`): o cartão no
    *  Brasil abre o MESMO tipo de tela (link Stripe), só que com os textos
    *  editáveis em português, não os traduzidos. */
   checkoutGerandoBr?: string;
@@ -318,6 +320,9 @@ export function FunnelPreview({
   // verdade — é tudo ilustrativo, inclusive a confirmação de pagamento.
   const [origemEscolhida, setOrigemEscolhida] = useState<"br" | "intl" | null>(null);
   const [pagamento, setPagamento] = useState<{ via: "pix" | "cartaoIntl" | "cartaoBr"; label: string } | null>(null);
+  /** Plano já escolhido, esperando o lead dizer COMO paga. Só existe no ramo
+   *  Brasil com cartão ligado — sem isso o clique no plano já vira pagamento. */
+  const [escolhendo, setEscolhendo] = useState<{ label: string } | null>(null);
   const [statusChecadas, setStatusChecadas] = useState(0);
   const [abrindoPagamento, setAbrindoPagamento] = useState(false);
   const [pagamentoConfirmado, setPagamentoConfirmado] = useState(false);
@@ -325,6 +330,7 @@ export function FunnelPreview({
   function reiniciar() {
     setOrigemEscolhida(null);
     setPagamento(null);
+    setEscolhendo(null);
     setStatusChecadas(0);
     setAbrindoPagamento(false);
     setPagamentoConfirmado(false);
@@ -336,6 +342,7 @@ export function FunnelPreview({
     // ramo internacional — o que vinha depois (tela de pagamento) não vale
     // mais para esse ramo, então reinicia daqui pra frente.
     setPagamento(null);
+    setEscolhendo(null);
     setStatusChecadas(0);
     setAbrindoPagamento(false);
     setPagamentoConfirmado(false);
@@ -382,7 +389,9 @@ export function FunnelPreview({
     originGateMessage,
     originGateBtnBr,
     originGateBtnIntl,
-    JSON.stringify((cardBrButtons || []).map((b) => b.text)),
+    escolhaMetodo?.texto,
+    escolhaMetodo?.pix.text,
+    escolhaMetodo?.cartao.text,
     checkoutGerandoIntl,
     checkoutPayTextoIntl,
     checkoutCheckTextoIntl,
@@ -533,6 +542,11 @@ export function FunnelPreview({
               buttons={welcomeBotoesAtivos.map((b) => {
                 if (pagamento) return b;
                 if (b.kind === "plan") {
+                  // No ramo Brasil com cartão ligado, o plano NÃO vira
+                  // pagamento na hora: abre a pergunta de método, como no bot.
+                  if (!intl && escolhaMetodo) {
+                    return { ...b, onClick: () => setEscolhendo({ label: b.text }) };
+                  }
                   return { ...b, onClick: () => setPagamento({ via: intl ? "cartaoIntl" : "pix", label: b.text }) };
                 }
                 if (!intl && temRamoIntl && b.kind === "custom" && /not from brazil/i.test(b.text)) {
@@ -548,27 +562,10 @@ export function FunnelPreview({
               onCortado={marcarCorte}
             />
 
-            {/* Cartão no Brasil — botão EXTRA, em mensagem PRÓPRIA depois dos
-                planos em PIX. Só existe do lado brasileiro. */}
-            {!intl && cardBrButtons && cardBrButtons.length > 0 && (
-              <PreviewBalao
-                mediaIds={[]}
-                text="💳 Prefere pagar no cartão?"
-                buttons={cardBrButtons.map((b) => ({
-                  ...b,
-                  onClick: pagamento ? undefined : () => setPagamento({ via: "cartaoBr", label: b.text }),
-                }))}
-                vazio=""
-                onMedia={medir}
-                onCortado={marcarCorte}
-              />
-            )}
-
-            {/* Prova social — SEMPRE por último: depois dos planos, do "Not
+            {/* Prova social — SEMPRE por último: depois dos planos e do "Not
                 from Brazil?" (já embutido na mensagem de boas-vindas, em
-                `buttons`) e do "pagar no cartão" acima. Fecha a abertura,
-                não fica no meio dela. Fonte menor: é um aviso de canto, não
-                parte da conversa. */}
+                `buttons`). Fecha a abertura, não fica no meio dela. Fonte
+                menor: é um aviso de canto, não parte da conversa. */}
             {provaSocialLinha && (
               <PreviewBalao
                 mediaIds={[]}
@@ -580,6 +577,37 @@ export function FunnelPreview({
                 onCortado={marcarCorte}
               />
             )}
+          </>
+        )}
+
+        {/* "Como prefere pagar?" — a tela que entra ENTRE escolher o plano e
+            a cobrança, quando o bot aceita cartão. O texto vem pronto de
+            `page.tsx` com {plano} e {valor} já substituídos pelo plano de
+            exemplo, do mesmo jeito que a legenda do PIX. */}
+        {escolhendo && escolhaMetodo && (
+          <>
+            <Momento label={`Lead toca em "${escolhendo.label}"`} />
+            <PreviewBalao
+              mediaIds={[]}
+              text={escolhaMetodo.texto}
+              buttons={[
+                {
+                  ...escolhaMetodo.pix,
+                  onClick: pagamento
+                    ? undefined
+                    : () => setPagamento({ via: "pix", label: escolhaMetodo.pix.text }),
+                },
+                {
+                  ...escolhaMetodo.cartao,
+                  onClick: pagamento
+                    ? undefined
+                    : () => setPagamento({ via: "cartaoBr", label: escolhaMetodo.cartao.text }),
+                },
+              ]}
+              vazio="(pergunta de método vazia)"
+              onMedia={medir}
+              onCortado={marcarCorte}
+            />
           </>
         )}
 

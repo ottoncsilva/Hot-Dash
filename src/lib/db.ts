@@ -1594,6 +1594,13 @@ function migrate(d: Database.Database) {
   // Desligado, toda cobrança no cartão vira avulsa — mesmo plano de
   // assinatura, o Alerta de Renovação cobra o próximo ciclo na mão.
   ensureColumn(d, "telegram_bots", "accept_card_recurring", "INTEGER NOT NULL DEFAULT 1");
+  // ESCOLHA DE MÉTODO ("Você escolheu o plano X — como prefere pagar?"), a
+  // tela que entra entre escolher o item e gerar a cobrança. Substitui o botão
+  // solto "Prefere pagar no cartão?" que ia depois dos planos e reabria a
+  // lista inteira — ver `enviarEscolhaDeMetodo` no webhook do bot.
+  ensureColumn(d, "telegram_bots", "payment_choice_message", "TEXT");
+  ensureColumn(d, "telegram_bots", "payment_choice_btn_pix", "TEXT");
+  ensureColumn(d, "telegram_bots", "payment_choice_btn_card", "TEXT");
   // Pergunta Brasil/International (modo bilíngue, `intl_ask_first`) —
   // mensagem e texto dos 2 botões editáveis, em vez de fixos no código.
   // Vazio cai no texto padrão (ver `enviarPerguntaOrigem` no webhook).

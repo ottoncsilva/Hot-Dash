@@ -302,7 +302,11 @@ const CAMPOS_AVULSOS: Record<CampoMensagemAvulsa, { papel: string; regrasExtra?:
   },
   pixCaption: {
     papel: "a legenda que acompanha o código PIX na tela de pagamento — o empurrão final pra pessoa pagar o que já escolheu.",
-    regrasExtra: "Pode usar as variáveis {plano} e {valor} (o que a pessoa escolheu e quanto vai pagar) — o código PIX em si é anexado à parte, não precisa mencionar.",
+    regrasExtra:
+      "Pode usar as variáveis {plano} e {valor} (o que a pessoa escolheu e quanto vai pagar). " +
+      "A chave PIX NÃO entra no texto: ela fica num botão logo abaixo da mensagem, chamado " +
+      "\"Copiar Chave Pix\", que copia no toque. Escreva mandando a pessoa TOCAR NESSE BOTÃO " +
+      "e colar no banco — nunca \"copie a chave acima\", porque não há chave nenhuma acima.",
   },
   pixSocialProof: {
     papel: "uma linha curta de prova social exibida do lado do código PIX, bem na hora em que a pessoa vai pagar.",

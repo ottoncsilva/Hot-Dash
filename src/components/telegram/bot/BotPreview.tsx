@@ -165,9 +165,6 @@ const ORIGIN_GATE_PADRAO_PREVIEW = {
   btnIntl: "🌐 International (English)",
 };
 
-/** Código de exemplo — só para o preview ter algo para substituir {pix_code}. */
-const PIX_CODIGO_EXEMPLO = "00020126580014BR.GOV.BCB.PIX...(código de exemplo)...6304EXPL";
-
 /**
  * PREVIEW DO FUNIL INTEIRO: /start → lead escolhe um plano → tela do PIX →
  * pagamento confirmado. As outras telas do preview mostram UMA mensagem; esta
@@ -430,14 +427,22 @@ export function FunnelPreview({
   }, [origemEscolhida, pagamento?.via, statusChecadas, abrindoPagamento, pagamentoConfirmado]);
 
   // Mesma montagem do webhook (ver app/api/webhooks/telegram/[botId]/route.ts):
-  // {plano}/{valor} primeiro, depois {pix_code} (ou o código no fim, se o
-  // operador apagou o marcador). PIX só existe do lado Brasil.
+  // {plano} e {valor} entram; {pix_code} vira VAZIO, porque a chave não é mais
+  // escrita na mensagem — ela vive no botão "Copiar Chave Pix". O preview
+  // precisa mostrar exatamente isso: com um código de exemplo desenhado aqui,
+  // o operador ajustaria a legenda olhando uma tela que o lead não recebe.
+  // PIX só existe do lado Brasil.
   let legenda = pixCaption.trim();
   if (legenda) {
-    legenda = legenda.replace(/{plano}/gi, planoNome).replace(/{valor}/gi, planoValor);
-    legenda = /{pix_code}/i.test(legenda)
-      ? legenda.replace(/{pix_code}/gi, PIX_CODIGO_EXEMPLO)
-      : `${legenda}\n\n${PIX_CODIGO_EXEMPLO}`;
+    legenda = legenda
+      .replace(/{plano}/gi, planoNome)
+      .replace(/{valor}/gi, planoValor)
+      // Mesma limpeza do webhook, incluindo o <code></code> que sobrava da
+      // legenda antiga e o buraco de linhas em branco que ela deixava.
+      .replace(/<code>\s*{pix_code}\s*<\/code>/gi, "")
+      .replace(/{pix_code}/gi, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
   }
   // Os números vêm PRONTOS do servidor, já com o piso da prova social
   // aplicado (ver `lib/provaSocial.ts`). A prévia não recalcula nada: uma

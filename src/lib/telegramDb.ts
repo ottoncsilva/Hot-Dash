@@ -38,7 +38,9 @@ export type TelegramBotConfig = {
   previasApprovalMode: ApprovalMode;
   /** Aviso enviado enquanto a cobrança é criada. Vazio = padrão. */
   pixGeneratingMessage?: string;
-  /** Legenda do PIX. Aceita {plano}, {valor} e {pix_code}. Vazio = padrão. */
+  /** Legenda do PIX. Aceita {plano} e {valor}. Vazio = padrão.
+   *  `{pix_code}` NÃO é mais substituído — vira vazio: a chave só existe
+   *  dentro do botão de copiar (ver o comentário de `PIX_DEFAULTS.caption`). */
   pixCaption?: string;
   /** A tela "como prefere pagar?", entre escolher o item e gerar a cobrança.
    *  Aceita {plano} e {valor}. Vazio = padrão. Só aparece no ramo brasileiro
@@ -177,17 +179,21 @@ export const PIX_DEFAULTS = {
    */
   socialProofText: "🔥 {vendas_hoje} pessoa(s) garantiram o acesso hoje.",
   /**
-   * A tela do PIX. O `<code>` do copia-e-cola é o que faz o Telegram copiar o
-   * código inteiro com UM toque — por isso a instrução "toque na chave acima"
-   * só funciona com ele.
+   * A tela do PIX.
+   *
+   * A CHAVE NÃO VEM AQUI. Ela vive só dentro do botão "Copiar Chave Pix", que
+   * é nativo do Telegram e copia no toque. Escrita no corpo, ela ficaria
+   * copiável nesta mensagem para sempre — e uma tela de ontem entregaria a
+   * chave de ontem, já vencida, sem o servidor participar do toque.
+   *
+   * Por isso o texto aponta para BAIXO (o botão), e não mais para cima.
    */
   caption:
     `🌟 Você selecionou o seguinte plano:\n\n` +
     `🎁 Plano: <b>{plano}</b>\n` +
     `💰 Valor: <b>{valor}</b>\n\n` +
-    `💠 Pagamento via Pix – Copia e Cola (ou QR Code, dependendo do seu banco):\n\n` +
-    `<code>{pix_code}</code>\n\n` +
-    `👆 Toque na chave PIX acima para copiá-la 💖\n\n` +
+    `💠 Pagamento via Pix – Copia e Cola (ou QR Code, dependendo do seu banco).\n\n` +
+    `👇 Toque em <b>Copiar Chave Pix</b> aqui embaixo e cole no seu banco 💖\n\n` +
     `‼️ Depois de pagar, é só clicar no botão abaixo pra confirmar seu pagamento e liberar seu acesso amor, vem logo tô te esperando 👇✨`,
   /** Textos dos três botões que acompanham o PIX. */
   btnCheck: "Verificar Status do Pagamento",

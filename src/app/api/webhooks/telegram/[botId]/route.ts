@@ -1123,31 +1123,41 @@ export async function POST(
         // Envia o PIX: QR Code (imagem) + código copia-e-cola na legenda. Se a
         // geração do QR falhar por algum motivo, cai para só o texto.
         const pixCode = charge.pixCode || "";
-        // Legenda configurável (aba Tela de pagamento). {pix_code} é o único
-        // marcador que não pode faltar — sem ele o cliente não tem o que copiar,
-        // então, se o operador o apagar, o código é acrescentado no fim.
+        // A CHAVE NÃO É MAIS ESCRITA NA MENSAGEM.
+        //
+        // Ela ia no corpo, dentro de um <code> — que no Telegram é "toque para
+        // copiar". O problema é que a mensagem fica na conversa para sempre:
+        // uma tela de Pix de ontem continuava entregando a chave de ontem, já
+        // vencida, e esse toque não passa pelo servidor, então não havia como
+        // recusá-lo. Agora a chave existe num lugar só, o botão nativo
+        // "Copiar Chave Pix" logo abaixo (ver `botaoCopiar`).
+        //
+        // `{pix_code}` numa legenda customizada vira VAZIO em vez de quebrar —
+        // e não há mais o "se o operador apagou o marcador, gruda o código no
+        // fim": era rede de segurança de quando o corpo era o único lugar com
+        // a chave, e hoje seria justamente o que traria o problema de volta.
         const valorStr = (amountCents / 100).toLocaleString("pt-BR", {
           style: "currency",
           currency: "BRL",
         });
-        let pixCaption = (bot.pixCaption?.trim() || PIX_DEFAULTS.caption)
+        const pixCaption = (bot.pixCaption?.trim() || PIX_DEFAULTS.caption)
           .replace(/{plano}/gi, itemName)
-          .replace(/{valor}/gi, valorStr);
-        if (/{pix_code}/i.test(pixCaption)) {
-          pixCaption = pixCaption.replace(/{pix_code}/gi, `<code>${pixCode}</code>`);
-        } else {
-          pixCaption += `\n\n<code>${pixCode}</code>`;
-        }
+          .replace(/{valor}/gi, valorStr)
+          // A legenda antiga costumava embrulhar o marcador (`<code>{pix_code}
+          // </code>`), então tirar só o marcador deixaria um <code></code> oco
+          // no meio da mensagem. Some com o embrulho junto.
+          .replace(/<code>\s*{pix_code}\s*<\/code>/gi, "")
+          .replace(/{pix_code}/gi, "")
+          // Sem a linha do código, a legenda antiga fica com um buraco de
+          // linhas em branco onde ela estava.
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
 
-        // A tela do PIX vai como TEXTO, não como legenda de foto.
-        //
-        // A diferença é prática: o Telegram só faz "toque para copiar" no
-        // conteúdo de um <code>, e legenda de foto tem limite de 1024
-        // caracteres — o copia-e-cola do PIX sozinho já passa de 200, e com o
-        // texto da oferta o corte vinha em cima justamente do código. O QR
-        // continua disponível, mas atrás de um botão, que é o que também
-        // deixa a mensagem curta o suficiente para o código aparecer inteiro
-        // sem rolagem.
+        // A tela do PIX vai como TEXTO, não como legenda de foto: legenda de
+        // foto para em 1024 caracteres, e o texto da oferta passa disso com
+        // facilidade. O QR fica atrás de um botão pelo mesmo motivo — e
+        // porque a chave, que é o que o cliente veio buscar, está no botão de
+        // copiar, não na imagem.
         const btn = (t: string | undefined, padrao: string) => (t?.trim() || padrao);
         await sendTelegramMessage(bot.botToken, String(message.chat.id), pixCaption, {
           reply_markup: {

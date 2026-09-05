@@ -2168,16 +2168,17 @@ function PixRow({
         />
         <VarChips
           vars={[
-            ["{pix_code}", "o código copia-e-cola — sem ele o cliente não tem o que copiar"],
             ["{plano}", "nome do plano ou da oferta comprada"],
             ["{valor}", "valor já com o desconto aplicado"],
           ]}
           targetRef={areaRef}
           onChange={setLegenda}
         />
-        <p className="mt-1 text-[11px] text-zinc-500">
-          Aceita <code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;code&gt;</code>. Sem{" "}
-          <b>{"{pix_code}"}</b>, o código entra no fim mesmo assim.
+        <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+          Aceita <code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;code&gt;</code>. A chave
+          Pix <b>não vai nesta mensagem</b>: ela fica no botão “Copiar Chave Pix” abaixo, que
+          copia no toque. Escrita aqui, ela ficaria copiável nesta conversa para sempre — e uma
+          tela antiga entregaria uma chave já vencida.
         </p>
 
         <label className="eyebrow mt-4 block">Botões que acompanham o PIX</label>

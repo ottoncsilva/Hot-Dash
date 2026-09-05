@@ -10,17 +10,22 @@ export default function ToggleChip({
   active,
   onClick,
   color,
+  title,
   children,
 }: {
   active: boolean;
   onClick: () => void;
   color?: string;
+  /** Explicação no hover — usada onde o chip aceso significa coisas
+   *  diferentes (ex.: publicação marcada à mão × registrada pelo sistema). */
+  title?: string;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       aria-pressed={active}
       // No dedo o chip tinha 25px de altura. Cresce para 44 em tela de toque e
       // continua compacto no mouse — a densidade só atrapalha quem aponta.

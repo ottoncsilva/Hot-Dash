@@ -9,6 +9,11 @@ import VideoEditor from "@/components/VideoEditor";
 import ToggleChip from "@/components/ToggleChip";
 import MediaStage from "@/components/MediaStage";
 import { IconArrowLeft, IconChevronRight, IconClose, IconTrash, IconSparkle } from "@/components/icons";
+import {
+  marcadaAMaoEm,
+  vezesPostadaEm,
+  type DestinoPublicacao,
+} from "@/lib/destinosPublicacao";
 import { exactRatioLabel, mediaFileUrl, mediaThumbUrl, ratioBucket, type MediaItem, type Tag } from "@/lib/types";
 
 /**
@@ -27,6 +32,8 @@ export default function MediaViewer({
   onToggleTag,
   profileId,
   onEdited,
+  destinos,
+  onTogglePostada,
 }: {
   items: MediaItem[];
   index: number;
@@ -37,6 +44,9 @@ export default function MediaViewer({
   onToggleTag?: (item: MediaItem, tagId: string) => void;
   profileId?: string;
   onEdited?: (newItem: MediaItem) => void;
+  /** Onde esta modelo publica — habilita o "já postei isto" do rodapé. */
+  destinos?: DestinoPublicacao[];
+  onTogglePostada?: (item: MediaItem, destino: DestinoPublicacao, marcar: boolean) => void;
 }) {
   const item = items[index];
   const touchStart = useRef<{ x: number; y: number } | null>(null);
@@ -267,6 +277,45 @@ export default function MediaViewer({
               )}
             </p>
           ) : null}
+          {/* JÁ POSTEI ISTO. Fica junto das etiquetas porque é o mesmo gesto —
+              olhar a foto e classificá-la —, e é aqui, com a foto grande na
+              frente, que dá para lembrar se ela já saiu.
+
+              O chip aceso mostra a contagem: uma foto que saiu três vezes no
+              @conta é diferente de uma que saiu uma. Apagar só é possível no
+              que foi marcado à mão (`marcadaAMaoEm`); registro de envio de
+              verdade não some por um toque na galeria. */}
+          {destinos && destinos.length > 0 && onTogglePostada && (
+            <div>
+              <p className="text-center font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                já postei em
+              </p>
+              <div className="mt-1.5 flex flex-wrap justify-center gap-1.5">
+                {destinos.map((d) => {
+                  const vezes = vezesPostadaEm(item, d);
+                  const daPraDesmarcar = marcadaAMaoEm(item, d);
+                  const aceso = vezes > 0;
+                  return (
+                    <ToggleChip
+                      key={d.key}
+                      active={aceso}
+                      onClick={() => onTogglePostada(item, d, !aceso)}
+                      title={
+                        aceso && !daPraDesmarcar
+                          ? "Publicação registrada pelo sistema — não dá para desmarcar aqui."
+                          : aceso
+                            ? "Marcada por você. Toque para desmarcar."
+                            : "Marcar como já postada aqui."
+                      }
+                    >
+                      {d.label}
+                      {vezes > 1 ? ` ×${vezes}` : ""}
+                    </ToggleChip>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {tags && tags.length > 0 && onToggleTag && (
             <div className="flex flex-wrap justify-center gap-1.5">
               {tags.map((t) => {

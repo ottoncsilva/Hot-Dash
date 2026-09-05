@@ -127,6 +127,90 @@ export function logMediaPosted(
 }
 
 /**
+ * MARCAÇÃO MANUAL na Galeria: "esta foto eu já postei".
+ *
+ * Existe para o acervo que veio de antes do painel — centenas de fotos que já
+ * foram ao ar no Instagram e que, para o sistema, eram inéditas. Sem isso o
+ * Método MK oferecia primeiro justamente o que o público já tinha visto, e o
+ * "nunca postada" do Cronograma mentia.
+ *
+ * É a MESMA tabela do envio de verdade (`media_post_log`), e não uma coluna
+ * "jaPostada" à parte: a pergunta que o sistema faz é sempre "já saiu NESTE
+ * destino?" — uma foto pode ter ido ao Instagram e nunca ao VIP. Um sinal
+ * único não responderia isso e ainda teria de ser somado à contagem real em
+ * todo lugar que já lê daqui.
+ *
+ * O que separa a marcação do envio é `post_id IS NULL`: registro de envio
+ * sempre nasce de um post. É por isso que só a marcação pode ser desfeita
+ * (ver `unlogManualMediaPost`).
+ */
+export function logManualMediaPost(
+  mediaIds: string[],
+  profileId: string,
+  destino: MediaDestino,
+  accountId?: string,
+): void {
+  logMediaPosted(mediaIds, profileId, destino, undefined, accountId);
+}
+
+/**
+ * Desfaz a marcação manual — o "cliquei sem querer".
+ *
+ * `post_id IS NULL` é a guarda que protege o histórico REAL, inclusive nos
+ * grupos do Telegram: lá o registro nasce de um envio confirmado pela API, e
+ * apagá-lo faria o Método MK reoferecer uma foto que o grupo já viu. Aqui só
+ * some o que foi marcado na mão.
+ */
+export function unlogManualMediaPost(
+  mediaIds: string[],
+  profileId: string,
+  destino: MediaDestino,
+  accountId?: string,
+): void {
+  const ids = mediaIds.filter(Boolean);
+  if (ids.length === 0) return;
+  const marcas = ids.map(() => "?").join(", ");
+  getDb()
+    .prepare(
+      `DELETE FROM media_post_log
+        WHERE profile_id = ? AND audience = ? AND post_id IS NULL
+          AND account_id IS ?
+          AND media_id IN (${marcas})`,
+    )
+    .run(profileId, destino, accountId || null, ...ids);
+}
+
+/**
+ * Onde cada mídia tem marcação MANUAL — só o que dá para desmarcar.
+ *
+ * A tela precisa disso porque o selo "já postada" não diz de onde veio: uma
+ * foto com ×3 nas prévias pode ter saído de verdade três vezes, e aí o botão
+ * de desmarcar não teria efeito nenhum. Com esta lista, a Galeria mostra o
+ * destino como desmarcável só quando ele de fato foi marcado na mão.
+ *
+ * A chave é o mesmo `audience` do log para os grupos (`previas`/`vip`) e o
+ * `account_id` para as redes sociais — que é como a tela identifica cada
+ * destino.
+ */
+export function getManualPostDestinos(profileId: string): Map<string, string[]> {
+  const rows = getDb()
+    .prepare(
+      `SELECT DISTINCT media_id, audience, account_id
+         FROM media_post_log
+        WHERE profile_id = ? AND post_id IS NULL`,
+    )
+    .all(profileId) as { media_id: string; audience: string; account_id: string | null }[];
+  const mapa = new Map<string, string[]>();
+  for (const r of rows) {
+    const chave = r.account_id || r.audience;
+    const lista = mapa.get(r.media_id);
+    if (lista) lista.push(chave);
+    else mapa.set(r.media_id, [chave]);
+  }
+  return mapa;
+}
+
+/**
  * Quantas vezes cada mídia do perfil já foi publicada, e quando foi a última
  * vez: nos dois grupos do Telegram e, separadamente, em cada CONTA de rede
  * social. Duas consultas agregadas — não uma por mídia.

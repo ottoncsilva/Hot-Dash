@@ -5,7 +5,11 @@ import { getDb } from "./db";
 import { deleteFile, fileExists, fileStat, readBuffer, saveFile } from "./storage";
 import { extractVideoThumbnail } from "./metadata";
 import { getTagsForMedia, getTagsByMediaForProfile } from "./tags";
-import { getMediaPostCounts, getMediaScheduledCounts } from "./mediaUsage";
+import {
+  getManualPostDestinos,
+  getMediaPostCounts,
+  getMediaScheduledCounts,
+} from "./mediaUsage";
 import type { MediaItem, MediaPostCounts, Tag } from "./types";
 
 type MediaRow = {
@@ -326,14 +330,18 @@ export function listMedia(profileId: string): MediaItem[] {
   // (não uma por item): é o JSON desta rota que a galeria espera para renderizar.
   const counts = getMediaPostCounts(profileId);
   const agendadas = getMediaScheduledCounts(profileId);
+  const manuais = getManualPostDestinos(profileId);
   const tags = getTagsByMediaForProfile(profileId);
   return rows.map((r) => {
     const c = counts.get(r.id);
     const naFila = agendadas.get(r.id);
+    const marcados = manuais.get(r.id);
     // Sem publicação nem agendamento, `postCounts` continua `undefined` — é o
     // que a galeria já usa para não desenhar selo nenhum.
     const postCounts =
-      c || naFila ? { ...(c || { previas: 0, vip: 0 }), agendadas: naFila } : undefined;
+      c || naFila
+        ? { ...(c || { previas: 0, vip: 0 }), agendadas: naFila, manuais: marcados }
+        : undefined;
     return toClient(r, tags.get(r.id) || [], postCounts);
   });
 }

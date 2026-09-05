@@ -1154,7 +1154,12 @@ function PostForm({
   onClose: () => void;
   onSaved: (post: ScheduledPost, isNew: boolean) => void;
 }) {
-  const base = prefillDate || (initial ? new Date(initial.scheduledAt) : new Date());
+  /** O instante que preenche um post NOVO: agora mais cinco minutos de folga
+   *  (ver o comentário do `time`, logo abaixo). Sai daqui a DATA também, e não
+   *  de um `new Date()` à parte: às 23:58 os dois discordariam, e o formulário
+   *  abriria com o dia de hoje e uma hora que já passou. */
+  const agoraComFolga = new Date(Date.now() + 5 * 60 * 1000);
+  const base = prefillDate || (initial ? new Date(initial.scheduledAt) : agoraComFolga);
   // Fixo: a modelo é a do menu (ou a do post em edição). Sem o `profiles[0]`
   // de reserva que existia aqui — ele era o que fazia o formulário cair no
   // primeiro perfil da lista quando o menu estava em "Todos", agendando na
@@ -1164,9 +1169,20 @@ function PostForm({
     const d = base;
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   });
-  const [time, setTime] = useState(() =>
-    initial ? fmtTime(initial.scheduledAt) : "12:00",
-  );
+  // AGORA + 5 MINUTOS, e não um "12:00" fixo. O horário fixo nunca era o que
+  // se queria: quem abre o formulário está agendando para daqui a pouco ou
+  // escolhendo uma hora — e nos dois casos apagava o 12:00 primeiro. Cinco
+  // minutos de folga porque o post entregue no mesmo minuto do clique não dá
+  // tempo de escolher a mídia e escrever a legenda.
+  //
+  // Vale também quando o dia veio de um clique no calendário: a data é a
+  // escolhida, e a hora é a de agora — mesma lógica, uma coisa a menos para
+  // apagar.
+  const [time, setTime] = useState(() => {
+    if (initial) return fmtTime(initial.scheduledAt);
+    const d = agoraComFolga;
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  });
   const [networks, setNetworks] = useState<PostNetwork[]>(initial?.networks || []);
   const [caption, setCaption] = useState(initial?.caption || "");
   const [mediaIds, setMediaIds] = useState<string[]>(initial?.media.map((m) => m.id) || []);
@@ -1408,9 +1424,16 @@ function PostForm({
 
   return (
     <Modal open onClose={onClose} maxWidth="max-w-2xl">
-      <div className="max-h-[80dvh] overflow-y-auto pr-1">
-        <p className="eyebrow">{initial?.id ? "editar" : "novo"}</p>
-        <h2 className="mt-1.5 font-display text-lg font-semibold">
+      {/* A JANELA NÃO ROLA — quem rola é a galeria.
+          Data, redes, legenda e os botões ficam sempre à vista, e a grade de
+          mídias (`flex-1`) fica com a altura que sobrar. Antes o corpo inteiro
+          rolava: escolher a foto empurrava o "Agendar post" para fora da tela,
+          e voltar até ele era rolar de novo por cima de tudo.
+
+          O `overflow-y-auto` daqui é só a rede de segurança da tela baixa (ou
+          da modelo com muitas contas), quando nem o mínimo da grade cabe. */}
+      <div className="flex max-h-[88dvh] flex-col overflow-y-auto pr-1">
+        <h2 className="shrink-0 font-display text-lg font-semibold">
           {initial?.id ? "Editar post" : "Novo post"}
         </h2>
 
@@ -1420,13 +1443,13 @@ function PostForm({
           </p>
         )}
 
-        <div className="mt-4 grid gap-3">
+        <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3">
           {/* A MODELO não é escolhida aqui: quem manda é o menu do painel, e ter
               dois lugares para a mesma escolha só criava a chance de agendar na
               modelo errada sem perceber. Em "Todos" o formulário não adivinha —
               pedir a escolha no menu é melhor que gravar no primeiro perfil da
               lista, que era o que acontecia. */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid shrink-0 grid-cols-2 gap-3">
             <div>
               <label className="eyebrow mb-1.5 block">Data</label>
               <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -1438,8 +1461,8 @@ function PostForm({
           </div>
 
           {/* Redes (multi) + tipo por rede — só as contas cadastradas na modelo */}
-          <div>
-            <label className="eyebrow mb-1.5 block">Redes sociais (pode marcar várias)</label>
+          <div className="shrink-0">
+            <label className="eyebrow mb-1.5 block">Redes sociais</label>
             {accounts.length === 0 ? (
               <p className="rounded-lg border border-dashed border-white/10 px-3 py-2 text-xs text-zinc-500">
                 Nenhuma rede cadastrada para esta modelo.{" "}
@@ -1518,14 +1541,9 @@ function PostForm({
           </div>
 
           {/* Mídias da biblioteca (por referência — nada é duplicado) */}
-          <div>
-            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-              <label className="eyebrow block">
-                Mídias da biblioteca{" "}
-                <span className="normal-case text-zinc-600">
-                  (clique para selecionar; o número indica a ordem no carrossel)
-                </span>
-              </label>
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="mb-1.5 flex shrink-0 flex-wrap items-center justify-between gap-2">
+              <label className="eyebrow block">Mídias da biblioteca</label>
               <div className="flex gap-2">
                 <select
                   className="input py-1 text-xs"
@@ -1576,8 +1594,8 @@ function PostForm({
               </div>
             </div>
             {filteredLibrary === null ? (
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-                {[0, 1, 2, 3, 4].map((i) => (
+              <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
+                {[0, 1, 2, 3, 4, 5].map((i) => (
                   <div key={i} className="aspect-[3/4] animate-pulse rounded-lg bg-white/5" />
                 ))}
               </div>
@@ -1588,10 +1606,25 @@ function PostForm({
             ) : (
               // Quadro 3:4 e `object-contain`: o acervo mistura 3:4 com 9:16, e o
               // `object-cover` do quadrado cortava a foto justamente onde ela
-              // costuma ter o assunto. Agora a imagem aparece INTEIRA, com a
-              // sobra virando borda — cinco por linha em vez de seis dão espaço
-              // para isso ser legível.
-              <div className="grid max-h-[26rem] grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-5">
+              // costuma ter o assunto. A imagem aparece INTEIRA, com a sobra
+              // virando borda.
+              //
+              // SEIS por linha: com cinco, a grade mostrava dez mídias por vez
+              // num acervo de centenas — a altura que a miniatura ganhava não
+              // compensava o dobro de rolagem. É esta a única parte da janela
+              // que rola, e o `flex-1` dá a ela toda a altura que sobrar.
+              // QUEM ROLA É A CAIXA, NÃO A GRADE. Parece o mesmo, mas não é:
+              // a altura da miniatura vem do `aspect-[3/4]`, e o navegador só
+              // deixa a LINHA da grade se medir pela miniatura enquanto a
+              // altura da grade for indefinida. Com o `flex-1` na própria
+              // grade, a altura virou definida, as linhas passaram a dividir
+              // entre si os 130px disponíveis e cada foto virou uma tira
+              // sobreposta na de baixo — era o que aparecia no iPad deitado.
+              //
+              // Com a caixa de fora segurando a altura e a rolagem, a grade
+              // volta a crescer pelo conteúdo, como antes.
+              <div className="min-h-[8.5rem] flex-1 overflow-y-auto">
+              <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
                 {filteredLibrary.map((m) => {
                   const idx = mediaIds.indexOf(m.id);
                   const selected = idx !== -1;
@@ -1622,14 +1655,14 @@ function PostForm({
                             fallback={<div className="h-full w-full bg-ink-800" />}
                           />
                           <div className="pointer-events-none absolute inset-0 grid place-items-center">
-                            <span className="grid h-7 w-7 place-items-center rounded-full bg-black/50 text-white">
-                              <IconPlay size={14} />
+                            <span className="grid h-6 w-6 place-items-center rounded-full bg-black/50 text-white">
+                              <IconPlay size={12} />
                             </span>
                           </div>
                         </>
                       )}
                       {selected && (
-                        <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-white font-mono text-[10px] font-bold text-ink-950">
+                        <span className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-white font-mono text-[9px] font-bold text-ink-950">
                           {idx + 1}
                         </span>
                       )}
@@ -1643,10 +1676,10 @@ function PostForm({
                           Ficam no rodapé para não brigar com o número da ordem
                           no carrossel, que mora no topo. */}
                       {(jaSaiu > 0 || naFila > 0) && (
-                        <span className="absolute bottom-1 left-1 flex gap-1">
+                        <span className="absolute bottom-0.5 left-0.5 flex gap-1">
                           {jaSaiu > 0 && (
                             <span
-                              className="rounded-full bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-amber-300"
+                              className="rounded-full bg-black/70 px-1 py-0.5 font-mono text-[9px] text-amber-300"
                               title={`Já publicada ${jaSaiu}× na(s) conta(s) marcada(s)`}
                             >
                               ×{jaSaiu}
@@ -1654,7 +1687,7 @@ function PostForm({
                           )}
                           {naFila > 0 && (
                             <span
-                              className="rounded-full bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-sky-300"
+                              className="rounded-full bg-black/70 px-1 py-0.5 font-mono text-[9px] text-sky-300"
                               title={`Já agendada em ${naFila} post(s) ainda não publicado(s) na(s) conta(s) marcada(s)`}
                             >
                               ⏱{naFila}
@@ -1665,12 +1698,13 @@ function PostForm({
                     </button>
                   );
                 })}
+                </div>
               </div>
             )}
           </div>
 
           {/* Legenda + IA — a IA analisa a(s) mídia(s) selecionada(s) acima */}
-          <div>
+          <div className="shrink-0">
             <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
               <label className="eyebrow block">Legenda</label>
               {reusableBlocks.length > 0 && (
@@ -1687,8 +1721,12 @@ function PostForm({
                 </select>
               )}
             </div>
+            {/* DUAS linhas: a legenda é escrita quase sempre pela IA e depois
+                revisada, e o campo alto roubava da grade de mídias a altura
+                que ela precisa. Rola por dentro quando o texto passa disso. */}
             <textarea
-              className="input min-h-[110px]"
+              rows={2}
+              className="input min-h-0 resize-y"
               placeholder="Escreva a legenda ou selecione mídias acima e gere com IA…"
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
@@ -1731,7 +1769,7 @@ function PostForm({
           </div>
         </div>
 
-        <div className="mt-5 flex gap-3">
+        <div className="mt-5 flex shrink-0 gap-3">
           <button type="button" onClick={onClose} className="btn-ghost flex-1" disabled={saving}>
             Cancelar
           </button>

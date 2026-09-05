@@ -1,5 +1,6 @@
 import "server-only";
-import { randomUUID, randomInt } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { gerarCodigoLegivel } from "./codigoLegivel";
 import { getDb } from "./db";
 import type { DeliveryTarget } from "./types";
 
@@ -45,21 +46,12 @@ function toClient(r: TargetRow): DeliveryTarget {
   };
 }
 
-/**
- * Alfabeto do código de vínculo SEM os caracteres que se confundem lidos na
- * tela e digitados no celular: 0/O, 1/I/L, 2/Z, 5/S. Quem digita está olhando
- * para o painel e batendo no teclado do telefone — um "0" que vira "O" só
- * produz um "código inválido" sem explicação.
- */
-const ALFABETO = "ABCDEFGHJKMNPQRTUVWXY346789";
-
 function gerarPairCode(): string {
   const db = getDb();
   // Colisão é improvável (27^6), mas o índice único faria o INSERT explodir na
   // cara do operador. Tentar de novo é mais barato que explicar o erro.
   for (let tentativa = 0; tentativa < 20; tentativa++) {
-    let code = "";
-    for (let i = 0; i < 6; i++) code += ALFABETO[randomInt(ALFABETO.length)];
+    const code = gerarCodigoLegivel(6);
     const existe = db
       .prepare("SELECT id FROM delivery_targets WHERE pair_code = ?")
       .get(code);
@@ -188,4 +180,45 @@ export function pairTarget(
     )
     .run(chatId, chatName || null, Date.now(), Date.now(), id);
   return getTarget(id);
+}
+
+/**
+ * Todos os aparelhos do painel, com o nome da modelo junto.
+ *
+ * É o que o MENU do bot lista: quem está com o celular na mão escolhe a
+ * modelo e depois o aparelho, em vez de decorar um código. Vem tudo de uma
+ * consulta só porque a lista é pequena (aparelhos, não mídias) e o menu
+ * precisa dela inteira para montar as páginas.
+ */
+export function listAllTargets(): (DeliveryTarget & { profileName: string })[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT t.*, pr.name AS profile_name
+         FROM delivery_targets t
+         JOIN profiles pr ON pr.id = t.profile_id
+        ORDER BY pr.name COLLATE NOCASE, t.created_at`,
+    )
+    .all() as (TargetRow & { profile_name: string })[];
+  return rows.map((r) => ({ ...toClient(r), profileName: r.profile_name }));
+}
+
+/** Os aparelhos que ESTE chat do Telegram recebe hoje. */
+export function targetsByChat(chatId: string): (DeliveryTarget & { profileName: string })[] {
+  return listAllTargets().filter((t) => t.chatId === chatId);
+}
+
+/**
+ * Solta o chat de todos os aparelhos que ele recebia — o "não quero mais
+ * receber nada aqui" do menu.
+ *
+ * Cada aparelho volta a ter código: sem isso ele ficaria órfão no painel, sem
+ * chat e sem como parear de novo a não ser pelo botão "trocar de celular".
+ */
+export function unpairChat(chatId: string): number {
+  const db = getDb();
+  const alvos = db
+    .prepare("SELECT id FROM delivery_targets WHERE chat_id = ?")
+    .all(chatId) as { id: string }[];
+  for (const a of alvos) resetTarget(a.id);
+  return alvos.length;
 }

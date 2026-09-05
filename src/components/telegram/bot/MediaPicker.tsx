@@ -80,6 +80,13 @@ export default function MediaPicker({
   const [carregando, setCarregando] = useState(false);
   /** Etiquetas marcadas no filtro. Vazio = sem filtro. */
   const [filtro, setFiltro] = useState<Set<string>>(new Set());
+  /** "sem etiqueta": a pilha que NENHUMA etiqueta alcança. Sem este chip, a
+   *  mídia recém-subida (que nasce sem etiqueta) só aparecia desligando o
+   *  filtro inteiro — e é justamente ela que se procura depois de subir. */
+  const [semEtiqueta, setSemEtiqueta] = useState(false);
+  /** Foto/vídeo. Vazio = os dois. Vive aqui, e não só na Galeria, porque
+   *  escolher "um vídeo" numa grade de centenas de fotos era rolar tudo. */
+  const [tipos, setTipos] = useState<Set<"image" | "video">>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
 
   // A grade rola na VERTICAL (`max-h-64 overflow-y-auto`) e sem aviso a
@@ -115,7 +122,7 @@ export default function MediaPicker({
       ro.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [medirV, carregando, filtro]);
+  }, [medirV, carregando, filtro, semEtiqueta, tipos]);
 
   const FADE_V = "1.5rem";
   const mascaraV =
@@ -159,12 +166,27 @@ export default function MediaPicker({
 
   // Marcar duas etiquetas mostra a união, não a interseção: quem procura "de
   // biquíni ou na praia" quer as duas pilhas, e a interseção quase sempre sai
-  // vazia.
-  const visiveis = useMemo(
-    () =>
-      filtro.size === 0 ? all : all.filter((m) => (m.tags || []).some((t) => filtro.has(t.id))),
-    [all, filtro],
-  );
+  // vazia. "sem etiqueta" entra nessa mesma união — é mais uma pilha.
+  //
+  // O tipo, ao contrário, é E: "vídeo" + "de biquíni" quer o vídeo de biquíni,
+  // não todo vídeo mais toda foto de biquíni.
+  const visiveis = useMemo(() => {
+    const semFiltroDeEtiqueta = filtro.size === 0 && !semEtiqueta;
+    return all.filter((m) => {
+      const etiquetaOk =
+        semFiltroDeEtiqueta ||
+        (semEtiqueta && (m.tags || []).length === 0) ||
+        (m.tags || []).some((t) => filtro.has(t.id));
+      const tipoOk = tipos.size === 0 || tipos.has(m.kind);
+      return etiquetaOk && tipoOk;
+    });
+  }, [all, filtro, semEtiqueta, tipos]);
+
+  /** Quantos recortes estão ligados — é o número no gatilho do menu. */
+  const filtrosLigados = filtro.size + (semEtiqueta ? 1 : 0);
+  /** Os chips de tipo só aparecem onde os dois tipos são possíveis: numa tela
+   *  que já é "só imagem" eles seriam um botão que não filtra nada. */
+  const mostrarTipos = !apenasImagens && !apenasVideos;
 
   const total = selected.length + locais.length;
   const aceita = apenasVideos ? "video/*" : apenasImagens ? "image/*" : "image/*,video/*";
@@ -280,38 +302,76 @@ export default function MediaPicker({
                   operação com uma dúzia de etiquetas enchia a largura do painel
                   e empurrava a grade para fora da tela — o mesmo motivo pelo
                   qual a Galeria já usa este componente. */}
-              {etiquetas.length > 0 && (
-                <div className="mb-2 border-b border-white/5 pb-2">
-                  <FilterDropdown label="etiquetas" count={filtro.size}>
-                    <div className="flex flex-wrap gap-2">
-                      {etiquetas.map((t) => (
+              {(etiquetas.length > 0 || mostrarTipos) && (
+                <div className="mb-2 flex flex-wrap items-center gap-2 border-b border-white/5 pb-2">
+                  {etiquetas.length > 0 && (
+                    <FilterDropdown label="etiquetas" count={filtrosLigados}>
+                      <div className="flex flex-wrap gap-2">
+                        {etiquetas.map((t) => (
+                          <ToggleChip
+                            key={t.id}
+                            active={filtro.has(t.id)}
+                            color={t.color}
+                            onClick={() =>
+                              setFiltro((antes) => {
+                                const proximo = new Set(antes);
+                                if (proximo.has(t.id)) proximo.delete(t.id);
+                                else proximo.add(t.id);
+                                return proximo;
+                              })
+                            }
+                          >
+                            {t.name}
+                          </ToggleChip>
+                        ))}
                         <ToggleChip
-                          key={t.id}
-                          active={filtro.has(t.id)}
-                          color={t.color}
+                          active={semEtiqueta}
+                          onClick={() => setSemEtiqueta((v) => !v)}
+                        >
+                          sem etiqueta
+                        </ToggleChip>
+                      </div>
+                      {filtrosLigados > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFiltro(new Set());
+                            setSemEtiqueta(false);
+                          }}
+                          className="mt-3 font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-white"
+                        >
+                          limpar etiquetas
+                        </button>
+                      )}
+                    </FilterDropdown>
+                  )}
+
+                  {/* TIPO em chips soltos, como na Galeria: são dois, curtos, e
+                      "quero um vídeo" é o recorte mais repetido — escondê-lo num
+                      menu custaria um toque a mais toda vez. */}
+                  {mostrarTipos && (
+                    <div className="flex items-center gap-1.5">
+                      {([
+                        { key: "image" as const, label: "foto" },
+                        { key: "video" as const, label: "vídeo" },
+                      ]).map((k) => (
+                        <ToggleChip
+                          key={k.key}
+                          active={tipos.has(k.key)}
                           onClick={() =>
-                            setFiltro((antes) => {
+                            setTipos((antes) => {
                               const proximo = new Set(antes);
-                              if (proximo.has(t.id)) proximo.delete(t.id);
-                              else proximo.add(t.id);
+                              if (proximo.has(k.key)) proximo.delete(k.key);
+                              else proximo.add(k.key);
                               return proximo;
                             })
                           }
                         >
-                          {t.name}
+                          {k.label}
                         </ToggleChip>
                       ))}
                     </div>
-                    {filtro.size > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setFiltro(new Set())}
-                        className="mt-3 font-mono text-[11px] uppercase tracking-wider text-zinc-500 hover:text-white"
-                      >
-                        limpar etiquetas
-                      </button>
-                    )}
-                  </FilterDropdown>
+                  )}
                 </div>
               )}
               {/* `auto-fill`/`minmax`, não `grid-cols-N` fixo por breakpoint:
@@ -360,6 +420,14 @@ export default function MediaPicker({
                         alt=""
                         className="h-full w-full object-cover"
                       />
+                      {/* A miniatura de vídeo é um quadro parado, igual à de
+                          foto: sem esta marca não dá para saber o que se está
+                          escolhendo antes de mandar. */}
+                      {m.kind === "video" && (
+                        <span className="absolute bottom-0.5 left-0.5 rounded bg-black/70 px-1 text-[9px] leading-4 text-white">
+                          ▸
+                        </span>
+                      )}
                       {i >= 0 && (
                         <span className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-emerald-500 text-[10px] font-bold text-black">
                           {i + 1}
@@ -373,14 +441,15 @@ export default function MediaPicker({
                 <p className="pt-2 text-center text-xs text-zinc-500">
                   {all.length === 0
                     ? "Nenhuma mídia na Galeria desta modelo ainda."
-                    : "Nenhuma mídia com estas etiquetas."}
+                    : "Nenhuma mídia com estes filtros."}
                 </p>
               )}
             </>
           )}
           <p className="mt-2 text-center text-[11px] text-zinc-500">
             {total}/{max} escolhidas · clique para incluir ou tirar
-            {filtro.size > 0 && ` · ${visiveis.length} de ${all.length} pelo filtro`}
+            {(filtrosLigados > 0 || tipos.size > 0) &&
+              ` · ${visiveis.length} de ${all.length} pelo filtro`}
           </p>
           {onArquivo && (
             <input

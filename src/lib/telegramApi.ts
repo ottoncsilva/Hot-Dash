@@ -385,6 +385,54 @@ export async function editTelegramReplyMarkup(
   });
 }
 
+/**
+ * Reescreve TEXTO e teclado de uma mensagem já enviada.
+ *
+ * É o que faz o menu do bot de entrega parecer um menu de verdade: tocar em
+ * "Vincular aparelho" troca a mesma mensagem pela lista de modelos, em vez de
+ * empilhar uma bolha nova a cada toque até a conversa virar um rolo.
+ *
+ * Diferente de `editTelegramReplyMarkup`, aqui o texto é NOSSO (montado
+ * agora), então mandá-lo de volta com `parse_mode` é seguro.
+ *
+ * Nunca lança: "message is not modified" é a resposta normal de quem tocou
+ * duas vezes no mesmo botão, e não pode virar erro no webhook.
+ */
+export async function editTelegramMessageText(
+  botToken: string,
+  chatId: string,
+  messageId: string,
+  text: string,
+  replyMarkup?: unknown,
+): Promise<void> {
+  try {
+    await telegramFetch(botToken, "editMessageText", {
+      chat_id: chatId,
+      message_id: Number(messageId),
+      text,
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+      reply_markup: replyMarkup,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    if (/not modified/i.test(msg)) return;
+    console.error("[hotdash] não consegui reescrever a mensagem:", err);
+  }
+}
+
+/**
+ * Registra a lista de comandos que aparece no botão "menu" do teclado do
+ * Telegram. Sem isso, o único jeito de descobrir o que o bot faz é adivinhar
+ * um comando.
+ */
+export async function setTelegramMyCommands(
+  botToken: string,
+  comandos: { command: string; description: string }[],
+): Promise<void> {
+  await telegramFetch(botToken, "setMyCommands", { commands: comandos });
+}
+
 export async function sendTelegramMedia(
   botToken: string,
   chatId: string,

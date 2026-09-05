@@ -1,6 +1,7 @@
 import "server-only";
 import { getDb } from "./db";
 import { randomBytes } from "node:crypto";
+import { gerarCodigoLegivel } from "./codigoLegivel";
 import { decryptSecret, encryptSecret } from "./crypto";
 import {
   normalizeMenu,
@@ -185,12 +186,40 @@ export type DeliveryBotSettingsPublic = {
   botUsername?: string;
   /** Quando o webhook foi registrado com sucesso pela última vez. */
   webhookAt?: number;
+  /** Código que autoriza um celular a abrir o menu do bot. */
+  accessCode: string;
+  /** Chats que já se autorizaram — inclusive os de alerta. */
+  chats: DeliveryChat[];
+};
+
+/**
+ * Um chat do Telegram que já se apresentou ao bot de entrega.
+ *
+ * Existe por causa do MENU: sem código por aparelho, o bot precisa saber
+ * quem pode ver a lista de modelos. A porta é o `accessCode` do painel,
+ * digitado UMA vez por celular — depois disso o chat escolhe modelo e
+ * aparelho tocando em botões.
+ *
+ * `alert` é a outra função: este chat recebe uma CÓPIA de todo post que
+ * entra na hora, de todas as modelos. É o Telegram de quem toca a operação —
+ * a confirmação ("Postei") continua sendo pedida no aparelho de quem publica,
+ * e o alerta vai sem esses botões justamente para não haver dois lugares
+ * respondendo pela mesma postagem.
+ */
+export type DeliveryChat = {
+  chatId: string;
+  /** @usuário ou nome de quem se autorizou, para o painel mostrar quem é. */
+  name?: string;
+  alert?: boolean;
+  authorizedAt: number;
 };
 
 type DeliveryBotStored = {
   tokenEnc?: string;
   botUsername?: string;
   webhookAt?: number;
+  accessCode?: string;
+  chats?: DeliveryChat[];
 };
 
 function rawDeliveryBot(): DeliveryBotStored {
@@ -203,7 +232,88 @@ export function getDeliveryBotSettingsPublic(): DeliveryBotSettingsPublic {
     hasToken: Boolean(s.tokenEnc),
     botUsername: s.botUsername,
     webhookAt: s.webhookAt,
+    accessCode: getDeliveryAccessCode(),
+    chats: s.chats || [],
   };
+}
+
+/**
+ * O código que abre o menu do bot no celular.
+ *
+ * Nasce sozinho na primeira leitura: pedir ao operador que invente um só
+ * produziria "hotdash123" num campo que ele nunca mais ia digitar — o mesmo
+ * motivo do `verifyToken` do Instagram, logo acima.
+ */
+export function getDeliveryAccessCode(): string {
+  const s = rawDeliveryBot();
+  if (s.accessCode) return s.accessCode;
+  s.accessCode = gerarCodigoLegivel(6);
+  setJson("deliveryBot", s);
+  return s.accessCode;
+}
+
+/**
+ * Troca o código e ESQUECE todos os chats — é o "vazou / demiti alguém".
+ * Trocar o código sem desautorizar quem já entrou não protegeria nada: o
+ * celular antigo continuaria com o menu aberto.
+ *
+ * Os aparelhos já pareados NÃO são desfeitos: eles continuam recebendo os
+ * posts (é o vínculo do `delivery_targets`, não este), e derrubar a operação
+ * inteira por causa de uma troca de código seria pior que o problema. Quem
+ * quer cortar um celular usa "trocar de celular" no aparelho.
+ */
+export function regenerateDeliveryAccessCode(): string {
+  const s = rawDeliveryBot();
+  s.accessCode = gerarCodigoLegivel(6);
+  s.chats = [];
+  setJson("deliveryBot", s);
+  return s.accessCode;
+}
+
+export function listDeliveryChats(): DeliveryChat[] {
+  return rawDeliveryBot().chats || [];
+}
+
+export function getDeliveryChat(chatId: string): DeliveryChat | null {
+  return listDeliveryChats().find((c) => c.chatId === chatId) || null;
+}
+
+/** Grava (ou atualiza o nome de) um chat que acertou o código. */
+export function authorizeDeliveryChat(chatId: string, name?: string): DeliveryChat {
+  const s = rawDeliveryBot();
+  const chats = s.chats || [];
+  const atual = chats.find((c) => c.chatId === chatId);
+  if (atual) {
+    if (name) atual.name = name;
+  } else {
+    chats.push({ chatId, name, authorizedAt: Date.now() });
+  }
+  s.chats = chats;
+  setJson("deliveryBot", s);
+  return chats.find((c) => c.chatId === chatId)!;
+}
+
+/** Liga/desliga a cópia de TODOS os posts neste chat. */
+export function setDeliveryChatAlert(chatId: string, alerta: boolean): boolean {
+  const s = rawDeliveryBot();
+  const chats = s.chats || [];
+  const atual = chats.find((c) => c.chatId === chatId);
+  if (!atual) return false;
+  atual.alert = alerta || undefined;
+  s.chats = chats;
+  setJson("deliveryBot", s);
+  return true;
+}
+
+export function removeDeliveryChat(chatId: string): void {
+  const s = rawDeliveryBot();
+  s.chats = (s.chats || []).filter((c) => c.chatId !== chatId);
+  setJson("deliveryBot", s);
+}
+
+/** Os chats que recebem o espelho de todas as modelos. */
+export function listDeliveryAlertChats(): DeliveryChat[] {
+  return listDeliveryChats().filter((c) => c.alert);
 }
 
 export function getDeliveryBotToken(): string | null {

@@ -23,8 +23,13 @@ import type { DeliveryTarget } from "@/lib/types";
  *
  * O PAREAMENTO é o passo que mais gera dúvida, então a tela o explica na
  * frente em vez de esconder num tooltip: a API do Telegram não deixa um bot
- * iniciar conversa, então enquanto ninguém mandar `/vincular <código>` no
- * celular não existe chat nenhum para onde mandar o post.
+ * iniciar conversa, então enquanto ninguém falar com ele do celular não existe
+ * chat nenhum para onde mandar o post.
+ *
+ * Há DOIS caminhos, e o cartão mostra os dois: o menu do bot (o celular manda
+ * o código de acesso do painel uma vez e depois escolhe a modelo numa lista) e
+ * o `/vincular <código>` deste aparelho, que continua valendo para quem já o
+ * tinha na mão.
  */
 export default function AparelhosBlock({
   profileId,
@@ -200,11 +205,15 @@ export default function AparelhosBlock({
                 ) : (
                   <div className="mt-2 rounded-lg border border-white/10 bg-ink-850 p-3">
                     <p className="text-[11px] leading-relaxed text-zinc-400">
-                      Falta vincular. No celular, abra{" "}
+                      Falta vincular. O caminho curto é pelo MENU: no celular, abra{" "}
                       <span className="font-medium text-zinc-200">
                         {botUsername ? `@${botUsername}` : "o bot de entrega"}
                       </span>{" "}
-                      no Telegram e mande:
+                      no Telegram, mande o código de acesso (Configurações → Entrega das
+                      postagens) e escolha esta modelo na lista.
+                    </p>
+                    <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+                      Ou, direto neste aparelho:
                     </p>
                     <div className="mt-2 flex items-center gap-2">
                       <code className="rounded bg-black/40 px-2 py-1 font-mono text-sm text-zinc-100">

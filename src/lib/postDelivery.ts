@@ -56,8 +56,15 @@ const JANELA_ATRASO_MS = 30 * 60 * 1000;
  * existir uma folga para frente aqui.
  */
 const JANELA_ADIANTE_MS = 5 * 60 * 1000;
-/** Silêncio a partir do qual o sistema cobra a confirmação. */
-const PRAZO_COBRANCA_MS = 30 * 60 * 1000;
+/**
+ * Silêncio a partir do qual o sistema cobra a confirmação — em quem publica e
+ * em quem acompanha.
+ *
+ * 40 minutos, e não 30: com a entrega saindo 5 minutos antes da hora
+ * (`JANELA_ADIANTE_MS`), meia hora cobrava um post que estava atrasado havia
+ * 25 — e atraso de 25 minutos é rotina num dia corrido. Aos 40 já não é.
+ */
+const PRAZO_COBRANCA_MS = 40 * 60 * 1000;
 /** Quanto o botão "Adiar" empurra. */
 const ADIAR_MS = 30 * 60 * 1000;
 /** Teto de itens por álbum no Telegram. */
@@ -221,6 +228,23 @@ async function enviarMidias(botToken: string, chatId: string, mediaIds: string[]
       await sendTelegramMediaGroup(botToken, chatId, lote);
     }
   }
+}
+
+/**
+ * Faz a mensagem sair AMARRADA na mensagem do post (a citação do Telegram).
+ *
+ * É o que responde "de qual post é este aviso?" sem repetir foto e legenda: o
+ * "✅ postado" e o "⏳ atrasado" aparecem citando o post original, e um toque
+ * na citação leva a conversa de volta para ele. Num chat que recebe todas as
+ * modelos, um aviso solto dizendo "o post das 14h" não identifica nada.
+ *
+ * `allow_sending_without_reply` não é detalhe: sem ele o Telegram RECUSA a
+ * mensagem inteira quando a original foi apagada — perder o aviso por causa
+ * da citação seria o pior dos mundos.
+ */
+function respondendo(messageId: string | null | undefined): Record<string, unknown> {
+  if (!messageId) return {};
+  return { reply_to_message_id: Number(messageId), allow_sending_without_reply: true };
 }
 
 /** O id da mensagem que o Telegram acabou de criar, para editá-la depois. */
@@ -395,13 +419,17 @@ function montarTextoAlerta(linhas: LinhaAlerta[]): string {
     return `📱 ${esc(rotuloRede(l.network))}${esc(usuario)} · ${esc(l.post_type)}${onde}`;
   });
   const semAparelho = linhas.every((l) => !l.target_chat);
+  // O aviso de "a confirmação é pedida no aparelho de quem publica" saiu: ele
+  // se repetia em TODO post, dizia sempre a mesma coisa e virou ruído. O que
+  // acontece de fato — confirmou, atrasou, não postou — chega depois, em
+  // mensagem própria, respondendo esta aqui.
   const cabecalho = [
     `🔔 <b>POST DE ${hhmm(p.scheduled_at)}</b>`,
     `👤 ${esc(p.profile_name)}`,
     ...contas,
-    semAparelho
-      ? "⚠️ Nenhum celular vinculado — este post não foi entregue a ninguém."
-      : "☑️ A confirmação é pedida no aparelho de quem publica.",
+    ...(semAparelho
+      ? ["⚠️ Nenhum celular vinculado — este post não foi entregue a ninguém."]
+      : []),
   ].join("\n");
   const legenda = (p.caption || "").trim();
   return legenda ? `${cabecalho}\n\n<pre>${esc(legenda)}</pre>` : cabecalho;
@@ -515,12 +543,18 @@ async function espelharParaAlerta(botToken: string): Promise<number> {
 }
 
 /**
- * Cobra as entregas que ninguém respondeu — uma vez só.
+ * Cobra as entregas que ninguém respondeu — uma vez só, 40 minutos depois.
  *
- * A cobrança vai nos dois lugares porque são duas pessoas: no chat do
- * aparelho, para quem tem de postar; e no push, para quem toca a operação e
- * não estaria olhando o Cronograma às 14:30 para descobrir que o post das 14h
- * não saiu.
+ * A cobrança vai em TRÊS lugares porque são três pessoas:
+ *
+ *  • no chat do APARELHO, para quem tem de postar — é quem pode resolver;
+ *  • no chat de quem ACOMPANHA todas as modelos, porque um post atrasado é
+ *    justamente o que não se descobre olhando o Cronograma às 14h40;
+ *  • no push, para quem toca a operação e não está com o Telegram aberto.
+ *
+ * Nos dois chats o aviso sai CITANDO a mensagem do post (ver `respondendo`):
+ * num chat com dezenas de posts por dia, "o post das 14h" sozinho não diz
+ * qual é.
  */
 async function cobrarSemResposta(botToken: string): Promise<number> {
   const db = getDb();
@@ -528,7 +562,8 @@ async function cobrarSemResposta(botToken: string): Promise<number> {
 
   const pendentes = db
     .prepare(
-      `SELECT d.id, d.post_id, t.chat_id, p.scheduled_at, pr.name AS profile_name
+      `SELECT d.id, d.post_id, d.message_id, t.chat_id, p.scheduled_at,
+              pr.name AS profile_name
          FROM post_deliveries d
          JOIN delivery_targets t ON t.id = d.target_id
          JOIN posts p            ON p.id = d.post_id
@@ -541,6 +576,7 @@ async function cobrarSemResposta(botToken: string): Promise<number> {
     .all(limite) as {
     id: string;
     post_id: string;
+    message_id: string | null;
     chat_id: string;
     scheduled_at: number;
     profile_name: string;
@@ -549,6 +585,13 @@ async function cobrarSemResposta(botToken: string): Promise<number> {
   if (pendentes.length === 0) return 0;
 
   const marcar = db.prepare("UPDATE post_deliveries SET nudged_at = ? WHERE id = ?");
+  const espelhosDoPost = db.prepare(
+    "SELECT chat_id, message_id FROM post_alerts WHERE post_id = ?",
+  );
+  // Um post que vai para DOIS aparelhos rende duas linhas aqui. O aparelho é
+  // cobrado nos dois (são dois celulares diferentes, cada um com a sua
+  // tarefa), mas quem acompanha recebe UM aviso — para ele o post é um só.
+  const jaAvisados = new Set<string>();
   let cobrados = 0;
 
   for (const p of pendentes) {
@@ -556,16 +599,40 @@ async function cobrarSemResposta(botToken: string): Promise<number> {
     // do que repetir a mesma a cada minuto até o chat virar spam.
     marcar.run(Date.now(), p.id);
     const hora = hhmm(p.scheduled_at);
+
     try {
       await sendTelegramMessage(
         botToken,
         p.chat_id,
         `⏳ O post de <b>${esc(p.profile_name)}</b> das ${hora} ainda não foi confirmado.\n` +
           `Toque em um dos botões da mensagem acima quando puder.`,
+        respondendo(p.message_id),
       );
     } catch (err) {
       console.error(`[hotdash] cobrança da entrega ${p.id} falhou:`, err);
     }
+
+    if (!jaAvisados.has(p.post_id)) {
+      jaAvisados.add(p.post_id);
+      const espelhos = espelhosDoPost.all(p.post_id) as {
+        chat_id: string;
+        message_id: string | null;
+      }[];
+      for (const e of espelhos) {
+        try {
+          await sendTelegramMessage(
+            botToken,
+            e.chat_id,
+            `⏳ <b>${esc(p.profile_name)}</b> — o post das ${hora} está sem confirmação ` +
+              `há mais de 40 minutos.`,
+            respondendo(e.message_id),
+          );
+        } catch (err) {
+          console.error(`[hotdash] aviso de atraso para o chat ${e.chat_id} falhou:`, err);
+        }
+      }
+    }
+
     await sendPushEvent(
       "postSemConfirmacao",
       `Post não confirmado: ${p.profile_name}`,
@@ -813,7 +880,7 @@ ${l.text}`,
       );
     }
     try {
-      await sendTelegramMessage(botToken, l.chat_id, aviso);
+      await sendTelegramMessage(botToken, l.chat_id, aviso, respondendo(l.message_id));
     } catch (err) {
       console.error(`[hotdash] aviso de resposta para o chat ${l.chat_id} falhou:`, err);
     }

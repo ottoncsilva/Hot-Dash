@@ -188,7 +188,7 @@ export type DeliveryBotSettingsPublic = {
   webhookAt?: number;
   /** Código que autoriza um celular a abrir o menu do bot. */
   accessCode: string;
-  /** Chats que já se autorizaram — inclusive os de alerta. */
+  /** Chats que já se autorizaram — inclusive o de monitoramento. */
   chats: DeliveryChat[];
 };
 
@@ -200,11 +200,18 @@ export type DeliveryBotSettingsPublic = {
  * digitado UMA vez por celular — depois disso o chat escolhe modelo e
  * aparelho tocando em botões.
  *
- * `alert` é a outra função: este chat recebe uma CÓPIA de todo post que
- * entra na hora, de todas as modelos. É o Telegram de quem toca a operação —
- * a confirmação ("Postei") continua sendo pedida no aparelho de quem publica,
- * e o alerta vai sem esses botões justamente para não haver dois lugares
- * respondendo pela mesma postagem.
+ * `alert` marca o APARELHO DE MONITORAMENTO — o celular de quem cobra, não de
+ * quem publica. Ele recebe uma cópia de todo post que entra na hora, de todas
+ * as modelos, mais o aviso de cada confirmação e a cobrança de quem passou do
+ * prazo sem confirmar (ver `postDelivery.cobrarSemResposta`).
+ *
+ * Vai SEM os botões de confirmação: quem responde pelo post é o celular que
+ * publica. Dois lugares podendo marcar "postei" produziriam hora de publicação
+ * inventada por quem não publicou nada.
+ *
+ * O campo continua se chamando `alert` no banco: renomeá-lo obrigaria a migrar
+ * o JSON já gravado dos operadores para não perder quem está monitorando hoje,
+ * e o nome só aparece na tela.
  */
 export type DeliveryChat = {
   chatId: string;
@@ -293,7 +300,7 @@ export function authorizeDeliveryChat(chatId: string, name?: string): DeliveryCh
   return chats.find((c) => c.chatId === chatId)!;
 }
 
-/** Liga/desliga a cópia de TODOS os posts neste chat. */
+/** Liga/desliga o papel de APARELHO DE MONITORAMENTO neste chat. */
 export function setDeliveryChatAlert(chatId: string, alerta: boolean): boolean {
   const s = rawDeliveryBot();
   const chats = s.chats || [];
@@ -311,7 +318,8 @@ export function removeDeliveryChat(chatId: string): void {
   setJson("deliveryBot", s);
 }
 
-/** Os chats que recebem o espelho de todas as modelos. */
+/** Os aparelhos de monitoramento: recebem o espelho de todas as modelos, as
+ *  confirmações e as cobranças de atraso. */
 export function listDeliveryAlertChats(): DeliveryChat[] {
   return listDeliveryChats().filter((c) => c.alert);
 }

@@ -83,7 +83,7 @@ function telaMenu(chatId: string): { texto: string; teclado: Botao[][] } {
     meus.length > 0
       ? `Este celular recebe os posts de:\n${linhas.join("\n")}`
       : "Este celular ainda não recebe post nenhum.",
-    chat?.alert ? "\n🔔 Também recebe o alerta de todas as modelos." : "",
+    chat?.alert ? "\n🔔 Este é o aparelho de MONITORAMENTO: acompanha todas as modelos." : "",
     "",
     "O que você quer fazer?",
   ]
@@ -95,8 +95,8 @@ function telaMenu(chatId: string): { texto: string; teclado: Botao[][] } {
     [
       {
         text: chat?.alert
-          ? "🔕 Parar o alerta de todas as modelos"
-          : "🔔 Receber alerta de todas as modelos",
+          ? "🔕 Deixar de ser o aparelho de monitoramento"
+          : "🔔 Usar como aparelho de monitoramento",
         callback_data: chat?.alert ? "dm_alert:0" : "dm_alert:1",
       },
     ],
@@ -307,8 +307,8 @@ export async function tratarCallbackDoMenu(
       const ligar = arg === "1";
       setDeliveryChatAlert(cb.chatId, ligar);
       aviso = ligar
-        ? "Pronto: você recebe uma cópia de todo post, de todas as modelos."
-        : "Alerta desligado.";
+        ? "Pronto: este é o aparelho de monitoramento. Recebe todo post de todas as modelos, cada confirmação e a cobrança de quem atrasa."
+        : "Monitoramento desligado.";
       tela = telaMenu(cb.chatId);
       break;
     }

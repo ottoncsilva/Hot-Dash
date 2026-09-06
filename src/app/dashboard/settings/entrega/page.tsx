@@ -99,7 +99,7 @@ export default function EntregaSettingsPage() {
     const ok = await confirm({
       title: `Remover ${c.name || c.chatId}?`,
       message:
-        "Este celular perde o alerta e deixa de receber os posts dos aparelhos que estavam nele — esses aparelhos voltam a aparecer como pendentes no cadastro da modelo.",
+        "Este celular deixa de monitorar e de receber os posts dos aparelhos que estavam nele — esses aparelhos voltam a aparecer como pendentes no cadastro da modelo.",
       confirmLabel: "Remover",
       danger: true,
     });
@@ -142,6 +142,12 @@ export default function EntregaSettingsPage() {
         <span className="text-zinc-300">Adiar 30 min</span> e{" "}
         <span className="text-zinc-300">Não postei</span> — para o celular que
         opera a conta. O “Postei” grava a hora real da publicação no card.
+      </p>
+      <p className="mt-2 text-sm leading-relaxed text-zinc-500">
+        Um dos celulares pode ser o{" "}
+        <span className="text-zinc-300">aparelho de monitoramento</span>: ele não publica
+        nada — recebe tudo de todas as modelos, o aviso de cada post confirmado e a
+        cobrança de quem passou de 40 minutos sem confirmar.
       </p>
 
       <div className="mt-5 card p-4">
@@ -212,6 +218,10 @@ export default function EntregaSettingsPage() {
       {state?.hasToken && (
         <div className="mt-4 card p-4">
           <p className="text-sm font-medium text-white">Celulares autorizados</p>
+          <p className="mt-0.5 text-[11px] text-zinc-500">
+            Os que publicam e o de <span className="text-zinc-300">monitoramento</span>,
+            que acompanha e cobra.
+          </p>
           <p className="mt-1 text-xs leading-relaxed text-zinc-500">
             Mande este código no bot, pelo celular. Ele libera o{" "}
             <span className="text-zinc-300">menu</span> — de lá a pessoa escolhe a
@@ -252,18 +262,29 @@ export default function EntregaSettingsPage() {
                 className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-ink-850 px-3 py-2.5"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm text-zinc-100">{c.name || "Sem nome"}</p>
+                  <p className="flex items-center gap-1.5 truncate text-sm text-zinc-100">
+                    {c.name || "Sem nome"}
+                    {c.alert && (
+                      <span className="shrink-0 rounded-full border border-emerald-500/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-emerald-400">
+                        monitoramento
+                      </span>
+                    )}
+                  </p>
                   <p className="mt-0.5 font-mono text-[10px] text-zinc-600">{c.chatId}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <span className="hidden text-[11px] text-zinc-500 sm:inline">alerta</span>
+                  <span className="hidden text-[11px] text-zinc-500 sm:inline">
+                    monitoramento
+                  </span>
                   <Switch
                     checked={Boolean(c.alert)}
-                    ariaLabel="Receber alerta de todas as modelos"
+                    ariaLabel="Usar como aparelho de monitoramento"
                     onChange={(v) =>
                       acaoChat(
                         { action: "set-alert", chatId: c.chatId, alert: v },
-                        v ? "Alerta ligado." : "Alerta desligado.",
+                        v
+                          ? "Aparelho de monitoramento ligado."
+                          : "Aparelho de monitoramento desligado.",
                       )
                     }
                   />
@@ -281,12 +302,20 @@ export default function EntregaSettingsPage() {
           </div>
 
           <p className="mt-3 text-[11px] leading-relaxed text-zinc-600">
-            <span className="text-zinc-400">Alerta</span> = este celular recebe uma
-            cópia de <span className="text-zinc-400">todo post de todas as modelos</span>,
-            com mídia e legenda, na hora marcada — inclusive dos posts cuja conta ainda
-            não tem aparelho. É o acompanhamento de quem toca a operação: vai{" "}
-            <span className="text-zinc-400">sem</span> os botões de confirmação, que
-            continuam só no aparelho de quem publica.
+            <span className="text-zinc-400">Aparelho de monitoramento</span> = o celular
+            de quem <span className="text-zinc-400">cobra</span>, não de quem publica.
+            Ele recebe uma cópia de{" "}
+            <span className="text-zinc-400">todo post de todas as modelos</span> na hora
+            marcada — inclusive dos posts cuja conta ainda não tem aparelho —, o aviso de{" "}
+            <span className="text-zinc-400">cada post confirmado</span> e a cobrança de
+            quem passou de <span className="text-zinc-400">40 minutos</span> sem
+            confirmar. Cada aviso chega citando a mensagem do post, então dá para ver de
+            qual se trata sem procurar.
+          </p>
+          <p className="mt-2 text-[11px] leading-relaxed text-zinc-600">
+            Vai <span className="text-zinc-400">sem</span> os botões de confirmação: quem
+            responde pelo post é o celular que publica. Dois lugares podendo marcar
+            “postei” produziriam hora de publicação inventada por quem não publicou nada.
           </p>
         </div>
       )}
